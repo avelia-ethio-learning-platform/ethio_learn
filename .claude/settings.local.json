@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(command -v node pnpm docker)",
+      "Bash(docker info *)",
+      "Bash(awk 'NR<=2')",
+      "Bash(cp /tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/2dbf3564-50f8-4185-8bd7-bccda2448966/scratchpad/sample.mp4 /tmp/ethiopialearn-sample.mp4)",
+      "Bash(node scripts/demo-seed.mjs)",
+      "Bash(curl -s -m5 http://localhost:3000 -o /dev/null -w 'web: HTTP %{http_code}\\\\n')",
+      "Bash(curl -sf -m2 http://localhost:3000)",
+      "Bash(break)",
+      "Bash(curl -s -m8 http://localhost:3000 -o /dev/null -w 'web: HTTP %{http_code}\\\\n')",
+      "Bash(curl -sf -m3 http://localhost:3000)",
+      "Bash(curl -s -m10 http://localhost:3000 -o /dev/null -w 'homepage: HTTP %{http_code}\\\\n')"
+    ]
+  }
+}

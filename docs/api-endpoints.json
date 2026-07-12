@@ -1,0 +1,195 @@
+{
+  "service": "EthiopiaLearn API",
+  "baseUrl": "http://localhost:4000/api/v1",
+  "conventions": {
+    "contentType": "application/json",
+    "authHeader": "Authorization: Bearer <access_token>",
+    "accessTokenTtlSeconds": 900,
+    "refresh": "POST /auth/refresh uses httpOnly cookie el_refresh; send credentials:'include' to /auth/*",
+    "errorShape": { "statusCode": "number", "message": "string | string[]", "error": "string" },
+    "strongPassword": ">=8 chars and >=3 of {lowercase, uppercase, number, symbol}",
+    "authLegend": { "public": "no token", "jwt": "any logged-in user", "jwt:role": "role restricted", "internal": "service-to-service only — not for frontend" }
+  },
+  "enums": {
+    "role": ["learner", "educator", "institution_admin", "quality_officer", "platform_admin"],
+    "userStatus": ["active", "suspended", "banned"],
+    "courseStatus": ["draft", "institution_review", "submitted", "under_review", "published", "flagged", "unlisted", "archived"],
+    "pricingType": ["free", "freemium", "paid"],
+    "category": ["tech", "business", "freelancing", "healthcare", "other"],
+    "entitlementStatus": ["none", "active", "refunded"],
+    "assessmentType": ["quiz", "ai_viva", "project"],
+    "qaDecisionAction": ["approve", "coach", "flag"],
+    "trustTier": ["new", "proven", "trusted"]
+  },
+  "groups": [
+    {
+      "name": "Auth & Identity",
+      "endpoints": [
+        { "method": "POST", "path": "/auth/signup", "auth": "public", "request": { "name": "string", "email": "string", "password": "string (strong)", "role": "learner|educator|institution_admin" }, "response": { "user_id": "uuid" } },
+        { "method": "POST", "path": "/auth/verify-email?token=", "auth": "public", "response": { "message": "string" } },
+        { "method": "POST", "path": "/auth/login", "auth": "public", "request": { "email": "string", "password": "string" }, "response": { "access_token": "jwt", "expires_in": 900, "user": { "id": "uuid", "name": "string", "email": "string", "role": "role", "must_change_password": "boolean" } }, "sets": "el_refresh cookie" },
+        { "method": "POST", "path": "/auth/refresh", "auth": "public (cookie)", "response": "same as /auth/login" },
+        { "method": "GET", "path": "/auth/invite/:token", "auth": "public", "response": { "email": "string", "name": "string", "role": "role" } },
+        { "method": "POST", "path": "/auth/accept-invite", "auth": "public", "request": { "token": "string", "new_password": "string (strong)" }, "response": "same as /auth/login" },
+        { "method": "POST", "path": "/auth/reset-password", "auth": "public", "request": { "email": "string" }, "response": { "message": "string" } },
+        { "method": "POST", "path": "/auth/reset-password/confirm", "auth": "public", "request": { "token": "string", "new_password": "string (strong)" }, "response": { "message": "string" } }
+      ]
+    },
+    {
+      "name": "Profiles",
+      "endpoints": [
+        { "method": "GET", "path": "/profiles/me", "auth": "jwt", "response": { "id": "uuid", "name": "string", "email": "string", "role": "role", "phone": "string|null", "email_verified": "boolean", "educator_profile": "object|null", "institution": "object|null" } },
+        { "method": "PUT", "path": "/profiles/me", "auth": "jwt", "request": { "name?": "string", "phone?": "string", "bio?": "string", "expertise_area?": "string", "photo_url?": "string" } },
+        { "method": "PUT", "path": "/profiles/password", "auth": "jwt", "request": { "new_password": "string (strong)" }, "response": { "message": "string" } },
+        { "method": "DELETE", "path": "/profiles/me", "auth": "jwt", "request": { "password": "string (current password confirmation)" }, "response": { "deleted": true, "message": "string" }, "note": "permanent self-delete: personal data anonymized, account locked; 400 if published courses remain; 401 on wrong password" },
+        { "method": "POST", "path": "/profiles/educator", "auth": "jwt:educator", "request": { "bio": "string", "expertise_area": "string", "photo_url?": "string", "sample_video_url?": "string" } },
+        { "method": "POST", "path": "/profiles/institution", "auth": "jwt:institution_admin", "request": { "name": "string", "logo_url?": "string" } },
+        { "method": "POST", "path": "/institutions/:id/instructors", "auth": "jwt:institution_admin", "request": { "email": "string", "name?": "string (required for new account)", "role_in_org?": "string" }, "response": { "id": "uuid", "user_id": "uuid", "role_in_org": "string", "invited": "boolean", "instructor_email": "string" } },
+        { "method": "GET", "path": "/institutions/:id/instructors", "auth": "jwt:institution_admin|platform_admin", "response": [ { "id": "uuid", "user_id": "uuid", "role_in_org": "string", "name": "string", "email": "string", "status": "userStatus" } ] },
+        { "method": "POST", "path": "/institutions/:id/instructors/:userId/status", "auth": "jwt:institution_admin", "request": { "status": "active|suspended|banned", "reason?": "string" }, "response": { "user_id": "uuid", "status": "userStatus" } }
+      ]
+    },
+    {
+      "name": "Admin — Users",
+      "endpoints": [
+        { "method": "GET", "path": "/admin/users?q=&role=&page=1&limit=20", "auth": "jwt:platform_admin", "response": { "total": "number", "items": [ { "id": "uuid", "name": "string", "email": "string", "role": "role", "email_verified": "boolean", "status": "userStatus", "status_reason": "string|null", "must_change_password": "boolean", "created_at": "iso" } ] } },
+        { "method": "POST", "path": "/admin/users/:id/status", "auth": "jwt:platform_admin", "request": { "status": "active|suspended|banned", "reason?": "string" }, "response": { "id": "uuid", "status": "userStatus", "status_reason": "string|null" } },
+        { "method": "POST", "path": "/admin/users/staff", "auth": "jwt:platform_admin", "request": { "email": "string", "name": "string", "role": "quality_officer|platform_admin" }, "response": { "user_id": "uuid", "invited": true }, "note": "no password — invite link emailed" },
+        { "method": "POST", "path": "/admin/users/:id/verify-email", "auth": "jwt:platform_admin", "response": { "message": "string" } }
+      ]
+    },
+    {
+      "name": "Catalog & Courses",
+      "types": {
+        "courseSummary": { "id": "uuid", "title": "string", "description": "string", "category": "category", "language": "string", "thumbnail_url": "string|null", "pricing_type": "pricingType", "price_etb": "number|null", "owner_id": "uuid", "owner_type": "educator|institution", "published_at": "iso|null" },
+        "courseDetail": { "...courseSummary": "", "status": "courseStatus", "sections": [ { "id": "uuid", "title": "string", "order": "number", "is_free_preview": "boolean", "lessons": [ { "id": "uuid", "title": "string", "duration_seconds": "number", "order": "number", "has_video": "boolean" } ] } ] }
+      },
+      "endpoints": [
+        { "method": "GET", "path": "/search?q=&category=&pricing_type=&page=1&limit=12", "auth": "public", "response": { "total": "number", "page": "number", "items": ["courseSummary"] } },
+        { "method": "GET", "path": "/courses/:id", "auth": "public", "response": "courseDetail" },
+        { "method": "GET", "path": "/courses", "auth": "jwt:educator|institution_admin", "response": ["courseSummary + {status}"] },
+        { "method": "POST", "path": "/courses", "auth": "jwt:educator", "request": { "title": "string(4-120)", "description": "string(20-2000)", "category": "category", "language": "en", "pricing_type": "pricingType", "thumbnail_url?": "string", "price_etb?": "number (required if paid)", "sections?": [ { "title": "string", "is_free_preview": "boolean", "lessons?": [ { "title": "string", "video_s3_key?": "string", "duration_seconds?": "number" } ] } ] }, "response": "courseDetail" },
+        { "method": "PUT", "path": "/courses/:id", "auth": "jwt:educator", "request": { "title?": "string", "description?": "string", "category?": "category", "thumbnail_url?": "string", "pricing_type?": "pricingType", "price_etb?": "number" }, "note": "draft only" },
+        { "method": "POST", "path": "/courses/:id/submit", "auth": "jwt:educator", "note": "draft -> submitted or institution_review" },
+        { "method": "POST", "path": "/courses/:id/withdraw", "auth": "jwt:educator", "note": "-> draft" },
+        { "method": "POST", "path": "/courses/:id/unpublish", "auth": "jwt:educator", "note": "published -> unlisted" },
+        { "method": "POST", "path": "/courses/:id/republish", "auth": "jwt:educator", "note": "unlisted -> published" },
+        { "method": "POST", "path": "/courses/:id/appeal", "auth": "jwt:educator", "request": { "note": "string(10-2000)" }, "note": "flagged -> submitted" },
+        { "method": "POST", "path": "/courses/:id/duplicate", "auth": "jwt:educator", "note": "copies to new draft" },
+        { "method": "POST", "path": "/courses/:id/archive", "auth": "jwt:educator" },
+        { "method": "POST", "path": "/courses/:id/restore", "auth": "jwt:educator" },
+        { "method": "POST", "path": "/courses/generate-structure", "auth": "jwt:educator|institution_admin", "ai": true, "request": { "title": "string", "prompt?": "string", "source_text?": "string (extracted PDF/DOCX/notes text)", "section_count?": "number(1-12)", "lessons_per_section?": "number(1-12)", "level?": "beginner|intermediate|advanced", "learning_style?": "string" }, "response": { "sections": [ { "title": "string", "is_free_preview": "boolean", "lessons": [ { "title": "string", "summary": "string" } ] } ], "ai_live": "boolean" } },
+        { "method": "POST", "path": "/courses/:id/sections", "auth": "jwt:educator", "request": { "title": "string", "is_free_preview": "boolean", "lessons?": "LessonInput[]" } },
+        { "method": "POST", "path": "/sections/:id/lessons", "auth": "jwt:educator", "request": { "title": "string", "video_s3_key?": "string", "duration_seconds?": "number" } },
+        { "method": "PUT", "path": "/lessons/:id", "auth": "jwt:educator", "request": { "title?": "string", "duration_seconds?": "number", "video_s3_key?": "string" } },
+        { "method": "DELETE", "path": "/lessons/:id", "auth": "jwt:educator", "response": { "deleted": true } },
+        { "method": "DELETE", "path": "/sections/:id", "auth": "jwt:educator", "response": { "deleted": true } },
+        { "method": "POST", "path": "/uploads", "auth": "jwt:educator|institution_admin", "request": { "kind": "video|thumbnail|photo", "filename": "string", "content_type": "string" }, "response": { "upload_url": "signed PUT url", "key": "string" } },
+        { "method": "GET", "path": "/lessons/:id/stream-url", "auth": "jwt", "response": { "url": "signed stream url (900s)" }, "note": "403 without entitlement/preview/ownership" },
+        { "method": "GET", "path": "/institution/review-queue", "auth": "jwt:institution_admin", "response": ["courseSummary + {status, created_by}"] },
+        { "method": "GET", "path": "/institution/courses", "auth": "jwt:institution_admin", "response": ["courseSummary + {status, created_by}"] },
+        { "method": "POST", "path": "/institution/courses/:id/decision", "auth": "jwt:institution_admin", "request": { "action": "approve|reject", "notes?": "string" } },
+        { "method": "POST", "path": "/institution/courses/:id/unlist", "auth": "jwt:institution_admin" },
+        { "method": "POST", "path": "/institution/courses/:id/restore", "auth": "jwt:institution_admin" },
+        { "method": "GET", "path": "/admin/courses?q=", "auth": "jwt:platform_admin", "response": [ { "id": "uuid", "title": "string", "status": "courseStatus", "category": "category", "pricing_type": "pricingType" } ] },
+        { "method": "POST", "path": "/admin/courses/:id/unlist", "auth": "jwt:platform_admin" },
+        { "method": "POST", "path": "/admin/courses/:id/restore", "auth": "jwt:platform_admin" },
+        { "method": "POST", "path": "/admin/courses/:id/archive", "auth": "jwt:platform_admin" }
+      ]
+    },
+    {
+      "name": "Enrollment & Progress",
+      "endpoints": [
+        { "method": "POST", "path": "/enrollments", "auth": "jwt:learner", "request": { "course_id": "uuid" }, "note": "free/freemium instant; paid needs confirmed payment" },
+        { "method": "GET", "path": "/enrollments", "auth": "jwt:learner", "response": [ { "id": "uuid", "course_id": "uuid", "course_title": "string", "entitlement_status": "entitlementStatus", "progress_percent": "number", "completed_at": "iso|null" } ] },
+        { "method": "GET", "path": "/enrollments/status?course_id=", "auth": "jwt:learner", "response": { "entitlement_status": "entitlementStatus", "enrollment_id": "uuid|null" } },
+        { "method": "GET", "path": "/enrollments/:id", "auth": "jwt:owner", "response": "enrollment" },
+        { "method": "GET", "path": "/enrollments/:id/progress", "auth": "jwt:owner", "response": { "completed_lessons": [ { "lesson_id": "uuid" } ], "progress_percent": "number", "completed_at": "iso|null" } },
+        { "method": "POST", "path": "/progress/lessons/:lessonId/complete", "auth": "jwt:learner", "response": "progress" }
+      ]
+    },
+    {
+      "name": "Payments, Refunds & Payouts",
+      "endpoints": [
+        { "method": "POST", "path": "/payments/initiate", "auth": "jwt:learner", "request": { "course_id": "uuid" }, "response": { "checkout_url": "string", "tx_ref": "string (server-generated TX-…)", "payment_id": "uuid" }, "note": "redirect browser to checkout_url; live Chapa checkout or dev mock page" },
+        { "method": "POST", "path": "/payments/reconcile", "auth": "jwt:learner", "request": { "tx_ref": "string" }, "response": "payment", "note": "webhook fallback — server verifies with Chapa's API directly; idempotent" },
+        { "method": "POST", "path": "/payments/mock/complete", "auth": "public (dev)", "request": { "tx_ref": "string", "outcome": "success|failed" }, "note": "403 unless CHAPA_MODE=mock" },
+        { "method": "GET", "path": "/payments/mine", "auth": "jwt:learner", "response": ["payment"] },
+        { "method": "GET", "path": "/payments/:id", "auth": "jwt:owner", "response": "payment" },
+        { "method": "POST", "path": "/refunds", "auth": "jwt:learner", "request": { "payment_id": "uuid", "reason": "string(5-1000)" }, "response": { "status": "string", "rule": "string" } },
+        { "method": "GET", "path": "/refunds/mine", "auth": "jwt:learner", "response": ["refund"] },
+        { "method": "GET", "path": "/refunds/pending", "auth": "jwt:platform_admin", "response": ["refund"] },
+        { "method": "POST", "path": "/refunds/:id/decide", "auth": "jwt:platform_admin", "request": { "action": "approve|deny" } },
+        { "method": "GET", "path": "/payouts/balance", "auth": "jwt:educator|institution_admin", "response": { "pending_net_etb": "number", "payment_count": "number" } },
+        { "method": "GET", "path": "/payouts", "auth": "jwt", "response": ["payout"] },
+        { "method": "POST", "path": "/payouts/run", "auth": "jwt:platform_admin" },
+        { "method": "POST", "path": "/payouts/:id/release", "auth": "jwt:platform_admin" },
+        { "method": "POST", "path": "/admin/payments/bank-transfer", "auth": "jwt:platform_admin", "request": { "learner_id": "uuid", "course_id": "uuid" } },
+        { "method": "GET", "path": "/admin/payments?page=&limit=", "auth": "jwt:platform_admin", "response": { "total": "number", "items": [ { "id": "uuid", "course_title": "string", "amount_etb": "number", "method": "string", "status": "string", "tx_ref": "string", "created_at": "iso", "learner_id": "uuid", "learner_name": "string", "learner_email": "string", "payee_id": "uuid", "payee_type": "educator|institution", "webhook_received_at": "iso|null", "payout_id": "uuid|null" } ] } },
+        { "method": "POST", "path": "/payments/webhook/chapa", "auth": "public (HMAC)", "note": "Chapa server callback — not a frontend call" }
+      ]
+    },
+    {
+      "name": "Assessments, Attempts & Certificates",
+      "endpoints": [
+        { "method": "POST", "path": "/assessments", "auth": "jwt:educator|institution_admin|platform_admin", "request": { "course_id": "uuid", "type": "quiz|ai_viva|project", "is_required?": "boolean", "pass_score?": "number(1-100)", "config?": "object" } },
+        { "method": "POST", "path": "/assessments/generate", "auth": "jwt:educator|institution_admin|platform_admin", "ai": true, "request": { "course_id": "uuid", "topic": "string", "count": "number(1-20)", "difficulty?": "string" }, "response": { "questions": [ { "prompt": "string", "options": ["string"], "correct_index": "number" } ], "ai_live": "boolean" } },
+        { "method": "GET", "path": "/assessments?course_id=", "auth": "jwt", "response": ["assessment"] },
+        { "method": "POST", "path": "/assessments/:id/attempts", "auth": "jwt:learner", "response": "attempt" },
+        { "method": "GET", "path": "/attempts/mine", "auth": "jwt:learner", "response": ["attempt"] },
+        { "method": "PUT", "path": "/attempts/:id/submit", "auth": "jwt:learner", "request": { "answers?": "number[] (quiz option indexes)", "answer?": "string (ai_viva)", "file_key?": "string (project)" } },
+        { "method": "PUT", "path": "/attempts/:id/review", "auth": "jwt:educator|institution_admin|platform_admin", "request": { "passed": "boolean" } },
+        { "method": "GET", "path": "/courses/:id/pending-projects", "auth": "jwt:educator|institution_admin|platform_admin", "response": [ { "attempt_id": "uuid", "submitted_at": "iso", "download_url": "string" } ] },
+        { "method": "GET", "path": "/me/certificates", "auth": "jwt:learner", "response": [ { "id": "uuid", "course_title": "string", "issued_at": "iso", "verify_url": "string" } ] },
+        { "method": "GET", "path": "/me/certificates/:id/download", "auth": "jwt:learner", "response": { "url": "signed pdf url" } },
+        { "method": "GET", "path": "/certificates/:uid", "auth": "public", "response": "certificate" },
+        { "method": "GET", "path": "/verify/:uid", "auth": "public", "response": "verification" }
+      ]
+    },
+    {
+      "name": "Quality — Reviews, QA, Trust & Fraud",
+      "endpoints": [
+        { "method": "POST", "path": "/courses/:id/reviews", "auth": "jwt:learner", "request": { "rating": "number(1-5)", "comment?": "string(<=2000)" }, "note": "eligible at >=20% progress" },
+        { "method": "GET", "path": "/courses/:id/reviews", "auth": "public", "response": { "average_rating": "number|null", "review_count": "number", "reviews": [ { "id": "uuid", "rating": "number", "comment": "string|null", "created_at": "iso" } ] } },
+        { "method": "GET", "path": "/educators/:id/trust-tier", "auth": "public", "response": { "trust_tier": "trustTier" } },
+        { "method": "GET", "path": "/qa/queue", "auth": "jwt:quality_officer|platform_admin", "response": ["review item incl. plagiarism"] },
+        { "method": "GET", "path": "/qa/courses/:id", "auth": "jwt:quality_officer|platform_admin", "response": "review detail incl. plagiarism" },
+        { "method": "POST", "path": "/qa/courses/:id/decision", "auth": "jwt:quality_officer|platform_admin", "request": { "action": "approve|coach|flag", "notes?": "string(<=4000)" } },
+        { "method": "POST", "path": "/fraud/signals", "auth": "jwt:platform_admin|quality_officer", "request": { "subject_type": "enum", "subject_id": "uuid", "signal_type": "string", "detail?": "string", "payee_id?": "uuid" } },
+        { "method": "GET", "path": "/fraud/flags", "auth": "jwt:platform_admin", "response": ["flag"] },
+        { "method": "POST", "path": "/fraud/flags/:id/resolve", "auth": "jwt:platform_admin" }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "endpoints": [
+        { "method": "GET", "path": "/notifications", "auth": "jwt", "response": [ { "id": "uuid", "type": "string", "title": "string", "body": "string", "link": "string|null", "read_at": "iso|null", "created_at": "iso" } ] },
+        { "method": "GET", "path": "/notifications/unread-count", "auth": "jwt", "response": { "count": "number" } },
+        { "method": "POST", "path": "/notifications/:id/read", "auth": "jwt" },
+        { "method": "POST", "path": "/notifications/read-all", "auth": "jwt" },
+        { "method": "GET", "path": "/notification-preferences/:userId", "auth": "jwt", "response": { "marketing_opt_out": "boolean" } },
+        { "method": "PUT", "path": "/notification-preferences/:userId", "auth": "jwt", "request": { "marketing_opt_out": "boolean" } },
+        { "method": "GET", "path": "/admin/notifications", "auth": "jwt:platform_admin", "response": ["delivery log"] }
+      ]
+    },
+    {
+      "name": "Internal (NOT for frontend)",
+      "note": "Require x-internal-token; gateway rejects browser calls.",
+      "endpoints": [
+        { "method": "GET", "path": "/internal/users/:id", "auth": "internal" },
+        { "method": "GET", "path": "/internal/users/:id/institution", "auth": "internal" },
+        { "method": "GET", "path": "/internal/educators/:id", "auth": "internal" },
+        { "method": "GET", "path": "/internal/institutions/by-owner/:userId", "auth": "internal" },
+        { "method": "GET", "path": "/internal/institutions/:id", "auth": "internal" },
+        { "method": "GET", "path": "/internal/courses/:id", "auth": "internal" },
+        { "method": "GET", "path": "/internal/courses/:id/lesson-ids", "auth": "internal" },
+        { "method": "GET", "path": "/internal/lessons/:id", "auth": "internal" },
+        { "method": "GET", "path": "/internal/owners/:id/published-count", "auth": "internal" },
+        { "method": "GET", "path": "/internal/entitlements", "auth": "internal" },
+        { "method": "GET", "path": "/internal/enrollments/:id", "auth": "internal" },
+        { "method": "GET", "path": "/internal/enrollments/:id/outcomes-status", "auth": "internal" },
+        { "method": "GET", "path": "/internal/educators/:id/trust-tier", "auth": "internal" }
+      ]
+    }
+  ]
+}

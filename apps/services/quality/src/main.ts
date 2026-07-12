@@ -1,0 +1,5 @@
+import 'reflect-metadata';
+import { bootstrapService, envInt } from '@ethiopialearn/common';
+import { AppModule } from './app.module';
+
+bootstrapService(AppModule, { serviceName: 'quality', port: envInt('PORT', 4106) });

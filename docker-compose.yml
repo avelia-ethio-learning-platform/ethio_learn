@@ -1,0 +1,172 @@
+# EthiopiaLearn — full local stack.
+#   Infra only (then `pnpm dev`):  docker compose up -d postgres redis rabbitmq minio minio-init
+#   Everything in containers:      docker compose --profile full up --build
+# Images are intentionally slim: alpine bases everywhere, no fat sidecars.
+name: ethiopialearn
+
+x-service-env: &service-env
+  DATABASE_URL: postgres://ethiopialearn:ethiopialearn@postgres:5432/ethiopialearn
+  REDIS_URL: redis://redis:6379
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+  JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+  CERT_SIGNING_SECRET: ${CERT_SIGNING_SECRET:-dev-cert-secret-change-me}
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
+  WEB_URL: ${WEB_URL:-http://localhost:3000}
+  GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://localhost:4000}
+  GATEWAY_INTERNAL_URL: http://gateway:4000
+  S3_ENDPOINT: http://minio:9000
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+  S3_BUCKET: ethiopialearn
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  CHAPA_MODE: ${CHAPA_MODE:-mock}
+  CHAPA_SECRET_KEY: ${CHAPA_SECRET_KEY:-}
+  CHAPA_WEBHOOK_SECRET: ${CHAPA_WEBHOOK_SECRET:-dev-webhook-secret}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  EMAIL_FROM: ${EMAIL_FROM:-EthiopiaLearn <no-reply@ethiopialearn.et>}
+  PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@ethiopialearn.et}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  KYC_PAYOUT_THRESHOLD_ETB: ${KYC_PAYOUT_THRESHOLD_ETB:-10000}
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ethiopialearn
+      POSTGRES_PASSWORD: ethiopialearn
+      POSTGRES_DB: ethiopialearn
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ethiopialearn"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  rabbitmq:
+    image: rabbitmq:3.13-alpine
+    ports: ["5672:5672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    # 9000 = S3 API (signed URLs); 9001 = web console for browsing files
+    # manually (login: minioadmin / minioadmin).
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    volumes:
+      - miniodata:/data
+
+  # One-shot: create the bucket; thumbnails are public-read, videos stay private.
+  minio-init:
+    image: minio/mc:latest
+    depends_on: [minio]
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      mc mb -p local/ethiopialearn || true;
+      mc anonymous set download local/ethiopialearn/thumbnails || true;
+      exit 0"
+
+  # ---- application (profile: full) ----
+  gateway:
+    profiles: [full]
+    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/gateway" } }
+    environment:
+      <<: *service-env
+      PORT: 4000
+      AUTH_SERVICE_URL: http://auth:4101
+      COURSE_SERVICE_URL: http://course:4102
+      ENROLLMENT_SERVICE_URL: http://enrollment:4103
+      OUTCOMES_SERVICE_URL: http://outcomes:4104
+      FINANCIAL_SERVICE_URL: http://financial:4105
+      QUALITY_SERVICE_URL: http://quality:4106
+      NOTIFICATION_SERVICE_URL: http://notification:4107
+    ports: ["4000:4000"]
+    depends_on: [auth, course, enrollment, outcomes, financial, quality, notification]
+
+  auth:
+    profiles: [full]
+    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/auth-service" } }
+    environment: { <<: *service-env, PORT: 4101 }
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  course:
+    profiles: [full]
+    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/course-service" } }
+    environment: { <<: *service-env, PORT: 4102 }
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  enrollment:
+    profiles: [full]
+    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/enrollment-service" } }
+    environment: { <<: *service-env, PORT: 4103 }
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  outcomes:
+    profiles: [full]
+    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/outcomes-service" } }
+    environment: { <<: *service-env, PORT: 4104 }
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  financial:
+    profiles: [full]
+    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/financial-service" } }
+    environment: { <<: *service-env, PORT: 4105 }
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  quality:
+    profiles: [full]
+    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/quality-service" } }
+    environment: { <<: *service-env, PORT: 4106 }
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  notification:
+    profiles: [full]
+    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/notification-service" } }
+    environment: { <<: *service-env, PORT: 4107 }
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  web:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_S3_PUBLIC_URL: ${NEXT_PUBLIC_S3_PUBLIC_URL:-http://localhost:9000/ethiopialearn}
+    environment:
+      GATEWAY_INTERNAL_URL: http://gateway:4000
+    ports: ["3000:3000"]
+    depends_on: [gateway]
+
+volumes:
+  pgdata:
+  miniodata:
