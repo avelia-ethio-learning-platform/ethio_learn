@@ -23,5 +23,5 @@ export default async function HomePage({
   params.set('limit', '12');
 
   const result = await serverApi<{ total: number; items: CourseSummary[] }>(`/search?${params.toString()}`, 60);
-  return <HomeClient courses={result?.items ?? []} searchParams={searchParams} />;
+  return <HomeClient courses={result?.items ?? []} total={result?.total ?? 0} searchParams={searchParams} />;
 }

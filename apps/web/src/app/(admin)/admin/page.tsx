@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ShieldCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
+import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 
 type Tab = 'payments' | 'payouts' | 'refunds' | 'fraud' | 'users' | 'courses';
 
@@ -18,22 +20,32 @@ function AdminConsole() {
     { id: 'courses', label: 'Course overrides' },
   ];
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Platform admin console</h1>
-      <div className="flex flex-wrap gap-2">
-        {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`rounded-full px-3 py-1 text-sm ${tab === t.id ? 'bg-brand-700 text-white' : 'border bg-white'}`}>
-            {t.label}
-          </button>
-        ))}
+    <PageShell>
+      <PageHeader
+        badge={
+          <span className="section-badge">
+            <ShieldCheck className="h-4 w-4 text-brand-500" /> Platform admin
+          </span>
+        }
+        title="Platform admin console"
+        subtitle="Payments ledger, payouts, refunds, fraud signals, users and course overrides."
+      />
+      <div className="space-y-6">
+        <div className="flex flex-wrap gap-2">
+          {tabs.map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={tab === t.id ? 'pill-active' : 'pill'}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {tab === 'payments' && <PaymentsTab />}
+        {tab === 'payouts' && <PayoutsTab />}
+        {tab === 'refunds' && <RefundsTab />}
+        {tab === 'fraud' && <FraudTab />}
+        {tab === 'users' && <UsersTab />}
+        {tab === 'courses' && <CoursesTab />}
       </div>
-      {tab === 'payments' && <PaymentsTab />}
-      {tab === 'payouts' && <PayoutsTab />}
-      {tab === 'refunds' && <RefundsTab />}
-      {tab === 'fraud' && <FraudTab />}
-      {tab === 'users' && <UsersTab />}
-      {tab === 'courses' && <CoursesTab />}
-    </div>
+    </PageShell>
   );
 }
 
@@ -51,22 +63,20 @@ function PaymentsTab() {
         {data?.items?.map((p: any) => (
           <div key={p.id}>
             <button
-              className="flex w-full items-center justify-between gap-2 py-2 text-left hover:bg-gray-50"
+              className="flex w-full items-center justify-between gap-2 rounded-xl px-1 py-2 text-left transition-colors hover:bg-brand-500/5"
               onClick={() => setOpenId(openId === p.id ? null : p.id)}
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{p.course_title}</span>
+                <span className="block truncate font-medium text-foreground">{p.course_title}</span>
                 <span className="block truncate text-xs text-gray-500">{p.learner_name} · {p.learner_email}</span>
               </span>
               <span className="whitespace-nowrap text-xs text-gray-500">{new Date(p.created_at).toLocaleString()}</span>
-              <span className="whitespace-nowrap">{p.amount_etb} ETB</span>
-              <span className={`rounded px-2 py-0.5 text-xs ${p.status === 'confirmed' ? 'bg-green-100 text-green-800' : p.status === 'refunded' ? 'bg-gray-200' : p.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>
-                {p.status}
-              </span>
+              <span className="whitespace-nowrap font-medium text-foreground">{p.amount_etb} ETB</span>
+              <StatusBadge status={p.status} />
               <span className="text-xs text-gray-400">{openId === p.id ? '▴' : '▾'}</span>
             </button>
             {openId === p.id && (
-              <dl className="mb-2 grid gap-x-6 gap-y-1 rounded bg-gray-50 p-3 text-xs sm:grid-cols-2">
+              <dl className="glass-secondary mb-2 grid gap-x-6 gap-y-1 rounded-xl p-3 text-xs sm:grid-cols-2">
                 <div><dt className="inline font-medium text-gray-500">Paid by: </dt><dd className="inline">{p.learner_name} ({p.learner_email})</dd></div>
                 <div><dt className="inline font-medium text-gray-500">Method: </dt><dd className="inline">{p.method}</dd></div>
                 <div><dt className="inline font-medium text-gray-500">Initiated: </dt><dd className="inline">{new Date(p.created_at).toLocaleString()}</dd></div>
@@ -144,16 +154,19 @@ function SearchPicker({
       <label className="mb-0.5 block text-[10px] uppercase text-gray-400">{label}</label>
       {selected ? (
         <div className="flex items-center gap-1">
-          <span className="rounded bg-brand-50 px-2 py-1 text-brand-800">{selected.label}</span>
-          <button className="text-gray-400" onClick={() => { onSelect(null); setQ(''); }}>✕</button>
+          <span className="badge-info max-w-[220px] truncate !normal-case">{selected.label}</span>
+          <button className="text-gray-400 hover:text-red-500" onClick={() => { onSelect(null); setQ(''); }}>✕</button>
         </div>
       ) : (
         <>
           <input className="input w-56 text-xs" placeholder={placeholder} value={q} onChange={(e) => setQ(e.target.value)} />
           {!!data?.length && (
-            <div className="absolute z-10 mt-1 max-h-48 w-56 overflow-y-auto rounded border bg-white shadow">
+            <div
+              className="absolute z-10 mt-1 max-h-48 w-56 overflow-y-auto rounded-xl shadow-floating"
+              style={{ background: 'var(--popover)', border: '1px solid var(--card-border)' }}
+            >
               {data.map((o) => (
-                <button key={o.id} className="block w-full truncate px-2 py-1 text-left hover:bg-gray-50" onClick={() => onSelect(o)}>
+                <button key={o.id} className="block w-full truncate px-3 py-1.5 text-left transition-colors hover:bg-brand-500/10" onClick={() => onSelect(o)}>
                   {o.label}
                 </button>
               ))}
@@ -187,14 +200,12 @@ function PayoutsTab() {
         {payouts?.map((p) => (
           <div key={p.id} className="flex items-center justify-between py-2">
             <span className="truncate pr-2 text-xs text-gray-500">{p.payee_type} {p.payee_id.slice(0, 8)}…</span>
-            <span>net {p.net_amount_etb} ETB</span>
+            <span className="font-medium text-foreground">net {p.net_amount_etb} ETB</span>
             <span className="flex items-center gap-2">
-              <span className={`rounded px-2 py-0.5 text-xs ${p.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                {p.status}{p.hold_reason ? ` · ${p.hold_reason}` : ''}
-              </span>
+              <StatusBadge status={p.status} suffix={p.hold_reason || undefined} />
               {p.status === 'held' && (
                 <button
-                  className="text-xs text-brand-700 underline"
+                  className="text-xs font-medium text-brand-600 hover:underline"
                   onClick={async () => {
                     await api(`/payouts/${p.id}/release`, { method: 'POST' });
                     queryClient.invalidateQueries({ queryKey: ['admin-payouts'] });
@@ -226,9 +237,9 @@ function RefundsTab() {
         {refunds?.map((r) => (
           <div key={r.id} className="flex items-center justify-between py-2">
             <span className="truncate pr-2">{r.reason}</span>
-            <span className="flex gap-2">
-              <button className="text-green-700 underline" onClick={() => decide(r.id, 'approve')}>approve</button>
-              <button className="text-red-600 underline" onClick={() => decide(r.id, 'deny')}>deny</button>
+            <span className="flex gap-3">
+              <button className="font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => decide(r.id, 'approve')}>approve</button>
+              <button className="font-medium text-red-500 hover:underline" onClick={() => decide(r.id, 'deny')}>deny</button>
             </span>
           </div>
         ))}
@@ -252,7 +263,7 @@ function FraudTab() {
               <span className="ml-2 text-xs text-gray-500">{f.detail}</span>
             </span>
             <button
-              className="text-brand-700 underline"
+              className="font-medium text-brand-600 hover:underline"
               onClick={async () => {
                 await api(`/fraud/flags/${f.id}/resolve`, { method: 'POST' });
                 queryClient.invalidateQueries({ queryKey: ['fraud-flags'] });
@@ -267,12 +278,6 @@ function FraudTab() {
     </div>
   );
 }
-
-const STATUS_BADGE: Record<string, string> = {
-  active: 'bg-green-100 text-green-800',
-  suspended: 'bg-amber-100 text-amber-800',
-  banned: 'bg-red-100 text-red-700',
-};
 
 function UsersTab() {
   const queryClient = useQueryClient();
@@ -302,19 +307,19 @@ function UsersTab() {
         {data?.items?.map((u: any) => (
           <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
             <span className="min-w-0">
-              {u.name} <span className="text-gray-400">({u.email})</span>
-              <span className="ml-2 rounded bg-gray-100 px-2 py-0.5 text-xs">{u.role}</span>
-              {!u.email_verified && <span className="ml-1 text-xs text-amber-600">unverified</span>}
+              <span className="text-foreground">{u.name}</span> <span className="text-gray-400">({u.email})</span>
+              <span className="badge-neutral ml-2">{u.role}</span>
+              {!u.email_verified && <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">unverified</span>}
             </span>
             <span className="flex items-center gap-2">
-              <span className={`rounded px-2 py-0.5 text-xs ${STATUS_BADGE[u.status] ?? ''}`}>{u.status}</span>
+              <StatusBadge status={u.status} />
               {u.status === 'active' ? (
                 <>
-                  <button className="text-xs text-amber-700 underline" onClick={() => setStatus(u.id, 'suspended')}>Suspend</button>
-                  <button className="text-xs text-red-600 underline" onClick={() => confirm(`Ban ${u.email}?`) && setStatus(u.id, 'banned')}>Ban</button>
+                  <button className="text-xs font-medium text-amber-600 hover:underline dark:text-amber-400" onClick={() => setStatus(u.id, 'suspended')}>Suspend</button>
+                  <button className="text-xs font-medium text-red-500 hover:underline" onClick={() => confirm(`Ban ${u.email}?`) && setStatus(u.id, 'banned')}>Ban</button>
                 </>
               ) : (
-                <button className="text-xs text-green-700 underline" onClick={() => setStatus(u.id, 'active')}>Reactivate</button>
+                <button className="text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => setStatus(u.id, 'active')}>Reactivate</button>
               )}
             </span>
           </div>
@@ -350,7 +355,7 @@ function StaffForm({ onDone }: { onDone: () => void }) {
         <option value="platform_admin">Platform admin</option>
       </select>
       <button className="btn-secondary">Invite staff</button>
-      {msg && <p className="text-xs text-brand-700 sm:col-span-4">{msg}</p>}
+      {msg && <p className="text-xs font-medium text-brand-600 sm:col-span-4">{msg}</p>}
     </form>
   );
 }
@@ -374,11 +379,11 @@ function CoursesTab() {
         {!data?.length && <p className="text-gray-500">No courses match.</p>}
         {data?.map((c) => (
           <div key={c.id} className="flex items-center justify-between py-2">
-            <span>{c.title} <span className="rounded bg-gray-100 px-2 py-0.5 text-xs">{c.status}</span></span>
-            <span className="flex gap-2 text-xs">
-              {(c.status === 'published' || c.status === 'flagged') && <button className="text-brand-700 underline" onClick={() => act(c.id, 'unlist')}>Unlist</button>}
-              {(c.status === 'unlisted' || c.status === 'flagged') && <button className="text-brand-700 underline" onClick={() => act(c.id, 'restore')}>Restore</button>}
-              {c.status !== 'archived' && <button className="text-red-600 underline" onClick={() => confirm(`Archive "${c.title}"? This is terminal.`) && act(c.id, 'archive')}>Archive</button>}
+            <span className="flex min-w-0 items-center gap-2 text-foreground"><span className="truncate">{c.title}</span> <StatusBadge status={c.status} /></span>
+            <span className="flex shrink-0 gap-3 text-xs">
+              {(c.status === 'published' || c.status === 'flagged') && <button className="font-medium text-brand-600 hover:underline" onClick={() => act(c.id, 'unlist')}>Unlist</button>}
+              {(c.status === 'unlisted' || c.status === 'flagged') && <button className="font-medium text-brand-600 hover:underline" onClick={() => act(c.id, 'restore')}>Restore</button>}
+              {c.status !== 'archived' && <button className="font-medium text-red-500 hover:underline" onClick={() => confirm(`Archive "${c.title}"? This is terminal.`) && act(c.id, 'archive')}>Archive</button>}
             </span>
           </div>
         ))}

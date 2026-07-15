@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { ArrowRight, LoaderCircle, Lock, ShoppingCart, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
@@ -20,12 +21,12 @@ export function EnrollPanel({ courseId, pricingType }: { courseId: string; prici
     enabled: ready && user?.role === 'learner',
   });
 
-  if (!ready) return null;
+  if (!ready) return <div className="skeleton mt-4 h-11 w-full" />;
 
   if (!user) {
     return (
-      <button className="btn mt-4 w-full" onClick={() => router.push(`/login?next=/courses/${courseId}`)}>
-        {t('login_to_enroll')}
+      <button className="btn mt-4 w-full !py-3" onClick={() => router.push(`/login?next=/courses/${courseId}`)}>
+        <Lock className="h-4 w-4" /> {t('login_to_enroll')}
       </button>
     );
   }
@@ -34,8 +35,8 @@ export function EnrollPanel({ courseId, pricingType }: { courseId: string; prici
   }
   if (status?.entitlement_status === 'active') {
     return (
-      <button className="btn mt-4 w-full" onClick={() => router.push(`/learn/${courseId}`)}>
-        {t('continue_learning')}
+      <button className="btn mt-4 w-full !py-3" onClick={() => router.push(`/learn/${courseId}`)}>
+        {t('continue_learning')} <ArrowRight className="h-4 w-4" />
       </button>
     );
   }
@@ -59,13 +60,25 @@ export function EnrollPanel({ courseId, pricingType }: { courseId: string; prici
 
   return (
     <div className="mt-4">
-      <button className="btn w-full" onClick={enroll} disabled={busy}>
-        {busy ? 'Please wait…' : pricingType === 'free' ? t('enroll_free') : t('buy_with_chapa')}
+      <button className="btn w-full !py-3" onClick={enroll} disabled={busy}>
+        {busy ? (
+          <>
+            <LoaderCircle className="h-4 w-4 animate-spin" /> Please wait…
+          </>
+        ) : pricingType === 'free' ? (
+          <>
+            <Sparkles className="h-4 w-4" /> {t('enroll_free')}
+          </>
+        ) : (
+          <>
+            <ShoppingCart className="h-4 w-4" /> {t('buy_with_chapa')}
+          </>
+        )}
       </button>
       {pricingType === 'freemium' && (
         <p className="mt-2 text-xs text-gray-500">The first section is free to preview — buy to unlock everything.</p>
       )}
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-sm font-medium text-red-500">{error}</p>}
     </div>
   );
 }

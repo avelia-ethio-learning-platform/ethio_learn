@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { CheckCircle2, ClipboardCheck, FileUp, Mic, Play } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface AssessmentSummary {
@@ -53,24 +54,32 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
 
   return (
     <div className="card mt-6">
-      <h3 className="font-semibold">Assessments</h3>
-      <ul className="mt-2 space-y-2 text-sm">
+      <h3 className="flex items-center gap-2 font-bold text-foreground">
+        <span className="glass-secondary flex h-9 w-9 items-center justify-center rounded-xl">
+          <ClipboardCheck className="h-4 w-4 text-brand-600" />
+        </span>
+        Assessments
+      </h3>
+      <ul className="mt-3 space-y-2 text-sm">
         {assessments.map((a) => (
-          <li key={a.id} className="flex items-center justify-between">
-            <span className="capitalize">
-              {a.type.replace('_', ' ')} {a.is_required && <span className="text-xs text-gray-400">(required for certificate)</span>}
+          <li key={a.id} className="glass-secondary flex items-center justify-between gap-3 rounded-xl px-4 py-2.5">
+            <span className="capitalize text-foreground">
+              {a.type.replace('_', ' ')}{' '}
+              {a.is_required && <span className="text-xs font-normal text-gray-400">(required for certificate)</span>}
             </span>
             {passed(a.id) ? (
-              <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">Passed ✓</span>
+              <span className="badge-success">
+                <CheckCircle2 className="h-3 w-3" /> Passed
+              </span>
             ) : (
-              <button className="btn-secondary text-xs" onClick={() => start(a)}>
-                Start
+              <button className="btn-secondary !px-3 !py-1 !text-xs" onClick={() => start(a)}>
+                <Play className="h-3 w-3" /> Start
               </button>
             )}
           </li>
         ))}
       </ul>
-      {message && <p className="mt-3 text-sm text-brand-800">{message}</p>}
+      {message && <p className="mt-3 text-sm font-medium text-brand-600">{message}</p>}
 
       {active?.assessment.type === 'quiz' && <QuizForm attempt={active} onSubmit={finish} />}
       {active?.assessment.type === 'ai_viva' && <VivaForm attempt={active} onSubmit={finish} />}
@@ -82,14 +91,28 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
 function QuizForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => void }) {
   const [answers, setAnswers] = useState<number[]>(new Array(attempt.questions.length).fill(-1));
   return (
-    <div className="mt-4 space-y-4 border-t pt-4">
+    <div className="mt-4 space-y-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
       {attempt.questions.map((q: any, i: number) => (
         <div key={i}>
-          <p className="text-sm font-medium">{i + 1}. {q.prompt}</p>
-          <div className="mt-1 space-y-1">
+          <p className="text-sm font-semibold text-foreground">
+            {i + 1}. {q.prompt}
+          </p>
+          <div className="mt-2 space-y-1.5">
             {q.options.map((opt: string, j: number) => (
-              <label key={j} className="flex items-center gap-2 text-sm">
-                <input type="radio" name={`q${i}`} checked={answers[i] === j} onChange={() => setAnswers((prev) => prev.map((v, k) => (k === i ? j : v)))} />
+              <label
+                key={j}
+                className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-sm transition-colors ${
+                  answers[i] === j ? 'border-brand-400 bg-brand-500/10 text-foreground' : 'text-gray-600 hover:bg-brand-500/5'
+                }`}
+                style={answers[i] === j ? undefined : { borderColor: 'var(--border)' }}
+              >
+                <input
+                  type="radio"
+                  name={`q${i}`}
+                  className="accent-blue-600"
+                  checked={answers[i] === j}
+                  onChange={() => setAnswers((prev) => prev.map((v, k) => (k === i ? j : v)))}
+                />
                 {opt}
               </label>
             ))}
@@ -106,11 +129,13 @@ function QuizForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => v
 function VivaForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => void }) {
   const [answer, setAnswer] = useState('');
   return (
-    <div className="mt-4 border-t pt-4">
-      <p className="text-sm font-medium">🎤 Viva question (AI-graded):</p>
-      <p className="mt-1 text-sm text-gray-700">{attempt.question}</p>
-      <textarea className="input mt-2" rows={5} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer in your own words…" />
-      <button className="btn mt-2" disabled={answer.trim().length < 10} onClick={() => onSubmit({ answer })}>
+    <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
+      <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <Mic className="h-4 w-4 text-brand-500" /> Viva question (AI-graded):
+      </p>
+      <p className="mt-2 text-sm leading-relaxed text-gray-600">{attempt.question}</p>
+      <textarea className="input mt-3" rows={5} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer in your own words…" />
+      <button className="btn mt-3" disabled={answer.trim().length < 10} onClick={() => onSubmit({ answer })}>
         Submit answer
       </button>
     </div>
@@ -121,12 +146,14 @@ function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) =
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   return (
-    <div className="mt-4 border-t pt-4">
-      <p className="text-sm font-medium">📁 Project submission</p>
-      {attempt.instructions && <p className="mt-1 text-sm text-gray-700">{attempt.instructions}</p>}
+    <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
+      <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <FileUp className="h-4 w-4 text-brand-500" /> Project submission
+      </p>
+      {attempt.instructions && <p className="mt-2 text-sm leading-relaxed text-gray-600">{attempt.instructions}</p>}
       <input
         type="file"
-        className="mt-2 text-sm"
+        className="mt-3 block w-full text-sm text-gray-500 file:mr-3 file:cursor-pointer file:rounded-xl file:border-0 file:bg-brand-500/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand-600 hover:file:bg-brand-500/20"
         onChange={async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
@@ -140,7 +167,7 @@ function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) =
           setUploaded(true);
         }}
       />
-      <button className="btn mt-2" disabled={!uploaded || uploading} onClick={() => onSubmit({ file_key: attempt.file_key })}>
+      <button className="btn mt-3" disabled={!uploaded || uploading} onClick={() => onSubmit({ file_key: attempt.file_key })}>
         {uploading ? 'Uploading…' : 'Submit project'}
       </button>
     </div>

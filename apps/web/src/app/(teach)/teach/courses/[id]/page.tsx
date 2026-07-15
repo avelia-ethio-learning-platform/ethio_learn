@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { extractTextFromFile } from '@/lib/extract-text';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
+import { PageShell, StatusBadge } from '@/components/PageChrome';
 
 const S3_PUBLIC_URL = process.env.NEXT_PUBLIC_S3_PUBLIC_URL ?? 'http://localhost:9000/ethiopialearn';
 
@@ -28,7 +30,17 @@ function ManageCourse({ courseId }: { courseId: string }) {
   const { data: pendingProjects } = useQuery({ queryKey: ['pending-projects', courseId], queryFn: () => api<any[]>(`/courses/${courseId}/pending-projects`), retry: false });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['manage-course', courseId] });
-  if (!course) return <p className="text-gray-500">Loading…</p>;
+  if (!course) {
+    return (
+      <PageShell>
+        <div className="space-y-4">
+          <div className="skeleton h-9 w-72" />
+          <div className="skeleton h-40 w-full" />
+          <div className="skeleton h-40 w-full" />
+        </div>
+      </PageShell>
+    );
+  }
   const isDraft = course.status === 'draft';
 
   const action = async (path: string, ok: string, body?: any) => {
@@ -48,15 +60,19 @@ function ManageCourse({ courseId }: { courseId: string }) {
   }
 
   return (
+    <PageShell>
     <div className="space-y-6">
       <BackButton fallback="/teach" label="My courses" />
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex animate-fade-in-up flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">{course.title}</h1>
-          <p className="text-sm text-gray-500">
-            Status: <strong>{course.status}</strong> · {course.pricing_type}
-            {course.price_etb ? ` · ${course.price_etb} ETB` : ''}
-            {reviews?.average_rating ? ` · ★ ${reviews.average_rating} (${reviews.review_count})` : ''}
+          <h1 className="text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{course.title}</h1>
+          <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+            <StatusBadge status={course.status} />
+            <span>
+              {course.pricing_type}
+              {course.price_etb ? ` · ${course.price_etb} ETB` : ''}
+              {reviews?.average_rating ? ` · ★ ${reviews.average_rating} (${reviews.review_count})` : ''}
+            </span>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -79,10 +95,12 @@ function ManageCourse({ courseId }: { courseId: string }) {
           <button className="btn-secondary" onClick={() => action('duplicate', 'Duplicated as a new draft — find it in My courses.')}>Duplicate</button>
         </div>
       </div>
-      {message && <p className="rounded bg-brand-50 px-3 py-2 text-sm text-brand-800">{message}</p>}
+      {message && <p className="badge-info w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm">{message}</p>}
 
       {course.status === 'institution_review' && (
-        <p className="rounded bg-blue-50 px-3 py-2 text-sm text-blue-800">⏳ Awaiting your institution&apos;s internal review. Once they approve, it goes to the platform quality officers.</p>
+        <p className="badge-info w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm">
+          ⏳ Awaiting your institution&apos;s internal review. Once they approve, it goes to the platform quality officers.
+        </p>
       )}
       {course.review_feedback && <ReviewFeedback feedback={course.review_feedback} />}
       {course.status === 'flagged' && <AppealBox courseId={courseId} onDone={(m) => { setMessage(m); refresh(); }} />}
@@ -113,10 +131,10 @@ function ManageCourse({ courseId }: { courseId: string }) {
           <div key={section.id} className="card">
             <div className="flex items-center justify-between">
               <p className="font-medium">
-                {section.title} {section.is_free_preview && <span className="text-xs text-brand-700">(free preview)</span>}
+                {section.title} {section.is_free_preview && <span className="text-xs text-brand-600">(free preview)</span>}
               </p>
               {isDraft && (
-                <button className="text-xs text-red-600 hover:underline" onClick={async () => { if (!confirm(`Delete section “${section.title}” and all its lessons?`)) return; await api(`/sections/${section.id}`, { method: 'DELETE' }); refresh(); }}>
+                <button className="text-xs text-red-500 hover:underline" onClick={async () => { if (!confirm(`Delete section “${section.title}” and all its lessons?`)) return; await api(`/sections/${section.id}`, { method: 'DELETE' }); refresh(); }}>
                   delete section
                 </button>
               )}
@@ -126,7 +144,7 @@ function ManageCourse({ courseId }: { courseId: string }) {
                 <li key={lesson.id} className="flex items-center justify-between">
                   <span>▶ {lesson.title} {lesson.has_video === false && <span className="text-xs text-amber-600">— no video</span>}</span>
                   {isDraft && (
-                    <button className="text-xs text-red-600 hover:underline" onClick={async () => { if (!confirm(`Remove lesson “${lesson.title}”?`)) return; await api(`/lessons/${lesson.id}`, { method: 'DELETE' }); refresh(); }}>
+                    <button className="text-xs text-red-500 hover:underline" onClick={async () => { if (!confirm(`Remove lesson “${lesson.title}”?`)) return; await api(`/lessons/${lesson.id}`, { method: 'DELETE' }); refresh(); }}>
                       remove
                     </button>
                   )}
@@ -151,9 +169,9 @@ function ManageCourse({ courseId }: { courseId: string }) {
               <li key={p.attempt_id} className="flex items-center justify-between">
                 <span>Submitted {new Date(p.submitted_at).toLocaleString()}</span>
                 <span className="flex gap-2">
-                  {p.download_url && <a className="text-brand-700 underline" href={p.download_url} target="_blank">Download</a>}
-                  <button className="text-green-700 underline" onClick={() => review(p.attempt_id, true)}>Pass</button>
-                  <button className="text-red-600 underline" onClick={() => review(p.attempt_id, false)}>Fail</button>
+                  {p.download_url && <a className="font-medium text-brand-600 hover:underline" href={p.download_url} target="_blank">Download</a>}
+                  <button className="font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => review(p.attempt_id, true)}>Pass</button>
+                  <button className="font-medium text-red-500 hover:underline" onClick={() => review(p.attempt_id, false)}>Fail</button>
                 </span>
               </li>
             ))}
@@ -161,6 +179,7 @@ function ManageCourse({ courseId }: { courseId: string }) {
         </div>
       )}
     </div>
+    </PageShell>
   );
 }
 
@@ -169,15 +188,24 @@ function ManageCourse({ courseId }: { courseId: string }) {
  *  notifications. */
 function ReviewFeedback({ feedback }: { feedback: { action: string; notes: string | null; reviewed_at: string | null } }) {
   const map: Record<string, { tone: string; label: string }> = {
-    coach: { tone: 'bg-amber-50 border-amber-200 text-amber-900', label: '📝 Changes requested by our quality team' },
-    flag: { tone: 'bg-red-50 border-red-200 text-red-800', label: '🚩 Your course was flagged in review' },
-    institution_reject: { tone: 'bg-amber-50 border-amber-200 text-amber-900', label: '↩️ Sent back by your institution' },
-    approve: { tone: 'bg-green-50 border-green-200 text-green-800', label: '✅ Approved by quality review' },
+    coach: {
+      tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+      label: '📝 Changes requested by our quality team',
+    },
+    flag: { tone: 'border-red-400/40 bg-red-500/10 text-red-500 dark:text-red-300', label: '🚩 Your course was flagged in review' },
+    institution_reject: {
+      tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+      label: '↩️ Sent back by your institution',
+    },
+    approve: {
+      tone: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+      label: '✅ Approved by quality review',
+    },
   };
-  const meta = map[feedback.action] ?? { tone: 'bg-gray-50 border-gray-200 text-gray-700', label: 'Reviewer feedback' };
+  const meta = map[feedback.action] ?? { tone: 'text-gray-600', label: 'Reviewer feedback' };
   const when = feedback.reviewed_at ? new Date(feedback.reviewed_at).toLocaleString() : '';
   return (
-    <div className={`rounded-lg border px-4 py-3 text-sm ${meta.tone}`}>
+    <div className={`rounded-2xl border px-4 py-3 text-sm ${meta.tone}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold">{meta.label}</span>
         {when && <span className="text-xs opacity-70">{when}</span>}
@@ -221,8 +249,8 @@ function LearnerFeedback({ reviews }: { reviews: any }) {
 function AppealBox({ courseId, onDone }: { courseId: string; onDone: (m: string) => void }) {
   const [note, setNote] = useState('');
   return (
-    <div className="card border-red-200 bg-red-50">
-      <h2 className="font-semibold text-red-700">This course was flagged</h2>
+    <div className="card !border-red-400/40 bg-gradient-to-br from-red-500/10 to-transparent">
+      <h2 className="font-bold text-red-500">This course was flagged</h2>
       <p className="mt-1 text-sm text-gray-600">Explain the changes you made or why it should be reconsidered. It will go back to the review queue.</p>
       <textarea className="input mt-2" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Your appeal…" />
       <button
@@ -306,9 +334,14 @@ function StructureGenerator({ courseId, title, onDone }: { courseId: string; tit
   };
 
   return (
-    <div className="card border-brand-200">
+    <div className="card !rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/60 to-transparent dark:from-blue-950/30">
       <div className="flex items-center justify-between">
-        <h2 className="font-semibold">✨ Generate an outline with AI</h2>
+        <h2 className="flex items-center gap-2 font-bold text-foreground">
+          <span className="glass-secondary flex h-9 w-9 items-center justify-center rounded-xl">
+            <Sparkles className="h-4 w-4 text-brand-600" />
+          </span>
+          Generate an outline with AI
+        </h2>
         <button className="btn-secondary text-xs" onClick={() => setOpen((o) => !o)}>{open ? 'Close' : 'Open'}</button>
       </div>
       {open && (
@@ -321,7 +354,7 @@ function StructureGenerator({ courseId, title, onDone }: { courseId: string; tit
               <input type="file" accept=".pdf,.docx,.txt,.md,.csv,.html,text/*,application/pdf" className="hidden" disabled={extracting}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.currentTarget.value = ''; }} />
             </label>
-            {sourceText && <button type="button" className="text-xs text-red-600" onClick={() => setSourceText('')}>clear text</button>}
+            {sourceText && <button type="button" className="text-xs text-red-500" onClick={() => setSourceText('')}>clear text</button>}
           </div>
           <textarea className="input" rows={4} placeholder="…or paste your document / notes here (extracted file text appears here — edit it freely)" value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
           <div className="grid gap-2 sm:grid-cols-2">
@@ -356,13 +389,13 @@ function StructureGenerator({ courseId, title, onDone }: { courseId: string; tit
                   <div className="flex items-center gap-2">
                     <input className="input flex-1 text-sm" value={s.title} onChange={(e) => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, title: e.target.value } : x)))} />
                     <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={!!s.is_free_preview} onChange={(e) => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, is_free_preview: e.target.checked } : x)))} /> free</label>
-                    <button className="text-xs text-red-600" onClick={() => setDraft((d) => d!.filter((_, i) => i !== si))}>✕</button>
+                    <button className="text-xs text-red-500" onClick={() => setDraft((d) => d!.filter((_, i) => i !== si))}>✕</button>
                   </div>
                   <ul className="mt-1 space-y-1 pl-2">
                     {(s.lessons ?? []).map((l: any, li: number) => (
                       <li key={li} className="flex items-center gap-2">
                         <input className="input flex-1 text-xs" value={l.title} onChange={(e) => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, lessons: x.lessons.map((y: any, j: number) => (j === li ? { ...y, title: e.target.value } : y)) } : x)))} />
-                        <button className="text-xs text-red-600" onClick={() => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, lessons: x.lessons.filter((_: any, j: number) => j !== li) } : x)))}>✕</button>
+                        <button className="text-xs text-red-500" onClick={() => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, lessons: x.lessons.filter((_: any, j: number) => j !== li) } : x)))}>✕</button>
                       </li>
                     ))}
                   </ul>
@@ -484,8 +517,10 @@ function AssessmentManager({ courseId }: { courseId: string }) {
 
         {type === 'quiz' && (
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2 rounded bg-brand-50 p-2">
-              <span className="text-sm font-medium">✨ Generate with AI:</span>
+            <div className="glass-secondary flex flex-wrap items-center gap-2 rounded-xl p-3">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                <Sparkles className="h-4 w-4 text-brand-500" /> Generate with AI:
+              </span>
               <input className="input flex-1" placeholder="Topic (e.g. HTML basics)" value={topic} onChange={(e) => setTopic(e.target.value)} />
               <label className="text-sm">Qs <input type="number" min={1} max={20} value={count} onChange={(e) => setCount(+e.target.value)} className="input w-16" /></label>
               <button className="btn-secondary text-xs" disabled={busy || !topic} onClick={generate}>Generate</button>
@@ -494,21 +529,21 @@ function AssessmentManager({ courseId }: { courseId: string }) {
               <div key={qi} className="rounded border p-2">
                 <div className="flex items-center gap-2">
                   <input className="input flex-1 text-sm" value={q.prompt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, prompt: e.target.value } : x)))} placeholder="Question prompt" />
-                  <button className="text-xs text-red-600" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}>✕</button>
+                  <button className="text-xs text-red-500" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}>✕</button>
                 </div>
                 <div className="mt-1 space-y-1">
                   {q.options.map((opt, oi) => (
                     <div key={oi} className="flex items-center gap-2">
                       <input type="radio" name={`correct-${qi}`} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
                       <input className="input flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} />
-                      <button className="text-xs text-red-600" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}>✕</button>
+                      <button className="text-xs text-red-500" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}>✕</button>
                     </div>
                   ))}
-                  <button className="text-xs text-brand-700" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: [...x.options, ''] } : x)))}>+ option</button>
+                  <button className="text-xs text-brand-600" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: [...x.options, ''] } : x)))}>+ option</button>
                 </div>
               </div>
             ))}
-            <button className="text-sm text-brand-700" onClick={() => setQuestions((qs) => [...qs, { prompt: '', options: ['', ''], correct_index: 0 }])}>+ Add question manually</button>
+            <button className="text-sm text-brand-600" onClick={() => setQuestions((qs) => [...qs, { prompt: '', options: ['', ''], correct_index: 0 }])}>+ Add question manually</button>
           </div>
         )}
         {type === 'ai_viva' && <textarea className="input" rows={2} placeholder="Topic context the AI uses to generate the viva question" value={vivaTopic} onChange={(e) => setVivaTopic(e.target.value)} />}

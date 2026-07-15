@@ -3,7 +3,9 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { ArrowRight, Clock3, LoaderCircle, PartyPopper, RefreshCcw, XCircle } from 'lucide-react';
 import { api } from '@/lib/api';
+import { AuthShell } from '@/components/PageChrome';
 
 type State = 'polling' | 'active' | 'failed' | 'timeout';
 
@@ -66,64 +68,71 @@ function PaymentReturn() {
     return () => clearInterval(timer);
   }, [courseId, check]);
 
+  const icons: Record<State, React.ReactNode> = {
+    polling: <LoaderCircle className="h-6 w-6 animate-spin" />,
+    active: <PartyPopper className="h-6 w-6" />,
+    failed: <XCircle className="h-6 w-6" />,
+    timeout: <Clock3 className="h-6 w-6" />,
+  };
+  const titles: Record<State, string> = {
+    polling: 'Confirming your payment…',
+    active: "You're in!",
+    failed: 'Payment not completed',
+    timeout: 'Still processing',
+  };
+
   return (
-    <div className="card mx-auto max-w-md text-center">
-      {state === 'polling' && (
-        <>
-          <p className="text-3xl">⏳</p>
-          <h1 className="mt-2 text-xl font-semibold">Confirming your payment…</h1>
-          <p className="mt-2 text-sm text-gray-600">
+    <AuthShell icon={icons[state]} title={titles[state]}>
+      <div className="text-center">
+        {state === 'polling' && (
+          <p className="text-sm leading-relaxed text-gray-500">
             We&apos;re checking with Chapa. If you just finished on the Chapa page, this takes a few seconds.
           </p>
-        </>
-      )}
-      {state === 'active' && (
-        <>
-          <p className="text-3xl">🎉</p>
-          <h1 className="mt-2 text-xl font-semibold">You&apos;re in!</h1>
-          <p className="mt-2 text-sm text-gray-600">Payment confirmed and your course is unlocked.</p>
-          <Link href={`/learn/${courseId}`} className="btn mt-4 inline-flex">
-            Start learning →
-          </Link>
-        </>
-      )}
-      {state === 'failed' && (
-        <>
-          <p className="text-3xl">❌</p>
-          <h1 className="mt-2 text-xl font-semibold">Payment not completed</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            Chapa reported this checkout was cancelled or didn&apos;t go through — no money was taken. You can try again.
-          </p>
-          {courseId && (
-            <Link href={`/courses/${courseId}`} className="btn mt-4 inline-flex">
-              Back to the course
+        )}
+        {state === 'active' && (
+          <>
+            <p className="text-sm leading-relaxed text-gray-500">Payment confirmed and your course is unlocked.</p>
+            <Link href={`/learn/${courseId}`} className="btn mt-5 inline-flex !px-8 !py-3">
+              Start learning <ArrowRight className="h-4 w-4" />
             </Link>
-          )}
-        </>
-      )}
-      {state === 'timeout' && (
-        <>
-          <p className="text-3xl">🕐</p>
-          <h1 className="mt-2 text-xl font-semibold">Still processing</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            We haven&apos;t seen a confirmation yet. If you completed the payment on Chapa, click below to check again.
-          </p>
-          <button
-            className="btn mt-4 inline-flex"
-            onClick={async () => {
-              setState('polling');
-              done.current = false;
-              if (!(await check())) setState('timeout');
-            }}
-          >
-            Check again
-          </button>
-          <Link href="/dashboard" className="btn-secondary mt-3 inline-flex">
-            Go to dashboard
-          </Link>
-        </>
-      )}
-    </div>
+          </>
+        )}
+        {state === 'failed' && (
+          <>
+            <p className="text-sm leading-relaxed text-gray-500">
+              Chapa reported this checkout was cancelled or didn&apos;t go through — no money was taken. You can try again.
+            </p>
+            {courseId && (
+              <Link href={`/courses/${courseId}`} className="btn mt-5 inline-flex !px-8 !py-3">
+                Back to the course
+              </Link>
+            )}
+          </>
+        )}
+        {state === 'timeout' && (
+          <>
+            <p className="text-sm leading-relaxed text-gray-500">
+              We haven&apos;t seen a confirmation yet. If you completed the payment on Chapa, click below to check again.
+            </p>
+            <div className="mt-5 flex flex-col items-center gap-3">
+              <button
+                className="btn inline-flex !px-8 !py-3"
+                onClick={async () => {
+                  setState('polling');
+                  done.current = false;
+                  if (!(await check())) setState('timeout');
+                }}
+              >
+                <RefreshCcw className="h-4 w-4" /> Check again
+              </button>
+              <Link href="/dashboard" className="btn-secondary inline-flex">
+                Go to dashboard
+              </Link>
+            </div>
+          </>
+        )}
+      </div>
+    </AuthShell>
   );
 }
 
