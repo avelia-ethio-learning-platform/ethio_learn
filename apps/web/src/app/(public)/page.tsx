@@ -13,12 +13,13 @@ export const metadata: Metadata = {
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: { q?: string; category?: string; pricing_type?: string; page?: string };
+  searchParams: { q?: string; category?: string; pricing_type?: string; sort?: string; page?: string };
 }) {
   const params = new URLSearchParams();
   if (searchParams.q) params.set('q', searchParams.q);
   if (searchParams.category) params.set('category', searchParams.category);
   if (searchParams.pricing_type) params.set('pricing_type', searchParams.pricing_type);
+  if (searchParams.sort) params.set('sort', searchParams.sort);
   params.set('page', searchParams.page ?? '1');
   params.set('limit', '12');
 

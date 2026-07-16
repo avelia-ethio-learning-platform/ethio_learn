@@ -64,6 +64,22 @@ export class Course {
   @Column({ type: 'timestamptz', nullable: true })
   published_at: Date | null;
 
+  // Rating aggregates cached from the quality service's CourseRated events
+  // (event-carried state — catalog ranking never joins across schemas).
+  @Column({ type: 'numeric', precision: 3, scale: 2, nullable: true })
+  rating_avg: string | null;
+
+  @Column({ type: 'int', default: 0 })
+  rating_count: number;
+
+  /** Sum of all star values — input to educator "total rating" ranking. */
+  @Column({ type: 'int', default: 0 })
+  rating_points: number;
+
+  /** Enrollment counter from EnrollmentCreated events — popularity signal. */
+  @Column({ type: 'int', default: 0 })
+  enrolled_count: number;
+
   // Latest reviewer feedback (QO coaching/flag or institution send-back), shown
   // to the course owner on their authoring page — not exposed to the public.
   @Column({ type: 'varchar', nullable: true })
@@ -118,6 +134,10 @@ export class Lesson {
 
   @Column({ length: 160 })
   title: string;
+
+  /** One-line lesson description (AI course-structure generator fills this in). */
+  @Column({ type: 'text', nullable: true })
+  summary: string | null;
 
   /** NEVER exposed to clients — playback goes through signed URLs only (spec §0 rule 5). */
   @Column({ type: 'varchar', nullable: true })

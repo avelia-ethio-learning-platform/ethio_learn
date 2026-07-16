@@ -12,7 +12,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { CurrentUser, InternalHttpClient, Roles, RolesGuard, UserContext, userFromRequest } from '@ethiopialearn/common';
 import { EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
@@ -63,6 +64,12 @@ class AppealDto {
   note: string;
 }
 
+class ApplyStructureDto {
+  @ValidateNested({ each: true })
+  @Type(() => SectionInputDto)
+  sections: SectionInputDto[];
+}
+
 class InstitutionDecisionDto {
   @IsIn(['approve', 'reject'])
   action: 'approve' | 'reject';
@@ -88,10 +95,23 @@ export class CourseController {
     @Query('q') q?: string,
     @Query('category') category?: string,
     @Query('pricing_type') pricingType?: string,
+    @Query('sort') sort?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '12',
   ) {
-    return this.service.search({ q, category, pricing_type: pricingType, page: parseInt(page, 10), limit: parseInt(limit, 10) });
+    return this.service.search({ q, category, pricing_type: pricingType, sort, page: parseInt(page, 10), limit: parseInt(limit, 10) });
+  }
+
+  /** [PUBLIC] Top educators leaderboard (ranked by total rating points). */
+  @Get('educators/top')
+  topEducators(@Query('limit') limit = '12') {
+    return this.service.topEducators(parseInt(limit, 10) || 12);
+  }
+
+  /** [PUBLIC] Educator profile: bio + published courses + rating aggregates. */
+  @Get('educators/:id/profile')
+  educatorProfile(@Param('id') id: string) {
+    return this.service.educatorProfile(id);
   }
 
   @Get('courses/:id')
@@ -249,6 +269,14 @@ export class CourseController {
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
   addSection(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: SectionInputDto) {
     return this.service.addSection(ctx, id, dto);
+  }
+
+  /** Apply a full AI-generated outline (sections + lessons + summaries) in one call. */
+  @Post('courses/:id/apply-structure')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  applyStructure(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ApplyStructureDto) {
+    return this.service.applyStructure(ctx, id, dto.sections);
   }
 
   @Post('sections/:id/lessons')

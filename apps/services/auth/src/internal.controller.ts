@@ -44,7 +44,14 @@ export class InternalController {
     const user = await this.users.findOne({ where: { id } });
     if (!user) throw new NotFoundException('Educator not found');
     const profile = await this.educatorProfiles.findOne({ where: { user_id: id } });
-    return { id: user.id, name: user.name, email: user.email, trust_tier: profile?.trust_tier ?? 'new' };
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      trust_tier: profile?.trust_tier ?? 'new',
+      bio: profile?.bio ?? null,
+      expertise_area: profile?.expertise_area ?? null,
+    };
   }
 
   @Get('institutions/by-owner/:userId')

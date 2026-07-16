@@ -8,6 +8,9 @@ export interface CourseSummary {
   thumbnail_url: string | null;
   pricing_type: 'free' | 'freemium' | 'paid';
   price_etb: number | null;
+  rating_avg?: number | null;
+  rating_count?: number;
+  enrolled_count?: number;
 }
 
 export function priceLabel(course: Pick<CourseSummary, 'pricing_type' | 'price_etb'>): string {
@@ -30,7 +33,17 @@ export function CourseCard({ course }: { course: CourseSummary }) {
       <p className="text-xs uppercase tracking-wide text-brand-700">{course.category}</p>
       <h3 className="mt-1 font-semibold">{course.title}</h3>
       <p className="mt-1 line-clamp-2 text-sm text-gray-600">{course.description}</p>
-      <p className="mt-2 text-sm font-semibold text-gray-900">{priceLabel(course)}</p>
+      <div className="mt-2 flex items-center justify-between text-sm">
+        <span className="font-semibold text-gray-900">{priceLabel(course)}</span>
+        <span className="text-xs text-gray-500">
+          {course.rating_avg ? (
+            <span className="text-amber-600">★ {course.rating_avg} <span className="text-gray-400">({course.rating_count})</span></span>
+          ) : (
+            <span className="text-gray-300">no ratings yet</span>
+          )}
+          {(course.enrolled_count ?? 0) > 0 && <span className="ml-2">👥 {course.enrolled_count}</span>}
+        </span>
+      </div>
     </Link>
   );
 }

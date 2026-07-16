@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { serverApi, SITE_URL } from '@/lib/server-api';
 import { priceLabel } from '@/components/CourseCard';
 import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
 import { BackButton } from '@/components/BackButton';
+import { CommentsSection } from '@/components/CommentsSection';
 import { EnrollPanel } from './enroll-panel';
 
 interface CourseDetail {
@@ -15,11 +17,16 @@ interface CourseDetail {
   pricing_type: 'free' | 'freemium' | 'paid';
   price_etb: number | null;
   published_at: string | null;
+  rating_avg: number | null;
+  rating_count: number;
+  enrolled_count: number;
+  instructor_id?: string;
+  instructor_name?: string;
   sections: {
     id: string;
     title: string;
     is_free_preview: boolean;
-    lessons: { id: string; title: string; duration_seconds: number; has_video: boolean }[];
+    lessons: { id: string; title: string; summary?: string | null; duration_seconds: number; has_video: boolean }[];
   }[];
 }
 
@@ -81,10 +88,23 @@ export default async function CoursePage({ params }: { params: { id: string } })
       <div className="lg:col-span-2">
         <p className="text-sm uppercase tracking-wide text-brand-700">{course.category}</p>
         <h1 className="mt-1 text-3xl font-bold">{course.title}</h1>
+        {course.instructor_name && course.instructor_id && (
+          <p className="mt-2 text-sm text-gray-600">
+            By{' '}
+            <Link href={`/educators/${course.instructor_id}`} className="font-medium text-brand-700 hover:underline">
+              {course.instructor_name}
+            </Link>{' '}
+            ·{' '}
+            <Link href={`/messages?to=${course.instructor_id}`} className="text-brand-700 hover:underline">
+              💬 Message instructor
+            </Link>
+          </p>
+        )}
         <p className="mt-3 text-gray-700">{course.description}</p>
         <p className="mt-3 text-sm text-gray-500">
           {course.sections.length} sections · {totalLessons} lessons · ~{totalMinutes} min
           {reviews?.average_rating ? ` · ★ ${reviews.average_rating} (${reviews.review_count})` : ''}
+          {course.enrolled_count > 0 ? ` · 👥 ${course.enrolled_count} enrolled` : ''}
         </p>
 
         {(course.pricing_type === 'freemium' || course.pricing_type === 'free') && <CoursePreviewPlayer sections={course.sections} />}
@@ -101,9 +121,12 @@ export default async function CoursePage({ params }: { params: { id: string } })
               </h3>
               <ul className="mt-2 space-y-1 text-sm text-gray-600">
                 {section.lessons.map((lesson) => (
-                  <li key={lesson.id} className="flex justify-between">
-                    <span>▶ {lesson.title}</span>
-                    <span>{Math.max(1, Math.round(lesson.duration_seconds / 60))} min</span>
+                  <li key={lesson.id}>
+                    <div className="flex justify-between">
+                      <span>▶ {lesson.title}</span>
+                      <span>{Math.max(1, Math.round(lesson.duration_seconds / 60))} min</span>
+                    </div>
+                    {lesson.summary && <p className="ml-5 text-xs text-gray-400">{lesson.summary}</p>}
                   </li>
                 ))}
               </ul>
@@ -124,6 +147,10 @@ export default async function CoursePage({ params }: { params: { id: string } })
             </div>
           </>
         )}
+
+        <div className="mt-8">
+          <CommentsSection courseId={course.id} />
+        </div>
       </div>
 
       <aside>

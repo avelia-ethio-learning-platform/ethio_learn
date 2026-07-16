@@ -5,7 +5,9 @@ import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn
 import { AiAssessor, createAiAssessor, GeneratedSection, MockAiAssessor } from '@ethiopialearn/ai';
 import {
   CourseCategory,
+  CourseRatedPayload,
   CourseReviewedPayload,
+  EnrollmentCreatedPayload,
   CourseStatus,
   OwnerType,
   PricingType,
@@ -36,6 +38,14 @@ class TtlCache<T> {
     this.store.clear();
   }
 }
+
+/**
+ * Bayesian-weighted rating for catalog ranking: pulls each course's average
+ * toward the global prior C=3.75 until it has m=3 ratings of its own.
+ * score = (v/(v+m))·R + (m/(v+m))·C
+ */
+const BAYES_SCORE =
+  '((c.rating_count::float / (c.rating_count + 3)) * COALESCE(c.rating_avg, 0)::float + (3.0 / (c.rating_count + 3)) * 3.75)';
 
 @Injectable()
 export class CourseService implements OnModuleInit {
@@ -86,6 +96,26 @@ export class CourseService implements OnModuleInit {
         await this.courses.save(course);
       }
       this.logger.log(`course ${course.id} -> ${course.status} (QO ${payload.action})`);
+    });
+
+    // Rating aggregates from the quality service → catalog ranking columns.
+    this.bus.subscribe<CourseRatedPayload>('CourseRated', async (payload) => {
+      await this.courses.update(
+        { id: payload.course_id },
+        {
+          rating_avg: payload.average_rating.toFixed(2),
+          rating_count: payload.rating_count,
+          rating_points: payload.total_points,
+        },
+      );
+      this.searchCache.clear(); // ranking order may have changed
+      this.logger.log(`course ${payload.course_id} rated ${payload.average_rating} (${payload.rating_count} reviews)`);
+    });
+
+    // Enrollment counter → popularity signal for catalog sorting.
+    this.bus.subscribe<EnrollmentCreatedPayload>('EnrollmentCreated', async (payload) => {
+      await this.courses.increment({ id: payload.course_id }, 'enrolled_count', 1);
+      this.searchCache.clear();
     });
   }
 
@@ -140,6 +170,25 @@ export class CourseService implements OnModuleInit {
     await this.ownedDraft(ctx, courseId);
     const count = await this.sections.count({ where: { course_id: courseId } });
     return this.addSectionInternal(courseId, dto, count);
+  }
+
+  /**
+   * Apply an AI-generated outline in ONE call: every section + lesson (with its
+   * summary) lands on the course together, instead of N client round-trips that
+   * can fail halfway and leave a partial outline.
+   */
+  async applyStructure(ctx: UserContext, courseId: string, sectionsIn: SectionInputDto[]) {
+    await this.ownedDraft(ctx, courseId);
+    if (!sectionsIn?.length) throw new BadRequestException('sections[] is required');
+    const offset = await this.sections.count({ where: { course_id: courseId } });
+    for (let i = 0; i < sectionsIn.length; i++) {
+      await this.addSectionInternal(courseId, sectionsIn[i], offset + i);
+    }
+    return {
+      applied: true,
+      sections_added: sectionsIn.length,
+      lessons_added: sectionsIn.reduce((n, s) => n + (s.lessons?.length ?? 0), 0),
+    };
   }
 
   /**
@@ -413,7 +462,7 @@ export class CourseService implements OnModuleInit {
       const ns = await this.sections.save(this.sections.create({ course_id: copy.id, title: s.title, is_free_preview: s.is_free_preview, order_index: s.order_index }));
       const lessons = await this.lessons.find({ where: { section_id: s.id }, order: { order_index: 'ASC' } });
       for (const l of lessons) {
-        await this.lessons.save(this.lessons.create({ section_id: ns.id, title: l.title, video_s3_key: l.video_s3_key, duration_seconds: l.duration_seconds, order_index: l.order_index }));
+        await this.lessons.save(this.lessons.create({ section_id: ns.id, title: l.title, summary: l.summary, video_s3_key: l.video_s3_key, duration_seconds: l.duration_seconds, order_index: l.order_index }));
       }
     }
     return copy;
@@ -526,7 +575,7 @@ export class CourseService implements OnModuleInit {
     return course;
   }
 
-  async search(params: { q?: string; category?: string; pricing_type?: string; page: number; limit: number }) {
+  async search(params: { q?: string; category?: string; pricing_type?: string; sort?: string; page: number; limit: number }) {
     const cacheKey = JSON.stringify(params);
     const cached = this.searchCache.get(cacheKey);
     if (cached) return cached;
@@ -544,15 +593,124 @@ export class CourseService implements OnModuleInit {
     if (params.pricing_type && Object.values(PricingType).includes(params.pricing_type as PricingType)) {
       qb.andWhere('c.pricing_type = :pricing', { pricing: params.pricing_type });
     }
+
+    // Catalog ordering. Default "top": Bayesian-weighted rating so one lone
+    // 5★ review can't outrank a course with fifty 4.8★ reviews — each course's
+    // average is pulled toward the global prior (C) until it has enough votes (m).
+    const sort = params.sort ?? 'top';
+    if (sort === 'new') {
+      qb.orderBy('c.published_at', 'DESC');
+    } else if (sort === 'popular') {
+      qb.orderBy('c.enrolled_count', 'DESC').addOrderBy(BAYES_SCORE, 'DESC');
+    } else if (sort === 'price_asc') {
+      qb.orderBy('c.price_etb', 'ASC', 'NULLS FIRST');
+    } else if (sort === 'price_desc') {
+      qb.orderBy('c.price_etb', 'DESC', 'NULLS LAST');
+    } else {
+      qb.orderBy(BAYES_SCORE, 'DESC').addOrderBy('c.enrolled_count', 'DESC').addOrderBy('c.published_at', 'DESC');
+    }
+
     const take = Math.min(params.limit || 12, 50);
     const [items, total] = await qb
-      .orderBy('c.published_at', 'DESC')
       .take(take)
       .skip((Math.max(params.page || 1, 1) - 1) * take)
       .getManyAndCount();
-    const result = { total, page: params.page || 1, items: items.map((c) => this.publicSummary(c)) };
+    const result = { total, page: params.page || 1, sort, items: items.map((c) => this.publicSummary(c)) };
     this.searchCache.set(cacheKey, result);
     return result;
+  }
+
+  /**
+   * Top educators, ranked by total rating points (the sum of every star their
+   * courses ever received) — quality × volume in one number — with enrollments
+   * as the tiebreaker. Names resolved once per educator via the auth service.
+   */
+  async topEducators(limit = 12) {
+    const rows: {
+      educator_id: string;
+      course_count: string;
+      total_points: string;
+      rating_count: string;
+      learner_count: string;
+      best_avg: string | null;
+    }[] = await this.courses
+      .createQueryBuilder('c')
+      .select('c.created_by', 'educator_id')
+      .addSelect('COUNT(*)', 'course_count')
+      .addSelect('COALESCE(SUM(c.rating_points), 0)', 'total_points')
+      .addSelect('COALESCE(SUM(c.rating_count), 0)', 'rating_count')
+      .addSelect('COALESCE(SUM(c.enrolled_count), 0)', 'learner_count')
+      .addSelect('MAX(c.rating_avg)', 'best_avg')
+      .where('c.status = :status', { status: CourseStatus.PUBLISHED })
+      .groupBy('c.created_by')
+      .orderBy('total_points', 'DESC')
+      .addOrderBy('learner_count', 'DESC')
+      .addOrderBy('course_count', 'DESC')
+      .limit(Math.min(limit, 50))
+      .getRawMany();
+
+    const out = [];
+    for (const r of rows) {
+      let name = 'Educator';
+      try {
+        name = (await this.internal.get<{ name: string }>(`/api/v1/internal/users/${r.educator_id}`)).name;
+      } catch {
+        /* keep placeholder */
+      }
+      const ratingCount = Number(r.rating_count);
+      out.push({
+        educator_id: r.educator_id,
+        name,
+        course_count: Number(r.course_count),
+        total_rating_points: Number(r.total_points),
+        rating_count: ratingCount,
+        average_rating: ratingCount > 0 ? Number((Number(r.total_points) / ratingCount).toFixed(2)) : null,
+        learner_count: Number(r.learner_count),
+      });
+    }
+    return out;
+  }
+
+  /** Public educator profile: their published courses + aggregate stats. */
+  async educatorProfile(educatorId: string) {
+    const courses = await this.courses.find({
+      where: { created_by: educatorId, status: CourseStatus.PUBLISHED },
+      order: { rating_points: 'DESC', published_at: 'DESC' },
+    });
+    if (!courses.length) throw new NotFoundException('Educator has no published courses');
+
+    let name = 'Educator';
+    let bio: string | null = null;
+    let expertise: string | null = null;
+    try {
+      name = (await this.internal.get<{ name: string }>(`/api/v1/internal/users/${educatorId}`)).name;
+    } catch {
+      /* placeholder name */
+    }
+    try {
+      const profile = await this.internal.get<{ bio?: string; expertise_area?: string }>(
+        `/api/v1/internal/educators/${educatorId}`,
+      );
+      bio = profile.bio ?? null;
+      expertise = profile.expertise_area ?? null;
+    } catch {
+      /* profile enrichment is optional */
+    }
+
+    const totalPoints = courses.reduce((s, c) => s + c.rating_points, 0);
+    const ratingCount = courses.reduce((s, c) => s + c.rating_count, 0);
+    return {
+      educator_id: educatorId,
+      name,
+      bio,
+      expertise_area: expertise,
+      course_count: courses.length,
+      total_rating_points: totalPoints,
+      rating_count: ratingCount,
+      average_rating: ratingCount > 0 ? Number((totalPoints / ratingCount).toFixed(2)) : null,
+      learner_count: courses.reduce((s, c) => s + c.enrolled_count, 0),
+      courses: courses.map((c) => this.publicSummary(c)),
+    };
   }
 
   /** Public course detail. Lesson video keys are stripped (spec §9.2). */
@@ -585,6 +743,7 @@ export class CourseService implements OnModuleInit {
         lessons: lessons.map((l) => ({
           id: l.id,
           title: l.title,
+          summary: l.summary,
           duration_seconds: l.duration_seconds,
           order: l.order_index,
           has_video: !!l.video_s3_key,
@@ -597,7 +756,22 @@ export class CourseService implements OnModuleInit {
       isPrivileged && course.last_review_action
         ? { action: course.last_review_action, notes: course.last_review_notes, reviewed_at: course.last_reviewed_at }
         : null;
-    return { ...this.publicSummary(course), status: course.status, sections: sectionsOut, review_feedback: reviewFeedback };
+    // Instructor identity (public info) so the course page can link the
+    // educator's profile and open a direct message.
+    let instructorName = '';
+    try {
+      instructorName = (await this.internal.get<{ name: string }>(`/api/v1/internal/users/${course.created_by}`)).name;
+    } catch {
+      /* course page renders without it */
+    }
+    return {
+      ...this.publicSummary(course),
+      status: course.status,
+      sections: sectionsOut,
+      review_feedback: reviewFeedback,
+      instructor_id: course.created_by,
+      instructor_name: instructorName,
+    };
   }
 
   async listOwn(ctx: UserContext) {
@@ -657,6 +831,9 @@ export class CourseService implements OnModuleInit {
       owner_id: course.owner_id,
       owner_type: course.owner_type,
       published_at: course.published_at,
+      rating_avg: course.rating_avg != null ? Number(course.rating_avg) : null,
+      rating_count: course.rating_count ?? 0,
+      enrolled_count: course.enrolled_count ?? 0,
     };
   }
 
@@ -703,6 +880,7 @@ export class CourseService implements OnModuleInit {
           this.lessons.create({
             section_id: section.id,
             title: l.title,
+            summary: l.summary ?? null,
             video_s3_key: l.video_s3_key ?? null,
             duration_seconds: l.duration_seconds ?? 0,
             order_index: i,

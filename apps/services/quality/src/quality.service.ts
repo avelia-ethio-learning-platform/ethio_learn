@@ -13,6 +13,7 @@ import { AiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import {
   CourseAppealSubmittedPayload,
   CourseCompletedPayload,
+  CourseRatedPayload,
   CourseReviewedPayload,
   CourseSubmittedPayload,
   FraudFlagPayload,
@@ -233,6 +234,17 @@ export class QualityService implements OnModuleInit {
     const review = await this.courseReviews.save(
       this.courseReviews.create({ course_id: courseId, learner_id: ctx.id, rating, comment: comment ?? null }),
     );
+
+    // Broadcast fresh aggregates so the course service can rank the catalog
+    // (event-carried state — no cross-schema reads at query time).
+    const all = await this.courseReviews.find({ where: { course_id: courseId } });
+    const totalPoints = all.reduce((s, r) => s + r.rating, 0);
+    await this.bus.publish<CourseRatedPayload>('CourseRated', {
+      course_id: courseId,
+      average_rating: Number((totalPoints / all.length).toFixed(2)),
+      rating_count: all.length,
+      total_points: totalPoints,
+    });
 
     const cache = await this.courseCache.findOne({ where: { course_id: courseId } });
     if (cache) await this.recomputeTier(cache.owner_id);

@@ -40,6 +40,7 @@ export const EVENT_TYPES = [
   'CourseInstitutionReviewed', // institution approved/rejected an instructor's course
   'RefundRequested', // a refund needs a platform admin decision (manual-review band)
   'InstructorLinked', // an existing account was added as an institution instructor
+  'CourseRated', // learner review saved → course service caches rating aggregates for ranking
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -109,6 +110,15 @@ export interface CourseStatusPayload {
   owner_id: string;
   owner_user_id: string;
   owner_email: string;
+}
+
+/** Aggregates recomputed by the quality service after each review write. */
+export interface CourseRatedPayload {
+  course_id: string;
+  average_rating: number;
+  rating_count: number;
+  /** Sum of all star values — the educator-ranking "total rating" input. */
+  total_points: number;
 }
 
 export interface CourseReviewedPayload {

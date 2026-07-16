@@ -21,6 +21,12 @@ export class LessonInputDto {
   @MaxLength(160)
   title: string;
 
+  /** One-line lesson description (the AI outline generator fills this in). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  summary?: string;
+
   @IsOptional()
   @IsString()
   video_s3_key?: string;

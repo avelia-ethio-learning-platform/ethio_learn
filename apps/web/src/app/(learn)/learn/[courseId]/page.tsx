@@ -7,6 +7,7 @@ import Hls from 'hls.js';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
+import { CommentsSection } from '@/components/CommentsSection';
 import { AssessmentsPanel } from './assessments-panel';
 
 interface Lesson {
@@ -159,6 +160,9 @@ function Player({ courseId }: { courseId: string }) {
 
           <AssessmentsPanel courseId={courseId} />
           <ReviewBox courseId={courseId} progressPercent={progress?.progress_percent ?? 0} />
+          <div className="mt-6">
+            <CommentsSection courseId={courseId} />
+          </div>
         </div>
 
         <aside className="space-y-3">
@@ -182,6 +186,9 @@ function Player({ courseId }: { courseId: string }) {
                         </span>
                         <span className="text-xs text-gray-400">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
                       </button>
+                      {isActive && (lesson as any).summary && (
+                        <p className="ml-2 mt-0.5 rounded bg-gray-50 px-2 py-1 text-xs text-gray-500">{(lesson as any).summary}</p>
+                      )}
                     </li>
                   );
                 })}
