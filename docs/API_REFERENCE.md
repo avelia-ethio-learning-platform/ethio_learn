@@ -146,17 +146,27 @@ Force-verify an account. → `{ "message": "verified" }`
 
 ## 4. Catalog & Courses  (course-service)
 
-### `GET /search?q=&category=&pricing_type=&page=1&limit=12` `[public]`
-Published catalog (cached ~30s). → `{ total, page, items: [courseSummary] }`
+### `GET /search?q=&category=&pricing_type=&sort=&page=1&limit=12` `[public]`
+Published catalog (cached ~30s). → `{ total, page, sort, items: [courseSummary] }`
 
-**`courseSummary`:** `{ id, title, description, category, language, thumbnail_url, pricing_type, price_etb, owner_id, owner_type, published_at }`
+`sort`: `top` *(default — Bayesian-weighted rating: a lone 5★ can't outrank fifty 4.8★)* · `popular` (enrollments) · `new` · `price_asc` · `price_desc`
+
+**`courseSummary`:** `{ id, title, description, category, language, thumbnail_url, pricing_type, price_etb, owner_id, owner_type, published_at, rating_avg, rating_count, enrolled_count }`
+
+### `GET /educators/top?limit=12` `[public]`
+Top-educators leaderboard, ranked by **total rating points** (sum of every star across all their courses), enrollments as tiebreaker.
+→ `[ { educator_id, name, course_count, total_rating_points, rating_count, average_rating, learner_count } ]`
+
+### `GET /educators/:id/profile` `[public]`
+Educator public profile. → `{ educator_id, name, bio, expertise_area, course_count, total_rating_points, rating_count, average_rating, learner_count, courses: [courseSummary] }` (`404` if they have no published courses)
 
 ### `GET /courses/:id` `[public]`
 Full detail. Owners/QO/admin can view their own unpublished courses. Video keys are never exposed.
 ```json
 { ...courseSummary, "status": "published",
+  "instructor_id": "uuid", "instructor_name": "…",   // course author (public)
   "sections": [ { "id", "title", "order", "is_free_preview",
-    "lessons": [ { "id", "title", "duration_seconds", "order", "has_video" } ] } ],
+    "lessons": [ { "id", "title", "summary", "duration_seconds", "order", "has_video" } ] } ],
   // Owner/staff ONLY (null for learners): latest reviewer feedback shown on the course page.
   "review_feedback": { "action": "coach"|"flag"|"approve"|"institution_reject",
                        "notes": "…", "reviewed_at": "ISO" } | null }
@@ -207,11 +217,21 @@ Draft an outline from a prompt and/or uploaded document text (the file is parsed
 // Never 500s: if the AI call fails, it returns an editable starter outline + `note`.
 ```
 
+### `POST /courses/:id/apply-structure` `[jwt: educator | institution_admin | platform_admin]`
+Apply a generated outline in **one atomic call** — sections, lessons and their AI `summary` lines land on the (draft) course together.
+```json
+// request
+{ "sections": [ { "title", "is_free_preview",
+                  "lessons": [ { "title", "summary?", "duration_seconds?" } ] } ] }
+// response
+{ "applied": true, "sections_added": 4, "lessons_added": 12 }
+```
+
 ### Sections & lessons `[jwt: educator]`
 | Endpoint | Body | Result |
 |---|---|---|
 | `POST /courses/:id/sections` | `{ title, is_free_preview, lessons? }` | section |
-| `POST /sections/:id/lessons` | `{ title, video_s3_key?, duration_seconds? }` | lesson |
+| `POST /sections/:id/lessons` | `{ title, summary?, video_s3_key?, duration_seconds? }` | lesson |
 | `PUT /lessons/:id` | `{ title?, duration_seconds?, video_s3_key? }` | lesson |
 | `DELETE /lessons/:id` | — | `{ deleted: true }` |
 | `DELETE /sections/:id` | — | `{ deleted: true }` |
@@ -308,6 +328,14 @@ Mark a lesson complete → updated progress.
 { "course_id": "uuid", "type": "quiz" | "ai_viva" | "project",
   "is_required?": true, "pass_score?": 60, "config?": { } }
 ```
+**Quiz `config`** — MCQ and AI-graded written questions can be mixed, with optional proctoring:
+```json
+{ "proctored?": true,               // webcam single-face check, tab & copy/paste guards
+  "time_limit_minutes?": 30,        // 1–240; auto-submits at zero
+  "questions": [
+    { "kind": "mcq", "prompt": "…", "options": ["…","…"], "correct_index": 0, "points?": 1 },
+    { "kind": "written", "prompt": "…", "guidance?": "what a full answer covers (AI grader only, never shown to learners)", "points?": 2 } ] }
+```
 
 ### `POST /assessments/generate` `[jwt: educator | institution_admin | platform_admin]`  ✨ AI
 ```json
@@ -318,17 +346,37 @@ Mark a lesson complete → updated progress.
 ```
 
 ### `GET /assessments?course_id=<uuid>` `[jwt]` → `[ assessment ]`
-### `POST /assessments/:id/attempts` `[jwt: learner]` — start an attempt → attempt
-### `GET /attempts/mine` `[jwt: learner]` → `[ attempt ]`
+Quiz rows also carry `question_count, written_count, proctored, time_limit_minutes`.
+### `POST /assessments/:id/attempts` `[jwt: learner]` — start an attempt
+Quiz response: `{ attempt_id, questions: [ { index, kind, prompt, options?, points } ], pass_score, proctored, time_limit_minutes, warning_limit, started_at }` — `correct_index` and `guidance` are never sent to learners.
+### `GET /attempts/mine` `[jwt: learner]` → `[ attempt ]` (includes `flagged`, `terminated`)
 ### `PUT /attempts/:id/submit` `[jwt: learner]`
 ```json
-{ "answers?": [0,2,1],   // quiz: selected option indexes
-  "answer?": "text",     // ai_viva: written answer
-  "file_key?": "…" }     // project: uploaded submission key
+{ "responses?": [ { "index": 0, "selected_index": 1 },      // quiz MCQ
+                  { "index": 2, "text": "written answer…" } ], // quiz written → AI-graded
+  "answers?": [0,2,1],          // legacy quiz shape (MCQ-only)
+  "answer?": "text",            // ai_viva
+  "file_key?": "…",             // project
+  "terminated?": true, "termination_reason?": "…" }  // proctor auto-exit (server re-verifies)
+// response: { attempt_id, score, passed, breakdown: [ { index, kind, points, earned,
+//   correct? , ai_score?, ai_feedback? } ], flagged, terminated, termination_reason? }
+// A terminated attempt is failed regardless of score; written answers are graded by AI
+// against the educator's guidance (offline fallback grader if the AI is unavailable).
 ```
 ### `PUT /attempts/:id/review` `[jwt: educator | institution_admin | platform_admin]`
 `{ "passed": true }` — grade a project attempt.
 ### `GET /courses/:id/pending-projects` `[jwt: educator | …]` → `[ { attempt_id, submitted_at, download_url } ]`
+
+### Proctoring 📹
+The exam room (frontend) runs on-device face detection (MediaPipe, served from `/public` — no third-party calls), tab-switch and copy/paste guards. Each violation type gets **3 warnings**; the 3rd strike of one type auto-exits and flags the exam. Every violation captures a webcam snapshot.
+
+- `POST /attempts/:id/proctor-events` `[jwt: learner]` — record a violation during the exam.
+  `{ "type": "no_face"|"multiple_faces"|"tab_switch"|"copy_paste", "description": "…", "screenshot_base64?": "…(JPEG ≤ ~95KB, stored in S3)" }`
+  → `{ recorded, type, count, remaining, terminate }` (`terminate: true` on the 3rd of a type — also enforced server-side at submit)
+- `GET /attempts/:id/proctor-report` `[jwt: own learner | course owner/creator | institution_admin | QO | platform_admin]`
+  → `{ score, passed, flagged, terminated, termination_reason, warning_limit, breakdown, events: [ { type, description, at, screenshot_url } ] }` (screenshot URLs are signed, 15 min)
+- `GET /courses/:id/attempts` `[jwt: educator | institution_admin | QO | platform_admin]` — exam-results table
+  → `[ { attempt_id, assessment_type, proctored, learner_id, learner_name, learner_email, score, passed, flagged, terminated, violation_count, started_at, submitted_at } ]`
 
 ### Certificates
 - `GET /me/certificates` `[jwt: learner]` → `[ { id, course_title, issued_at, verify_url } ]`
@@ -342,6 +390,7 @@ Mark a lesson complete → updated progress.
 
 ### `POST /courses/:id/reviews` `[jwt: learner]`
 Eligible at ≥ 20 % progress. `{ "rating": 1-5, "comment?": "…(≤2000)" }`
+Publishes `CourseRated` — the course service caches `rating_avg / rating_count / rating_points` on the course row, which drives catalog ranking and the educator leaderboard.
 
 ### `GET /courses/:id/reviews` `[public]`
 Learner ratings & comments — shown on the course page and to the educator & institution admin.
@@ -372,6 +421,26 @@ Learner ratings & comments — shown on the course page and to the educator & in
 ### `GET /notification-preferences/:userId` → `{ marketing_opt_out }`
 ### `PUT /notification-preferences/:userId` — `{ marketing_opt_out: true }`
 ### `GET /admin/notifications` `[jwt: platform_admin]` → delivery log
+
+### Course discussion 💬 (notification-service)
+Threaded comments under a course — `parent_id` may point at any comment **or reply** (arbitrary depth).
+
+- `GET /courses/:id/comments` `[public]` → flat list, client builds the tree:
+  `[ { id, parent_id, author_id, author_name, author_role, body, deleted, created_at } ]` (deleted rows keep the thread shape, body blanked)
+- `POST /courses/:id/comments` `[jwt]` — `{ body (≤4000), parent_id? }`.
+  Learners must be enrolled; educators/staff may always post. Replies notify the parent author's inbox; new threads notify the course author.
+- `DELETE /comments/:id` `[jwt: author | QO | platform_admin]` → soft delete
+
+### Direct messages 💬 (notification-service) `[jwt]`
+1:1 conversations between anyone — learners, instructors, institution and platform staff.
+
+- `GET /messages/threads` → `[ { thread_id, peer: { id, name, role }, last_preview, last_message_at, unread } ]`
+- `POST /messages/threads` — `{ recipient_id }` → find-or-create the thread (self-DM is a `400`)
+- `GET /messages/threads/:id` → `{ thread, messages: [ { id, sender_id, mine, body, created_at } ] }` — opening marks your side read
+- `POST /messages/threads/:id` — `{ body (≤4000) }` → the sent message (bumps the peer's unread count)
+- `GET /messages/unread-count` → `{ unread }` (header badge)
+
+Find people to message with `GET /profiles/directory?q=` `[jwt]` (auth-service): partial name or **exact** email, ≥2 chars → `[ { id, name, role } ]` (max 20; emails/phones never exposed).
 
 ---
 
