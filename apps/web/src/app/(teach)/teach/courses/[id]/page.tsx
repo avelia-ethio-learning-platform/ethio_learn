@@ -143,6 +143,8 @@ function ManageCourse({ courseId }: { courseId: string }) {
 
       <AssessmentManager courseId={courseId} />
 
+      <ExamResults courseId={courseId} />
+
       {pendingProjects && pendingProjects.length > 0 && (
         <div className="card">
           <h2 className="font-semibold">Project submissions awaiting review</h2>
@@ -290,12 +292,18 @@ function StructureGenerator({ courseId, title, onDone }: { courseId: string; tit
     if (!draft) return;
     setBusy(true);
     try {
-      for (const s of draft) {
-        const section = await api<{ id: string }>(`/courses/${courseId}/sections`, { method: 'POST', body: { title: s.title, is_free_preview: !!s.is_free_preview } });
-        for (const l of s.lessons ?? []) {
-          await api(`/sections/${section.id}/lessons`, { method: 'POST', body: { title: l.title, duration_seconds: 0 } });
-        }
-      }
+      // One atomic call: sections + lessons + AI summaries land together.
+      const res = await api<{ sections_added: number; lessons_added: number }>(`/courses/${courseId}/apply-structure`, {
+        method: 'POST',
+        body: {
+          sections: draft.map((s: any) => ({
+            title: s.title,
+            is_free_preview: !!s.is_free_preview,
+            lessons: (s.lessons ?? []).map((l: any) => ({ title: l.title, summary: l.summary || undefined, duration_seconds: 0 })),
+          })),
+        },
+      });
+      setNote(`Added ${res.sections_added} sections with ${res.lessons_added} lessons (AI summaries included).`);
       setDraft(null);
       setOpen(false);
       onDone();
@@ -422,7 +430,7 @@ function AddLesson({ sectionId, onDone }: { sectionId: string; onDone: () => voi
   );
 }
 
-interface QDraft { prompt: string; options: string[]; correct_index: number; }
+interface QDraft { kind: 'mcq' | 'written'; prompt: string; options: string[]; correct_index: number; guidance: string; points: number; }
 
 function AssessmentManager({ courseId }: { courseId: string }) {
   const queryClient = useQueryClient();
@@ -432,6 +440,8 @@ function AssessmentManager({ courseId }: { courseId: string }) {
   const [questions, setQuestions] = useState<QDraft[]>([]);
   const [topic, setTopic] = useState('');
   const [count, setCount] = useState(5);
+  const [proctored, setProctored] = useState(false);
+  const [timeLimit, setTimeLimit] = useState<number | ''>('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const [vivaTopic, setVivaTopic] = useState('');
@@ -440,8 +450,8 @@ function AssessmentManager({ courseId }: { courseId: string }) {
   const generate = async () => {
     setBusy(true); setNote('');
     try {
-      const res = await api<{ questions: QDraft[]; ai_live: boolean }>(`/assessments/generate`, { method: 'POST', body: { course_id: courseId, topic, count } });
-      setQuestions((q) => [...q, ...res.questions]);
+      const res = await api<{ questions: any[]; ai_live: boolean }>(`/assessments/generate`, { method: 'POST', body: { course_id: courseId, topic, count } });
+      setQuestions((q) => [...q, ...res.questions.map((g) => ({ kind: 'mcq' as const, prompt: g.prompt, options: g.options, correct_index: g.correct_index, guidance: '', points: 1 }))]);
       if (!res.ai_live) setNote('Using the offline placeholder generator (set GROQ_API_KEY for real AI questions).');
     } catch (err) { setNote((err as Error).message); }
     setBusy(false);
@@ -453,11 +463,19 @@ function AssessmentManager({ courseId }: { courseId: string }) {
       let config: any = {};
       if (type === 'quiz') {
         if (!questions.length) { setNote('Add or generate at least one question.'); setBusy(false); return; }
-        config = { questions };
+        config = {
+          questions: questions.map((q) =>
+            q.kind === 'written'
+              ? { kind: 'written', prompt: q.prompt, guidance: q.guidance || undefined, points: q.points }
+              : { kind: 'mcq', prompt: q.prompt, options: q.options, correct_index: q.correct_index, points: q.points },
+          ),
+          proctored,
+          time_limit_minutes: timeLimit === '' ? null : timeLimit,
+        };
       } else if (type === 'ai_viva') config = { topic_context: vivaTopic };
       else config = { instructions: projectInstr };
       await api('/assessments', { method: 'POST', body: { course_id: courseId, type, pass_score: passScore, is_required: true, config } });
-      setQuestions([]); setTopic(''); setVivaTopic(''); setProjectInstr('');
+      setQuestions([]); setTopic(''); setVivaTopic(''); setProjectInstr(''); setProctored(false); setTimeLimit('');
       setNote('Assessment saved.');
       queryClient.invalidateQueries({ queryKey: ['assessments', courseId] });
     } catch (err) { setNote((err as Error).message); }
@@ -468,7 +486,17 @@ function AssessmentManager({ courseId }: { courseId: string }) {
     <div className="card">
       <h2 className="font-semibold">Assessments</h2>
       <ul className="mt-2 space-y-1 text-sm text-gray-600">
-        {assessments?.map((a) => <li key={a.id} className="capitalize">{a.type.replace('_', ' ')} · pass ≥ {a.pass_score}{a.is_required ? ' · required' : ''}</li>)}
+        {assessments?.map((a) => (
+          <li key={a.id} className="capitalize">
+            {a.type.replace('_', ' ')} · pass ≥ {a.pass_score}{a.is_required ? ' · required' : ''}
+            {a.type === 'quiz' && (
+              <span className="normal-case">
+                {' '}· {a.question_count} Q{(a.written_count ?? 0) > 0 ? ` (${a.written_count} written, AI-graded)` : ''}
+                {a.proctored ? ' · 📹 proctored' : ''}{a.time_limit_minutes ? ` · ⏱ ${a.time_limit_minutes} min` : ''}
+              </span>
+            )}
+          </li>
+        ))}
         {!assessments?.length && <li className="text-gray-400">None yet — certificates issue on lesson completion alone.</li>}
       </ul>
 
@@ -484,6 +512,14 @@ function AssessmentManager({ courseId }: { courseId: string }) {
 
         {type === 'quiz' && (
           <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3 rounded bg-gray-50 p-2 text-sm">
+              <label className="flex items-center gap-1.5 font-medium">
+                <input type="checkbox" checked={proctored} onChange={(e) => setProctored(e.target.checked)} />
+                📹 Proctored exam
+              </label>
+              <label>⏱ Time limit (min) <input type="number" min={1} max={240} value={timeLimit} onChange={(e) => setTimeLimit(e.target.value === '' ? '' : +e.target.value)} className="input w-20" placeholder="none" /></label>
+              {proctored && <span className="text-xs text-gray-500">Camera single-face check, tab & copy/paste guards, 3 warnings each, snapshot per flag</span>}
+            </div>
             <div className="flex flex-wrap items-center gap-2 rounded bg-brand-50 p-2">
               <span className="text-sm font-medium">✨ Generate with AI:</span>
               <input className="input flex-1" placeholder="Topic (e.g. HTML basics)" value={topic} onChange={(e) => setTopic(e.target.value)} />
@@ -493,22 +529,44 @@ function AssessmentManager({ courseId }: { courseId: string }) {
             {questions.map((q, qi) => (
               <div key={qi} className="rounded border p-2">
                 <div className="flex items-center gap-2">
+                  <select
+                    className="input w-28 text-xs"
+                    value={q.kind}
+                    onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, kind: e.target.value as QDraft['kind'] } : x)))}
+                  >
+                    <option value="mcq">MCQ</option>
+                    <option value="written">Written</option>
+                  </select>
                   <input className="input flex-1 text-sm" value={q.prompt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, prompt: e.target.value } : x)))} placeholder="Question prompt" />
+                  <label className="text-xs text-gray-500">pts <input type="number" min={1} max={100} value={q.points} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, points: Math.max(1, +e.target.value || 1) } : x)))} className="input w-14" /></label>
                   <button className="text-xs text-red-600" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}>✕</button>
                 </div>
-                <div className="mt-1 space-y-1">
-                  {q.options.map((opt, oi) => (
-                    <div key={oi} className="flex items-center gap-2">
-                      <input type="radio" name={`correct-${qi}`} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
-                      <input className="input flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} />
-                      <button className="text-xs text-red-600" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}>✕</button>
-                    </div>
-                  ))}
-                  <button className="text-xs text-brand-700" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: [...x.options, ''] } : x)))}>+ option</button>
-                </div>
+                {q.kind === 'mcq' ? (
+                  <div className="mt-1 space-y-1">
+                    {q.options.map((opt, oi) => (
+                      <div key={oi} className="flex items-center gap-2">
+                        <input type="radio" name={`correct-${qi}`} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
+                        <input className="input flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} />
+                        <button className="text-xs text-red-600" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}>✕</button>
+                      </div>
+                    ))}
+                    <button className="text-xs text-brand-700" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: [...x.options, ''] } : x)))}>+ option</button>
+                  </div>
+                ) : (
+                  <textarea
+                    className="input mt-1 text-xs"
+                    rows={2}
+                    value={q.guidance}
+                    onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, guidance: e.target.value } : x)))}
+                    placeholder="Marking guidance for the AI grader (what a full answer covers) — never shown to learners"
+                  />
+                )}
               </div>
             ))}
-            <button className="text-sm text-brand-700" onClick={() => setQuestions((qs) => [...qs, { prompt: '', options: ['', ''], correct_index: 0 }])}>+ Add question manually</button>
+            <div className="flex gap-3">
+              <button className="text-sm text-brand-700" onClick={() => setQuestions((qs) => [...qs, { kind: 'mcq', prompt: '', options: ['', ''], correct_index: 0, guidance: '', points: 1 }])}>+ Add MCQ</button>
+              <button className="text-sm text-brand-700" onClick={() => setQuestions((qs) => [...qs, { kind: 'written', prompt: '', options: [], correct_index: 0, guidance: '', points: 2 }])}>+ Add written question (AI-graded)</button>
+            </div>
           </div>
         )}
         {type === 'ai_viva' && <textarea className="input" rows={2} placeholder="Topic context the AI uses to generate the viva question" value={vivaTopic} onChange={(e) => setVivaTopic(e.target.value)} />}
@@ -517,6 +575,137 @@ function AssessmentManager({ courseId }: { courseId: string }) {
         {note && <p className="text-xs text-amber-700">{note}</p>}
         <button className="btn" disabled={busy} onClick={save}>Save assessment</button>
       </div>
+    </div>
+  );
+}
+
+/** Exam results across the course's assessments, with proctoring flag reports. */
+function ExamResults({ courseId }: { courseId: string }) {
+  const { data: rows } = useQuery({
+    queryKey: ['course-attempts', courseId],
+    queryFn: () => api<any[]>(`/courses/${courseId}/attempts`),
+  });
+  const [report, setReport] = useState<any | null>(null);
+  const [reportFor, setReportFor] = useState<any | null>(null);
+
+  if (!rows?.length) return null;
+
+  const openReport = async (row: any) => {
+    setReportFor(row);
+    setReport(null);
+    try {
+      setReport(await api(`/attempts/${row.attempt_id}/proctor-report`));
+    } catch (err) {
+      setReport({ error: (err as Error).message });
+    }
+  };
+
+  return (
+    <div className="card">
+      <h2 className="font-semibold">Exam results</h2>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b text-xs text-gray-500">
+              <th className="py-1 pr-3">Learner</th>
+              <th className="py-1 pr-3">Type</th>
+              <th className="py-1 pr-3">Score</th>
+              <th className="py-1 pr-3">Result</th>
+              <th className="py-1 pr-3">Proctoring</th>
+              <th className="py-1 pr-3">Submitted</th>
+              <th className="py-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.attempt_id} className="border-b last:border-0">
+                <td className="py-1.5 pr-3">{r.learner_name}</td>
+                <td className="py-1.5 pr-3 capitalize">{String(r.assessment_type ?? '').replace('_', ' ')}{r.proctored ? ' 📹' : ''}</td>
+                <td className="py-1.5 pr-3">{r.score ?? '—'}%</td>
+                <td className="py-1.5 pr-3">
+                  {r.terminated ? (
+                    <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">auto-exited</span>
+                  ) : r.passed === null ? (
+                    <span className="text-xs text-gray-400">pending</span>
+                  ) : r.passed ? (
+                    <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800">passed</span>
+                  ) : (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">failed</span>
+                  )}
+                </td>
+                <td className="py-1.5 pr-3">
+                  {r.flagged ? (
+                    <span className="text-xs font-medium text-red-600">🚩 {r.violation_count} flag{r.violation_count !== 1 ? 's' : ''}</span>
+                  ) : (
+                    <span className="text-xs text-gray-400">clean</span>
+                  )}
+                </td>
+                <td className="py-1.5 pr-3 text-xs text-gray-500">{r.submitted_at ? new Date(r.submitted_at).toLocaleString() : 'in progress'}</td>
+                <td className="py-1.5 text-right">
+                  <button className="text-xs text-brand-700 underline" onClick={() => openReport(r)}>Report</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {reportFor && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={() => setReportFor(null)}>
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="font-semibold">Attempt report — {reportFor.learner_name}</h3>
+                <p className="text-xs text-gray-500">{reportFor.learner_email}</p>
+              </div>
+              <button className="text-gray-400 hover:text-gray-600" onClick={() => setReportFor(null)}>✕</button>
+            </div>
+            {!report && <p className="mt-3 text-sm text-gray-500">Loading…</p>}
+            {report?.error && <p className="mt-3 text-sm text-red-600">{report.error}</p>}
+            {report && !report.error && (
+              <div className="mt-3 space-y-4 text-sm">
+                <p>
+                  Score <b>{report.score ?? '—'}%</b> · {report.terminated ? <b className="text-red-700">exam auto-exited: {report.termination_reason}</b> : report.passed ? 'passed' : 'not passed'}
+                </p>
+                {report.breakdown && (
+                  <div>
+                    <h4 className="font-medium">Per-question</h4>
+                    <ul className="mt-1 space-y-1">
+                      {report.breakdown.map((b: any) => (
+                        <li key={b.index} className="rounded border p-2">
+                          Q{b.index + 1} ({b.kind}) — {b.earned}/{b.points} pts
+                          {b.kind === 'written' && b.ai_feedback && <p className="mt-0.5 text-xs text-gray-600">AI: {b.ai_score}% — {b.ai_feedback}</p>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div>
+                  <h4 className="font-medium">Proctoring flags ({report.events?.length ?? 0})</h4>
+                  {!report.events?.length && <p className="mt-1 text-xs text-gray-500">No violations recorded.</p>}
+                  <ul className="mt-1 space-y-2">
+                    {report.events?.map((e: any, i: number) => (
+                      <li key={i} className="flex gap-3 rounded border p-2">
+                        {e.screenshot_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={e.screenshot_url} alt="flag snapshot" className="h-16 w-24 shrink-0 rounded object-cover" />
+                        ) : (
+                          <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded bg-gray-100 text-[10px] text-gray-400">no image</div>
+                        )}
+                        <div>
+                          <p className="font-medium">{e.type.replace('_', ' ')}</p>
+                          <p className="text-xs text-gray-600">{e.description}</p>
+                          <p className="text-[10px] text-gray-400">{new Date(e.at).toLocaleString()}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

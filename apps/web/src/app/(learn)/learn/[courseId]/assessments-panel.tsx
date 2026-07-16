@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
@@ -10,9 +11,13 @@ interface AssessmentSummary {
   is_required: boolean;
   pass_score: number;
   question_count?: number;
+  written_count?: number;
+  proctored?: boolean;
+  time_limit_minutes?: number | null;
 }
 
 export function AssessmentsPanel({ courseId }: { courseId: string }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { data: assessments } = useQuery({
     queryKey: ['assessments', courseId],
@@ -28,6 +33,11 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
 
   const start = async (assessment: AssessmentSummary) => {
     setMessage('');
+    if (assessment.type === 'quiz') {
+      // Quizzes run in the dedicated exam room (proctoring, timer, written answers).
+      router.push(`/learn/${courseId}/exam/${assessment.id}`);
+      return;
+    }
     try {
       const res = await api<any>(`/assessments/${assessment.id}/attempts`, { method: 'POST' });
       setActive({ ...res, assessment });
@@ -56,15 +66,23 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
       <h3 className="font-semibold">Assessments</h3>
       <ul className="mt-2 space-y-2 text-sm">
         {assessments.map((a) => (
-          <li key={a.id} className="flex items-center justify-between">
+          <li key={a.id} className="flex items-center justify-between gap-2">
             <span className="capitalize">
-              {a.type.replace('_', ' ')} {a.is_required && <span className="text-xs text-gray-400">(required for certificate)</span>}
+              {a.type.replace('_', ' ')}
+              {a.type === 'quiz' && (
+                <span className="ml-1 text-xs normal-case text-gray-500">
+                  {a.question_count} Q{(a.written_count ?? 0) > 0 ? ` · ${a.written_count} written` : ''}
+                  {a.proctored ? ' · 📹 proctored' : ''}
+                  {a.time_limit_minutes ? ` · ⏱ ${a.time_limit_minutes} min` : ''}
+                </span>
+              )}{' '}
+              {a.is_required && <span className="text-xs text-gray-400">(required for certificate)</span>}
             </span>
             {passed(a.id) ? (
               <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">Passed ✓</span>
             ) : (
               <button className="btn-secondary text-xs" onClick={() => start(a)}>
-                Start
+                {a.type === 'quiz' ? 'Start exam →' : 'Start'}
               </button>
             )}
           </li>
@@ -72,33 +90,8 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
       </ul>
       {message && <p className="mt-3 text-sm text-brand-800">{message}</p>}
 
-      {active?.assessment.type === 'quiz' && <QuizForm attempt={active} onSubmit={finish} />}
       {active?.assessment.type === 'ai_viva' && <VivaForm attempt={active} onSubmit={finish} />}
       {active?.assessment.type === 'project' && <ProjectForm attempt={active} onSubmit={finish} />}
-    </div>
-  );
-}
-
-function QuizForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => void }) {
-  const [answers, setAnswers] = useState<number[]>(new Array(attempt.questions.length).fill(-1));
-  return (
-    <div className="mt-4 space-y-4 border-t pt-4">
-      {attempt.questions.map((q: any, i: number) => (
-        <div key={i}>
-          <p className="text-sm font-medium">{i + 1}. {q.prompt}</p>
-          <div className="mt-1 space-y-1">
-            {q.options.map((opt: string, j: number) => (
-              <label key={j} className="flex items-center gap-2 text-sm">
-                <input type="radio" name={`q${i}`} checked={answers[i] === j} onChange={() => setAnswers((prev) => prev.map((v, k) => (k === i ? j : v)))} />
-                {opt}
-              </label>
-            ))}
-          </div>
-        </div>
-      ))}
-      <button className="btn" disabled={answers.includes(-1)} onClick={() => onSubmit({ answers })}>
-        Submit quiz
-      </button>
     </div>
   );
 }
