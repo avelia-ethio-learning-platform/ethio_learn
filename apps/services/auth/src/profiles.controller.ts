@@ -9,6 +9,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
@@ -125,6 +126,28 @@ export class ProfilesController {
       educator_profile: educatorProfile,
       institution,
     };
+  }
+
+  /**
+   * People directory for starting a direct message: search by name (partial)
+   * or email (exact). Returns id/name/role only — no emails or phone numbers
+   * are exposed unless the caller already typed the exact address.
+   */
+  @Get('profiles/directory')
+  @Roles()
+  async directory(@CurrentUser() ctx: UserContext, @Query('q') q?: string) {
+    const term = (q ?? '').trim();
+    if (term.length < 2) return [];
+    const qb = this.users
+      .createQueryBuilder('u')
+      .select(['u.id', 'u.name', 'u.role'])
+      .where('u.id != :me', { me: ctx.id })
+      .andWhere("u.status = 'active'")
+      .andWhere('(u.name ILIKE :like OR lower(u.email) = lower(:exact))', { like: `%${term}%`, exact: term })
+      .orderBy('u.name', 'ASC')
+      .take(20);
+    const rows = await qb.getMany();
+    return rows.map((u) => ({ id: u.id, name: u.name, role: u.role }));
   }
 
   @Put('profiles/me')

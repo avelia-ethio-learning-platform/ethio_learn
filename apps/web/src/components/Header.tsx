@@ -2,10 +2,31 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { setAuth } from '@/lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { api, setAuth } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { NotificationBell } from './NotificationBell';
+
+/** Messages nav link with a live unread badge. */
+function MessagesLink() {
+  const { data } = useQuery({
+    queryKey: ['dm-unread'],
+    queryFn: () => api<{ unread: number }>('/messages/unread-count'),
+    refetchInterval: 20_000,
+  });
+  const unread = data?.unread ?? 0;
+  return (
+    <Link href="/messages" className="relative text-gray-600 hover:text-brand-700" title="Direct messages">
+      💬
+      {unread > 0 && (
+        <span className="absolute -right-2 -top-1.5 rounded-full bg-red-600 px-1 text-[10px] font-bold leading-4 text-white">
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+    </Link>
+  );
+}
 
 export function Header() {
   const { user, ready } = useAuth();
@@ -44,6 +65,7 @@ export function Header() {
           <button onClick={toggle} className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-600 hover:border-brand-600">
             {t('lang_name')}
           </button>
+          {ready && user && <MessagesLink />}
           {ready && user && <NotificationBell />}
           {ready && !user && (
             <>

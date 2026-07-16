@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { buildTypeOrmOptions, EventBusModule, HealthController } from '@ethiopialearn/common';
-import { InboxNotification, NotificationLog, NotificationPreference } from './entities';
+import { buildTypeOrmOptions, EventBusModule, HealthController, InternalHttpClient } from '@ethiopialearn/common';
+import { CourseComment, DmMessage, DmThread, InboxNotification, NotificationLog, NotificationPreference } from './entities';
 import { EMAIL_PROVIDER, emailProviderClass } from './email.provider';
 import { NotificationService } from './notification.service';
 import { NotificationController } from './controllers';
+import { CommunityService } from './community.service';
+import { CommunityController } from './community.controller';
 
-const entities = [NotificationLog, NotificationPreference, InboxNotification];
+const entities = [NotificationLog, NotificationPreference, InboxNotification, CourseComment, DmThread, DmMessage];
 
 @Module({
   imports: [
@@ -14,7 +16,7 @@ const entities = [NotificationLog, NotificationPreference, InboxNotification];
     TypeOrmModule.forFeature(entities),
     EventBusModule.forRoot({ serviceName: 'notification' }),
   ],
-  controllers: [NotificationController, HealthController],
-  providers: [{ provide: EMAIL_PROVIDER, useClass: emailProviderClass() }, NotificationService],
+  controllers: [NotificationController, CommunityController, HealthController],
+  providers: [{ provide: EMAIL_PROVIDER, useClass: emailProviderClass() }, NotificationService, CommunityService, InternalHttpClient],
 })
 export class AppModule {}
