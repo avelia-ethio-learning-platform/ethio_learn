@@ -54,6 +54,18 @@ export class AssessmentAttempt {
   @Column({ type: 'jsonb', default: {} })
   detail: Record<string, any>;
 
+  /** true once any proctoring violation was recorded — surfaces in educator views. */
+  @Column({ default: false })
+  flagged: boolean;
+
+  /** true when the exam was force-ended (3rd violation of one type) — fails regardless of score. */
+  @Column({ default: false })
+  terminated: boolean;
+
+  /** Proctoring violations: [{type, description, at, screenshot_key|null}]. */
+  @Column({ type: 'jsonb', default: [] })
+  proctor_log: { type: string; description: string; at: string; screenshot_key: string | null }[];
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

@@ -13,6 +13,11 @@ export interface VivaEvaluation {
   feedback: string;
 }
 
+export interface WrittenGrade {
+  score: number; // 0-100
+  feedback: string;
+}
+
 export interface PlagiarismResult {
   similarity_score: number; // 0-100
   flagged: boolean;
@@ -51,6 +56,8 @@ export interface CourseStructureInput {
 export interface AiAssessor {
   generateVivaQuestion(courseTitle: string, topicContext: string): Promise<string>;
   evaluateVivaAnswer(question: string, answer: string): Promise<VivaEvaluation>;
+  /** Grade an exam written answer against the question (and optional educator guidance). */
+  gradeWrittenAnswer(question: string, answer: string, guidance?: string, courseTitle?: string): Promise<WrittenGrade>;
   /** Screen a listing for spam / fabrication and near-duplication of `corpus` (existing catalog). */
   plagiarismCheck(title: string, description: string, corpus?: string[]): Promise<PlagiarismResult>;
   /** Generate `count` multiple-choice questions on a topic. */
@@ -84,6 +91,22 @@ export class MockAiAssessor implements AiAssessor {
         score >= 60
           ? '[mock evaluator] Substantive answer demonstrating engagement with the material.'
           : '[mock evaluator] Answer too brief — explain the concept in more depth.',
+    };
+  }
+
+  async gradeWrittenAnswer(question: string, answer: string, guidance?: string): Promise<WrittenGrade> {
+    const words = answer.trim().split(/\s+/).filter(Boolean).length;
+    // Offline heuristic: length + naive keyword overlap with the question/guidance.
+    const keywords = `${question} ${guidance ?? ''}`.toLowerCase().match(/[a-z]{5,}/g) ?? [];
+    const hit = keywords.filter((k) => answer.toLowerCase().includes(k)).length;
+    const overlap = keywords.length ? hit / keywords.length : 0.5;
+    const score = Math.min(100, Math.round(Math.min(1, words / 40) * 60 + overlap * 40));
+    return {
+      score,
+      feedback:
+        score >= 60
+          ? '[mock grader] Answer addresses the question with reasonable depth.'
+          : '[mock grader] Answer is too brief or off-topic — address the question directly and in more depth.',
     };
   }
 
@@ -169,6 +192,15 @@ export class GroqAiAssessor implements AiAssessor {
       `Question: ${question}\n\nLearner answer: ${answer}`,
     );
     const p = this.parseJson<VivaEvaluation>(raw);
+    return { score: Math.max(0, Math.min(100, Math.round(p.score))), feedback: p.feedback };
+  }
+
+  async gradeWrittenAnswer(question: string, answer: string, guidance?: string, courseTitle?: string): Promise<WrittenGrade> {
+    const raw = await this.chat(
+      'You grade written exam answers strictly but fairly. Award marks for correctness, completeness and understanding — not length. Reply with JSON {"score": 0-100, "feedback": "2-3 sentences addressed to the learner explaining the mark and what a full answer needed"}.',
+      `${courseTitle ? `Course: ${courseTitle}\n` : ''}Exam question: ${question}\n${guidance ? `Educator marking guidance (what a good answer covers): ${guidance}\n` : ''}\nLearner's answer:\n${answer.slice(0, 6000)}`,
+    );
+    const p = this.parseJson<WrittenGrade>(raw);
     return { score: Math.max(0, Math.min(100, Math.round(p.score))), feedback: p.feedback };
   }
 

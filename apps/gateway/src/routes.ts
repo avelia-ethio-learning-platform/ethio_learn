@@ -39,6 +39,14 @@ export const ROUTES: RouteRule[] = [
   { pattern: /^\/api\/v1\/payments\/mock\/complete$/, target: FINANCIAL, auth: 'public' },
   { pattern: /^\/api\/v1\/(payments|refunds|payouts|admin\/payments)\b/, target: FINANCIAL, auth: 'jwt' },
 
+  // ---- community: course discussion + DMs (route BEFORE generic /courses) ----
+  {
+    pattern: /^\/api\/v1\/courses\/[^/]+\/comments$/,
+    target: NOTIFICATION,
+    auth: (method) => (method === 'GET' ? 'public' : 'jwt'),
+  },
+  { pattern: /^\/api\/v1\/(comments|messages)\b/, target: NOTIFICATION, auth: 'jwt' },
+
   // ---- quality & trust (route BEFORE generic /courses) ----
   {
     pattern: /^\/api\/v1\/courses\/[^/]+\/reviews$/,
@@ -48,8 +56,11 @@ export const ROUTES: RouteRule[] = [
   { pattern: /^\/api\/v1\/(qa|fraud)\b/, target: QUALITY, auth: 'jwt' },
   { pattern: /^\/api\/v1\/educators\/[^/]+\/trust-tier$/, target: QUALITY, auth: 'public' },
 
+  // ---- educator rankings & public profiles ----
+  { pattern: /^\/api\/v1\/educators\/(top$|[^/]+\/profile$)/, target: COURSE, auth: 'public' },
+
   // ---- learning outcomes (course-scoped routes BEFORE generic /courses) ----
-  { pattern: /^\/api\/v1\/courses\/[^/]+\/pending-projects$/, target: OUTCOMES, auth: 'jwt' },
+  { pattern: /^\/api\/v1\/courses\/[^/]+\/(pending-projects|attempts)$/, target: OUTCOMES, auth: 'jwt' },
   { pattern: /^\/api\/v1\/(assessments|attempts|me\/certificates)\b/, target: OUTCOMES, auth: 'jwt' },
   { pattern: /^\/api\/v1\/(certificates|verify)\/[^/]+$/, target: OUTCOMES, auth: 'public' },
 

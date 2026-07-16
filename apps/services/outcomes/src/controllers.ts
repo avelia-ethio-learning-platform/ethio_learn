@@ -33,6 +33,11 @@ class SubmitAttemptDto {
   @Type(() => Number)
   answers?: number[];
 
+  /** Mixed-quiz shape: [{index, selected_index}] for MCQ, [{index, text}] for written. */
+  @IsOptional()
+  @IsArray()
+  responses?: { index?: number; selected_index?: number | null; text?: string | null }[];
+
   @IsOptional()
   @IsString()
   answer?: string;
@@ -40,6 +45,30 @@ class SubmitAttemptDto {
   @IsOptional()
   @IsString()
   file_key?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  terminated?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  termination_reason?: string;
+}
+
+class ProctorEventDto {
+  @IsString()
+  @MaxLength(40)
+  type: string;
+
+  @IsString()
+  @MaxLength(500)
+  description: string;
+
+  /** Small JPEG thumbnail (data URI or bare base64), captured at the violation moment. */
+  @IsOptional()
+  @IsString()
+  screenshot_base64?: string;
 }
 
 class ReviewAttemptDto {
@@ -121,6 +150,31 @@ export class OutcomesController {
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   review(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ReviewAttemptDto) {
     return this.assessmentService.reviewAttempt(ctx, id, dto.passed);
+  }
+
+  // ---- Proctoring ----
+
+  @Post('attempts/:id/proctor-events')
+  @UseGuards(RolesGuard)
+  @Roles(Role.LEARNER)
+  proctorEvent(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ProctorEventDto) {
+    return this.assessmentService.recordProctorEvent(ctx, id, dto);
+  }
+
+  /** Flag report with screenshots — learner (own attempt) or course/platform staff. */
+  @Get('attempts/:id/proctor-report')
+  @UseGuards(RolesGuard)
+  @Roles()
+  proctorReport(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+    return this.assessmentService.proctorReport(ctx, id);
+  }
+
+  /** Educator exam-results view: every submitted/flagged attempt on the course. */
+  @Get('courses/:id/attempts')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN, Role.QUALITY_OFFICER)
+  courseAttempts(@CurrentUser() ctx: UserContext, @Param('id') courseId: string) {
+    return this.assessmentService.courseAttempts(ctx, courseId);
   }
 
   @Get('courses/:id/pending-projects')
