@@ -13,7 +13,7 @@ export function Footer() {
     {
       title: t('footer_learn'),
       links: [
-        { label: t('footer_browse'), href: '/' },
+        { label: t('footer_browse'), href: '/courses' },
         { label: t('footer_dashboard'), href: '/dashboard' },
         { label: t('certificates'), href: '/dashboard' },
         { label: t('footer_verify'), href: '/verify/example' },

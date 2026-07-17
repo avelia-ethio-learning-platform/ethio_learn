@@ -48,7 +48,13 @@ export function Header() {
     ],
   };
 
-  const navLinks = [{ href: '/', label: t('courses') }, ...(ready && user ? (roleLinks[user.role] ?? []) : [])];
+  const navLinks = [
+    { href: '/', label: t('home') },
+    { href: '/courses', label: t('courses') },
+    ...(ready && user ? (roleLinks[user.role] ?? []) : []),
+  ];
+
+  const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
 
   const logout = () => {
     setAuth(null);
@@ -88,7 +94,7 @@ export function Header() {
         {/* Desktop nav */}
         <div className="hidden items-center gap-1 lg:flex">
           {navLinks.map((l) => {
-            const active = pathname === l.href;
+            const active = isActive(l.href);
             return (
               <Link
                 key={l.href}
@@ -175,7 +181,7 @@ export function Header() {
                     key={l.href}
                     href={l.href}
                     className={`block rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                      pathname === l.href ? 'bg-brand-500/10 text-brand-600' : 'text-gray-600 hover:bg-brand-500/5 hover:text-brand-600'
+                      isActive(l.href) ? 'bg-brand-500/10 text-brand-600' : 'text-gray-600 hover:bg-brand-500/5 hover:text-brand-600'
                     }`}
                   >
                     {l.label}

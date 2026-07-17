@@ -8,7 +8,11 @@ export interface CourseSummary {
   thumbnail_url: string | null;
   pricing_type: 'free' | 'freemium' | 'paid';
   price_etb: number | null;
+  language?: string | null;
+  published_at?: string | null;
 }
+
+const LANG_LABEL: Record<string, string> = { en: 'EN', am: 'አማ' };
 
 export function priceLabel(course: Pick<CourseSummary, 'pricing_type' | 'price_etb'>): string {
   if (course.pricing_type === 'free') return 'Free';
@@ -53,7 +57,14 @@ export function CourseCard({ course }: { course: CourseSummary }) {
         </span>
       </div>
       <div className="p-5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">{course.category}</p>
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand-600">
+          {course.category}
+          {course.language && (
+            <span className="rounded-md bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-bold tracking-normal">
+              {LANG_LABEL[course.language] ?? course.language.toUpperCase()}
+            </span>
+          )}
+        </p>
         <h3 className="mt-1.5 line-clamp-2 font-semibold leading-snug text-foreground transition-colors group-hover:text-brand-600">
           {course.title}
         </h3>

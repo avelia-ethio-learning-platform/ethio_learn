@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import Link from 'next/link';
 import { motion, type Variants } from 'framer-motion';
 import {
@@ -35,23 +34,8 @@ const stagger: Variants = {
   visible: { opacity: 1, transition: { staggerChildren: 0.12 } },
 };
 
-export function HomeClient({
-  courses,
-  total,
-  searchParams,
-}: {
-  courses: CourseSummary[];
-  total: number;
-  searchParams: { q?: string; category?: string; pricing_type?: string };
-}) {
+export function HomeClient({ courses, total }: { courses: CourseSummary[]; total: number }) {
   const { t } = useT();
-  const hasFilters = Boolean(searchParams.q || searchParams.category || searchParams.pricing_type);
-
-  // When arriving with an active search/filter, jump to the results.
-  useEffect(() => {
-    if (hasFilters) document.getElementById('courses')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const stats = [
     { value: '18+', label: t('stat_payments'), icon: Wallet, gradient: 'from-blue-500 to-blue-600' },
@@ -76,163 +60,196 @@ export function HomeClient({
 
   return (
     <div className="overflow-hidden">
-      {/* ================= HERO (template Header hero) ================= */}
-      <section className="relative flex min-h-[95vh] items-center justify-center px-4 pb-16 pt-32 sm:px-6">
-        {/* Background: gradient + floating orbs + grid */}
+      {/* ================= HERO (contained gradient panel, mirrors the floating nav width) ================= */}
+      <section className="relative px-3 pb-16 pt-24 sm:px-6 md:pt-28">
+        {/* Soft section backdrop behind the panel */}
         <div className="absolute inset-0 -z-10">
-          <div className="absolute inset-0 bg-gradient-to-br from-background via-brand-50/60 to-brand-100/40 transition-colors duration-300 dark:from-background dark:via-blue-950/40 dark:to-slate-800/30" />
-          <motion.div
-            className="absolute -left-32 -top-32 h-80 w-80 rounded-full bg-gradient-to-br from-blue-400/20 to-blue-600/10 blur-3xl dark:from-blue-400/10 dark:to-blue-600/5"
-            animate={{ rotate: 360, scale: [1, 1.1, 1] }}
-            transition={{ rotate: { duration: 25, repeat: Infinity, ease: 'linear' }, scale: { duration: 8, repeat: Infinity, ease: 'easeInOut' } }}
-          />
-          <motion.div
-            className="absolute -right-16 top-24 h-64 w-64 rotate-45 rounded-3xl bg-gradient-to-bl from-blue-500/15 to-blue-700/10 blur-2xl dark:from-blue-500/8 dark:to-blue-700/5"
-            animate={{ rotate: [45, 405], scale: [1, 1.2, 1] }}
-            transition={{ rotate: { duration: 30, repeat: Infinity, ease: 'linear' }, scale: { duration: 10, repeat: Infinity, ease: 'easeInOut' } }}
-          />
-          <div
-            className="absolute inset-0 opacity-[0.03]"
-            style={{
-              backgroundImage:
-                'linear-gradient(rgba(59,130,246,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,.6) 1px, transparent 1px)',
-              backgroundSize: '80px 80px',
-            }}
-          />
+          <div className="absolute inset-0 bg-gradient-to-b from-brand-50/60 via-background to-background transition-colors duration-300 dark:from-blue-950/30" />
+          <div className="absolute -left-32 -top-24 h-72 w-72 rounded-full bg-blue-400/15 blur-3xl dark:bg-blue-500/10" />
+          <div className="absolute -right-24 top-40 h-64 w-64 rounded-full bg-blue-600/10 blur-3xl dark:bg-blue-700/10" />
         </div>
-
         <div className="mx-auto w-full max-w-6xl">
-          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, delay: 0.15 }} className="space-y-8 text-center">
-            {/* Trust badge */}
+          <motion.div
+            initial={{ opacity: 0, y: 28, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            className="relative overflow-hidden rounded-[2rem] shadow-floating sm:rounded-[2.5rem]"
+          >
+            {/* Smooth gradient backdrop */}
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 dark:from-blue-950 dark:via-blue-900 dark:to-indigo-950" />
             <motion.div
-              className="glass-secondary inline-flex items-center gap-3 rounded-full px-6 py-3 shadow-glass"
-              initial={{ opacity: 0, scale: 0.85 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.7, delay: 0.3 }}
-              whileHover={{ scale: 1.03 }}
-            >
-              <span className="flex items-center gap-0.5">
-                {[...Array(5)].map((_, i) => (
-                  <motion.span key={i} initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5 + i * 0.08 }}>
-                    <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                  </motion.span>
-                ))}
-              </span>
-              <span className="gradient-text-blue text-sm font-semibold">{t('hero_badge')}</span>
-              <motion.span
-                className="gradient-bg-blue flex h-6 w-6 items-center justify-center rounded-full"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
-              >
-                <Zap className="h-3 w-3 text-white" />
-              </motion.span>
-            </motion.div>
+              className="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-3xl"
+              animate={{ scale: [1, 1.15, 1] }}
+              transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+            />
+            <motion.div
+              className="absolute -bottom-32 left-1/3 h-96 w-96 rounded-full bg-sky-400/20 blur-3xl"
+              animate={{ scale: [1, 1.2, 1] }}
+              transition={{ duration: 11, repeat: Infinity, ease: 'easeInOut', delay: 1.5 }}
+            />
+            <div
+              className="absolute inset-0 opacity-[0.05]"
+              style={{
+                backgroundImage:
+                  'linear-gradient(rgba(255,255,255,.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.8) 1px, transparent 1px)',
+                backgroundSize: '64px 64px',
+              }}
+            />
+            {/* Ethiopian flag accent */}
+            <span className="gradient-ethiopia absolute inset-x-0 bottom-0 z-10 h-1 opacity-80" />
 
-            {/* Headline with floating icons */}
-            <div className="relative mx-auto max-w-5xl px-2">
-              <h1 className="text-balance text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl">
-                <motion.span className="relative block" initial={{ opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.55 }}>
-                  {t('hero_title_1')}
-                  <motion.span
-                    className="absolute -left-2 -top-6 opacity-40 md:-left-10 md:-top-8"
-                    animate={{ y: [0, -8, 0], rotate: [0, 6, 0] }}
-                    transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-                  >
-                    <BookOpen className="h-6 w-6 text-brand-500 md:h-8 md:w-8" />
-                  </motion.span>
-                  <motion.span
-                    className="absolute -right-2 -top-3 opacity-40 md:-right-8"
-                    animate={{ y: [0, -12, 0], rotate: [0, -6, 0] }}
-                    transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
-                  >
-                    <Rocket className="h-5 w-5 text-brand-600 md:h-6 md:w-6" />
-                  </motion.span>
-                </motion.span>
-                <motion.span
-                  className="gradient-text-blue mt-2 block md:mt-3"
+            <div className="relative z-10 grid items-center gap-10 p-6 py-12 sm:p-10 lg:grid-cols-[1.08fr_0.92fr] lg:gap-12 lg:p-14">
+              {/* Left: copy + actions */}
+              <div className="text-center lg:text-left">
+                <motion.div
+                  className="inline-flex items-center gap-2.5 rounded-full border border-white/20 bg-white/10 px-4 py-2 backdrop-blur-sm"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.6, delay: 0.25 }}
+                >
+                  <span className="flex items-center gap-0.5">
+                    {[...Array(5)].map((_, i) => (
+                      <motion.span key={i} initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 + i * 0.08 }}>
+                        <Star className="h-3.5 w-3.5 fill-amber-300 text-amber-300" />
+                      </motion.span>
+                    ))}
+                  </span>
+                  <span className="text-xs font-semibold text-white sm:text-sm">{t('hero_badge')}</span>
+                </motion.div>
+
+                <motion.h1
+                  className="mt-6 text-balance text-4xl font-extrabold leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-6xl"
                   initial={{ opacity: 0, y: 26 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.7, delay: 0.8 }}
+                  transition={{ duration: 0.7, delay: 0.4 }}
                 >
-                  {t('hero_title_2')}
-                </motion.span>
-              </h1>
-            </div>
-
-            {/* Description */}
-            <motion.p
-              className="mx-auto max-w-3xl text-balance text-base font-light leading-relaxed text-gray-600 sm:text-lg md:text-xl"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 1 }}
-            >
-              {t('hero_sub')}
-            </motion.p>
-
-            {/* Search */}
-            <motion.form
-              action="/#courses"
-              className="glass mx-auto flex w-full max-w-xl items-center gap-2 rounded-2xl p-2 shadow-elevated"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 1.15 }}
-            >
-              <Search className="ml-2 h-5 w-5 shrink-0 text-brand-500" />
-              <input
-                name="q"
-                defaultValue={searchParams.q ?? ''}
-                placeholder={t('search_placeholder')}
-                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-gray-400"
-              />
-              <button className="btn shrink-0">{t('search')}</button>
-            </motion.form>
-
-            {/* CTAs */}
-            <motion.div
-              className="flex flex-col items-center justify-center gap-3 pt-1 sm:flex-row sm:gap-5"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 1.3 }}
-            >
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <a href="#courses" className="btn !rounded-2xl !px-8 !py-4 !text-base">
-                  {t('explore_courses')}
-                  <motion.span animate={{ x: [0, 4, 0] }} transition={{ duration: 1.5, repeat: Infinity }}>
-                    <ArrowRight className="h-5 w-5" />
-                  </motion.span>
-                </a>
-              </motion.div>
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Link href="/signup?role=educator" className="btn-secondary !rounded-2xl !px-8 !py-4 !text-base">
-                  {t('become_educator')}
-                </Link>
-              </motion.div>
-            </motion.div>
-
-            {/* Stats */}
-            <motion.div
-              className="mx-auto grid max-w-4xl grid-cols-1 gap-5 pt-10 sm:grid-cols-3 md:gap-7"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 1, delay: 1.5 }}
-            >
-              {stats.map((stat, i) => (
-                <motion.div
-                  key={stat.label}
-                  className="glass-heavy rounded-2xl p-6 text-center"
-                  initial={{ opacity: 0, y: 24 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.55, delay: 1.6 + i * 0.12 }}
-                  whileHover={{ y: -5 }}
-                >
-                  <span className={`mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-r ${stat.gradient}`}>
-                    <stat.icon className="h-5 w-5 text-white" />
+                  {t('hero_title_1')}{' '}
+                  <span className="block bg-gradient-to-r from-sky-200 via-blue-100 to-white bg-clip-text text-transparent">
+                    {t('hero_title_2')}
                   </span>
-                  <p className="gradient-text-blue text-3xl font-extrabold md:text-4xl">{stat.value}</p>
-                  <p className="mt-1 text-sm font-medium text-gray-500">{stat.label}</p>
+                </motion.h1>
+
+                <motion.p
+                  className="mx-auto mt-5 max-w-xl text-balance text-sm font-light leading-relaxed text-blue-100 sm:text-base lg:mx-0"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.7, delay: 0.55 }}
+                >
+                  {t('hero_sub')}
+                </motion.p>
+
+                {/* Search */}
+                <motion.form
+                  action="/courses"
+                  className="mx-auto mt-7 flex w-full max-w-md items-center gap-2 rounded-2xl border border-white/20 bg-white/10 p-2 backdrop-blur-md lg:mx-0"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.7, delay: 0.7 }}
+                >
+                  <Search className="ml-2 h-5 w-5 shrink-0 text-blue-100" />
+                  <input
+                    name="q"
+                    placeholder={t('search_placeholder')}
+                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-blue-200/80"
+                  />
+                  <button className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-blue-700 transition-colors hover:bg-blue-50">
+                    {t('search')}
+                  </button>
+                </motion.form>
+
+                {/* CTAs */}
+                <motion.div
+                  className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.7, delay: 0.85 }}
+                >
+                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                    <Link
+                      href="/courses"
+                      className="inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-3.5 text-base font-bold text-blue-700 shadow-floating transition-colors hover:bg-blue-50"
+                    >
+                      {t('explore_courses')}
+                      <motion.span animate={{ x: [0, 4, 0] }} transition={{ duration: 1.5, repeat: Infinity }}>
+                        <ArrowRight className="h-5 w-5" />
+                      </motion.span>
+                    </Link>
+                  </motion.div>
+                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                    <Link
+                      href="/signup?role=educator"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-white/25 bg-white/10 px-7 py-3.5 text-base font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+                    >
+                      {t('become_educator')}
+                    </Link>
+                  </motion.div>
                 </motion.div>
-              ))}
-            </motion.div>
+              </div>
+
+              {/* Right: student photo with floating chips */}
+              <motion.div
+                initial={{ opacity: 0, x: 36 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.8, delay: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                className="relative mx-auto w-full max-w-md lg:max-w-none"
+              >
+                <div className="relative overflow-hidden rounded-3xl border border-white/25 shadow-floating">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/hero-student.jpg" alt={t('hero_image_alt')} className="h-72 w-full object-cover sm:h-96 lg:h-[440px]" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-blue-950/40 via-transparent to-transparent" />
+                </div>
+
+                <motion.div
+                  className="absolute -left-2 top-6 sm:-left-4"
+                  animate={{ y: [0, -8, 0] }}
+                  transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+                >
+                  <span className="flex items-center gap-2 rounded-2xl bg-white/95 px-4 py-2.5 text-xs font-bold text-slate-900 shadow-floating backdrop-blur sm:text-sm">
+                    <span className="gradient-bg-blue flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
+                      <BadgeCheck className="h-4 w-4 text-white" />
+                    </span>
+                    {t('stat_verifiable')}
+                  </span>
+                </motion.div>
+                <motion.div
+                  className="absolute -right-2 bottom-6 sm:-right-4"
+                  animate={{ y: [0, 8, 0] }}
+                  transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
+                >
+                  <span className="flex items-center gap-2 rounded-2xl bg-white/95 px-4 py-2.5 text-xs font-bold text-slate-900 shadow-floating backdrop-blur sm:text-sm">
+                    <span className="gradient-bg-blue flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
+                      <Wallet className="h-4 w-4 text-white" />
+                    </span>
+                    {t('feature_1_title')}
+                  </span>
+                </motion.div>
+              </motion.div>
+            </div>
+          </motion.div>
+
+          {/* Stats */}
+          <motion.div
+            className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-3 md:gap-7"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1, delay: 0.9 }}
+          >
+            {stats.map((stat, i) => (
+              <motion.div
+                key={stat.label}
+                className="glass-heavy rounded-2xl p-6 text-center"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.55, delay: 1 + i * 0.12 }}
+                whileHover={{ y: -5 }}
+              >
+                <span className={`mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-r ${stat.gradient}`}>
+                  <stat.icon className="h-5 w-5 text-white" />
+                </span>
+                <p className="gradient-text-blue text-3xl font-extrabold md:text-4xl">{stat.value}</p>
+                <p className="mt-1 text-sm font-medium text-gray-500">{stat.label}</p>
+              </motion.div>
+            ))}
           </motion.div>
         </div>
       </section>
@@ -247,14 +264,14 @@ export function HomeClient({
               {total > 0 ? `${total} ${t('courses')}` : t('courses')}
             </motion.span>
             <motion.h2 variants={fadeUp} className="mt-6 text-3xl font-bold text-foreground md:text-5xl">
-              {t('explore_courses')}
+              {t('latest_courses')}
             </motion.h2>
             <motion.p variants={fadeUp} className="mx-auto mt-3 max-w-xl text-gray-500">
               {t('courses_section_sub')}
             </motion.p>
           </motion.div>
 
-          {/* Filters */}
+          {/* Category quick links — full filtering lives on /courses */}
           <motion.div
             className="mt-10 flex flex-wrap items-center justify-center gap-2"
             initial={{ opacity: 0, y: 16 }}
@@ -262,18 +279,9 @@ export function HomeClient({
             viewport={{ once: true }}
             transition={{ duration: 0.5, delay: 0.1 }}
           >
-            <Link href="/#courses" className={!searchParams.category ? 'pill-active' : 'pill'}>
-              {t('all')}
-            </Link>
             {CATEGORIES.map((c) => (
-              <Link key={c} href={`/?category=${c}#courses`} className={searchParams.category === c ? 'pill-active' : 'pill'}>
+              <Link key={c} href={`/courses?category=${c}`} className="pill">
                 {t(`cat_${c}`)}
-              </Link>
-            ))}
-            <span className="mx-2 hidden h-5 w-px sm:block" style={{ background: 'var(--border)' }} />
-            {(['free', 'freemium', 'paid'] as const).map((p) => (
-              <Link key={p} href={`/?pricing_type=${p}#courses`} className={searchParams.pricing_type === p ? 'pill-active' : 'pill'}>
-                {t(p)}
               </Link>
             ))}
           </motion.div>
@@ -307,6 +315,22 @@ export function HomeClient({
                   <CourseCard course={c} />
                 </motion.div>
               ))}
+            </motion.div>
+          )}
+
+          {courses.length > 0 && (
+            <motion.div
+              className="mt-12 text-center"
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+            >
+              <motion.span className="inline-block" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                <Link href="/courses" className="btn !rounded-2xl !px-8 !py-4 !text-base">
+                  {t('view_all_courses')} <ArrowRight className="h-5 w-5" />
+                </Link>
+              </motion.span>
             </motion.div>
           )}
         </div>
@@ -458,9 +482,9 @@ export function HomeClient({
                   {t('get_started')} <ArrowRight className="h-5 w-5" />
                 </Link>
               </motion.div>
-              <a href="#courses" className="btn-secondary !rounded-2xl !px-8 !py-4 !text-base">
+              <Link href="/courses" className="btn-secondary !rounded-2xl !px-8 !py-4 !text-base">
                 {t('explore_courses')}
-              </a>
+              </Link>
             </motion.div>
           </motion.div>
         </div>

@@ -85,7 +85,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
   return (
     <PageShell>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
-      <BackButton fallback="/" label="Browse courses" />
+      <BackButton fallback="/courses" label="Browse courses" />
 
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="animate-fade-in-up lg:col-span-2">

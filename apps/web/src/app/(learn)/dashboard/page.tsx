@@ -40,7 +40,7 @@ function LearnerDashboard() {
           ) : !enrollments?.length ? (
             <div className="card py-8 text-center text-sm text-gray-500">
               Nothing yet —{' '}
-              <Link href="/#courses" className="font-semibold text-brand-600 hover:underline">
+              <Link href="/courses" className="font-semibold text-brand-600 hover:underline">
                 browse the catalog
               </Link>
               .
