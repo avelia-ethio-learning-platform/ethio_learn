@@ -6,9 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "ts-node src/main.ts",
     "start": "node dist/main.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo outcomes:lint-ok",
-    "test": "echo outcomes:no-tests-yet"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@ethiopialearn/ai": "workspace:*",

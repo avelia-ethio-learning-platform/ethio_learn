@@ -7,8 +7,7 @@
     "dev": "next dev",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "lint": "echo web:lint-ok",
-    "test": "echo web:no-tests-yet"
+    "test": "vitest run"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",
@@ -19,12 +18,16 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20.14.9",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.4.19",
+    "happy-dom": "^20.11.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.10"
   }
 }

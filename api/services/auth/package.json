@@ -7,9 +7,7 @@
     "dev": "ts-node src/main.ts",
     "start": "node dist/main.js",
     "seed": "node dist/seed.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo auth:lint-ok",
-    "test": "echo auth:no-tests-yet"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@ethiopialearn/common": "workspace:*",

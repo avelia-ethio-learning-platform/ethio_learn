@@ -9,7 +9,8 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
  */
 export type Locale = 'en' | 'am';
 
-const dict = {
+/** Exported for tests (key-parity check) and future locale tooling. */
+export const dictionaries = {
   en: {
     courses: 'Courses',
     my_learning: 'My Learning',
@@ -96,11 +97,11 @@ const dict = {
   },
 } as const;
 
-export type TKey = keyof (typeof dict)['en'];
+export type TKey = keyof (typeof dictionaries)['en'];
 
 const I18nContext = createContext<{ locale: Locale; t: (k: TKey) => string; toggle: () => void }>({
   locale: 'en',
-  t: (k) => dict.en[k],
+  t: (k) => dictionaries.en[k],
   toggle: () => undefined,
 });
 
@@ -121,7 +122,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const t = useCallback((k: TKey) => dict[locale][k] ?? dict.en[k], [locale]);
+  const t = useCallback((k: TKey) => dictionaries[locale][k] ?? dictionaries.en[k], [locale]);
 
   return <I18nContext.Provider value={{ locale, t, toggle }}>{children}</I18nContext.Provider>;
 }

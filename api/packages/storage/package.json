@@ -1,5 +1,5 @@
 {
-  "name": "@ethiopialearn/ai",
+  "name": "@ethiopialearn/storage",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
@@ -8,7 +8,10 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0"
+  },
   "devDependencies": {
     "@types/node": "^20.14.9",
     "typescript": "^5.4.5"
