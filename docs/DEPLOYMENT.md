@@ -23,7 +23,7 @@ and scaled on its own. This page is the contract that keeps that true.
       └──────────┴─────────┴────┬─────┴───────────┴─────────┴───────┘
                                 │
               PostgreSQL (schema-per-service) · RabbitMQ (events)
-              Redis (gateway rate-limit) · S3/MinIO (media)
+              Redis (refresh-token allowlist) · S3/MinIO (media)
 ```
 
 ## The three communication rules
@@ -49,7 +49,7 @@ by giving it a different `DATABASE_URL`.
 
 | Deployable    | Required                                                                | Notes |
 |---------------|-------------------------------------------------------------------------|-------|
-| gateway       | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `REDIS_URL`, `CORS_ORIGINS`/`WEB_URL`, and one `*_SERVICE_URL` per service | The only place service addresses exist |
+| gateway       | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CORS_ORIGINS`/`WEB_URL`, and one `*_SERVICE_URL` per service | The only place service addresses exist. Rate limits tunable via `RATE_LIMIT_*` (see `api/.env.example`); the limiter store is in-memory — run one gateway instance, or accept per-instance limits when scaling out |
 | every service | `DATABASE_URL`, `RABBITMQ_URL`, `JWT_SECRET`, `INTERNAL_API_TOKEN`, `GATEWAY_INTERNAL_URL`, `PORT` | `GATEWAY_INTERNAL_URL` = gateway's private address |
 | auth          | + `WEB_URL` (verification/invite links)                                 | |
 | course        | + S3 vars, `GROQ_API_KEY` (AI outlines/quiz gen)                        | |

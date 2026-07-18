@@ -17,7 +17,7 @@ Slim multi-stage builds (`node:20-alpine`) are already defined:
 - `api/Dockerfile` — build from the `api/` context; builds any one service via `--build-arg PKG=@ethiopialearn/<name>` and ships only a pruned production `pnpm deploy` (no source, no dev deps, no toolchain). Build all 8 with the same Dockerfile.
 - `web/Dockerfile` — build from the `web/` context; Next.js `output: standalone`, the runtime image carries only the standalone server + static assets.
 
-CI (`.github/workflows/ci.yml`) already lints, type-checks, builds, and builds every image on merge to `main`. Add a registry login + `push` + your deploy step (ECS/Cloud Run `update-service` / `deploy`) where the `TODO` comment is.
+CI/CD (`.github/workflows/ci.yml`) runs on every push/PR: backend build + unit tests, frontend typecheck + tests + build, then a full **e2e job** (docker-compose infra, all 8 services booted, the demo business flow, and API smoke assertions including rate limiting). On merge to `main` it additionally **builds and pushes every image to GHCR** (`ghcr.io/<repo>/<service>:latest` and `:sha`) — point your host's deploy hook at those tags.
 
 ## Required infrastructure (managed services in prod)
 
@@ -44,7 +44,7 @@ All config is via env vars (see `api/.env.example`). The services read `api/.env
 
 - The **API gateway is the only service exposed to the internet.** Put the 7 domain services on a private network/subnet; the gateway reaches them by service name. They trust the gateway's `x-user-*` / `x-internal-token` headers, so they must never be directly reachable.
 - Terminate TLS at a load balancer / nginx / Caddy in front of the gateway and the web app.
-- Rate limiting, Helmet, and CORS are already applied at the gateway; set `WEB_URL` so CORS allows your real origin.
+- Rate limiting, Helmet, and CORS are applied at the gateway; set `WEB_URL` so CORS allows your real origin. Limits are bucketed by risk (strict on login/signup/reset, AI endpoints, comment/DM writes, payment initiation; general cap on everything) and keyed **per authenticated user**, falling back to per-IP for anonymous traffic — tune with the `RATE_LIMIT_*` env vars in `api/.env.example`. The limiter store is in-memory: with more than one gateway replica each replica enforces its own window (fine for launch; move to a shared Redis store if you scale the gateway horizontally).
 
 ## Database migrations
 

@@ -25,7 +25,8 @@ x-service-env: &service-env
   RESEND_API_KEY: ${RESEND_API_KEY:-}
   EMAIL_FROM: ${EMAIL_FROM:-EthiopiaLearn <no-reply@ethiopialearn.et>}
   PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@ethiopialearn.et}
-  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GROQ_API_KEY: ${GROQ_API_KEY:-}
+  GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
   KYC_PAYOUT_THRESHOLD_ETB: ${KYC_PAYOUT_THRESHOLD_ETB:-10000}
 
 services:

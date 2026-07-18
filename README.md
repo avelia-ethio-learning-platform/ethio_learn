@@ -73,6 +73,18 @@ Open http://localhost:3000. Toggle **English / አማርኛ** from the header. O
 node scripts/demo-seed.mjs
 ```
 
+## Testing
+
+| Layer | What it covers | Command |
+|---|---|---|
+| Backend unit (jest) | payment webhook HMAC + idempotency, refund rules, 80/20 payout + holds, video progress + auto-complete, certificate tamper check, review eligibility, gateway route table + rate-limit buckets, auth guards | `pnpm -C api test` |
+| Frontend unit/component (vitest) | i18n en/am key parity, `api()` error/refresh handling, `<PasswordStrength />` | `pnpm -C web test` |
+| End-to-end (against a running stack) | full business flow: educator → QO approval → publish → enroll → complete → certificate | `node scripts/demo-seed.mjs` |
+| E2E smoke assertions | security envelope (401/403/404, header spoofing, internal token), video watch-progress flow, optional brute-force 429 | `node scripts/e2e-smoke.mjs` (add `E2E_CHECK_RATE_LIMIT=1` to include the 429 check — throttles your IP for ~1 min) |
+
+Watch mode while developing: `pnpm -C api test -- --watch` / `pnpm -C web exec vitest`.
+CI runs all four layers on every push/PR (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
+
 ### Fully containerized
 
 ```bash
@@ -105,7 +117,7 @@ Everything runs with **zero external credentials**; real providers switch on aut
 |---|---|---|
 | **Chapa** | `CHAPA_MODE=mock` → local checkout page at `/dev/checkout` that fires a genuinely **HMAC-signed** webhook, exercising the full §6 verify path | `CHAPA_MODE=live` + `CHAPA_SECRET_KEY` |
 | **Email (Resend)** | Console provider — emails (incl. the signup verification link) are printed in the notification service logs | `RESEND_API_KEY` |
-| **Claude (AI viva + plagiarism)** | Deterministic mock assessor | `ANTHROPIC_API_KEY` |
+| **Groq AI (viva grading, quiz/structure generation, plagiarism)** | Deterministic mock assessor | `GROQ_API_KEY` |
 | **S3** | MinIO from docker-compose | unset `S3_ENDPOINT`, set AWS creds |
 
 ## Spec compliance highlights
@@ -140,7 +152,7 @@ api/                  backend pnpm workspace (own lockfile + Dockerfile)
     contracts/        enums + event registry + payload types
     common/           event bus (RabbitMQ), guards, TypeORM helper, bootstrap
     storage/          S3/MinIO signed-URL provider (VideoStorageProvider)
-    ai/               Claude assessor (AI viva, plagiarism) + offline mock
+    ai/               Groq LLM assessor (AI viva, plagiarism, generation) + offline mock
 web/                  standalone Next.js 14 App Router frontend (own lockfile + Dockerfile)
 docker/               postgres schema init (used by docker-compose)
 scripts/demo-seed.mjs end-to-end API smoke/demo flow
