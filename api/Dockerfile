@@ -12,7 +12,7 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm exec turbo run build --filter=${PKG}
 # Isolated production bundle (workspace deps included with their dist/)
-RUN pnpm --filter=${PKG} deploy --prod --legacy /out
+RUN pnpm --filter=${PKG} deploy --prod /out
 
 FROM node:20-alpine AS runtime
 ENV NODE_ENV=production

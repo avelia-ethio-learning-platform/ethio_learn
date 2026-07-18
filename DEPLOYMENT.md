@@ -1,12 +1,12 @@
 # Deployment guide
 
-EthiopiaLearn is a pnpm/Turborepo monorepo of 8 stateless Node services (7 domain services + 1 API gateway) plus a Next.js frontend, backed by PostgreSQL, Redis, RabbitMQ and S3-compatible object storage. This document covers how to run it beyond `pnpm dev`.
+EthiopiaLearn is split into `api/` (a pnpm/Turborepo workspace of 8 stateless Node services — 7 domain services + 1 API gateway) and `web/` (a standalone Next.js frontend), backed by PostgreSQL, Redis, RabbitMQ and S3-compatible object storage. This document covers how to run it beyond `pnpm -C api dev`.
 
 ## Environments at a glance
 
 | Environment | How it runs | Notes |
 |---|---|---|
-| **Local dev** | `docker compose up -d` for infra, then `pnpm dev` (or `scripts/start-backend.sh` on low-RAM machines) | Mock Chapa, console/SMTP email, mock or real Groq. Everything on `localhost`. |
+| **Local dev** | `docker compose up -d` for infra, then `pnpm -C api dev` + `pnpm -C web dev` (or `scripts/start-backend.sh` / `scripts/start-web.sh` on low-RAM machines) | Mock Chapa, console/SMTP email, mock or real Groq. Everything on `localhost`. |
 | **Single-box / VPS** | `docker compose --profile full up --build -d` | All 9 app containers + infra on one host. Good for a staging box or a small launch. Put nginx/Caddy in front for TLS. |
 | **Cloud (recommended)** | One container per service on ECS Fargate / Google Cloud Run; managed Postgres/Redis/RabbitMQ; S3 + CloudFront/Cloudflare | Each service scales independently. Frontend on Vercel or a container behind a CDN. |
 
@@ -14,8 +14,8 @@ EthiopiaLearn is a pnpm/Turborepo monorepo of 8 stateless Node services (7 domai
 
 Slim multi-stage builds (`node:20-alpine`) are already defined:
 
-- `docker/Dockerfile.backend` — builds any one service via `--build-arg PKG=@ethiopialearn/<name>` and ships only a pruned production `pnpm deploy` (no source, no dev deps, no toolchain). Build all 8 with the same Dockerfile.
-- `docker/Dockerfile.web` — Next.js `output: standalone`; the runtime image carries only the standalone server + static assets.
+- `api/Dockerfile` — build from the `api/` context; builds any one service via `--build-arg PKG=@ethiopialearn/<name>` and ships only a pruned production `pnpm deploy` (no source, no dev deps, no toolchain). Build all 8 with the same Dockerfile.
+- `web/Dockerfile` — build from the `web/` context; Next.js `output: standalone`, the runtime image carries only the standalone server + static assets.
 
 CI (`.github/workflows/ci.yml`) already lints, type-checks, builds, and builds every image on merge to `main`. Add a registry login + `push` + your deploy step (ECS/Cloud Run `update-service` / `deploy`) where the `TODO` comment is.
 
@@ -30,7 +30,7 @@ CI (`.github/workflows/ci.yml`) already lints, type-checks, builds, and builds e
 
 ## Configuration (environment variables)
 
-All config is via env vars (see `.env.example`). The services read a repo-root `.env` locally; in containers/orchestrators they read the injected environment. **Set these to strong secrets in any non-local environment:**
+All config is via env vars (see `api/.env.example`). The services read `api/.env` locally; in containers/orchestrators they read the injected environment. **Set these to strong secrets in any non-local environment:**
 
 - `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN`, `CHAPA_WEBHOOK_SECRET` — long random values.
 - `DATABASE_URL`, `REDIS_URL`, `RABBITMQ_URL` — managed endpoints.
