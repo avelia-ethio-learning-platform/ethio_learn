@@ -37,7 +37,7 @@ and scaled on its own. This page is the contract that keeps that true.
    No service ever dials another service's host directly, so services can move
    hosts freely — only the gateway's route table knows where they live.
 3. **Everything asynchronous is a RabbitMQ event** (`RABBITMQ_URL`, fanout per
-   event type, envelope in `packages/contracts/src/events.ts`). Payloads are
+   event type, envelope in `api/packages/contracts/src/events.ts`). Payloads are
    event-carried state: consumers must never need a cross-schema join.
 
 Data isolation: each service owns one PostgreSQL **schema**
@@ -63,7 +63,7 @@ by giving it a different `DATABASE_URL`.
 
 ```bash
 pnpm turbo build --filter=@ethiopialearn/course-service
-PORT=4102 node apps/services/course/dist/main.js
+PORT=4102 node api/services/course/dist/main.js
 ```
 
 Each service exposes `GET /health` for liveness probes. Schema changes are

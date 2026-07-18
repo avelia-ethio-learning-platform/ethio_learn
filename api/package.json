@@ -1,8 +1,8 @@
 {
-  "name": "ethiopialearn",
+  "name": "ethiopialearn-api",
   "private": true,
   "version": "0.1.0",
-  "description": "EthiopiaLearn — educator-first online learning marketplace for Ethiopia (MVP)",
+  "description": "EthiopiaLearn backend — API gateway + microservices (pnpm workspace)",
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",

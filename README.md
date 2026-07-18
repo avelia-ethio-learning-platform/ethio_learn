@@ -37,31 +37,34 @@ Browser ──► Next.js web (SSR/ISR public pages, CSR dashboards, en/am i18n)
 
 Requirements: Node 20, pnpm 9 (`corepack enable`), Docker.
 
+The repo is split into two independent workspaces: [api/](api/) (gateway + 7 services, pnpm workspace) and [web/](web/) (standalone Next.js app).
+
 ```bash
-cp .env.example .env
+cp api/.env.example api/.env
 
 # 1. infrastructure
 docker compose up -d postgres redis rabbitmq minio minio-init
 
 # 2. install + build
-pnpm install
-pnpm build
+pnpm -C api install && pnpm -C api build
+pnpm -C web install
 
 # 3. seed demo accounts (one per role, password Password123!)
-pnpm seed
+pnpm -C api seed
 
-# 4. run everything (gateway + 7 services + web, hot reload)
-pnpm dev
+# 4. run the backend (gateway + 7 services, hot reload) and the web
+pnpm -C api dev
+pnpm -C web dev
 ```
 
-> **Low-RAM machines:** `pnpm dev` runs 9 ts-node processes that type-check in
-> memory and can exhaust a machine with little free RAM. If it gets OOM-killed,
+> **Low-RAM machines:** `pnpm -C api dev` runs 8 ts-node processes that type-check
+> in memory and can exhaust a machine with little free RAM. If it gets OOM-killed,
 > use the compiled build instead — far lighter:
 > ```bash
-> pnpm build                        # compile all services to dist/
+> pnpm -C api build                 # compile all services to dist/
 > bash scripts/start-backend.sh     # runs the 8 services + gateway from dist (detached)
-> pnpm --filter @ethiopialearn/web dev   # run the web (next dev — the prod build uses `output: standalone`)
-> # stop the backend later with: bash scripts/stop-backend.sh
+> bash scripts/start-web.sh         # next dev, detached (prod build uses `output: standalone`)
+> # stop later with: bash scripts/stop-backend.sh / scripts/stop-web.sh
 > ```
 
 Open http://localhost:3000. Toggle **English / አማርኛ** from the header. Optionally run the end-to-end demo flow (educator → QO approval → learner enrollment):
@@ -78,7 +81,7 @@ docker compose --profile full up --build
 
 Images are slim by design: `node:20-alpine` multi-stage builds; backend images carry only a pruned production `pnpm deploy` of one service, the web image carries only the Next.js standalone output. No heavyweight sidecars.
 
-### Demo accounts (after `pnpm seed`)
+### Demo accounts (after `pnpm -C api seed`)
 
 | Role | Email |
 |---|---|
@@ -92,7 +95,7 @@ Password for all: `Password123!` (override with `SEED_PASSWORD`).
 
 ## Amharic (አማርኛ) support
 
-The UI chrome (navigation, auth, catalog hero, learner-facing labels) ships in both English and Amharic, toggled from the header and persisted in `localStorage`. Strings live in [apps/web/src/lib/i18n.tsx](apps/web/src/lib/i18n.tsx) — add keys to both `en` and `am` dictionaries. Course content itself stays in the language the educator authored it in. The spec lists a full Amharic UI as post-MVP, so this is a lightweight starter layer rather than 100% coverage; extend the dictionaries to localize more surfaces.
+The UI chrome (navigation, auth, catalog hero, learner-facing labels) ships in both English and Amharic, toggled from the header and persisted in `localStorage`. Strings live in [web/src/lib/i18n.tsx](web/src/lib/i18n.tsx) — add keys to both `en` and `am` dictionaries. Course content itself stays in the language the educator authored it in. The spec lists a full Amharic UI as post-MVP, so this is a lightweight starter layer rather than 100% coverage; extend the dictionaries to localize more surfaces.
 
 ## Mock-first external providers
 
@@ -129,17 +132,17 @@ Everything runs with **zero external credentials**; real providers switch on aut
 ## Repository layout
 
 ```
-apps/
+api/                  backend pnpm workspace (own lockfile + Dockerfile)
   gateway/            NestJS API gateway (route table in src/routes.ts)
-  web/                Next.js 14 App Router frontend (en/am i18n in src/lib/i18n.tsx)
   services/
     auth/ course/ enrollment/ outcomes/ financial/ quality/ notification/
-packages/
-  contracts/          enums + event registry + payload types
-  common/             event bus (RabbitMQ), guards, TypeORM helper, bootstrap
-  storage/            S3/MinIO signed-URL provider (VideoStorageProvider)
-  ai/                 Claude assessor (AI viva, plagiarism) + offline mock
-docker/               postgres schema init, backend & web Dockerfiles
+  packages/
+    contracts/        enums + event registry + payload types
+    common/           event bus (RabbitMQ), guards, TypeORM helper, bootstrap
+    storage/          S3/MinIO signed-URL provider (VideoStorageProvider)
+    ai/               Claude assessor (AI viva, plagiarism) + offline mock
+web/                  standalone Next.js 14 App Router frontend (own lockfile + Dockerfile)
+docker/               postgres schema init (used by docker-compose)
 scripts/demo-seed.mjs end-to-end API smoke/demo flow
 ```
 
@@ -151,4 +154,4 @@ scripts/demo-seed.mjs end-to-end API smoke/demo flow
 
 ## Environment variables
 
-See [.env.example](.env.example). Set `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` to strong random values before any non-local deployment.
+See [api/.env.example](api/.env.example). Set `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` to strong random values before any non-local deployment.

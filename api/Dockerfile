@@ -1,5 +1,5 @@
 # Slim multi-stage build for any backend workspace package (gateway + 7 services).
-# Build: docker build -f docker/Dockerfile.backend --build-arg PKG=@ethiopialearn/auth-service .
+# Build from the api/ directory: docker build --build-arg PKG=@ethiopialearn/auth-service api/
 # Base is node:20-alpine and the runtime stage carries ONLY the pruned,
 # production-only deploy of one service — no source, no dev deps, no toolchain.
 FROM node:20-alpine AS base

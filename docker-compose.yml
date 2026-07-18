@@ -1,5 +1,5 @@
 # EthiopiaLearn — full local stack.
-#   Infra only (then `pnpm dev`):  docker compose up -d postgres redis rabbitmq minio minio-init
+#   Infra only (then `pnpm -C api dev`):  docker compose up -d postgres redis rabbitmq minio minio-init
 #   Everything in containers:      docker compose --profile full up --build
 # Images are intentionally slim: alpine bases everywhere, no fat sidecars.
 name: ethiopialearn
@@ -83,7 +83,7 @@ services:
   # ---- application (profile: full) ----
   gateway:
     profiles: [full]
-    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/gateway" } }
+    build: { context: ./api, args: { PKG: "@ethiopialearn/gateway" } }
     environment:
       <<: *service-env
       PORT: 4000
@@ -99,7 +99,7 @@ services:
 
   auth:
     profiles: [full]
-    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/auth-service" } }
+    build: { context: ./api, args: { PKG: "@ethiopialearn/auth-service" } }
     environment: { <<: *service-env, PORT: 4101 }
     depends_on:
       postgres: { condition: service_healthy }
@@ -108,7 +108,7 @@ services:
 
   course:
     profiles: [full]
-    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/course-service" } }
+    build: { context: ./api, args: { PKG: "@ethiopialearn/course-service" } }
     environment: { <<: *service-env, PORT: 4102 }
     depends_on:
       postgres: { condition: service_healthy }
@@ -116,7 +116,7 @@ services:
 
   enrollment:
     profiles: [full]
-    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/enrollment-service" } }
+    build: { context: ./api, args: { PKG: "@ethiopialearn/enrollment-service" } }
     environment: { <<: *service-env, PORT: 4103 }
     depends_on:
       postgres: { condition: service_healthy }
@@ -124,7 +124,7 @@ services:
 
   outcomes:
     profiles: [full]
-    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/outcomes-service" } }
+    build: { context: ./api, args: { PKG: "@ethiopialearn/outcomes-service" } }
     environment: { <<: *service-env, PORT: 4104 }
     depends_on:
       postgres: { condition: service_healthy }
@@ -132,7 +132,7 @@ services:
 
   financial:
     profiles: [full]
-    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/financial-service" } }
+    build: { context: ./api, args: { PKG: "@ethiopialearn/financial-service" } }
     environment: { <<: *service-env, PORT: 4105 }
     depends_on:
       postgres: { condition: service_healthy }
@@ -140,7 +140,7 @@ services:
 
   quality:
     profiles: [full]
-    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/quality-service" } }
+    build: { context: ./api, args: { PKG: "@ethiopialearn/quality-service" } }
     environment: { <<: *service-env, PORT: 4106 }
     depends_on:
       postgres: { condition: service_healthy }
@@ -148,7 +148,7 @@ services:
 
   notification:
     profiles: [full]
-    build: { context: ., dockerfile: docker/Dockerfile.backend, args: { PKG: "@ethiopialearn/notification-service" } }
+    build: { context: ./api, args: { PKG: "@ethiopialearn/notification-service" } }
     environment: { <<: *service-env, PORT: 4107 }
     depends_on:
       postgres: { condition: service_healthy }
@@ -157,8 +157,7 @@ services:
   web:
     profiles: [full]
     build:
-      context: .
-      dockerfile: docker/Dockerfile.web
+      context: ./web
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}

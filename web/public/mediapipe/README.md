@@ -10,5 +10,5 @@ Served locally so proctoring makes **no third-party calls** during an exam.
 To refresh after upgrading `@mediapipe/tasks-vision`:
 
 ```bash
-cp apps/web/node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.* apps/web/public/mediapipe/wasm/
+cp web/node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.* web/public/mediapipe/wasm/
 ```
