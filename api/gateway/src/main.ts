@@ -11,6 +11,7 @@ import { timingSafeEqual } from 'crypto';
 import { Agent } from 'http';
 import { env, envInt } from '@ethiopialearn/common';
 import { AuthMode, resolveRoute } from './routes';
+import { classifyRequest, RatePolicy } from './rate-policy';
 
 // Reuse TCP connections to the upstream services instead of opening a new
 // socket per request — the single biggest gateway win under high concurrency.
@@ -81,13 +82,43 @@ async function bootstrap() {
     credentials: true,
   });
 
-  app.use(
-    '/api/v1/auth',
-    rateLimit({ windowMs: 60_000, limit: envInt('RATE_LIMIT_AUTH_PER_MIN', 30), standardHeaders: true, legacyHeaders: false }),
-  );
-  app.use(
-    rateLimit({ windowMs: 60_000, limit: envInt('RATE_LIMIT_PER_MIN', 300), standardHeaders: true, legacyHeaders: false }),
-  );
+  // ---- rate limiting -------------------------------------------------------
+  // Keyed by authenticated user id when present (many learners share campus /
+  // mobile-carrier NAT IPs, so pure per-IP limits would starve them), falling
+  // back to IP for anonymous traffic. Credential endpoints stay IP-keyed —
+  // there is no trusted user yet during a brute-force attempt. IPv6 clients
+  // are bucketed by /64 so one subscriber can't rotate through a prefix.
+  const ipKey = (req: Request): string => {
+    const ip = req.ip ?? '';
+    return ip.includes(':') ? `ip6:${ip.split(':').slice(0, 4).join(':')}` : `ip:${ip}`;
+  };
+  const userKey = (req: Request): string => {
+    const uid = req.headers['x-user-id'];
+    return typeof uid === 'string' && uid ? `u:${uid}` : ipKey(req);
+  };
+  const makeLimiter = (limit: number, keyGenerator: (req: Request) => string) =>
+    rateLimit({
+      windowMs: 60_000,
+      limit,
+      keyGenerator,
+      standardHeaders: true,
+      legacyHeaders: false,
+      // Static config + explicit trust-proxy/key handling above; the startup
+      // validators only flag our intentional custom IP keying.
+      validate: false,
+      handler: (_req, res) =>
+        res.status(429).json({ statusCode: 429, message: 'Too many requests — please slow down and try again shortly.' }),
+    });
+  const limiters: Record<RatePolicy, ReturnType<typeof rateLimit> | null> = {
+    'auth-strict': makeLimiter(envInt('RATE_LIMIT_AUTH_STRICT_PER_MIN', 10), ipKey),
+    auth: makeLimiter(envInt('RATE_LIMIT_AUTH_PER_MIN', 30), ipKey),
+    ai: makeLimiter(envInt('RATE_LIMIT_AI_PER_MIN', 5), userKey),
+    'community-write': makeLimiter(envInt('RATE_LIMIT_COMMUNITY_PER_MIN', 20), userKey),
+    'payment-initiate': makeLimiter(envInt('RATE_LIMIT_PAYMENT_PER_MIN', 10), userKey),
+    write: makeLimiter(envInt('RATE_LIMIT_WRITE_PER_MIN', 60), userKey),
+    general: null, // covered by the always-on limiter below
+  };
+  const generalLimiter = makeLimiter(envInt('RATE_LIMIT_PER_MIN', 300), userKey);
 
   const proxy = createProxyMiddleware<Request, Response>({
     changeOrigin: true,
@@ -161,7 +192,13 @@ async function bootstrap() {
       return;
     }
 
-    proxy(req, res, next);
+    // Throttle after identity is attached so authenticated traffic is keyed
+    // per user: the general cap always applies, plus the per-bucket cap.
+    const specific = limiters[classifyRequest(req.method, path)];
+    generalLimiter(req, res, () => {
+      if (specific) specific(req, res, () => proxy(req, res, next));
+      else proxy(req, res, next);
+    });
   });
 
   const port = envInt('PORT', 4000);
