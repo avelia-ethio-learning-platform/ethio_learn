@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Unique } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Unique, UpdateDateColumn } from 'typeorm';
 import { EntitlementStatus, PricingType } from '@ethiopialearn/contracts';
 
 /** Root of access control (spec §7): the ONLY source of content entitlement. */
@@ -41,6 +41,35 @@ export class LessonProgress {
 
   @Column({ type: 'timestamptz' })
   completed_at: Date;
+}
+
+/** Per-lesson video watch state so learners resume where they left off. */
+@Entity({ name: 'video_progress' })
+@Unique(['enrollment_id', 'lesson_id'])
+export class VideoProgress {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Index()
+  @Column('uuid')
+  enrollment_id: string;
+
+  @Column('uuid')
+  lesson_id: string;
+
+  /** Last playhead position — the resume point (rewinds move it back). */
+  @Column({ type: 'float', default: 0 })
+  position_seconds: number;
+
+  @Column({ type: 'float', default: 0 })
+  duration_seconds: number;
+
+  /** High-water mark: furthest percent ever reached, never decreases. */
+  @Column({ type: 'int', default: 0 })
+  percent_watched: number;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updated_at: Date;
 }
 
 /**

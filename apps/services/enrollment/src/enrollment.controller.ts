@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { IsUUID } from 'class-validator';
+import { IsNumber, IsUUID, Min } from 'class-validator';
 import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { EnrollmentService } from './enrollment.service';
@@ -7,6 +7,16 @@ import { EnrollmentService } from './enrollment.service';
 class EnrollDto {
   @IsUUID()
   course_id: string;
+}
+
+class VideoProgressDto {
+  @IsNumber()
+  @Min(0)
+  position_seconds: number;
+
+  @IsNumber()
+  @Min(0)
+  duration_seconds: number;
 }
 
 @Controller()
@@ -55,6 +65,20 @@ export class EnrollmentController {
   @Roles(Role.LEARNER)
   complete(@CurrentUser() ctx: UserContext, @Param('lessonId') lessonId: string) {
     return this.service.completeLesson(ctx, lessonId);
+  }
+
+  @Post('progress/lessons/:lessonId/video')
+  @UseGuards(RolesGuard)
+  @Roles(Role.LEARNER)
+  saveVideo(@CurrentUser() ctx: UserContext, @Param('lessonId') lessonId: string, @Body() dto: VideoProgressDto) {
+    return this.service.saveVideoProgress(ctx, lessonId, dto.position_seconds, dto.duration_seconds);
+  }
+
+  @Get('enrollments/:id/video-progress')
+  @UseGuards(RolesGuard)
+  @Roles()
+  videoProgress(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+    return this.service.videoProgressDetail(ctx, id);
   }
 }
 

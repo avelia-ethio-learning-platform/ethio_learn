@@ -19,7 +19,7 @@ import {
   RefundDecisionPayload,
   Role,
 } from '@ethiopialearn/contracts';
-import { CourseCache, Enrollment, LessonProgress } from './entities';
+import { CourseCache, Enrollment, LessonProgress, VideoProgress } from './entities';
 
 interface CourseInfo {
   id: string;
@@ -38,6 +38,7 @@ export class EnrollmentService implements OnModuleInit {
     @InjectRepository(Enrollment) private readonly enrollments: Repository<Enrollment>,
     @InjectRepository(LessonProgress) private readonly progress: Repository<LessonProgress>,
     @InjectRepository(CourseCache) private readonly courseCache: Repository<CourseCache>,
+    @InjectRepository(VideoProgress) private readonly videoProgress: Repository<VideoProgress>,
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
   ) {}
@@ -125,12 +126,65 @@ export class EnrollmentService implements OnModuleInit {
     if (!enrollment || enrollment.entitlement_status !== EntitlementStatus.ACTIVE) {
       throw new ForbiddenException('No active entitlement for this course');
     }
+    await this.recordCompletion(enrollment, lessonId, ctx.email);
+    return this.progressDetail(ctx, enrollment.id);
+  }
+
+  /**
+   * Heartbeat from the video player (every ~10s / on pause / on leave).
+   * position_seconds is the resume point; percent_watched is a high-water mark.
+   * Watching ≥90% auto-completes the lesson.
+   */
+  async saveVideoProgress(ctx: UserContext, lessonId: string, positionSeconds: number, durationSeconds: number) {
+    const lesson = await this.internal.get<{ course_id: string }>(`/api/v1/internal/lessons/${lessonId}`);
+    const enrollment = await this.enrollments.findOne({ where: { learner_id: ctx.id, course_id: lesson.course_id } });
+    if (!enrollment || enrollment.entitlement_status !== EntitlementStatus.ACTIVE) {
+      throw new ForbiddenException('No active entitlement for this course');
+    }
+    let row = await this.videoProgress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } });
+    if (!row) {
+      row = this.videoProgress.create({ enrollment_id: enrollment.id, lesson_id: lessonId });
+    }
+    row.position_seconds = Math.max(0, positionSeconds);
+    row.duration_seconds = Math.max(row.duration_seconds ?? 0, durationSeconds);
+    const percent = row.duration_seconds > 0 ? Math.min(100, Math.round((positionSeconds / row.duration_seconds) * 100)) : 0;
+    row.percent_watched = Math.max(row.percent_watched ?? 0, percent);
+    row = await this.videoProgress.save(row);
+
+    if (row.percent_watched >= 90) {
+      await this.recordCompletion(enrollment, lessonId, ctx.email);
+    }
+    return {
+      lesson_id: lessonId,
+      position_seconds: row.position_seconds,
+      duration_seconds: row.duration_seconds,
+      percent_watched: row.percent_watched,
+    };
+  }
+
+  /** Everything the player needs to restore state: per-lesson positions + where to resume. */
+  async videoProgressDetail(ctx: UserContext, enrollmentId: string) {
+    await this.owned(ctx, enrollmentId);
+    const rows = await this.videoProgress.find({ where: { enrollment_id: enrollmentId }, order: { updated_at: 'DESC' } });
+    return {
+      enrollment_id: enrollmentId,
+      last_lesson_id: rows[0]?.lesson_id ?? null,
+      lessons: rows.map((r) => ({
+        lesson_id: r.lesson_id,
+        position_seconds: r.position_seconds,
+        duration_seconds: r.duration_seconds,
+        percent_watched: r.percent_watched,
+        updated_at: r.updated_at,
+      })),
+    };
+  }
+
+  private async recordCompletion(enrollment: Enrollment, lessonId: string, learnerEmail: string) {
     const existing = await this.progress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } });
     if (!existing) {
       await this.progress.save(this.progress.create({ enrollment_id: enrollment.id, lesson_id: lessonId, completed_at: new Date() }));
     }
-    await this.detectCompletion(enrollment, ctx.email);
-    return this.progressDetail(ctx, enrollment.id);
+    await this.detectCompletion(enrollment, learnerEmail);
   }
 
   // ---- internal (service-to-service reads) ----

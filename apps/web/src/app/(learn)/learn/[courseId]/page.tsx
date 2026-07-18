@@ -52,6 +52,47 @@ function Player({ courseId }: { courseId: string }) {
       ),
     enabled: !!status?.enrollment_id,
   });
+  const { data: videoProg } = useQuery({
+    queryKey: ['video-progress', status?.enrollment_id],
+    queryFn: () =>
+      api<{
+        last_lesson_id: string | null;
+        lessons: { lesson_id: string; position_seconds: number; duration_seconds: number; percent_watched: number }[];
+      }>(`/enrollments/${status!.enrollment_id}/video-progress`),
+    enabled: !!status?.enrollment_id,
+  });
+  const watchedMap = useMemo(() => new Map((videoProg?.lessons ?? []).map((l) => [l.lesson_id, l])), [videoProg]);
+
+  // Watch-position tracking: heartbeat every 10s while playing, plus on pause,
+  // lesson switch, and unmount. Server auto-completes the lesson at ≥90%.
+  const activeIdRef = useRef<string | null>(null);
+  const resumeAtRef = useRef(0);
+  const lastSavedRef = useRef(0);
+  const saveNow = () => {
+    const video = videoRef.current;
+    const lessonId = activeIdRef.current;
+    if (!video || !lessonId || !video.duration || !isFinite(video.duration) || video.currentTime < 1) return;
+    lastSavedRef.current = Date.now();
+    return api<{ percent_watched: number }>(`/progress/lessons/${lessonId}/video`, {
+      method: 'POST',
+      body: { position_seconds: video.currentTime, duration_seconds: video.duration },
+    })
+      .then((r) => {
+        if (r.percent_watched >= 90) {
+          void queryClient.invalidateQueries({ queryKey: ['progress'] });
+          void queryClient.invalidateQueries({ queryKey: ['enrollments'] });
+        }
+      })
+      .catch(() => undefined); // best-effort — next heartbeat retries
+  };
+  const saveRef = useRef(saveNow);
+  saveRef.current = saveNow;
+  useEffect(
+    () => () => {
+      void saveRef.current(); // flush on unmount
+    },
+    [],
+  );
 
   // Flat, ordered lesson list for prev/next navigation.
   const flat = useMemo(() => (course?.sections ?? []).flatMap((s) => s.lessons.map((l) => ({ ...l, sectionTitle: s.title }))), [course]);
@@ -59,7 +100,16 @@ function Player({ courseId }: { courseId: string }) {
   const completedIds = new Set(progress?.completed_lessons.map((l) => l.lesson_id) ?? []);
 
   const playLesson = async (lesson: Lesson) => {
+    // Flush the previous lesson's position, then refresh the sidebar watch bars.
+    void saveNow()?.then(() => queryClient.invalidateQueries({ queryKey: ['video-progress'] }));
     setActiveId(lesson.id);
+    activeIdRef.current = lesson.has_video ? lesson.id : null;
+    // Resume from the saved position unless the lesson was (nearly) finished.
+    const saved = watchedMap.get(lesson.id);
+    resumeAtRef.current =
+      saved && saved.position_seconds > 5 && saved.duration_seconds > 0 && saved.position_seconds < saved.duration_seconds * 0.95
+        ? saved.position_seconds
+        : 0;
     setVideoError('');
     // Always tear down a previous HLS instance so streams don't stack up.
     hlsRef.current?.destroy();
@@ -102,6 +152,16 @@ function Player({ courseId }: { courseId: string }) {
     if (next) playLesson(next);
   };
 
+  // On first load, reopen the lesson the learner last watched.
+  const autoResumedRef = useRef(false);
+  useEffect(() => {
+    if (autoResumedRef.current || !videoProg || flat.length === 0 || activeIdRef.current) return;
+    autoResumedRef.current = true;
+    const last = videoProg.last_lesson_id ? flat.find((l) => l.id === videoProg.last_lesson_id) : undefined;
+    if (last) void playLesson(last);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoProg, flat]);
+
   if (!course) return <p className="text-gray-500">Loading course…</p>;
   const active = flat[activeIndex];
 
@@ -119,6 +179,18 @@ function Player({ courseId }: { courseId: string }) {
               className="aspect-video w-full"
               onEnded={() => active && markComplete(active.id)}
               onError={() => active?.has_video && setVideoError('Could not play this video. Please try again.')}
+              onLoadedMetadata={() => {
+                const video = videoRef.current;
+                if (video && resumeAtRef.current > 0 && resumeAtRef.current < video.duration * 0.95) {
+                  video.currentTime = resumeAtRef.current;
+                }
+                resumeAtRef.current = 0;
+              }}
+              onTimeUpdate={() => {
+                const video = videoRef.current;
+                if (video && !video.paused && Date.now() - lastSavedRef.current > 10_000) saveNow();
+              }}
+              onPause={() => saveNow()}
             />
             {videoLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm text-white">Loading video…</div>
@@ -173,6 +245,7 @@ function Player({ courseId }: { courseId: string }) {
                 {section.lessons.map((lesson) => {
                   const isActive = lesson.id === activeId;
                   const done = completedIds.has(lesson.id);
+                  const watched = watchedMap.get(lesson.id);
                   return (
                     <li key={lesson.id}>
                       <button
@@ -186,6 +259,11 @@ function Player({ courseId }: { courseId: string }) {
                         </span>
                         <span className="text-xs text-gray-400">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
                       </button>
+                      {!done && watched && watched.percent_watched > 0 && (
+                        <div className="mx-2 mb-1 h-0.5 rounded bg-gray-100">
+                          <div className="h-0.5 rounded bg-brand-400" style={{ width: `${watched.percent_watched}%` }} />
+                        </div>
+                      )}
                       {isActive && (lesson as any).summary && (
                         <p className="ml-2 mt-0.5 rounded bg-gray-50 px-2 py-1 text-xs text-gray-500">{(lesson as any).summary}</p>
                       )}
