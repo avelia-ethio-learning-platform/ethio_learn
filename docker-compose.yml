@@ -58,13 +58,14 @@ services:
 
   minio:
     image: minio/minio:latest
-    # 9000 = S3 API (signed URLs); 9001 = web console for browsing files
-    # manually (login: minioadmin / minioadmin).
+    # 9000 = S3 API (signed URLs); console for browsing files manually is on
+    # host port 9091 (login: minioadmin / minioadmin) — 9001 is squatted by
+    # Intel Graphics Command Center on Windows.
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    ports: ["9000:9000", "9001:9001"]
+    ports: ["9000:9000", "9091:9001"]
     volumes:
       - miniodata:/data
 

@@ -186,13 +186,31 @@ function Player({ courseId }: { courseId: string }) {
           <ReviewBox courseId={courseId} progressPercent={progress?.progress_percent ?? 0} />
         </div>
 
-        <aside className="animate-fade-in-up space-y-3">
-          <p className="flex items-center gap-2 px-1 text-sm font-bold uppercase tracking-wider text-gray-500">
-            <ListVideo className="h-4 w-4 text-brand-500" /> Lessons
+        <aside className="animate-fade-in-up space-y-3 lg:sticky lg:top-28 lg:max-h-[calc(100vh-8.5rem)] lg:self-start lg:overflow-y-auto lg:pb-4 lg:pr-1">
+          <p className="flex items-center justify-between gap-2 px-1 text-sm font-bold uppercase tracking-wider text-gray-500">
+            <span className="flex items-center gap-2">
+              <ListVideo className="h-4 w-4 text-brand-500" /> Lessons
+            </span>
+            <span className="text-xs font-semibold normal-case tracking-normal text-gray-400">
+              {completedIds.size}/{flat.length} done
+            </span>
           </p>
-          {course.sections.map((section) => (
+          {course.sections.map((section) => {
+            const doneInSection = section.lessons.filter((l) => completedIds.has(l.id)).length;
+            return (
             <div key={section.id} className="card !p-4">
-              <h3 className="text-sm font-bold text-foreground">{section.title}</h3>
+              <h3 className="flex items-center justify-between gap-2 text-sm font-bold text-foreground">
+                <span className="min-w-0 truncate">{section.title}</span>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    doneInSection === section.lessons.length && section.lessons.length > 0
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-brand-500/10 text-brand-600'
+                  }`}
+                >
+                  {doneInSection}/{section.lessons.length}
+                </span>
+              </h3>
               <ul className="mt-2 space-y-1">
                 {section.lessons.map((lesson) => {
                   const isActive = lesson.id === activeId;
@@ -220,7 +238,8 @@ function Player({ courseId }: { courseId: string }) {
                 })}
               </ul>
             </div>
-          ))}
+            );
+          })}
         </aside>
       </div>
     </PageShell>

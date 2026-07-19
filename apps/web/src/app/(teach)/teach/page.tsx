@@ -59,7 +59,7 @@ function TeachDashboard() {
           ))}
         </section>
 
-        <section className="animate-fade-in-up">
+        <section className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
           <h2 className="mb-4 text-lg font-bold text-foreground">My courses</h2>
           {!courses?.length ? (
             <div className="card py-10 text-center text-sm text-gray-500">
@@ -97,14 +97,14 @@ function TeachDashboard() {
           )}
         </section>
 
-        <section className="animate-fade-in-up">
+        <section className="animate-fade-in-up" style={{ animationDelay: '0.18s' }}>
           <h2 className="mb-4 text-lg font-bold text-foreground">Payout history</h2>
           <div className="card text-sm">
             {!payouts?.length && <p className="py-2 text-gray-500">No payouts yet. Payouts run nightly on settled payments (7–14 day hold).</p>}
             {payouts?.map((p, i) => (
               <div
                 key={p.id}
-                className="flex flex-wrap items-center justify-between gap-2 py-2.5"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5"
                 style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
               >
                 <span className="text-gray-500">{new Date(p.created_at).toDateString()}</span>

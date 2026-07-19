@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Sparkles } from 'lucide-react';
+import { CheckCircle2, ImagePlus, Layers, Play, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { extractTextFromFile } from '@/lib/extract-text';
 import { RequireRole } from '@/components/RequireRole';
@@ -106,50 +106,94 @@ function ManageCourse({ courseId }: { courseId: string }) {
       {course.status === 'flagged' && <AppealBox courseId={courseId} onDone={(m) => { setMessage(m); refresh(); }} />}
 
       {isDraft && (
-        <div className="card">
-          <h2 className="font-semibold">Thumbnail {course.thumbnail_url ? '✓' : '(required before submit)'}</h2>
-          <input
-            type="file"
-            accept="image/*"
-            className="mt-2 text-sm"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              const key = await uploadToS3('thumbnail', file);
-              await api(`/courses/${courseId}`, { method: 'PUT', body: { thumbnail_url: `${S3_PUBLIC_URL}/${key}` } });
-              refresh();
-            }}
-          />
+        <div className="card animate-fade-in-up">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {course.thumbnail_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={course.thumbnail_url} alt="Course thumbnail" className="h-14 w-24 rounded-xl border object-cover shadow-glass" />
+              ) : (
+                <span className="glass-secondary flex h-14 w-24 items-center justify-center rounded-xl">
+                  <ImagePlus className="h-5 w-5 text-brand-400" />
+                </span>
+              )}
+              <div>
+                <h2 className="flex items-center gap-2 font-semibold">
+                  Thumbnail
+                  {course.thumbnail_url ? (
+                    <span className="badge-success">
+                      <CheckCircle2 className="h-3 w-3" /> uploaded
+                    </span>
+                  ) : (
+                    <span className="badge-warn">required before submit</span>
+                  )}
+                </h2>
+                <p className="mt-0.5 text-xs text-gray-500">Shown on the course card in the catalog. JPG or PNG works best.</p>
+              </div>
+            </div>
+            <label className="btn-secondary cursor-pointer !text-xs">
+              <ImagePlus className="h-3.5 w-3.5" /> {course.thumbnail_url ? 'Replace image' : 'Upload image'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const key = await uploadToS3('thumbnail', file);
+                  await api(`/courses/${courseId}`, { method: 'PUT', body: { thumbnail_url: `${S3_PUBLIC_URL}/${key}` } });
+                  refresh();
+                }}
+              />
+            </label>
+          </div>
         </div>
       )}
 
       {isDraft && <StructureGenerator courseId={courseId} title={course.title} onDone={refresh} />}
 
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold">Sections &amp; lessons</h2>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <Layers className="h-5 w-5 text-brand-500" /> Sections &amp; lessons
+        </h2>
         {course.sections?.map((section: any) => (
-          <div key={section.id} className="card">
-            <div className="flex items-center justify-between">
-              <p className="font-medium">
-                {section.title} {section.is_free_preview && <span className="text-xs text-brand-600">(free preview)</span>}
+          <div key={section.id} className="card animate-fade-in-up">
+            <div className="flex items-center justify-between gap-2">
+              <p className="flex min-w-0 flex-wrap items-center gap-2 font-medium">
+                <span className="truncate">{section.title}</span>
+                {section.is_free_preview && <span className="badge-info">free preview</span>}
+                <span className="text-xs font-normal text-gray-400">
+                  {section.lessons.length} lesson{section.lessons.length === 1 ? '' : 's'}
+                </span>
               </p>
               {isDraft && (
-                <button className="text-xs text-red-500 hover:underline" onClick={async () => { if (!confirm(`Delete section “${section.title}” and all its lessons?`)) return; await api(`/sections/${section.id}`, { method: 'DELETE' }); refresh(); }}>
-                  delete section
+                <button
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10"
+                  onClick={async () => { if (!confirm(`Delete section “${section.title}” and all its lessons?`)) return; await api(`/sections/${section.id}`, { method: 'DELETE' }); refresh(); }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Delete section
                 </button>
               )}
             </div>
-            <ul className="mt-2 space-y-1 text-sm text-gray-600">
+            <ul className="mt-2 space-y-0.5 text-sm text-gray-600">
               {section.lessons.map((lesson: any) => (
-                <li key={lesson.id} className="flex items-center justify-between">
-                  <span>▶ {lesson.title} {lesson.has_video === false && <span className="text-xs text-amber-600">— no video</span>}</span>
+                <li key={lesson.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <Play className="h-3.5 w-3.5 shrink-0 text-brand-400" />
+                    <span className="truncate">{lesson.title}</span>
+                    {lesson.has_video === false && <span className="badge-warn shrink-0 !text-[10px]">no video</span>}
+                  </span>
                   {isDraft && (
-                    <button className="text-xs text-red-500 hover:underline" onClick={async () => { if (!confirm(`Remove lesson “${lesson.title}”?`)) return; await api(`/lessons/${lesson.id}`, { method: 'DELETE' }); refresh(); }}>
+                    <button
+                      className="shrink-0 rounded-lg px-2 py-0.5 text-xs font-medium text-red-500 opacity-70 transition-all hover:bg-red-500/10 hover:opacity-100"
+                      onClick={async () => { if (!confirm(`Remove lesson “${lesson.title}”?`)) return; await api(`/lessons/${lesson.id}`, { method: 'DELETE' }); refresh(); }}
+                    >
                       remove
                     </button>
                   )}
                 </li>
               ))}
+              {!section.lessons.length && <li className="px-2 py-1.5 text-xs text-gray-400">No lessons in this section yet.</li>}
             </ul>
             {isDraft && <AddLesson sectionId={section.id} onDone={refresh} />}
           </div>
@@ -166,7 +210,7 @@ function ManageCourse({ courseId }: { courseId: string }) {
           <h2 className="font-semibold">Project submissions awaiting review</h2>
           <ul className="mt-2 space-y-2 text-sm">
             {pendingProjects.map((p) => (
-              <li key={p.attempt_id} className="flex items-center justify-between">
+              <li key={p.attempt_id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
                 <span>Submitted {new Date(p.submitted_at).toLocaleString()}</span>
                 <span className="flex gap-2">
                   {p.download_url && <a className="font-medium text-brand-600 hover:underline" href={p.download_url} target="_blank">Download</a>}
@@ -380,12 +424,12 @@ function StructureGenerator({ courseId, title, onDone }: { courseId: string; tit
             <label>Lessons/section <input type="number" min={1} max={12} value={lessons} onChange={(e) => setLessons(+e.target.value)} className="input w-20" /></label>
             <button className="btn" disabled={busy || extracting || (!prompt && !sourceText)} onClick={generate}>{busy ? 'Working…' : 'Generate'}</button>
           </div>
-          {note && <p className="text-xs text-amber-700">{note}</p>}
+          {note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{note}</p>}
           {draft && (
             <div className="mt-2 space-y-2 border-t pt-2">
               <p className="text-sm font-medium">Draft outline (edit titles, then add):</p>
               {draft.map((s, si) => (
-                <div key={si} className="rounded border p-2">
+                <div key={si} className="glass-secondary rounded-xl p-3">
                   <div className="flex items-center gap-2">
                     <input className="input flex-1 text-sm" value={s.title} onChange={(e) => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, title: e.target.value } : x)))} />
                     <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={!!s.is_free_preview} onChange={(e) => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, is_free_preview: e.target.checked } : x)))} /> free</label>
@@ -501,7 +545,13 @@ function AssessmentManager({ courseId }: { courseId: string }) {
     <div className="card">
       <h2 className="font-semibold">Assessments</h2>
       <ul className="mt-2 space-y-1 text-sm text-gray-600">
-        {assessments?.map((a) => <li key={a.id} className="capitalize">{a.type.replace('_', ' ')} · pass ≥ {a.pass_score}{a.is_required ? ' · required' : ''}</li>)}
+        {assessments?.map((a) => (
+          <li key={a.id} className="flex items-center gap-2 capitalize">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-brand-500" />
+            {a.type.replace('_', ' ')} · pass ≥ {a.pass_score}
+            {a.is_required ? ' · required' : ''}
+          </li>
+        ))}
         {!assessments?.length && <li className="text-gray-400">None yet — certificates issue on lesson completion alone.</li>}
       </ul>
 
@@ -526,7 +576,7 @@ function AssessmentManager({ courseId }: { courseId: string }) {
               <button className="btn-secondary text-xs" disabled={busy || !topic} onClick={generate}>Generate</button>
             </div>
             {questions.map((q, qi) => (
-              <div key={qi} className="rounded border p-2">
+              <div key={qi} className="glass-secondary rounded-xl p-3">
                 <div className="flex items-center gap-2">
                   <input className="input flex-1 text-sm" value={q.prompt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, prompt: e.target.value } : x)))} placeholder="Question prompt" />
                   <button className="text-xs text-red-500" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}>✕</button>
@@ -549,7 +599,7 @@ function AssessmentManager({ courseId }: { courseId: string }) {
         {type === 'ai_viva' && <textarea className="input" rows={2} placeholder="Topic context the AI uses to generate the viva question" value={vivaTopic} onChange={(e) => setVivaTopic(e.target.value)} />}
         {type === 'project' && <textarea className="input" rows={2} placeholder="Project instructions for learners" value={projectInstr} onChange={(e) => setProjectInstr(e.target.value)} />}
 
-        {note && <p className="text-xs text-amber-700">{note}</p>}
+        {note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{note}</p>}
         <button className="btn" disabled={busy} onClick={save}>Save assessment</button>
       </div>
     </div>

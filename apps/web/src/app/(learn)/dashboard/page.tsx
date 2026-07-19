@@ -6,7 +6,7 @@ import { ArrowRight, Award, BookOpen, Download, ExternalLink, GraduationCap, Rec
 import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { RequireRole } from '@/components/RequireRole';
-import { PageHeader, PageShell } from '@/components/PageChrome';
+import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 
 function LearnerDashboard() {
   const { t } = useT();
@@ -38,12 +38,14 @@ function LearnerDashboard() {
               <div className="skeleton h-36" />
             </div>
           ) : !enrollments?.length ? (
-            <div className="card py-8 text-center text-sm text-gray-500">
-              Nothing yet —{' '}
-              <Link href="/courses" className="font-semibold text-brand-600 hover:underline">
-                browse the catalog
+            <div className="card flex flex-col items-center gap-3 py-12 text-center">
+              <span className="glass-secondary flex h-14 w-14 items-center justify-center rounded-2xl">
+                <BookOpen className="h-6 w-6 text-brand-500" />
+              </span>
+              <p className="text-sm text-gray-500">You haven&apos;t enrolled in any course yet.</p>
+              <Link href="/courses" className="btn mt-1">
+                Browse the catalog <ArrowRight className="h-4 w-4" />
               </Link>
-              .
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -71,12 +73,17 @@ function LearnerDashboard() {
           )}
         </section>
 
-        <section className="animate-fade-in-up">
+        <section className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
           <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
             <Award className="h-5 w-5 text-brand-500" /> {t('certificates')}
           </h2>
           {!certificates?.length ? (
-            <p className="text-sm text-gray-500">Complete a course (and its assessments) to earn a verifiable certificate.</p>
+            <div className="card flex flex-col items-center gap-3 py-10 text-center">
+              <span className="glass-secondary flex h-14 w-14 items-center justify-center rounded-2xl">
+                <Award className="h-6 w-6 text-brand-500" />
+              </span>
+              <p className="max-w-sm text-sm text-gray-500">Complete a course (and its assessments) to earn a verifiable certificate.</p>
+            </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {certificates.map((c) => (
@@ -102,7 +109,7 @@ function LearnerDashboard() {
         </section>
 
         <section className="grid gap-6 md:grid-cols-2">
-          <div className="animate-fade-in-up">
+          <div className="animate-fade-in-up" style={{ animationDelay: '0.18s' }}>
             <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
               <ReceiptText className="h-5 w-5 text-brand-500" /> {t('payment_history')}
             </h2>
@@ -115,15 +122,14 @@ function LearnerDashboard() {
                   style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
                 >
                   <span className="min-w-0 flex-1 truncate text-foreground">{p.course_title}</span>
-                  <span className="shrink-0 text-gray-500">
-                    {p.amount_etb} ETB · {p.status}
-                  </span>
+                  <span className="shrink-0 font-medium text-foreground">{p.amount_etb} ETB</span>
+                  <StatusBadge status={p.status} />
                   {p.status === 'confirmed' && <RefundButton paymentId={p.id} />}
                 </div>
               ))}
             </div>
           </div>
-          <div className="animate-fade-in-up">
+          <div className="animate-fade-in-up" style={{ animationDelay: '0.26s' }}>
             <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
               <Undo2 className="h-5 w-5 text-brand-500" /> {t('refund_requests')}
             </h2>

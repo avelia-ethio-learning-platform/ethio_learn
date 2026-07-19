@@ -25,7 +25,7 @@ function NotificationsList() {
             Notifications
           </h1>
           <button
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:underline"
+            className="btn-ghost !text-sm !font-medium text-brand-600"
             onClick={async () => {
               await api('/notifications/read-all', { method: 'POST' });
               queryClient.invalidateQueries({ queryKey: ['notifications-page'] });
