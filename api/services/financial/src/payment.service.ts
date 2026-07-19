@@ -7,7 +7,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Cron } from '@nestjs/schedule';
+import { Between, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { env, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
@@ -184,6 +185,38 @@ export class PaymentService {
   }
 
   /**
+   * Safety net for missed webhooks and abandoned return pages: a completed
+   * checkout must never stay pending just because the browser never came back
+   * (webhooks can't reach local dev at all). Every 2 minutes, ask Chapa about
+   * recent pending payments and apply the standard verification rules. Live
+   * mode only — the mock flow always goes through its signed webhook.
+   */
+  @Cron('*/2 * * * *')
+  async sweepPendingPayments(): Promise<void> {
+    if (chapaMode() !== 'live') return;
+    const now = Date.now();
+    const rows = await this.payments.find({
+      where: {
+        status: PaymentStatus.PENDING,
+        method: PaymentMethod.CHAPA,
+        // Skip the newest minute (checkout may still be in progress) and cap
+        // at 24h — older rows are abandoned checkouts, harmless as pending.
+        created_at: Between(new Date(now - 24 * 3600_000), new Date(now - 60_000)),
+      },
+      order: { created_at: 'DESC' },
+      take: 25,
+    });
+    for (const payment of rows) {
+      try {
+        const verification = await this.chapa.verify(payment.chapa_tx_ref);
+        await this.applyVerification(payment, verification, 'sweep');
+      } catch (err) {
+        this.logger.warn(`sweep: could not verify ${payment.chapa_tx_ref}: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  /**
    * The single place a payment becomes confirmed/failed. Idempotent; cross-
    * checks the gateway-verified amount and currency against our ledger row
    * before publishing PaymentConfirmed (the only event that grants access).
@@ -191,7 +224,7 @@ export class PaymentService {
   private async applyVerification(
     payment: Payment,
     verification: ChapaVerification,
-    source: 'webhook' | 'reconcile',
+    source: 'webhook' | 'reconcile' | 'sweep',
   ): Promise<{ processed: boolean; reason: string }> {
     if (payment.status === PaymentStatus.CONFIRMED) {
       return { processed: true, reason: 'duplicate — already confirmed' };

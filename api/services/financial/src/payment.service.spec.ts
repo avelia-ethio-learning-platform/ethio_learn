@@ -112,3 +112,40 @@ describe('PaymentService.handleWebhook', () => {
     expect(bus.publish).not.toHaveBeenCalledWith('PaymentConfirmed', expect.anything());
   });
 });
+
+describe('PaymentService.sweepPendingPayments', () => {
+  afterEach(() => {
+    delete process.env.CHAPA_MODE;
+  });
+
+  it('confirms a pending payment Chapa reports as successful', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const { service, payments, chapa, bus } = setup(pendingPayment());
+    payments.find.mockResolvedValue([pendingPayment()]);
+    chapa.verify.mockResolvedValue({ status: 'success', amount: 500, currency: 'ETB' });
+
+    await service.sweepPendingPayments();
+
+    expect(chapa.verify).toHaveBeenCalledWith('TX-TEST');
+    expect(bus.publish).toHaveBeenCalledWith('PaymentConfirmed', expect.objectContaining({ tx_ref: 'TX-TEST' }));
+  });
+
+  it('leaves a still-pending payment untouched', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const { service, payments, chapa, bus } = setup(pendingPayment());
+    payments.find.mockResolvedValue([pendingPayment()]);
+    chapa.verify.mockResolvedValue({ status: 'pending', amount: null, currency: null });
+
+    await service.sweepPendingPayments();
+
+    expect(payments.save).not.toHaveBeenCalled();
+    expect(bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('does nothing in mock mode', async () => {
+    process.env.CHAPA_MODE = 'mock';
+    const { service, payments } = setup(pendingPayment());
+    await service.sweepPendingPayments();
+    expect(payments.find).not.toHaveBeenCalled();
+  });
+});
