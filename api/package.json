@@ -1,0 +1,24 @@
+{
+  "name": "ethiopialearn-api",
+  "private": true,
+  "version": "0.1.0",
+  "description": "EthiopiaLearn backend \u2014 API gateway + microservices (pnpm workspace)",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "test": "jest",
+    "typecheck": "turbo run typecheck",
+    "seed": "pnpm --filter @ethiopialearn/auth-service seed"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "turbo": "^2.0.6",
+    "typescript": "^5.4.5"
+  },
+  "packageManager": "pnpm@9.4.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

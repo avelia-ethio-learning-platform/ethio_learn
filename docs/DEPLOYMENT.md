@@ -23,7 +23,7 @@ and scaled on its own. This page is the contract that keeps that true.
       └──────────┴─────────┴────┬─────┴───────────┴─────────┴───────┘
                                 │
               PostgreSQL (schema-per-service) · RabbitMQ (events)
-              Redis (gateway rate-limit) · S3/MinIO (media)
+              Redis (refresh-token allowlist) · S3/MinIO (media)
 ```
 
 ## The three communication rules
@@ -37,7 +37,7 @@ and scaled on its own. This page is the contract that keeps that true.
    No service ever dials another service's host directly, so services can move
    hosts freely — only the gateway's route table knows where they live.
 3. **Everything asynchronous is a RabbitMQ event** (`RABBITMQ_URL`, fanout per
-   event type, envelope in `packages/contracts/src/events.ts`). Payloads are
+   event type, envelope in `api/packages/contracts/src/events.ts`). Payloads are
    event-carried state: consumers must never need a cross-schema join.
 
 Data isolation: each service owns one PostgreSQL **schema**
@@ -49,12 +49,12 @@ by giving it a different `DATABASE_URL`.
 
 | Deployable    | Required                                                                | Notes |
 |---------------|-------------------------------------------------------------------------|-------|
-| gateway       | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `REDIS_URL`, `CORS_ORIGINS`/`WEB_URL`, and one `*_SERVICE_URL` per service | The only place service addresses exist |
+| gateway       | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CORS_ORIGINS`/`WEB_URL`, and one `*_SERVICE_URL` per service | The only place service addresses exist. Rate limits tunable via `RATE_LIMIT_*` (see `api/.env.example`); the limiter store is in-memory — run one gateway instance, or accept per-instance limits when scaling out |
 | every service | `DATABASE_URL`, `RABBITMQ_URL`, `JWT_SECRET`, `INTERNAL_API_TOKEN`, `GATEWAY_INTERNAL_URL`, `PORT` | `GATEWAY_INTERNAL_URL` = gateway's private address |
 | auth          | + `WEB_URL` (verification/invite links)                                 | |
 | course        | + S3 vars, `GROQ_API_KEY` (AI outlines/quiz gen)                        | |
 | outcomes      | + S3 vars (certificates, projects, proctor snapshots), `GROQ_API_KEY`, `CERT_SIGNING_SECRET` | |
-| financial     | + `CHAPA_MODE`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `CHAPA_FALLBACK_EMAIL`, `GATEWAY_PUBLIC_URL`, `WEB_URL` | Register `<GATEWAY_PUBLIC_URL>/api/v1/payments/webhook/chapa` in the Chapa dashboard |
+| financial     | + `CHAPA_MODE`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `CHAPA_FALLBACK_EMAIL`, `GATEWAY_PUBLIC_URL`, `WEB_URL` | Register `<GATEWAY_PUBLIC_URL>/api/v1/payments/webhook/chapa` in the Chapa dashboard. A `@Cron('*/2 * * * *')` sweep re-verifies any payment still pending after a minute, so a missed/delayed webhook self-heals — run exactly one replica, same as the payout cron below |
 | quality       | + `GROQ_API_KEY` (plagiarism screen)                                    | |
 | notification  | + email provider (SMTP_* or `RESEND_API_KEY`), `PLATFORM_ADMIN_EMAIL`, `WEB_URL` | Also hosts course comments + direct messages |
 | web           | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL` | Static assets in `public/mediapipe/` power exam proctoring |
@@ -63,7 +63,7 @@ by giving it a different `DATABASE_URL`.
 
 ```bash
 pnpm turbo build --filter=@ethiopialearn/course-service
-PORT=4102 node apps/services/course/dist/main.js
+PORT=4102 node api/services/course/dist/main.js
 ```
 
 Each service exposes `GET /health` for liveness probes. Schema changes are

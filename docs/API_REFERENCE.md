@@ -12,6 +12,7 @@ Every request goes through the **API Gateway**.
   { "statusCode": 400, "message": "human readable or [field errors]", "error": "Bad Request" }
   ```
 - **Auth legend:** `[public]` no token · `[jwt]` any logged-in user · `[jwt: role]` role-restricted · `[internal]` service-to-service only — **do not call from the frontend.**
+- **Rate limits (per minute, keyed per user — per IP when anonymous):** 300 overall · 10 on credential endpoints (login/signup/reset/verify) · 30 on the rest of `/auth` · 5 on AI generation · 20 on comment/DM writes · 10 on `POST /payments/initiate` · 60 on other mutations. Exceeding one returns `429 { "statusCode": 429, "message": "Too many requests — please slow down and try again shortly." }` with `RateLimit-*` headers — back off until the window resets.
 
 ### Strong-password rule
 Applies to signup, reset, change, and accept-invite `new_password`: **≥ 8 chars and ≥ 3 of** {lowercase, uppercase, number, symbol}.
@@ -281,6 +282,27 @@ Progress → `{ completed_lessons: [ { lesson_id } ], progress_percent, complete
 ### `POST /progress/lessons/:lessonId/complete` `[jwt: learner]`
 Mark a lesson complete → updated progress.
 
+### `POST /progress/lessons/:lessonId/video` `[jwt: learner]`
+Video watch heartbeat — send every ~10 s while playing, on pause, and on leave.
+```json
+// request
+{ "position_seconds": 42.5, "duration_seconds": 120 }
+// response 201
+{ "lesson_id": "uuid", "position_seconds": 42.5, "duration_seconds": 120, "percent_watched": 35 }
+```
+`position_seconds` is the resume point (rewinds move it back); `percent_watched` is a
+high-water mark and never decreases. Reaching **≥ 90 %** auto-completes the lesson
+(same effect as `POST …/complete`, including course-completion detection).
+
+### `GET /enrollments/:id/video-progress` `[jwt: owner]`
+Everything the player needs to restore state:
+```json
+{ "enrollment_id": "uuid", "last_lesson_id": "uuid|null",
+  "lessons": [ { "lesson_id": "uuid", "position_seconds": 42.5, "duration_seconds": 120,
+                 "percent_watched": 35, "updated_at": "ISO" } ] }
+```
+`last_lesson_id` (most recently watched) is what the learn page auto-reopens; lessons are ordered most-recent first.
+
 ---
 
 ## 6. Payments, Refunds & Payouts  (financial-service)
@@ -290,6 +312,8 @@ Mark a lesson complete → updated progress.
 
 ### `POST /payments/reconcile` `[jwt: learner]`
 `{ "tx_ref": "TX-..." }` → payment (`{ status: "pending"|"confirmed"|"failed"|... }`). Webhook fallback: asks the **server** to verify a pending payment with Chapa's API directly (the browser's word grants nothing). A cancelled/`failed/cancelled` checkout is recorded as `failed` (not left pending). Call it from the payment-return page; idempotent.
+
+> **Background safety net:** even if the learner never opens the return page (closed tab, webhook undeliverable), Financial sweeps pending Chapa payments from the last 24h every 2 minutes and re-verifies each one with Chapa directly, applying the same amount/currency checks as the webhook path. A completed checkout confirms within ~2 minutes without any client action.
 
 > **Chapa email note:** Chapa validates the customer email domain for deliverability and rejects non-mainstream domains (e.g. the `*.et` demo accounts). `POST /payments/initiate` retries once with `CHAPA_FALLBACK_EMAIL` when that happens, so a purchase is never blocked by the payer's email domain — the learner still receives the platform's own receipt.
 
