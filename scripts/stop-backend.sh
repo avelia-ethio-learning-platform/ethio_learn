@@ -21,7 +21,7 @@ for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
   case "$cmd" in *stop-backend*) continue ;; esac
   cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
   case "$cwd" in
-    "$ROOT/apps/services/"* | "$ROOT/apps/gateway"*)
+    "$ROOT/api/services/"* | "$ROOT/api/gateway"*)
       kill "$pid" 2>/dev/null && swept=$((swept + 1)) ;;
     "$ROOT")
       # dist launches + turbo/pnpm dev supervisors run from the repo root;

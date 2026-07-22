@@ -8,10 +8,10 @@ PORT="${WEB_PORT:-3000}"
 mkdir -p .devlogs
 
 # Clean up any stale next processes for this app first.
-pkill -f "apps/web/node_modules/next" 2>/dev/null || true
+pkill -f "web/node_modules/next" 2>/dev/null || true
 sleep 1
 
-setsid bash -c "cd apps/web && exec ./node_modules/.bin/next dev -p $PORT" \
+setsid bash -c "cd web && exec ./node_modules/.bin/next dev -p $PORT" \
   > .devlogs/web.log 2>&1 < /dev/null &
 disown || true
 
