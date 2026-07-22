@@ -2,19 +2,10 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { BookOpen, HandCoins, LayoutDashboard, Plus, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-700',
-  institution_review: 'bg-blue-100 text-blue-800',
-  submitted: 'bg-amber-100 text-amber-800',
-  under_review: 'bg-amber-100 text-amber-800',
-  published: 'bg-green-100 text-green-800',
-  flagged: 'bg-red-100 text-red-700',
-  unlisted: 'bg-gray-200 text-gray-600',
-  archived: 'bg-gray-200 text-gray-500',
-};
+import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 
 function TeachDashboard() {
   const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
@@ -22,78 +13,120 @@ function TeachDashboard() {
   const { data: payouts } = useQuery({ queryKey: ['payouts'], queryFn: () => api<any[]>('/payouts') });
   const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
 
+  const stats = [
+    {
+      icon: Wallet,
+      label: 'Pending earnings (net, 80%)',
+      value: `${balance?.pending_net_etb ?? 0} ETB`,
+      hint: `from ${balance?.payment_count ?? 0} settled payments`,
+    },
+    { icon: BookOpen, label: 'Courses', value: courses?.length ?? 0, hint: 'drafts + published' },
+    { icon: HandCoins, label: 'Payouts received', value: payouts?.filter((p) => p.status === 'paid').length ?? 0, hint: 'nightly runs' },
+  ];
+
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Educator dashboard</h1>
-        <Link href="/teach/new" className="btn">+ New course</Link>
-      </div>
+    <PageShell>
+      <PageHeader
+        badge={
+          <span className="section-badge">
+            <LayoutDashboard className="h-4 w-4 text-brand-500" /> Educator
+          </span>
+        }
+        title="Educator dashboard"
+        subtitle="Create courses, track earnings and get paid nightly."
+        actions={
+          <Link href="/teach/new" className="btn">
+            <Plus className="h-4 w-4" /> New course
+          </Link>
+        }
+      />
 
-      {profile && !profile.educator_profile && <EducatorSetup />}
+      <div className="space-y-10">
+        {profile && !profile.educator_profile && <EducatorSetup />}
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        <div className="card">
-          <p className="text-xs uppercase text-gray-500">Pending earnings (net, 80%)</p>
-          <p className="mt-1 text-2xl font-bold">{balance?.pending_net_etb ?? 0} ETB</p>
-          <p className="text-xs text-gray-400">from {balance?.payment_count ?? 0} settled payments</p>
-        </div>
-        <div className="card">
-          <p className="text-xs uppercase text-gray-500">Courses</p>
-          <p className="mt-1 text-2xl font-bold">{courses?.length ?? 0}</p>
-        </div>
-        <div className="card">
-          <p className="text-xs uppercase text-gray-500">Payouts received</p>
-          <p className="mt-1 text-2xl font-bold">{payouts?.filter((p) => p.status === 'paid').length ?? 0}</p>
-        </div>
-      </section>
+        <section className="grid animate-fade-in-up gap-4 sm:grid-cols-3">
+          {stats.map((s) => (
+            <div key={s.label} className="card card-hover">
+              <div className="flex items-start justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{s.label}</p>
+                <span className="glass-secondary flex h-9 w-9 shrink-0 items-center justify-center rounded-xl">
+                  <s.icon className="h-4 w-4 text-brand-600" />
+                </span>
+              </div>
+              <p className="gradient-text-blue mt-2 text-3xl font-extrabold">{s.value}</p>
+              <p className="mt-1 text-xs text-gray-400">{s.hint}</p>
+            </div>
+          ))}
+        </section>
 
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">My courses</h2>
-        {!courses?.length ? (
-          <div className="card text-sm text-gray-500">No courses yet — create your first one.</div>
-        ) : (
-          <div className="card divide-y">
-            {courses.map((c) => (
-              <div key={c.id} className="flex items-center justify-between py-3 text-sm">
-                <div>
-                  <p className="font-medium">{c.title}</p>
-                  <p className="text-xs text-gray-500">{c.category} · {c.pricing_type}{c.price_etb ? ` · ${c.price_etb} ETB` : ''}</p>
+        <section className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+          <h2 className="mb-4 text-lg font-bold text-foreground">My courses</h2>
+          {!courses?.length ? (
+            <div className="card py-10 text-center text-sm text-gray-500">
+              No courses yet — create your first one.
+              <div className="mt-4">
+                <Link href="/teach/new" className="btn">
+                  <Plus className="h-4 w-4" /> Create a course
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="card !p-0 overflow-hidden">
+              {courses.map((c, i) => (
+                <div
+                  key={c.id}
+                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-sm transition-colors hover:bg-brand-500/5"
+                  style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground">{c.title}</p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {c.category} · {c.pricing_type}
+                      {c.price_etb ? ` · ${c.price_etb} ETB` : ''}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <StatusBadge status={c.status} />
+                    <Link href={`/teach/courses/${c.id}`} className="btn-secondary !px-3 !py-1.5 !text-xs">
+                      Manage
+                    </Link>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className={`rounded px-2 py-0.5 text-xs ${STATUS_COLORS[c.status] ?? ''}`}>{c.status}</span>
-                  <Link href={`/teach/courses/${c.id}`} className="text-brand-700 underline">Manage</Link>
-                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="animate-fade-in-up" style={{ animationDelay: '0.18s' }}>
+          <h2 className="mb-4 text-lg font-bold text-foreground">Payout history</h2>
+          <div className="card text-sm">
+            {!payouts?.length && <p className="py-2 text-gray-500">No payouts yet. Payouts run nightly on settled payments (7–14 day hold).</p>}
+            {payouts?.map((p, i) => (
+              <div
+                key={p.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5"
+                style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
+              >
+                <span className="text-gray-500">{new Date(p.created_at).toDateString()}</span>
+                <span className="font-medium text-foreground">
+                  net {p.net_amount_etb} ETB <span className="font-normal text-gray-400">(gross {p.gross_amount_etb})</span>
+                </span>
+                <StatusBadge status={p.status} suffix={p.hold_reason || undefined} />
               </div>
             ))}
           </div>
-        )}
-      </section>
-
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">Payout history</h2>
-        <div className="card divide-y text-sm">
-          {!payouts?.length && <p className="text-gray-500">No payouts yet. Payouts run nightly on settled payments (7–14 day hold).</p>}
-          {payouts?.map((p) => (
-            <div key={p.id} className="flex items-center justify-between py-2">
-              <span>{new Date(p.created_at).toDateString()}</span>
-              <span>net {p.net_amount_etb} ETB (gross {p.gross_amount_etb})</span>
-              <span className={`rounded px-2 py-0.5 text-xs ${p.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                {p.status}{p.hold_reason ? ` · ${p.hold_reason}` : ''}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
+        </section>
+      </div>
+    </PageShell>
   );
 }
 
 function EducatorSetup() {
   return (
-    <div className="card border-amber-300 bg-amber-50">
-      <p className="text-sm font-medium">Finish your educator profile</p>
+    <div className="card animate-fade-in-up !border-amber-400/40 bg-gradient-to-br from-amber-500/10 to-transparent">
+      <p className="text-sm font-bold text-foreground">Finish your educator profile</p>
       <form
-        className="mt-2 grid gap-2 sm:grid-cols-2"
+        className="mt-3 grid gap-2 sm:grid-cols-2"
         onSubmit={async (e) => {
           e.preventDefault();
           const form = new FormData(e.currentTarget);

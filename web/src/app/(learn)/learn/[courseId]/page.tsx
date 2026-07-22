@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Hls from 'hls.js';
+import { CheckCircle2, ChevronLeft, ChevronRight, CircleCheck, ListVideo, LoaderCircle, Play, PlayCircle, Star } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
-import { CommentsSection } from '@/components/CommentsSection';
+import { PageShell } from '@/components/PageChrome';
 import { AssessmentsPanel } from './assessments-panel';
 
 interface Lesson {
@@ -52,47 +53,6 @@ function Player({ courseId }: { courseId: string }) {
       ),
     enabled: !!status?.enrollment_id,
   });
-  const { data: videoProg } = useQuery({
-    queryKey: ['video-progress', status?.enrollment_id],
-    queryFn: () =>
-      api<{
-        last_lesson_id: string | null;
-        lessons: { lesson_id: string; position_seconds: number; duration_seconds: number; percent_watched: number }[];
-      }>(`/enrollments/${status!.enrollment_id}/video-progress`),
-    enabled: !!status?.enrollment_id,
-  });
-  const watchedMap = useMemo(() => new Map((videoProg?.lessons ?? []).map((l) => [l.lesson_id, l])), [videoProg]);
-
-  // Watch-position tracking: heartbeat every 10s while playing, plus on pause,
-  // lesson switch, and unmount. Server auto-completes the lesson at ≥90%.
-  const activeIdRef = useRef<string | null>(null);
-  const resumeAtRef = useRef(0);
-  const lastSavedRef = useRef(0);
-  const saveNow = () => {
-    const video = videoRef.current;
-    const lessonId = activeIdRef.current;
-    if (!video || !lessonId || !video.duration || !isFinite(video.duration) || video.currentTime < 1) return;
-    lastSavedRef.current = Date.now();
-    return api<{ percent_watched: number }>(`/progress/lessons/${lessonId}/video`, {
-      method: 'POST',
-      body: { position_seconds: video.currentTime, duration_seconds: video.duration },
-    })
-      .then((r) => {
-        if (r.percent_watched >= 90) {
-          void queryClient.invalidateQueries({ queryKey: ['progress'] });
-          void queryClient.invalidateQueries({ queryKey: ['enrollments'] });
-        }
-      })
-      .catch(() => undefined); // best-effort — next heartbeat retries
-  };
-  const saveRef = useRef(saveNow);
-  saveRef.current = saveNow;
-  useEffect(
-    () => () => {
-      void saveRef.current(); // flush on unmount
-    },
-    [],
-  );
 
   // Flat, ordered lesson list for prev/next navigation.
   const flat = useMemo(() => (course?.sections ?? []).flatMap((s) => s.lessons.map((l) => ({ ...l, sectionTitle: s.title }))), [course]);
@@ -100,16 +60,7 @@ function Player({ courseId }: { courseId: string }) {
   const completedIds = new Set(progress?.completed_lessons.map((l) => l.lesson_id) ?? []);
 
   const playLesson = async (lesson: Lesson) => {
-    // Flush the previous lesson's position, then refresh the sidebar watch bars.
-    void saveNow()?.then(() => queryClient.invalidateQueries({ queryKey: ['video-progress'] }));
     setActiveId(lesson.id);
-    activeIdRef.current = lesson.has_video ? lesson.id : null;
-    // Resume from the saved position unless the lesson was (nearly) finished.
-    const saved = watchedMap.get(lesson.id);
-    resumeAtRef.current =
-      saved && saved.position_seconds > 5 && saved.duration_seconds > 0 && saved.position_seconds < saved.duration_seconds * 0.95
-        ? saved.position_seconds
-        : 0;
     setVideoError('');
     // Always tear down a previous HLS instance so streams don't stack up.
     hlsRef.current?.destroy();
@@ -152,26 +103,31 @@ function Player({ courseId }: { courseId: string }) {
     if (next) playLesson(next);
   };
 
-  // On first load, reopen the lesson the learner last watched.
-  const autoResumedRef = useRef(false);
-  useEffect(() => {
-    if (autoResumedRef.current || !videoProg || flat.length === 0 || activeIdRef.current) return;
-    autoResumedRef.current = true;
-    const last = videoProg.last_lesson_id ? flat.find((l) => l.id === videoProg.last_lesson_id) : undefined;
-    if (last) void playLesson(last);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoProg, flat]);
-
-  if (!course) return <p className="text-gray-500">Loading course…</p>;
+  if (!course) {
+    return (
+      <PageShell>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="space-y-4 lg:col-span-2">
+            <div className="skeleton h-9 w-2/3" />
+            <div className="skeleton aspect-video w-full" />
+          </div>
+          <div className="space-y-3">
+            <div className="skeleton h-28 w-full" />
+            <div className="skeleton h-28 w-full" />
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
   const active = flat[activeIndex];
 
   return (
-    <div>
+    <PageShell>
       <BackButton fallback="/dashboard" label="My Learning" />
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <h1 className="text-2xl font-bold">{course.title}</h1>
-          <div className="relative mt-4 overflow-hidden rounded-lg bg-black">
+        <div className="animate-fade-in-up lg:col-span-2">
+          <h1 className="text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{course.title}</h1>
+          <div className="relative mt-5 overflow-hidden rounded-2xl bg-black shadow-floating">
             <video
               ref={videoRef}
               controls
@@ -179,103 +135,114 @@ function Player({ courseId }: { courseId: string }) {
               className="aspect-video w-full"
               onEnded={() => active && markComplete(active.id)}
               onError={() => active?.has_video && setVideoError('Could not play this video. Please try again.')}
-              onLoadedMetadata={() => {
-                const video = videoRef.current;
-                if (video && resumeAtRef.current > 0 && resumeAtRef.current < video.duration * 0.95) {
-                  video.currentTime = resumeAtRef.current;
-                }
-                resumeAtRef.current = 0;
-              }}
-              onTimeUpdate={() => {
-                const video = videoRef.current;
-                if (video && !video.paused && Date.now() - lastSavedRef.current > 10_000) saveNow();
-              }}
-              onPause={() => saveNow()}
             />
             {videoLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm text-white">Loading video…</div>
+              <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 text-sm text-white backdrop-blur-sm">
+                <LoaderCircle className="h-4 w-4 animate-spin" /> Loading video…
+              </div>
             )}
             {!active && !videoLoading && (
-              <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-300">▶ Select a lesson to begin</div>
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-gray-300">
+                <PlayCircle className="h-10 w-10 opacity-70" />
+                Select a lesson to begin
+              </div>
             )}
           </div>
 
           {active ? (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-              <p className="font-medium">{active.title}</p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="min-w-0 flex-1 font-semibold text-foreground">{active.title}</p>
               <div className="flex gap-2">
-                <button className="btn-secondary text-xs" disabled={activeIndex <= 0} onClick={() => goto(-1)}>
-                  ← Previous
+                <button className="btn-secondary !px-3 !py-1.5 !text-xs" disabled={activeIndex <= 0} onClick={() => goto(-1)}>
+                  <ChevronLeft className="h-3.5 w-3.5" /> Previous
                 </button>
-                <button className="btn-secondary text-xs" onClick={() => active && markComplete(active.id)}>
-                  Mark complete
+                <button className="btn-secondary !px-3 !py-1.5 !text-xs" onClick={() => active && markComplete(active.id)}>
+                  <CircleCheck className="h-3.5 w-3.5" /> Mark complete
                 </button>
-                <button className="btn text-xs" disabled={activeIndex >= flat.length - 1} onClick={() => goto(1)}>
-                  Next →
+                <button className="btn !px-3 !py-1.5 !text-xs" disabled={activeIndex >= flat.length - 1} onClick={() => goto(1)}>
+                  Next <ChevronRight className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
           ) : (
-            <p className="mt-2 text-sm text-gray-500">Select a lesson from the list to start.</p>
+            <p className="mt-4 text-sm text-gray-500">Select a lesson from the list to start.</p>
           )}
-          {videoError && <p className="mt-2 text-sm text-amber-700">{videoError}</p>}
+          {videoError && <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">{videoError}</p>}
           {progress && (
-            <div className="mt-3">
-              <div className="h-2 rounded bg-gray-100">
-                <div className="h-2 rounded bg-brand-600" style={{ width: `${progress.progress_percent}%` }} />
+            <div className="card mt-5 !p-4">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>
+                  {progress.progress_percent}% complete{progress.completed_at ? ' — course completed 🎉' : ''}
+                </span>
+                <span className="font-semibold text-brand-600">{progress.progress_percent}%</span>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                {progress.progress_percent}% complete{progress.completed_at ? ' — course completed 🎉' : ''}
-              </p>
+              <div className="progress-track mt-2">
+                <div className="progress-fill" style={{ width: `${progress.progress_percent}%` }} />
+              </div>
             </div>
           )}
 
           <AssessmentsPanel courseId={courseId} />
           <ReviewBox courseId={courseId} progressPercent={progress?.progress_percent ?? 0} />
-          <div className="mt-6">
-            <CommentsSection courseId={courseId} />
-          </div>
         </div>
 
-        <aside className="space-y-3">
-          {course.sections.map((section) => (
-            <div key={section.id} className="card">
-              <h3 className="text-sm font-semibold">{section.title}</h3>
+        <aside className="animate-fade-in-up space-y-3 lg:sticky lg:top-28 lg:max-h-[calc(100vh-8.5rem)] lg:self-start lg:overflow-y-auto lg:pb-4 lg:pr-1">
+          <p className="flex items-center justify-between gap-2 px-1 text-sm font-bold uppercase tracking-wider text-gray-500">
+            <span className="flex items-center gap-2">
+              <ListVideo className="h-4 w-4 text-brand-500" /> Lessons
+            </span>
+            <span className="text-xs font-semibold normal-case tracking-normal text-gray-400">
+              {completedIds.size}/{flat.length} done
+            </span>
+          </p>
+          {course.sections.map((section) => {
+            const doneInSection = section.lessons.filter((l) => completedIds.has(l.id)).length;
+            return (
+            <div key={section.id} className="card !p-4">
+              <h3 className="flex items-center justify-between gap-2 text-sm font-bold text-foreground">
+                <span className="min-w-0 truncate">{section.title}</span>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    doneInSection === section.lessons.length && section.lessons.length > 0
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-brand-500/10 text-brand-600'
+                  }`}
+                >
+                  {doneInSection}/{section.lessons.length}
+                </span>
+              </h3>
               <ul className="mt-2 space-y-1">
                 {section.lessons.map((lesson) => {
                   const isActive = lesson.id === activeId;
                   const done = completedIds.has(lesson.id);
-                  const watched = watchedMap.get(lesson.id);
                   return (
                     <li key={lesson.id}>
                       <button
                         onClick={() => playLesson(lesson)}
-                        className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm ${
-                          isActive ? 'bg-brand-50 text-brand-800' : 'text-gray-700 hover:bg-gray-50'
+                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors ${
+                          isActive ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600 hover:bg-brand-500/5 hover:text-foreground'
                         }`}
                       >
-                        <span className="truncate">
-                          {done ? '✅' : isActive ? '▶️' : '▶'} {lesson.title}
+                        <span className="flex min-w-0 flex-1 items-center gap-2">
+                          {done ? (
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                          ) : (
+                            <Play className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-400'}`} />
+                          )}
+                          <span className="truncate">{lesson.title}</span>
                         </span>
-                        <span className="text-xs text-gray-400">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
+                        <span className="shrink-0 text-xs text-gray-400">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
                       </button>
-                      {!done && watched && watched.percent_watched > 0 && (
-                        <div className="mx-2 mb-1 h-0.5 rounded bg-gray-100">
-                          <div className="h-0.5 rounded bg-brand-400" style={{ width: `${watched.percent_watched}%` }} />
-                        </div>
-                      )}
-                      {isActive && (lesson as any).summary && (
-                        <p className="ml-2 mt-0.5 rounded bg-gray-50 px-2 py-1 text-xs text-gray-500">{(lesson as any).summary}</p>
-                      )}
                     </li>
                   );
                 })}
               </ul>
             </div>
-          ))}
+            );
+          })}
         </aside>
       </div>
-    </div>
+    </PageShell>
   );
 }
 
@@ -286,17 +253,17 @@ function ReviewBox({ courseId, progressPercent }: { courseId: string; progressPe
   if (progressPercent < 20) return null; // eligible at ≥20% (spec §10.7)
   return (
     <div className="card mt-6">
-      <h3 className="font-semibold">Rate this course</h3>
-      <div className="mt-2 flex items-center gap-2">
+      <h3 className="font-bold text-foreground">Rate this course</h3>
+      <div className="mt-3 flex items-center gap-1.5">
         {[1, 2, 3, 4, 5].map((n) => (
-          <button key={n} onClick={() => setRating(n)} className={`text-2xl ${n <= rating ? 'text-amber-500' : 'text-gray-300'}`}>
-            ★
+          <button key={n} onClick={() => setRating(n)} aria-label={`${n} stars`} className="transition-transform hover:scale-110">
+            <Star className={`h-7 w-7 ${n <= rating ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`} />
           </button>
         ))}
       </div>
-      <textarea className="input mt-2" placeholder="Optional comment" value={comment} onChange={(e) => setComment(e.target.value)} />
+      <textarea className="input mt-3" rows={3} placeholder="Optional comment" value={comment} onChange={(e) => setComment(e.target.value)} />
       <button
-        className="btn mt-2"
+        className="btn mt-3"
         onClick={async () => {
           try {
             await api(`/courses/${courseId}/reviews`, { method: 'POST', body: { rating, comment: comment || undefined } });
@@ -308,7 +275,7 @@ function ReviewBox({ courseId, progressPercent }: { courseId: string; progressPe
       >
         Submit review
       </button>
-      {message && <p className="mt-2 text-sm text-gray-600">{message}</p>}
+      {message && <p className="mt-2 text-sm font-medium text-brand-600">{message}</p>}
     </div>
   );
 }

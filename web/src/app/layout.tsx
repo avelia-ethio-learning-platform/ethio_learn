@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Providers } from '@/components/Providers';
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
+import { THEME_INIT_SCRIPT } from '@/lib/theme-script';
 import { SITE_URL } from '@/lib/server-api';
 
 export const metadata: Metadata = {
@@ -24,15 +26,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Apply saved theme before paint to avoid a flash of the wrong mode */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>
         <Providers>
           <Header />
-          <main className="mx-auto min-h-[80vh] max-w-6xl px-4 py-8">{children}</main>
-          <footer className="border-t border-gray-200 bg-white py-8 text-center text-sm text-gray-500">
-            <p>EthiopiaLearn · Educator-first online learning for Ethiopia 🇪🇹</p>
-            <p className="mt-1">Payments by Chapa · Certificates publicly verifiable at /verify</p>
-          </footer>
+          <main className="min-h-screen">{children}</main>
+          <Footer />
         </Providers>
       </body>
     </html>

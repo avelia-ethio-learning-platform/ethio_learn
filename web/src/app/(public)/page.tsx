@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { serverApi } from '@/lib/server-api';
 import { CourseSummary } from '@/components/CourseCard';
 import { HomeClient } from './home-client';
@@ -13,16 +14,17 @@ export const metadata: Metadata = {
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: { q?: string; category?: string; pricing_type?: string; sort?: string; page?: string };
+  searchParams: { q?: string; category?: string; pricing_type?: string; page?: string };
 }) {
-  const params = new URLSearchParams();
-  if (searchParams.q) params.set('q', searchParams.q);
-  if (searchParams.category) params.set('category', searchParams.category);
-  if (searchParams.pricing_type) params.set('pricing_type', searchParams.pricing_type);
-  if (searchParams.sort) params.set('sort', searchParams.sort);
-  params.set('page', searchParams.page ?? '1');
-  params.set('limit', '12');
+  // The catalog moved to /courses — forward legacy landing-page filter URLs there.
+  if (searchParams.q || searchParams.category || searchParams.pricing_type) {
+    const params = new URLSearchParams();
+    if (searchParams.q) params.set('q', searchParams.q);
+    if (searchParams.category) params.set('category', searchParams.category);
+    if (searchParams.pricing_type) params.set('pricing_type', searchParams.pricing_type);
+    redirect(`/courses?${params.toString()}`);
+  }
 
-  const result = await serverApi<{ total: number; items: CourseSummary[] }>(`/search?${params.toString()}`, 60);
-  return <HomeClient courses={result?.items ?? []} searchParams={searchParams} />;
+  const result = await serverApi<{ total: number; items: CourseSummary[] }>('/search?page=1&limit=6', 60);
+  return <HomeClient courses={result?.items ?? []} total={result?.total ?? 0} />;
 }

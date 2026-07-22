@@ -3,11 +3,15 @@
 import { FormEvent, Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { AlertCircle, MailCheck, UserPlus } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useT } from '@/lib/i18n';
 import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
+import { AuthShell } from '@/components/PageChrome';
 
 function SignupForm() {
   const params = useSearchParams();
+  const { t } = useT();
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -37,32 +41,56 @@ function SignupForm() {
 
   if (done) {
     return (
-      <div className="card mx-auto max-w-md text-center">
-        <p className="text-3xl">📬</p>
-        <h1 className="mt-2 text-xl font-semibold">Check your email</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          We sent a verification link to your inbox. Click it, then <Link className="text-brand-700 underline" href="/login">log in</Link>.
-        </p>
-        <p className="mt-2 text-xs text-gray-400">Local dev without an email key? The link is printed in the notification service logs.</p>
-      </div>
+      <AuthShell icon={<MailCheck className="h-6 w-6" />} title="Check your email" subtitle="One more step to activate your account.">
+        <div className="text-center">
+          <p className="text-sm leading-relaxed text-gray-500">
+            We sent a verification link to your inbox. Click it, then{' '}
+            <Link className="font-semibold text-brand-600 hover:underline" href="/login">
+              {t('login')}
+            </Link>
+            .
+          </p>
+          <p className="mt-3 text-xs text-gray-400">Local dev without an email key? The link is printed in the notification service logs.</p>
+        </div>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-bold">Create your account</h1>
-      <form onSubmit={submit} className="card mt-4 space-y-4">
+    <AuthShell
+      icon={<UserPlus className="h-6 w-6" />}
+      title={t('create_account')}
+      subtitle="Join Ethiopia's educator-first learning community."
+      footer={
+        <>
+          Already have an account?{' '}
+          <Link href="/login" className="font-medium text-brand-600 hover:underline">
+            {t('login')}
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={submit} className="space-y-4">
         <div>
-          <label className="label">Full name</label>
-          <input name="name" required minLength={2} className="input" />
+          <label className="label">{t('full_name')}</label>
+          <input name="name" required minLength={2} className="input" placeholder="Abebe Bikila" />
         </div>
         <div>
-          <label className="label">Email</label>
-          <input name="email" type="email" required className="input" />
+          <label className="label">{t('email')}</label>
+          <input name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />
         </div>
         <div>
-          <label className="label">Password (8+ characters)</label>
-          <input name="password" type="password" minLength={8} required className="input" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <label className="label">{t('password')} (8+ characters)</label>
+          <input
+            name="password"
+            type="password"
+            minLength={8}
+            required
+            autoComplete="new-password"
+            className="input"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
           <PasswordStrength value={password} />
         </div>
         <div>
@@ -73,13 +101,17 @@ function SignupForm() {
             <option value="institution_admin">Institution — training center / bootcamp</option>
           </select>
         </div>
-        <p className="text-xs text-gray-500">No phone number required — just email and password.</p>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button className="btn w-full" disabled={busy}>
-          {busy ? 'Creating…' : 'Sign up'}
+        <p className="text-xs text-gray-400">No phone number required — just email and password.</p>
+        {error && (
+          <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+          </p>
+        )}
+        <button className="btn w-full !py-3" disabled={busy}>
+          {busy ? 'Creating…' : t('signup')}
         </button>
       </form>
-    </div>
+    </AuthShell>
   );
 }
 

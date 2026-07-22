@@ -3,8 +3,10 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Hls from 'hls.js';
+import { Clapperboard, PlayCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
+import { useT } from '@/lib/i18n';
 
 interface Lesson {
   id: string;
@@ -25,6 +27,7 @@ interface Section {
  */
 export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
   const { user, ready } = useAuth();
+  const { t } = useT();
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState('');
@@ -63,19 +66,29 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
   };
 
   return (
-    <div className="card mt-6 border-brand-200 bg-brand-50/40">
-      <h2 className="font-semibold text-brand-800">🎬 Free preview</h2>
-      <p className="mt-1 text-sm text-gray-600">Watch these lessons for free before you enroll.</p>
-      <div className="mt-3 overflow-hidden rounded-lg bg-black">
+    <div className="card mt-8 !rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/70 to-brand-100/40 dark:from-blue-950/30 dark:to-blue-900/15">
+      <h2 className="flex items-center gap-2 font-bold text-foreground">
+        <span className="glass-secondary flex h-9 w-9 items-center justify-center rounded-xl">
+          <Clapperboard className="h-5 w-5 text-brand-600" />
+        </span>
+        {t('free_preview')}
+      </h2>
+      <p className="mt-2 text-sm text-gray-500">Watch these lessons for free before you enroll.</p>
+      <div className="mt-4 overflow-hidden rounded-2xl bg-black shadow-elevated">
         <video ref={videoRef} controls className="aspect-video w-full" />
       </div>
-      {playing && <p className="mt-2 text-sm font-medium">Now playing: {playing}</p>}
-      {error && <p className="mt-2 text-sm text-amber-700">{error}</p>}
-      <ul className="mt-3 space-y-1">
+      {playing && <p className="mt-3 text-sm font-semibold text-foreground">Now playing: {playing}</p>}
+      {error && <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">{error}</p>}
+      <ul className="mt-4 space-y-1">
         {previewLessons.map((l) => (
           <li key={l.id}>
-            <button onClick={() => play(l)} className="text-left text-sm text-brand-700 hover:underline">
-              ▶ {l.title} <span className="text-xs text-gray-400">({l.section})</span>
+            <button
+              onClick={() => play(l)}
+              className="group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-brand-600 transition-colors hover:bg-brand-500/10"
+            >
+              <PlayCircle className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
+              <span className="min-w-0 flex-1 truncate">{l.title}</span>
+              <span className="shrink-0 text-xs text-gray-400">({l.section})</span>
             </button>
           </li>
         ))}

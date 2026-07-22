@@ -3,10 +3,14 @@
 import { FormEvent, Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { AlertCircle, CheckCircle2, KeyRound } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useT } from '@/lib/i18n';
+import { AuthShell } from '@/components/PageChrome';
 
 function ResetPassword() {
   const params = useSearchParams();
+  const { t } = useT();
   const token = params.get('token');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -36,33 +40,51 @@ function ResetPassword() {
   };
 
   return (
-    <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-bold">{token ? 'Set a new password' : 'Reset your password'}</h1>
-      <form onSubmit={submit} className="card mt-4 space-y-4">
+    <AuthShell
+      icon={<KeyRound className="h-6 w-6" />}
+      title={token ? 'Set a new password' : 'Reset your password'}
+      subtitle={token ? 'Choose a strong password for your account.' : "We'll email you a signed, time-limited reset link."}
+      footer={
+        <Link href="/login" className="font-medium text-brand-600 hover:underline">
+          ← {t('login')}
+        </Link>
+      }
+    >
+      <form onSubmit={submit} className="space-y-4">
         {token ? (
           <div>
             <label className="label">New password (8+ characters)</label>
-            <input name="password" type="password" minLength={8} required className="input" />
+            <input name="password" type="password" minLength={8} required autoComplete="new-password" className="input" />
           </div>
         ) : (
           <div>
             <label className="label">Account email</label>
-            <input name="email" type="email" required className="input" />
-            <p className="mt-1 text-xs text-gray-500">We&apos;ll email you a signed, time-limited reset link.</p>
+            <input name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />
           </div>
         )}
         {message && (
-          <p className="text-sm text-green-700">
-            {message}
-            {token && <Link href="/login" className="text-brand-700 underline">Log in</Link>}
+          <p className="badge-success flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {message}
+              {token && (
+                <Link href="/login" className="ml-1 font-semibold underline">
+                  {t('login')}
+                </Link>
+              )}
+            </span>
           </p>
         )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button className="btn w-full" disabled={busy}>
+        {error && (
+          <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+          </p>
+        )}
+        <button className="btn w-full !py-3" disabled={busy}>
           {busy ? 'Working…' : token ? 'Update password' : 'Send reset link'}
         </button>
       </form>
-    </div>
+    </AuthShell>
   );
 }
 
