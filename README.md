@@ -33,6 +33,18 @@ Browser ──► Next.js web (SSR/ISR public pages, CSR dashboards, en/am i18n)
 | quality | 4106 | QO queue, ratings/reviews, trust tiers, fraud flags |
 | notification | 4107 | transactional email (Resend or dev console) |
 
+## Features
+
+- **Identity & access** — email/password signup with verification link, JWT + rotating-refresh-cookie login (Redis allowlist), password reset, strong-password enforcement, 5 roles (learner, educator, institution admin, quality officer, platform admin), institution instructor invites, admin user management.
+- **Courses & content** — draft → institution review → QO review → published lifecycle; sections/lessons; presigned video upload; signed, entitlement-gated streaming URLs; freemium free-preview sections; AI course-outline generation (Groq) with human review before applying; course cloning; catalog search/sort/categories; public educator profiles.
+- **Enrollment & learning** — instant free/freemium enrollment; paid enrollment gated on a confirmed payment; per-lesson completion; **video watch-percentage tracking with resume-where-you-left-off** (high-water mark, ≥90% auto-completes); course progress; certificates on completion.
+- **Payments (Chapa)** — initiate → hosted checkout → HMAC-verified webhook → server-side re-verify with amount/currency tamper checks → idempotent confirm → entitlement; browser-triggered reconcile plus an automatic background sweep for missed webhooks; mock gateway for offline dev; manual bank-transfer fallback; admin payment ledger.
+- **Refunds & payouts** — rule-based refund decisions (auto-approve/manual-review/deny), 80/20 revenue split, 7/14-day settlement holds, KYC and fraud holds, payout runs and releases, educator balance view.
+- **Assessments & outcomes** — quizzes/assessments with attempts and scoring, tamper-evident HMAC-signed certificates with a public verification page, webcam proctoring assets.
+- **Quality & trust** — purchase-gated reviews with rating aggregates, QA review queue, fraud flags wired to payout holds, appeals flow.
+- **Community & notifications** — rate-limited community posts/replies, in-app notifications, transactional email (SMTP/Resend/console) for receipts, enrollment and verification.
+- **Platform engineering** — single public API gateway with JWT auth, risk-bucketed per-route rate limiting, header-spoofing protection, internal-token service mesh; event-driven microservices over RabbitMQ; schema-per-service Postgres; English/Amharic i18n; unit + e2e test suites; GitHub Actions CI/CD publishing images to GHCR; fully Dockerized.
+
 ## Quick start (local dev)
 
 Requirements: Node 20, pnpm 9 (`corepack enable`), Docker.
@@ -123,7 +135,7 @@ Everything runs with **zero external credentials**; real providers switch on aut
 ## Spec compliance highlights
 
 - **Auth**: email + password only, verification **link** (no OTP), JWT access 15 min + refresh 7 days in an `httpOnly` cookie (rotated, Redis-allowlisted). Exactly 5 roles. No SMS anywhere.
-- **Payments**: Chapa initialize → redirect → webhook with **HMAC-SHA256 verified on the raw body** (timing-safe) → server-side verify → `PaymentConfirmed`. `tx_ref` idempotency (duplicate webhooks are no-ops). Webhook always returns 200.
+- **Payments**: Chapa initialize → redirect → webhook with **HMAC-SHA256 verified on the raw body** (timing-safe) → server-side verify → `PaymentConfirmed`. `tx_ref` idempotency (duplicate webhooks are no-ops). Webhook always returns 200. A background sweep (`@Cron('*/2 * * * *')` in financial-service) re-verifies any payment still pending after a minute, so a missed webhook or an abandoned return page never strands a real payment.
 - **Entitlement**: granted **only** by the Enrollment & Progress service, **only** from a verified `PaymentConfirmed` event (or direct enrollment for free courses).
 - **Content protection**: raw S3 keys never leave the backend; playback uses signed, 15-minute URLs issued after a server-side entitlement check. Freemium preview sections are the only exception.
 - **Revenue split**: 80/20 computed at payout time; 7-day settlement hold (14 days for `new`-tier educators), fraud-flag holds, pending-refund holds, `KYC_PAYOUT_THRESHOLD_ETB` gate; nightly cron + admin-triggered `POST /payouts/run`.

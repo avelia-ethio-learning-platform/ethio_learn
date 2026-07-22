@@ -313,6 +313,8 @@ Everything the player needs to restore state:
 ### `POST /payments/reconcile` `[jwt: learner]`
 `{ "tx_ref": "TX-..." }` → payment (`{ status: "pending"|"confirmed"|"failed"|... }`). Webhook fallback: asks the **server** to verify a pending payment with Chapa's API directly (the browser's word grants nothing). A cancelled/`failed/cancelled` checkout is recorded as `failed` (not left pending). Call it from the payment-return page; idempotent.
 
+> **Background safety net:** even if the learner never opens the return page (closed tab, webhook undeliverable), Financial sweeps pending Chapa payments from the last 24h every 2 minutes and re-verifies each one with Chapa directly, applying the same amount/currency checks as the webhook path. A completed checkout confirms within ~2 minutes without any client action.
+
 > **Chapa email note:** Chapa validates the customer email domain for deliverability and rejects non-mainstream domains (e.g. the `*.et` demo accounts). `POST /payments/initiate` retries once with `CHAPA_FALLBACK_EMAIL` when that happens, so a purchase is never blocked by the payer's email domain — the learner still receives the platform's own receipt.
 
 ### `POST /payments/mock/complete` `[public, dev only]`

@@ -54,7 +54,7 @@ by giving it a different `DATABASE_URL`.
 | auth          | + `WEB_URL` (verification/invite links)                                 | |
 | course        | + S3 vars, `GROQ_API_KEY` (AI outlines/quiz gen)                        | |
 | outcomes      | + S3 vars (certificates, projects, proctor snapshots), `GROQ_API_KEY`, `CERT_SIGNING_SECRET` | |
-| financial     | + `CHAPA_MODE`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `CHAPA_FALLBACK_EMAIL`, `GATEWAY_PUBLIC_URL`, `WEB_URL` | Register `<GATEWAY_PUBLIC_URL>/api/v1/payments/webhook/chapa` in the Chapa dashboard |
+| financial     | + `CHAPA_MODE`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `CHAPA_FALLBACK_EMAIL`, `GATEWAY_PUBLIC_URL`, `WEB_URL` | Register `<GATEWAY_PUBLIC_URL>/api/v1/payments/webhook/chapa` in the Chapa dashboard. A `@Cron('*/2 * * * *')` sweep re-verifies any payment still pending after a minute, so a missed/delayed webhook self-heals — run exactly one replica, same as the payout cron below |
 | quality       | + `GROQ_API_KEY` (plagiarism screen)                                    | |
 | notification  | + email provider (SMTP_* or `RESEND_API_KEY`), `PLATFORM_ADMIN_EMAIL`, `WEB_URL` | Also hosts course comments + direct messages |
 | web           | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL` | Static assets in `public/mediapipe/` power exam proctoring |
