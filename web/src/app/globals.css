@@ -7,15 +7,15 @@ body {
 }
 
 .btn {
-  @apply inline-flex items-center justify-center rounded-md bg-brand-700 px-4 py-2 text-sm font-medium text-white hover:bg-brand-800 disabled:opacity-50;
+  @apply inline-flex items-center justify-center rounded-md bg-brand-700 px-4 py-2 text-sm font-medium text-white transition-all duration-150 hover:bg-brand-800 hover:shadow-md active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100;
 }
 
 .btn-secondary {
-  @apply inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50;
+  @apply inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-all duration-150 hover:border-gray-400 hover:bg-gray-50 active:scale-[0.97] disabled:opacity-50;
 }
 
 .input {
-  @apply block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600;
+  @apply block w-full rounded-md border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600;
 }
 
 .card {
@@ -24,4 +24,39 @@ body {
 
 .label {
   @apply mb-1 block text-sm font-medium text-gray-700;
+}
+
+/* ---- Motion & polish (net-new; safe to keep or fold into a design system) ---- */
+
+@keyframes el-fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes el-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* Entrance animation for content and, with --el-i set, a stagger for grids. */
+.animate-in {
+  animation: el-fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--el-i, 0) * 60ms);
+}
+
+/* Shimmering skeleton placeholder for loading states. */
+.skeleton {
+  @apply relative overflow-hidden rounded-md bg-gray-200/70;
+}
+.skeleton::after {
+  content: '';
+  @apply absolute inset-0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+  animation: el-shimmer 1.4s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-in { animation: none; }
+  .skeleton::after { animation: none; }
+  .btn, .btn-secondary { transition: none; }
 }

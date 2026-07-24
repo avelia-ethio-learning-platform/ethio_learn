@@ -20,11 +20,12 @@ export function priceLabel(course: Pick<CourseSummary, 'pricing_type' | 'price_e
   return `${course.price_etb ?? '—'} ETB`;
 }
 
-export function CourseCard({ course }: { course: CourseSummary }) {
+export function CourseCard({ course, index }: { course: CourseSummary; index?: number }) {
   return (
     <Link
       href={`/courses/${course.id}`}
-      className="card group block transition duration-200 hover:-translate-y-1 hover:shadow-lg"
+      style={index !== undefined ? ({ '--el-i': Math.min(index, 12) } as React.CSSProperties) : undefined}
+      className="card group animate-in block transition duration-200 hover:-translate-y-1 hover:shadow-lg"
     >
       <div className="mb-3 flex h-32 items-center justify-center overflow-hidden rounded-md bg-brand-50 text-4xl">
         {course.thumbnail_url ? (

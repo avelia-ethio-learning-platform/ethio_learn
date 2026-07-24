@@ -6,11 +6,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
+import { SkeletonLines } from '@/components/Skeleton';
 
 function NotificationsList() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { data } = useQuery({ queryKey: ['notifications-page'], queryFn: () => api<any[]>('/notifications') });
+  const { data, isLoading } = useQuery({ queryKey: ['notifications-page'], queryFn: () => api<any[]>('/notifications') });
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -34,7 +35,8 @@ function NotificationsList() {
         </div>
       </div>
       <div className="card mt-4 divide-y">
-        {!data?.length && <p className="py-6 text-center text-sm text-gray-400">No notifications yet.</p>}
+        {isLoading && <><SkeletonLines rows={2} /><SkeletonLines rows={2} /><SkeletonLines rows={2} /></>}
+        {!isLoading && !data?.length && <p className="py-6 text-center text-sm text-gray-400">No notifications yet.</p>}
         {data?.map((n) => (
           <button
             key={n.id}
