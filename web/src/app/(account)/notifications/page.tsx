@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -16,16 +17,21 @@ function NotificationsList() {
       <BackButton />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Notifications</h1>
-        <button
-          className="text-sm text-brand-700 hover:underline"
-          onClick={async () => {
-            await api('/notifications/read-all', { method: 'POST' });
-            queryClient.invalidateQueries({ queryKey: ['notifications-page'] });
-            queryClient.invalidateQueries({ queryKey: ['unread-count'] });
-          }}
-        >
-          Mark all read
-        </button>
+        <div className="flex items-center gap-4 text-sm">
+          <Link href="/notifications/preferences" className="text-brand-700 hover:underline">
+            ⚙ Alert settings
+          </Link>
+          <button
+            className="text-brand-700 hover:underline"
+            onClick={async () => {
+              await api('/notifications/read-all', { method: 'POST' });
+              queryClient.invalidateQueries({ queryKey: ['notifications-page'] });
+              queryClient.invalidateQueries({ queryKey: ['unread-count'] });
+            }}
+          >
+            Mark all read
+          </button>
+        </div>
       </div>
       <div className="card mt-4 divide-y">
         {!data?.length && <p className="py-6 text-center text-sm text-gray-400">No notifications yet.</p>}

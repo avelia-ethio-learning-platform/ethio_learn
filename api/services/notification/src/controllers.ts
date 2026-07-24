@@ -1,14 +1,52 @@
-import { Body, Controller, ForbiddenException, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
-import { IsBoolean } from 'class-validator';
+import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
+import { IsArray, IsBoolean, IsIn, IsOptional, IsUUID } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, IsNull, Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
-import { Role } from '@ethiopialearn/contracts';
+import { COURSE_CATEGORIES, Role } from '@ethiopialearn/contracts';
 import { InboxNotification, NotificationLog, NotificationPreference } from './entities';
 
+const CATEGORY_VALUES = COURSE_CATEGORIES as string[];
+
+/** De-dupe while preserving order. */
+function uniq(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+/** Partial update — any omitted field keeps its stored value. */
 class PreferencesDto {
+  @IsOptional()
   @IsBoolean()
-  marketing_opt_out: boolean;
+  marketing_opt_out?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsIn(CATEGORY_VALUES, { each: true })
+  new_course_categories?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  new_course_instructor_ids?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  new_course_email?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  new_course_in_app?: boolean;
+}
+
+function prefView(row: NotificationPreference | null, userId: string) {
+  return {
+    user_id: userId,
+    marketing_opt_out: row?.marketing_opt_out ?? false,
+    new_course_categories: row?.new_course_categories ?? [],
+    new_course_instructor_ids: row?.new_course_instructor_ids ?? [],
+    new_course_email: row?.new_course_email ?? true,
+    new_course_in_app: row?.new_course_in_app ?? true,
+  };
 }
 
 @Controller()
@@ -76,15 +114,53 @@ export class NotificationController {
   async getPrefs(@CurrentUser() ctx: UserContext, @Param('userId') userId: string) {
     this.assertSelfOrAdmin(ctx, userId);
     const row = await this.prefs.findOne({ where: { user_id: userId } });
-    return { user_id: userId, marketing_opt_out: row?.marketing_opt_out ?? false };
+    return prefView(row, userId);
   }
 
+  /** Partial update: only the fields present in the body change. */
   @Put('notification-preferences/:userId')
   @Roles()
   async putPrefs(@CurrentUser() ctx: UserContext, @Param('userId') userId: string, @Body() dto: PreferencesDto) {
     this.assertSelfOrAdmin(ctx, userId);
-    await this.prefs.save(this.prefs.create({ user_id: userId, marketing_opt_out: dto.marketing_opt_out }));
-    return { user_id: userId, marketing_opt_out: dto.marketing_opt_out };
+    const current = (await this.prefs.findOne({ where: { user_id: userId } })) ?? this.prefs.create({ user_id: userId });
+    if (dto.marketing_opt_out !== undefined) current.marketing_opt_out = dto.marketing_opt_out;
+    if (dto.new_course_categories !== undefined) current.new_course_categories = uniq(dto.new_course_categories);
+    if (dto.new_course_instructor_ids !== undefined) current.new_course_instructor_ids = uniq(dto.new_course_instructor_ids);
+    if (dto.new_course_email !== undefined) current.new_course_email = dto.new_course_email;
+    if (dto.new_course_in_app !== undefined) current.new_course_in_app = dto.new_course_in_app;
+    const saved = await this.prefs.save(current);
+    return prefView(saved, userId);
+  }
+
+  // ---- Follow / unfollow an instructor (new-course alerts) ----
+
+  /** Follow: add the instructor to my new-course-alert list. Returns follow state. */
+  @Post('notifications/follow/:instructorId')
+  @Roles()
+  async follow(@CurrentUser() ctx: UserContext, @Param('instructorId', ParseUUIDPipe) instructorId: string) {
+    const row = (await this.prefs.findOne({ where: { user_id: ctx.id } })) ?? this.prefs.create({ user_id: ctx.id });
+    row.new_course_instructor_ids = uniq([...(row.new_course_instructor_ids ?? []), instructorId]);
+    await this.prefs.save(row);
+    return { following: true, instructor_id: instructorId };
+  }
+
+  @Post('notifications/unfollow/:instructorId')
+  @Roles()
+  async unfollow(@CurrentUser() ctx: UserContext, @Param('instructorId') instructorId: string) {
+    const row = await this.prefs.findOne({ where: { user_id: ctx.id } });
+    if (row) {
+      row.new_course_instructor_ids = (row.new_course_instructor_ids ?? []).filter((id) => id !== instructorId);
+      await this.prefs.save(row);
+    }
+    return { following: false, instructor_id: instructorId };
+  }
+
+  /** Is the current user following this instructor? (drives the follow button) */
+  @Get('notifications/following/:instructorId')
+  @Roles()
+  async isFollowing(@CurrentUser() ctx: UserContext, @Param('instructorId') instructorId: string) {
+    const row = await this.prefs.findOne({ where: { user_id: ctx.id } });
+    return { following: (row?.new_course_instructor_ids ?? []).includes(instructorId) };
   }
 
   @Get('admin/notifications')

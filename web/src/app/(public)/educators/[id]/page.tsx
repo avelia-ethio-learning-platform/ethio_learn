@@ -4,6 +4,7 @@ import { serverApi } from '@/lib/server-api';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
 import { BackButton } from '@/components/BackButton';
 import { MessageEducatorButton } from './message-button';
+import { FollowInstructorButton } from './follow-button';
 
 interface EducatorProfile {
   educator_id: string;
@@ -55,7 +56,10 @@ export default async function EducatorProfilePage({ params }: { params: { id: st
             )}
           </p>
         </div>
-        <MessageEducatorButton educatorId={profile.educator_id} />
+        <div className="flex shrink-0 gap-2">
+          <FollowInstructorButton instructorId={profile.educator_id} />
+          <MessageEducatorButton educatorId={profile.educator_id} />
+        </div>
       </div>
 
       <h2 className="mt-8 text-xl font-semibold">Courses by {profile.name}</h2>

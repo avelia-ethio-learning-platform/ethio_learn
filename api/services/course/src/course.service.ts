@@ -81,6 +81,7 @@ export class CourseService implements OnModuleInit {
         await this.bus.publish('CoursePublished', {
           course_id: course.id,
           title: course.title,
+          category: course.category,
           owner_id: course.owner_id,
           owner_type: course.owner_type,
           owner_user_id: course.created_by,
