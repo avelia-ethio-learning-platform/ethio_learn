@@ -2,9 +2,8 @@
 
 import Link from 'next/link';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
+import { COURSE_CATEGORIES } from '@/lib/categories';
 import { useT } from '@/lib/i18n';
-
-const CATEGORIES = ['tech', 'business', 'freelancing', 'healthcare', 'other'];
 
 const SORTS = [
   { value: 'top', label: '⭐ Top rated' },
@@ -46,13 +45,13 @@ export function HomeClient({
         <Link href="/" className={`rounded-full px-3 py-1 ${!searchParams.category ? 'bg-brand-700 text-white' : 'bg-white border'}`}>
           {t('all')}
         </Link>
-        {CATEGORIES.map((c) => (
+        {COURSE_CATEGORIES.map((c) => (
           <Link
-            key={c}
-            href={`/?category=${c}`}
-            className={`rounded-full px-3 py-1 capitalize ${searchParams.category === c ? 'bg-brand-700 text-white' : 'bg-white border'}`}
+            key={c.value}
+            href={`/?category=${c.value}`}
+            className={`rounded-full px-3 py-1 transition-colors ${searchParams.category === c.value ? 'bg-brand-700 text-white' : 'bg-white border hover:border-brand-400'}`}
           >
-            {c}
+            <span aria-hidden>{c.icon}</span> {c.label}
           </Link>
         ))}
         <span className="mx-2 text-gray-300">|</span>

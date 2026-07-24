@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { COURSE_CATEGORIES } from '@/lib/categories';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 
@@ -52,12 +53,12 @@ function NewCourseForm() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="label">Category</label>
-            <select name="category" className="input">
-              <option value="tech">Tech</option>
-              <option value="business">Business</option>
-              <option value="freelancing">Freelancing</option>
-              <option value="healthcare">Healthcare</option>
-              <option value="other">Other</option>
+            <select name="category" className="input" defaultValue="programming">
+              {COURSE_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.icon}  {c.label}
+                </option>
+              ))}
             </select>
           </div>
           <div>

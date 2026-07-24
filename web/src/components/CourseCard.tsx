@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { categoryIcon, categoryLabel } from '@/lib/categories';
 
 export interface CourseSummary {
   id: string;
@@ -21,16 +22,27 @@ export function priceLabel(course: Pick<CourseSummary, 'pricing_type' | 'price_e
 
 export function CourseCard({ course }: { course: CourseSummary }) {
   return (
-    <Link href={`/courses/${course.id}`} className="card block transition hover:shadow-md">
-      <div className="mb-3 flex h-32 items-center justify-center rounded-md bg-brand-50 text-4xl">
+    <Link
+      href={`/courses/${course.id}`}
+      className="card group block transition duration-200 hover:-translate-y-1 hover:shadow-lg"
+    >
+      <div className="mb-3 flex h-32 items-center justify-center overflow-hidden rounded-md bg-brand-50 text-4xl">
         {course.thumbnail_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={course.thumbnail_url} alt={course.title} className="h-full w-full rounded-md object-cover" />
+          <img
+            src={course.thumbnail_url}
+            alt={course.title}
+            className="h-full w-full rounded-md object-cover transition-transform duration-300 group-hover:scale-105"
+          />
         ) : (
-          <span aria-hidden>📚</span>
+          <span aria-hidden className="transition-transform duration-300 group-hover:scale-110">
+            {categoryIcon(course.category)}
+          </span>
         )}
       </div>
-      <p className="text-xs uppercase tracking-wide text-brand-700">{course.category}</p>
+      <p className="text-xs uppercase tracking-wide text-brand-700">
+        <span aria-hidden>{categoryIcon(course.category)}</span> {categoryLabel(course.category)}
+      </p>
       <h3 className="mt-1 font-semibold">{course.title}</h3>
       <p className="mt-1 line-clamp-2 text-sm text-gray-600">{course.description}</p>
       <div className="mt-2 flex items-center justify-between text-sm">

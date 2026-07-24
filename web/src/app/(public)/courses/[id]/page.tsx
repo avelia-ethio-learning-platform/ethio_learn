@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { serverApi, SITE_URL } from '@/lib/server-api';
+import { categoryIcon, categoryLabel } from '@/lib/categories';
 import { priceLabel } from '@/components/CourseCard';
 import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
 import { BackButton } from '@/components/BackButton';
@@ -86,7 +87,9 @@ export default async function CoursePage({ params }: { params: { id: string } })
       <BackButton fallback="/" label="Browse courses" />
       <div className="grid gap-8 lg:grid-cols-3">
       <div className="lg:col-span-2">
-        <p className="text-sm uppercase tracking-wide text-brand-700">{course.category}</p>
+        <p className="text-sm uppercase tracking-wide text-brand-700">
+          <span aria-hidden>{categoryIcon(course.category)}</span> {categoryLabel(course.category)}
+        </p>
         <h1 className="mt-1 text-3xl font-bold">{course.title}</h1>
         {course.instructor_name && course.instructor_id && (
           <p className="mt-2 text-sm text-gray-600">
