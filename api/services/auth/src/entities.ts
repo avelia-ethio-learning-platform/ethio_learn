@@ -16,8 +16,19 @@ export class User {
   @Column()
   email: string;
 
-  @Column()
-  password_hash: string;
+  // Nullable: accounts created via Google sign-in have no password until the
+  // user sets one via "forgot password". Password login checks for a hash first.
+  @Column({ type: 'varchar', nullable: true })
+  password_hash: string | null;
+
+  /** Google account subject id (`sub`) when the user linked Google sign-in. */
+  @Index({ unique: true, where: 'google_id IS NOT NULL' })
+  @Column({ type: 'varchar', nullable: true })
+  google_id: string | null;
+
+  /** Profile picture from the OAuth provider, if any. */
+  @Column({ type: 'varchar', nullable: true })
+  avatar_url: string | null;
 
   @Column({ type: 'timestamptz', nullable: true })
   email_verified_at: Date | null;

@@ -57,6 +57,10 @@ export class ProfilesController {
   async deleteMe(@CurrentUser() ctx: UserContext, @Body() dto: DeleteAccountDto) {
     const user = await this.users.findOne({ where: { id: ctx.id } });
     if (!user) throw new NotFoundException('User not found');
+    // Google-only accounts have no password — they must set one first (forgot password).
+    if (!user.password_hash) {
+      throw new UnauthorizedException('This account signs in with Google. Set a password first to delete it.');
+    }
     if (!(await bcrypt.compare(dto.password, user.password_hash))) {
       throw new UnauthorizedException('Password is incorrect.');
     }

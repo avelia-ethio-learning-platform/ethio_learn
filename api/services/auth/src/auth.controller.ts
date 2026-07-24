@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from '@
 import { Request, Response } from 'express';
 import { parse, serialize } from 'cookie';
 import { AuthService } from './auth.service';
-import { AcceptInviteDto, LoginDto, ResetPasswordConfirmDto, ResetPasswordDto, SignupDto } from './dto';
+import { AcceptInviteDto, GoogleSignInDto, LoginDto, ResetPasswordConfirmDto, ResetPasswordDto, SignupDto } from './dto';
 
 const REFRESH_COOKIE = 'el_refresh';
 
@@ -26,6 +26,15 @@ export class AuthController {
   @HttpCode(200)
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { refresh_token, ...body } = await this.auth.login(dto);
+    this.setRefreshCookie(res, refresh_token);
+    return body;
+  }
+
+  /** Google sign-in: exchange a verified Google ID token for our own session. */
+  @Post('google')
+  @HttpCode(200)
+  async google(@Body() dto: GoogleSignInDto, @Res({ passthrough: true }) res: Response) {
+    const { refresh_token, ...body } = await this.auth.googleSignIn(dto.id_token);
     this.setRefreshCookie(res, refresh_token);
     return body;
   }

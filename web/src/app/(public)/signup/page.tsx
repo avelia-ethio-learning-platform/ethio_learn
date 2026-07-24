@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 function SignupForm() {
   const params = useSearchParams();
@@ -78,6 +79,7 @@ function SignupForm() {
         <button className="btn w-full" disabled={busy}>
           {busy ? 'Creating…' : 'Sign up'}
         </button>
+        <GoogleSignInButton next={params.get('next')} />
       </form>
     </div>
   );

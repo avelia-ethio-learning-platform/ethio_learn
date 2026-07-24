@@ -4,6 +4,7 @@ import { FormEvent, Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, setAuth } from '@/lib/api';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 function LoginForm() {
   const router = useRouter();
@@ -52,6 +53,7 @@ function LoginForm() {
         <button className="btn w-full" disabled={busy}>
           {busy ? 'Logging in…' : 'Log in'}
         </button>
+        <GoogleSignInButton next={params.get('next')} />
         <p className="text-center text-sm text-gray-500">
           <Link href="/reset-password" className="text-brand-700 underline">Forgot password?</Link>
           {' · '}
