@@ -7,6 +7,8 @@ export interface EmailMessage {
   to: string;
   subject: string;
   html: string;
+  /** Optional Reply-To (e.g. a support request replies to the sender). */
+  reply_to?: string;
 }
 
 /**
@@ -34,6 +36,7 @@ export class ResendEmailProvider implements EmailProvider {
         to: [message.to],
         subject: message.subject,
         html: message.html,
+        ...(message.reply_to ? { reply_to: message.reply_to } : {}),
       }),
     });
     const body = (await res.json()) as { id?: string; message?: string };
@@ -79,6 +82,7 @@ export class SmtpEmailProvider implements EmailProvider {
       to: message.to,
       subject: message.subject,
       html: message.html,
+      ...(message.reply_to ? { replyTo: message.reply_to } : {}),
     });
     return { message_id: info.messageId };
   }

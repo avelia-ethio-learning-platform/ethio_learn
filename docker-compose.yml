@@ -25,6 +25,7 @@ x-service-env: &service-env
   RESEND_API_KEY: ${RESEND_API_KEY:-}
   EMAIL_FROM: ${EMAIL_FROM:-EthiopiaLearn <no-reply@ethiopialearn.et>}
   PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@ethiopialearn.et}
+  SUPPORT_EMAIL: ${SUPPORT_EMAIL:-aisubyazew@gmail.com}
   GROQ_API_KEY: ${GROQ_API_KEY:-}
   GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

@@ -20,6 +20,8 @@ const AUTH_STRICT =
   /^\/api\/v1\/auth\/(login|signup|verify-email|accept-invite|reset-password(\/confirm)?)$/;
 const AI_ENDPOINTS = /^\/api\/v1\/courses\/generate-structure$/;
 const COMMUNITY_WRITE = /^\/api\/v1\/(comments|messages)\b|^\/api\/v1\/courses\/[^/]+\/comments$/;
+// Public support contact form — spam target, keyed by IP via the same bucket.
+const SUPPORT = /^\/api\/v1\/support\/contact$/;
 const PAYMENT_INITIATE = /^\/api\/v1\/payments\/initiate$/;
 // Chapa calls the webhook — throttling it could drop legitimate payment
 // confirmations, so it stays on the general bucket only.
@@ -33,7 +35,7 @@ export function classifyRequest(method: string, path: string): RatePolicy {
   if (!MUTATING.has(m)) return 'general';
   if (WEBHOOK.test(path)) return 'general';
   if (AI_ENDPOINTS.test(path)) return 'ai';
-  if (COMMUNITY_WRITE.test(path)) return 'community-write';
+  if (COMMUNITY_WRITE.test(path) || SUPPORT.test(path)) return 'community-write';
   if (PAYMENT_INITIATE.test(path)) return 'payment-initiate';
   return 'write';
 }

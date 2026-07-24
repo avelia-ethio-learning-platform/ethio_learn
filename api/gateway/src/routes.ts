@@ -82,6 +82,9 @@ export const ROUTES: RouteRule[] = [
 
   // ---- notifications ----
   { pattern: /^\/api\/v1\/(notifications|notification-preferences|admin\/notifications)\b/, target: NOTIFICATION, auth: 'jwt' },
+
+  // ---- help & support (public contact form) ----
+  { pattern: /^\/api\/v1\/support\/contact$/, target: NOTIFICATION, auth: 'public' },
 ];
 
 export function resolveRoute(path: string): RouteRule | undefined {

@@ -57,6 +57,9 @@ export function Header() {
           <Link href="/" className="text-gray-600 hover:text-brand-700">
             {t('courses')}
           </Link>
+          <Link href="/help" className="text-gray-600 hover:text-brand-700">
+            {t('help')}
+          </Link>
           {ready && user && roleLinks[user.role]?.map((l) => (
             <Link key={l.href} href={l.href} className="text-gray-600 hover:text-brand-700">
               {l.label}

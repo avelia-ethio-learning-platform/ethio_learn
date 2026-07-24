@@ -7,6 +7,7 @@ import { NotificationService } from './notification.service';
 import { NotificationController } from './controllers';
 import { CommunityService } from './community.service';
 import { CommunityController } from './community.controller';
+import { SupportController } from './support.controller';
 
 const entities = [NotificationLog, NotificationPreference, InboxNotification, CourseComment, DmThread, DmMessage];
 
@@ -16,7 +17,7 @@ const entities = [NotificationLog, NotificationPreference, InboxNotification, Co
     TypeOrmModule.forFeature(entities),
     EventBusModule.forRoot({ serviceName: 'notification' }),
   ],
-  controllers: [NotificationController, CommunityController, HealthController],
+  controllers: [NotificationController, CommunityController, SupportController, HealthController],
   providers: [{ provide: EMAIL_PROVIDER, useClass: emailProviderClass() }, NotificationService, CommunityService, InternalHttpClient],
 })
 export class AppModule {}
