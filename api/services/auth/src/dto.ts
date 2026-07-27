@@ -55,6 +55,14 @@ export class LoginDto {
   password: string;
 }
 
+export class GoogleSignInDto {
+  /** The Google ID token (JWT) from Google Identity Services on the client. */
+  @IsString()
+  @MinLength(20)
+  @MaxLength(4096)
+  id_token: string;
+}
+
 export class ResetPasswordDto {
   @IsEmail()
   email: string;

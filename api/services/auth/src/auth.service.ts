@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -6,7 +6,7 @@ import * as jwt from 'jsonwebtoken';
 import { randomBytes, randomUUID } from 'crypto';
 import Redis from 'ioredis';
 import { env, EventBusService } from '@ethiopialearn/common';
-import { PasswordResetRequestedPayload, UserRegisteredPayload, UserStatus } from '@ethiopialearn/contracts';
+import { PasswordResetRequestedPayload, Role, UserRegisteredPayload, UserStatus } from '@ethiopialearn/contracts';
 import { EmailVerification, PasswordReset, User } from './entities';
 import { LoginDto, SignupDto } from './dto';
 
@@ -35,6 +35,7 @@ const INVITE_TOKEN_TTL_DAYS = 7; // invited staff / instructors set their own pa
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly redis = new Redis(env('REDIS_URL', 'redis://localhost:6379'));
   private readonly webUrl = env('WEB_URL', 'http://localhost:3000');
 
@@ -96,13 +97,97 @@ export class AuthService {
 
   async login(dto: LoginDto): Promise<{ access_token: string; expires_in: number; refresh_token: string; user: object }> {
     const user = await this.users.findOne({ where: { email: dto.email.toLowerCase().trim() } });
-    if (!user || !(await bcrypt.compare(dto.password, user.password_hash))) {
+    if (!user || !user.password_hash) {
+      // No password set — either wrong email, or a Google-only account.
+      throw new UnauthorizedException('Invalid email or password');
+    }
+    if (!(await bcrypt.compare(dto.password, user.password_hash))) {
       throw new UnauthorizedException('Invalid email or password');
     }
     this.assertActive(user);
     if (!user.email_verified_at) {
       throw new UnauthorizedException('Email not verified. Check your inbox for the verification link.');
     }
+    const refreshToken = await this.issueRefreshToken(user.id);
+    return {
+      access_token: this.signAccessToken(user),
+      expires_in: ACCESS_TOKEN_TTL_SECONDS,
+      refresh_token: refreshToken,
+      user: this.publicUser(user),
+    };
+  }
+
+  /**
+   * Google sign-in. The frontend obtains a Google ID token (Google Identity
+   * Services) and posts it here. We verify it with Google's tokeninfo endpoint
+   * — which validates the signature and expiry server-side — then check the
+   * audience and issuer ourselves before trusting the claims. On success we
+   * find-or-create the account and issue our own access + refresh tokens, so
+   * the rest of the app sees an ordinary EthiopiaLearn session.
+   *
+   * (For high volume, swap tokeninfo for google-auth-library's local JWKS
+   * verification — same checks, no per-login round-trip to Google.)
+   */
+  async googleSignIn(idToken: string): Promise<{ access_token: string; expires_in: number; refresh_token: string; user: object }> {
+    const clientId = env('GOOGLE_CLIENT_ID', '');
+    if (!clientId) throw new UnauthorizedException('Google sign-in is not configured on this server');
+    if (!idToken) throw new BadRequestException('Missing Google credential');
+
+    let payload: {
+      aud?: string; iss?: string; sub?: string; email?: string;
+      email_verified?: string | boolean; name?: string; picture?: string; exp?: string;
+    };
+    try {
+      const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+      if (!res.ok) throw new Error(`tokeninfo ${res.status}`);
+      payload = (await res.json()) as typeof payload;
+    } catch (err) {
+      this.logger.warn(`google tokeninfo failed: ${(err as Error).message}`);
+      throw new UnauthorizedException('Could not verify Google sign-in');
+    }
+
+    // Trust nothing until aud + iss check out (tokeninfo already checked sig/exp).
+    if (payload.aud !== clientId) throw new UnauthorizedException('Google token was issued for a different app');
+    if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
+      throw new UnauthorizedException('Unexpected Google token issuer');
+    }
+    const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
+    if (!payload.email || !emailVerified || !payload.sub) {
+      throw new UnauthorizedException('Google account has no verified email');
+    }
+    const email = payload.email.toLowerCase().trim();
+
+    let user = await this.users.findOne({ where: { email } });
+    if (user) {
+      this.assertActive(user);
+      // Link Google + backfill verification/avatar on an existing account.
+      const patch: Partial<User> = {};
+      if (!user.google_id) patch.google_id = payload.sub;
+      if (!user.email_verified_at) patch.email_verified_at = new Date();
+      if (!user.avatar_url && payload.picture) patch.avatar_url = payload.picture;
+      if (Object.keys(patch).length) {
+        await this.users.update(user.id, patch);
+        user = { ...user, ...patch } as User;
+      }
+    } else {
+      // First-time Google user → a verified learner account, no password.
+      user = await this.users.save(
+        this.users.create({
+          email,
+          name: (payload.name || email.split('@')[0]).trim(),
+          role: Role.LEARNER,
+          password_hash: null,
+          google_id: payload.sub,
+          avatar_url: payload.picture ?? null,
+          email_verified_at: new Date(), // Google already verified it
+          phone: null,
+        }),
+      );
+      // No UserRegistered event: that triggers a "verify your email" message,
+      // which a Google account (already verified) must never receive.
+      this.logger.log(`google sign-in created new learner ${user.email}`);
+    }
+
     const refreshToken = await this.issueRefreshToken(user.id);
     return {
       access_token: this.signAccessToken(user),

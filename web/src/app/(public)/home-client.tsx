@@ -20,6 +20,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
+import { COURSE_CATEGORIES } from '@/lib/categories';
 import { useT } from '@/lib/i18n';
 
 const CATEGORIES = ['tech', 'business', 'freelancing', 'healthcare', 'other'] as const;

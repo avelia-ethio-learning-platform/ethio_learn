@@ -33,12 +33,74 @@ export enum PricingType {
   PAID = 'paid',
 }
 
+/**
+ * Course categories. Stored as a plain string column (not a Postgres enum) so
+ * new categories can be added here without a database migration. This enum is
+ * the single source of truth for validation; `COURSE_CATEGORIES` /
+ * `COURSE_CATEGORY_LABELS` drive the pickers, filters and display labels.
+ */
 export enum CourseCategory {
+  PROGRAMMING = 'programming',
+  WEB_DEVELOPMENT = 'web_development',
+  DESIGN = 'design',
+  VIDEO_EDITING = 'video_editing',
+  DATA_SCIENCE = 'data_science',
   TECH = 'tech',
   BUSINESS = 'business',
+  MARKETING = 'marketing',
   FREELANCING = 'freelancing',
+  FINANCE = 'finance',
+  LANGUAGE = 'language',
   HEALTHCARE = 'healthcare',
+  AGRICULTURE = 'agriculture',
+  ARTS = 'arts',
+  EDUCATION = 'education',
   OTHER = 'other',
+}
+
+/** Display order for pickers and catalog filters (most in-demand first). */
+export const COURSE_CATEGORIES: CourseCategory[] = [
+  CourseCategory.PROGRAMMING,
+  CourseCategory.WEB_DEVELOPMENT,
+  CourseCategory.DESIGN,
+  CourseCategory.VIDEO_EDITING,
+  CourseCategory.DATA_SCIENCE,
+  CourseCategory.TECH,
+  CourseCategory.BUSINESS,
+  CourseCategory.MARKETING,
+  CourseCategory.FREELANCING,
+  CourseCategory.FINANCE,
+  CourseCategory.LANGUAGE,
+  CourseCategory.HEALTHCARE,
+  CourseCategory.AGRICULTURE,
+  CourseCategory.ARTS,
+  CourseCategory.EDUCATION,
+  CourseCategory.OTHER,
+];
+
+/** Human-readable label for each category (English base; UI may localise). */
+export const COURSE_CATEGORY_LABELS: Record<CourseCategory, string> = {
+  [CourseCategory.PROGRAMMING]: 'Programming',
+  [CourseCategory.WEB_DEVELOPMENT]: 'Web Development',
+  [CourseCategory.DESIGN]: 'Graphic Design',
+  [CourseCategory.VIDEO_EDITING]: 'Video Editing',
+  [CourseCategory.DATA_SCIENCE]: 'Data Science',
+  [CourseCategory.TECH]: 'Technology',
+  [CourseCategory.BUSINESS]: 'Business',
+  [CourseCategory.MARKETING]: 'Marketing',
+  [CourseCategory.FREELANCING]: 'Freelancing',
+  [CourseCategory.FINANCE]: 'Finance',
+  [CourseCategory.LANGUAGE]: 'Language',
+  [CourseCategory.HEALTHCARE]: 'Healthcare',
+  [CourseCategory.AGRICULTURE]: 'Agriculture',
+  [CourseCategory.ARTS]: 'Arts & Music',
+  [CourseCategory.EDUCATION]: 'Education',
+  [CourseCategory.OTHER]: 'Other',
+};
+
+/** Safe label lookup for any stored value (handles legacy/unknown gracefully). */
+export function courseCategoryLabel(value: string): string {
+  return COURSE_CATEGORY_LABELS[value as CourseCategory] ?? 'Other';
 }
 
 export enum OwnerType {

@@ -36,7 +36,9 @@ export class Course {
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ type: 'enum', enum: CourseCategory, enumName: 'course_category' })
+  // Stored as a plain string (not a Postgres enum) so new categories never need
+  // a DB migration; the CourseCategory enum + @IsEnum on the DTO still validate.
+  @Column({ type: 'varchar', default: CourseCategory.OTHER })
   category: CourseCategory;
 
   @Column({ default: 'en' })

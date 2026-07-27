@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { categoryIcon, categoryLabel } from '@/lib/categories';
 
 export interface CourseSummary {
   id: string;

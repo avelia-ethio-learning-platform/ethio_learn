@@ -4,6 +4,7 @@ import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, BookPlus } from 'lucide-react';
 import { api } from '@/lib/api';
+import { COURSE_CATEGORIES } from '@/lib/categories';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';

@@ -25,8 +25,10 @@ x-service-env: &service-env
   RESEND_API_KEY: ${RESEND_API_KEY:-}
   EMAIL_FROM: ${EMAIL_FROM:-EthiopiaLearn <no-reply@ethiopialearn.et>}
   PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@ethiopialearn.et}
+  SUPPORT_EMAIL: ${SUPPORT_EMAIL:-aisubyazew@gmail.com}
   GROQ_API_KEY: ${GROQ_API_KEY:-}
   GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   KYC_PAYOUT_THRESHOLD_ETB: ${KYC_PAYOUT_THRESHOLD_ETB:-10000}
 
 services:
@@ -164,6 +166,7 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
         NEXT_PUBLIC_S3_PUBLIC_URL: ${NEXT_PUBLIC_S3_PUBLIC_URL:-http://localhost:9000/ethiopialearn}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
     environment:
       GATEWAY_INTERNAL_URL: http://gateway:4000
     ports: ["3000:3000"]

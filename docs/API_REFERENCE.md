@@ -57,6 +57,15 @@ Confirm email from the link. → `{ "message": "Email verified. You can now log 
 ```
 > If `user.must_change_password` is `true`, route the user to set a new password before continuing.
 
+### `POST /auth/google` `[public]`
+```json
+// request — the Google ID token from Google Identity Services (client-side)
+{ "id_token": "<google-id-token-jwt>" }
+// response 200 (identical shape to /auth/login, also sets el_refresh cookie)
+{ "access_token": "jwt", "expires_in": 900, "user": { … } }
+```
+The server verifies the token with Google (audience must equal `GOOGLE_CLIENT_ID`), then finds or creates a verified learner account and issues an EthiopiaLearn session. Returns `401` if Google sign-in isn't configured or the token is invalid. See `web/.env.example` (`NEXT_PUBLIC_GOOGLE_CLIENT_ID`) and `api/.env.example` (`GOOGLE_CLIENT_ID`).
+
 ### `POST /auth/refresh` `[public, cookie]`
 No body; reads the `el_refresh` cookie. Returns the same shape as `login` and rotates the cookie.
 

@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { env, EventBusService } from '@ethiopialearn/common';
+import { env, EventBusService, InternalHttpClient } from '@ethiopialearn/common';
+import { courseCategoryLabel } from '@ethiopialearn/contracts';
 import {
   AssessmentResultPayload,
   CertificateIssuedPayload,
@@ -28,7 +29,7 @@ import {
   UserRegisteredPayload,
 } from '@ethiopialearn/contracts';
 import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
-import { InboxNotification, NotificationLog } from './entities';
+import { InboxNotification, NotificationLog, NotificationPreference } from './entities';
 
 function layout(title: string, bodyHtml: string): string {
   return `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px">
@@ -62,8 +63,10 @@ export class NotificationService implements OnModuleInit {
   constructor(
     @InjectRepository(NotificationLog) private readonly log: Repository<NotificationLog>,
     @InjectRepository(InboxNotification) private readonly inboxRepo: Repository<InboxNotification>,
+    @InjectRepository(NotificationPreference) private readonly prefs: Repository<NotificationPreference>,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
     private readonly bus: EventBusService,
+    private readonly internal: InternalHttpClient,
   ) {}
 
   onModuleInit() {
@@ -132,7 +135,10 @@ export class NotificationService implements OnModuleInit {
     });
 
     this.bus.subscribe<CoursePublishedPayload>('CoursePublished', (p) => {
+      // The instructor's own "your course is live" confirmation.
       this.inbox({ user_id: p.owner_user_id, type: 'course_published', title: 'Course published', body: `"${p.title}" is now live in the catalog.`, link: `/teach/courses/${p.course_id}` });
+      // Fan out to learners who follow this category or this instructor.
+      void this.notifyNewCourseFollowers(p);
     });
 
     this.bus.subscribe<PaymentConfirmedPayload>('PaymentConfirmed', (p) => {
@@ -212,6 +218,66 @@ export class NotificationService implements OnModuleInit {
       if (p.owner_email) this.deliver('CourseUnlisted', p.owner_user_id, p.owner_email, 'Your course was unlisted',
         layout('Course unlisted', `<p>"${p.title}" was temporarily removed from the catalog. You can re-publish it from your course page (or contact us if an admin unlisted it).</p>`));
     });
+  }
+
+  /**
+   * When a course is published, notify every learner who follows its category
+   * or its instructor — in-app and/or email, per each learner's preferences.
+   * Best-effort: a failure for one recipient never blocks the others.
+   */
+  private async notifyNewCourseFollowers(p: CoursePublishedPayload) {
+    let followers: NotificationPreference[];
+    try {
+      followers = await this.prefs
+        .createQueryBuilder('pref')
+        .where('(:category = ANY(pref.new_course_categories)) OR (:owner = ANY(pref.new_course_instructor_ids))', {
+          category: p.category,
+          owner: p.owner_user_id,
+        })
+        .limit(2000) // safety cap; batch/queue this if follower counts ever get huge
+        .getMany();
+    } catch (err) {
+      this.logger.warn(`new-course fan-out query failed for ${p.course_id}: ${(err as Error).message}`);
+      return;
+    }
+    // Don't notify the instructor about their own course (they get the owner ping).
+    followers = followers.filter((f) => f.user_id !== p.owner_user_id);
+    if (followers.length === 0) return;
+
+    const instructorName = await this.userName(p.owner_user_id);
+    const categoryLabel = courseCategoryLabel(p.category);
+    const link = `/courses/${p.course_id}`;
+    this.logger.log(`CoursePublished "${p.title}" → notifying ${followers.length} follower(s)`);
+
+    for (const f of followers) {
+      const followsInstructor = (f.new_course_instructor_ids ?? []).includes(p.owner_user_id);
+      const reason = followsInstructor ? `${instructorName} just published a new course` : `New ${categoryLabel} course`;
+      if (f.new_course_in_app !== false) {
+        await this.inbox({ user_id: f.user_id, type: 'new_course', title: reason, body: `"${p.title}" is now available. Tap to explore.`, link });
+      }
+      if (f.new_course_email !== false) {
+        const user = await this.userInfo(f.user_id);
+        if (!user.email) continue;
+        await this.deliver('NewCourseAlert', f.user_id, user.email, `${reason}: ${p.title}`,
+          layout(reason, `<p>Hi ${user.name || 'there'},</p>
+          <p>${followsInstructor ? `<strong>${instructorName}</strong> just published` : `A new <strong>${categoryLabel}</strong> course just dropped`} on EthiopiaLearn:</p>
+          <p style="font-size:16px"><strong>${p.title}</strong></p>
+          <p><a href="${this.webUrl}${link}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">View the course</a></p>
+          <p style="color:#6b7280;font-size:12px;margin-top:16px">You're getting this because you follow ${followsInstructor ? 'this instructor' : `the ${categoryLabel} category`}. Manage alerts in your account settings.</p>`));
+      }
+    }
+  }
+
+  private async userInfo(userId: string): Promise<{ email: string; name: string }> {
+    try {
+      return await this.internal.get<{ email: string; name: string }>(`/api/v1/internal/users/${userId}`);
+    } catch {
+      return { email: '', name: '' };
+    }
+  }
+
+  private async userName(userId: string): Promise<string> {
+    return (await this.userInfo(userId)).name || 'An instructor you follow';
   }
 
   private async inbox(input: InboxInput) {

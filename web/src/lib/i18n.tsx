@@ -13,6 +13,7 @@ export type Locale = 'en' | 'am';
 export const dictionaries = {
   en: {
     courses: 'Courses',
+    help: 'Help',
     my_learning: 'My Learning',
     teach: 'Teach',
     institution: 'Institution',
@@ -137,6 +138,7 @@ export const dictionaries = {
   },
   am: {
     courses: 'ኮርሶች',
+    help: 'እገዛ',
     my_learning: 'ትምህርቴ',
     teach: 'አስተምር',
     institution: 'ተቋም',

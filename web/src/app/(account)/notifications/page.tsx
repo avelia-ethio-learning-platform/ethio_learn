@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, CheckCheck, Inbox } from 'lucide-react';
@@ -11,7 +12,7 @@ import { PageShell } from '@/components/PageChrome';
 function NotificationsList() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { data } = useQuery({ queryKey: ['notifications-page'], queryFn: () => api<any[]>('/notifications') });
+  const { data, isLoading } = useQuery({ queryKey: ['notifications-page'], queryFn: () => api<any[]>('/notifications') });
 
   return (
     <PageShell>

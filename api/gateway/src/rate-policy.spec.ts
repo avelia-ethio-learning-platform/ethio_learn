@@ -26,6 +26,10 @@ describe('rate-limit policy classification', () => {
     expect(classifyRequest('POST', '/api/v1/comments/c1/replies')).toBe('community-write');
   });
 
+  it('puts the public support form in the spam bucket', () => {
+    expect(classifyRequest('POST', '/api/v1/support/contact')).toBe('community-write');
+  });
+
   it('limits payment initiation separately', () => {
     expect(classifyRequest('POST', '/api/v1/payments/initiate')).toBe('payment-initiate');
   });

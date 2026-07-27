@@ -96,6 +96,7 @@ export interface CourseSubmittedPayload {
 export interface CoursePublishedPayload {
   course_id: string;
   title: string;
+  category: string;
   owner_id: string;
   owner_type: OwnerType;
   owner_user_id: string;

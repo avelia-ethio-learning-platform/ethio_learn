@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { BadgeCheck, Clock, Layers, PlayCircle, Star, Wallet } from 'lucide-react';
 import { serverApi, SITE_URL } from '@/lib/server-api';
+import { categoryIcon, categoryLabel } from '@/lib/categories';
 import { priceLabel } from '@/components/CourseCard';
 import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
 import { BackButton } from '@/components/BackButton';

@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import '@ethiopialearn/common'; // side-effect: load api/.env so DATABASE_URL is set (seed runs standalone, not via a service bootstrap)
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Role, TrustTier } from '@ethiopialearn/contracts';

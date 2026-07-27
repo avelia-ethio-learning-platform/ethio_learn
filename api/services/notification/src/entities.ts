@@ -40,6 +40,24 @@ export class NotificationPreference {
   /** Opt-out covers marketing only — transactional email always sends (spec §4.3). */
   @Column({ default: false })
   marketing_opt_out: boolean;
+
+  // ---- New-course alerts (a learner is notified when a course drops that
+  // matches a category they follow OR is by an instructor they follow) ----
+
+  /** Category values (see CourseCategory) the learner wants new-course alerts for. */
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  new_course_categories: string[];
+
+  /** Instructor user ids the learner follows for new-course alerts. */
+  @Column({ type: 'uuid', array: true, default: () => "'{}'" })
+  new_course_instructor_ids: string[];
+
+  /** Channel toggles for new-course alerts. */
+  @Column({ default: true })
+  new_course_email: boolean;
+
+  @Column({ default: true })
+  new_course_in_app: boolean;
 }
 
 /**

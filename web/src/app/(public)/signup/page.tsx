@@ -110,6 +110,7 @@ function SignupForm() {
         <button className="btn w-full !py-3" disabled={busy}>
           {busy ? 'Creating…' : t('signup')}
         </button>
+        <GoogleSignInButton next={params.get('next')} />
       </form>
     </AuthShell>
   );
