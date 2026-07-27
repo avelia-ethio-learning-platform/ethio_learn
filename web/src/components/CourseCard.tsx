@@ -9,10 +9,11 @@ export interface CourseSummary {
   thumbnail_url: string | null;
   pricing_type: 'free' | 'freemium' | 'paid';
   price_etb: number | null;
-  rating_avg?: number | null;
-  rating_count?: number;
-  enrolled_count?: number;
+  language?: string | null;
+  published_at?: string | null;
 }
+
+const LANG_LABEL: Record<string, string> = { en: 'EN', am: 'አማ' };
 
 export function priceLabel(course: Pick<CourseSummary, 'pricing_type' | 'price_etb'>): string {
   if (course.pricing_type === 'free') return 'Free';
@@ -20,42 +21,58 @@ export function priceLabel(course: Pick<CourseSummary, 'pricing_type' | 'price_e
   return `${course.price_etb ?? '—'} ETB`;
 }
 
-export function CourseCard({ course, index }: { course: CourseSummary; index?: number }) {
+const CATEGORY_ART: Record<string, { emoji: string; gradient: string }> = {
+  tech: { emoji: '💻', gradient: 'from-blue-500/20 via-indigo-500/15 to-cyan-400/20' },
+  business: { emoji: '📊', gradient: 'from-amber-400/20 via-orange-400/15 to-yellow-300/20' },
+  freelancing: { emoji: '🚀', gradient: 'from-violet-500/20 via-purple-400/15 to-fuchsia-400/20' },
+  healthcare: { emoji: '🏥', gradient: 'from-emerald-400/20 via-teal-400/15 to-green-300/20' },
+  other: { emoji: '📚', gradient: 'from-slate-400/20 via-blue-300/15 to-slate-300/20' },
+};
+
+/** Course tile used on the landing grid. Server-safe (CSS-only animation). */
+export function CourseCard({ course }: { course: CourseSummary }) {
+  const art = CATEGORY_ART[course.category] ?? CATEGORY_ART.other;
+  const free = course.pricing_type === 'free';
+
   return (
-    <Link
-      href={`/courses/${course.id}`}
-      style={index !== undefined ? ({ '--el-i': Math.min(index, 12) } as React.CSSProperties) : undefined}
-      className="card group animate-in block transition duration-200 hover:-translate-y-1 hover:shadow-lg"
-    >
-      <div className="mb-3 flex h-32 items-center justify-center overflow-hidden rounded-md bg-brand-50 text-4xl">
+    <Link href={`/courses/${course.id}`} className="card card-hover group block overflow-hidden !p-0">
+      <div className={`relative flex h-40 items-center justify-center overflow-hidden bg-gradient-to-br ${art.gradient}`}>
         {course.thumbnail_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={course.thumbnail_url}
             alt={course.title}
-            className="h-full w-full rounded-md object-cover transition-transform duration-300 group-hover:scale-105"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
-          <span aria-hidden className="transition-transform duration-300 group-hover:scale-110">
-            {categoryIcon(course.category)}
+          <span aria-hidden className="text-5xl transition-transform duration-500 group-hover:scale-110">
+            {art.emoji}
           </span>
         )}
-      </div>
-      <p className="text-xs uppercase tracking-wide text-brand-700">
-        <span aria-hidden>{categoryIcon(course.category)}</span> {categoryLabel(course.category)}
-      </p>
-      <h3 className="mt-1 font-semibold">{course.title}</h3>
-      <p className="mt-1 line-clamp-2 text-sm text-gray-600">{course.description}</p>
-      <div className="mt-2 flex items-center justify-between text-sm">
-        <span className="font-semibold text-gray-900">{priceLabel(course)}</span>
-        <span className="text-xs text-gray-500">
-          {course.rating_avg ? (
-            <span className="text-amber-600">★ {course.rating_avg} <span className="text-gray-400">({course.rating_count})</span></span>
-          ) : (
-            <span className="text-gray-300">no ratings yet</span>
-          )}
-          {(course.enrolled_count ?? 0) > 0 && <span className="ml-2">👥 {course.enrolled_count}</span>}
+        <span
+          className={`absolute right-3 top-3 rounded-full px-3 py-1 text-xs font-bold shadow-elevated backdrop-blur-md ${
+            free ? 'bg-emerald-500/90 text-white' : 'bg-white/85 text-slate-900 dark:bg-slate-900/85 dark:text-white'
+          }`}
+        >
+          {priceLabel(course)}
         </span>
+      </div>
+      <div className="p-5">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand-600">
+          {course.category}
+          {course.language && (
+            <span className="rounded-md bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-bold tracking-normal">
+              {LANG_LABEL[course.language] ?? course.language.toUpperCase()}
+            </span>
+          )}
+        </p>
+        <h3 className="mt-1.5 line-clamp-2 font-semibold leading-snug text-foreground transition-colors group-hover:text-brand-600">
+          {course.title}
+        </h3>
+        <p className="mt-1.5 line-clamp-2 text-sm text-gray-500">{course.description}</p>
+        <p className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600">
+          <span className="transition-transform duration-300 group-hover:translate-x-1">→</span>
+        </p>
       </div>
     </Link>
   );

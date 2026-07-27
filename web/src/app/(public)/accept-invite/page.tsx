@@ -3,8 +3,10 @@
 import { FormEvent, Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { AlertCircle, PartyPopper, TriangleAlert } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
 import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
+import { AuthShell } from '@/components/PageChrome';
 
 function AcceptInvite() {
   const router = useRouter();
@@ -51,39 +53,67 @@ function AcceptInvite() {
 
   if (loadError) {
     return (
-      <div className="card mx-auto max-w-md text-center">
-        <p className="text-3xl">⚠️</p>
-        <h1 className="mt-2 text-xl font-semibold">Invite link problem</h1>
-        <p className="mt-2 text-sm text-gray-600">{loadError}</p>
-        <p className="mt-3 text-sm">
-          <Link href="/login" className="text-brand-700 underline">Go to log in</Link>
-        </p>
-      </div>
+      <AuthShell icon={<TriangleAlert className="h-6 w-6" />} title="Invite link problem">
+        <div className="text-center">
+          <p className="text-sm leading-relaxed text-gray-500">{loadError}</p>
+          <p className="mt-4 text-sm">
+            <Link href="/login" className="font-semibold text-brand-600 hover:underline">
+              Go to log in →
+            </Link>
+          </p>
+        </div>
+      </AuthShell>
     );
   }
 
   if (!info) {
-    return <div className="mx-auto max-w-md animate-pulse card text-center text-sm text-gray-400">Loading your invitation…</div>;
+    return (
+      <AuthShell title="Loading your invitation…">
+        <div className="space-y-3">
+          <div className="skeleton h-5 w-3/4" />
+          <div className="skeleton h-10 w-full" />
+          <div className="skeleton h-10 w-full" />
+        </div>
+      </AuthShell>
+    );
   }
 
   return (
-    <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-bold">Welcome, {info.name.split(' ')[0]}!</h1>
-      <p className="mt-2 text-sm text-gray-600">
-        You've been invited as <strong>{info.role.replace('_', ' ')}</strong>. Choose a password for <strong>{info.email}</strong> to activate your account.
-      </p>
-      <form onSubmit={submit} className="card mt-4 space-y-4">
+    <AuthShell
+      icon={<PartyPopper className="h-6 w-6" />}
+      title={`Welcome, ${info.name.split(' ')[0]}!`}
+      subtitle={
+        <>
+          You&apos;ve been invited as <strong className="text-foreground">{info.role.replace('_', ' ')}</strong>. Choose a password for{' '}
+          <strong className="text-foreground">{info.email}</strong> to activate your account.
+        </>
+      }
+    >
+      <form onSubmit={submit} className="space-y-4">
         <div>
           <label className="label">Choose a password</label>
-          <input type="password" minLength={8} required autoFocus className="input" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input
+            type="password"
+            minLength={8}
+            required
+            autoFocus
+            autoComplete="new-password"
+            className="input"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
           <PasswordStrength value={password} />
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button className="btn w-full" disabled={busy}>
+        {error && (
+          <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+          </p>
+        )}
+        <button className="btn w-full !py-3" disabled={busy}>
           {busy ? 'Setting up…' : 'Set password & continue'}
         </button>
       </form>
-    </div>
+    </AuthShell>
   );
 }
 

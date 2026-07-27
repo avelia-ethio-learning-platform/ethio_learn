@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, Inbox, PartyPopper, Search, ShieldCheck, UserPlus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
+import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 
 type Tab = 'payments' | 'payouts' | 'refunds' | 'fraud' | 'users' | 'courses';
 
@@ -18,21 +20,45 @@ function AdminConsole() {
     { id: 'courses', label: 'Course overrides' },
   ];
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Platform admin console</h1>
-      <div className="flex flex-wrap gap-2">
-        {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`rounded-full px-3 py-1 text-sm ${tab === t.id ? 'bg-brand-700 text-white' : 'border bg-white'}`}>
-            {t.label}
-          </button>
-        ))}
+    <PageShell>
+      <PageHeader
+        badge={
+          <span className="section-badge">
+            <ShieldCheck className="h-4 w-4 text-brand-500" /> Platform admin
+          </span>
+        }
+        title="Platform admin console"
+        subtitle="Payments ledger, payouts, refunds, fraud signals, users and course overrides."
+      />
+      <div className="space-y-6">
+        <div className="flex flex-wrap gap-2">
+          {tabs.map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={tab === t.id ? 'pill-active' : 'pill'}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div key={tab} className="animate-fade-in-up">
+          {tab === 'payments' && <PaymentsTab />}
+          {tab === 'payouts' && <PayoutsTab />}
+          {tab === 'refunds' && <RefundsTab />}
+          {tab === 'fraud' && <FraudTab />}
+          {tab === 'users' && <UsersTab />}
+          {tab === 'courses' && <CoursesTab />}
+        </div>
       </div>
-      {tab === 'payments' && <PaymentsTab />}
-      {tab === 'payouts' && <PayoutsTab />}
-      {tab === 'refunds' && <RefundsTab />}
-      {tab === 'fraud' && <FraudTab />}
-      {tab === 'users' && <UsersTab />}
-      {tab === 'courses' && <CoursesTab />}
+    </PageShell>
+  );
+}
+
+/** Friendly empty state for admin lists. */
+function EmptyRows({ label, happy = false }: { label: string; happy?: boolean }) {
+  return (
+    <div className="flex flex-col items-center gap-2.5 py-10 text-center text-sm text-gray-400">
+      <span className="glass-secondary flex h-11 w-11 items-center justify-center rounded-2xl">
+        {happy ? <PartyPopper className="h-5 w-5 text-brand-400" /> : <Inbox className="h-5 w-5 text-brand-400" />}
+      </span>
+      {label}
     </div>
   );
 }
@@ -47,26 +73,26 @@ function PaymentsTab() {
         <BankTransferForm />
       </div>
       <div className="divide-y text-sm">
-        {!data?.items?.length && <p className="py-2 text-gray-500">No payments yet.</p>}
+        {!data?.items?.length && <EmptyRows label="No payments yet." />}
         {data?.items?.map((p: any) => (
           <div key={p.id}>
             <button
-              className="flex w-full items-center justify-between gap-2 py-2 text-left hover:bg-gray-50"
+              className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-brand-500/5"
               onClick={() => setOpenId(openId === p.id ? null : p.id)}
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{p.course_title}</span>
+                <span className="block truncate font-medium text-foreground">{p.course_title}</span>
                 <span className="block truncate text-xs text-gray-500">{p.learner_name} · {p.learner_email}</span>
               </span>
-              <span className="whitespace-nowrap text-xs text-gray-500">{new Date(p.created_at).toLocaleString()}</span>
-              <span className="whitespace-nowrap">{p.amount_etb} ETB</span>
-              <span className={`rounded px-2 py-0.5 text-xs ${p.status === 'confirmed' ? 'bg-green-100 text-green-800' : p.status === 'refunded' ? 'bg-gray-200' : p.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>
-                {p.status}
-              </span>
-              <span className="text-xs text-gray-400">{openId === p.id ? '▴' : '▾'}</span>
+              <span className="hidden whitespace-nowrap text-xs text-gray-500 sm:inline">{new Date(p.created_at).toLocaleString()}</span>
+              <span className="whitespace-nowrap font-medium text-foreground">{p.amount_etb} ETB</span>
+              <StatusBadge status={p.status} />
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 ${openId === p.id ? 'rotate-180' : ''}`}
+              />
             </button>
             {openId === p.id && (
-              <dl className="mb-2 grid gap-x-6 gap-y-1 rounded bg-gray-50 p-3 text-xs sm:grid-cols-2">
+              <dl className="glass-secondary mb-2 grid animate-fade-in gap-x-6 gap-y-1 rounded-xl p-3 text-xs sm:grid-cols-2">
                 <div><dt className="inline font-medium text-gray-500">Paid by: </dt><dd className="inline">{p.learner_name} ({p.learner_email})</dd></div>
                 <div><dt className="inline font-medium text-gray-500">Method: </dt><dd className="inline">{p.method}</dd></div>
                 <div><dt className="inline font-medium text-gray-500">Initiated: </dt><dd className="inline">{new Date(p.created_at).toLocaleString()}</dd></div>
@@ -144,16 +170,19 @@ function SearchPicker({
       <label className="mb-0.5 block text-[10px] uppercase text-gray-400">{label}</label>
       {selected ? (
         <div className="flex items-center gap-1">
-          <span className="rounded bg-brand-50 px-2 py-1 text-brand-800">{selected.label}</span>
-          <button className="text-gray-400" onClick={() => { onSelect(null); setQ(''); }}>✕</button>
+          <span className="badge-info max-w-[220px] truncate !normal-case">{selected.label}</span>
+          <button className="text-gray-400 hover:text-red-500" onClick={() => { onSelect(null); setQ(''); }}>✕</button>
         </div>
       ) : (
         <>
           <input className="input w-56 text-xs" placeholder={placeholder} value={q} onChange={(e) => setQ(e.target.value)} />
           {!!data?.length && (
-            <div className="absolute z-10 mt-1 max-h-48 w-56 overflow-y-auto rounded border bg-white shadow">
+            <div
+              className="absolute z-10 mt-1 max-h-48 w-56 overflow-y-auto rounded-xl shadow-floating"
+              style={{ background: 'var(--popover)', border: '1px solid var(--card-border)' }}
+            >
               {data.map((o) => (
-                <button key={o.id} className="block w-full truncate px-2 py-1 text-left hover:bg-gray-50" onClick={() => onSelect(o)}>
+                <button key={o.id} className="block w-full truncate px-3 py-1.5 text-left transition-colors hover:bg-brand-500/10" onClick={() => onSelect(o)}>
                   {o.label}
                 </button>
               ))}
@@ -185,16 +214,14 @@ function PayoutsTab() {
       </div>
       <div className="divide-y text-sm">
         {payouts?.map((p) => (
-          <div key={p.id} className="flex items-center justify-between py-2">
+          <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
             <span className="truncate pr-2 text-xs text-gray-500">{p.payee_type} {p.payee_id.slice(0, 8)}…</span>
-            <span>net {p.net_amount_etb} ETB</span>
+            <span className="font-medium text-foreground">net {p.net_amount_etb} ETB</span>
             <span className="flex items-center gap-2">
-              <span className={`rounded px-2 py-0.5 text-xs ${p.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                {p.status}{p.hold_reason ? ` · ${p.hold_reason}` : ''}
-              </span>
+              <StatusBadge status={p.status} suffix={p.hold_reason || undefined} />
               {p.status === 'held' && (
                 <button
-                  className="text-xs text-brand-700 underline"
+                  className="text-xs font-medium text-brand-600 hover:underline"
                   onClick={async () => {
                     await api(`/payouts/${p.id}/release`, { method: 'POST' });
                     queryClient.invalidateQueries({ queryKey: ['admin-payouts'] });
@@ -206,7 +233,7 @@ function PayoutsTab() {
             </span>
           </div>
         ))}
-        {!payouts?.length && <p className="text-gray-500">No payouts yet.</p>}
+        {!payouts?.length && <EmptyRows label="No payouts yet." />}
       </div>
     </div>
   );
@@ -224,15 +251,15 @@ function RefundsTab() {
       <h2 className="mb-3 font-semibold">Refunds awaiting manual review (20–50% consumed)</h2>
       <div className="divide-y text-sm">
         {refunds?.map((r) => (
-          <div key={r.id} className="flex items-center justify-between py-2">
+          <div key={r.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
             <span className="truncate pr-2">{r.reason}</span>
-            <span className="flex gap-2">
-              <button className="text-green-700 underline" onClick={() => decide(r.id, 'approve')}>approve</button>
-              <button className="text-red-600 underline" onClick={() => decide(r.id, 'deny')}>deny</button>
+            <span className="flex gap-3">
+              <button className="font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => decide(r.id, 'approve')}>approve</button>
+              <button className="font-medium text-red-500 hover:underline" onClick={() => decide(r.id, 'deny')}>deny</button>
             </span>
           </div>
         ))}
-        {!refunds?.length && <p className="text-gray-500">Nothing pending.</p>}
+        {!refunds?.length && <EmptyRows happy label="Nothing pending — all caught up." />}
       </div>
     </div>
   );
@@ -246,13 +273,13 @@ function FraudTab() {
       <h2 className="mb-3 font-semibold">Open fraud flags (payouts auto-held)</h2>
       <div className="divide-y text-sm">
         {flags?.map((f) => (
-          <div key={f.id} className="flex items-center justify-between py-2">
+          <div key={f.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
             <span>
               <strong>{f.signal_type}</strong> on {f.subject_type} <code className="text-xs">{f.subject_id.slice(0, 8)}…</code>
               <span className="ml-2 text-xs text-gray-500">{f.detail}</span>
             </span>
             <button
-              className="text-brand-700 underline"
+              className="font-medium text-brand-600 hover:underline"
               onClick={async () => {
                 await api(`/fraud/flags/${f.id}/resolve`, { method: 'POST' });
                 queryClient.invalidateQueries({ queryKey: ['fraud-flags'] });
@@ -262,17 +289,11 @@ function FraudTab() {
             </button>
           </div>
         ))}
-        {!flags?.length && <p className="text-gray-500">No open flags.</p>}
+        {!flags?.length && <EmptyRows happy label="No open flags — all clear." />}
       </div>
     </div>
   );
 }
-
-const STATUS_BADGE: Record<string, string> = {
-  active: 'bg-green-100 text-green-800',
-  suspended: 'bg-amber-100 text-amber-800',
-  banned: 'bg-red-100 text-red-700',
-};
 
 function UsersTab() {
   const queryClient = useQueryClient();
@@ -296,25 +317,29 @@ function UsersTab() {
     <div className="card">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-semibold">Users ({data?.total ?? 0})</h2>
-        <input className="input w-64" placeholder="Search by name/email…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input className="input w-64 !pl-9" placeholder="Search by name/email…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
       </div>
       <div className="divide-y text-sm">
+        {!data?.items?.length && <EmptyRows label="No users match." />}
         {data?.items?.map((u: any) => (
-          <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+          <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
             <span className="min-w-0">
-              {u.name} <span className="text-gray-400">({u.email})</span>
-              <span className="ml-2 rounded bg-gray-100 px-2 py-0.5 text-xs">{u.role}</span>
-              {!u.email_verified && <span className="ml-1 text-xs text-amber-600">unverified</span>}
+              <span className="text-foreground">{u.name}</span> <span className="text-gray-400">({u.email})</span>
+              <span className="badge-neutral ml-2">{u.role}</span>
+              {!u.email_verified && <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">unverified</span>}
             </span>
             <span className="flex items-center gap-2">
-              <span className={`rounded px-2 py-0.5 text-xs ${STATUS_BADGE[u.status] ?? ''}`}>{u.status}</span>
+              <StatusBadge status={u.status} />
               {u.status === 'active' ? (
                 <>
-                  <button className="text-xs text-amber-700 underline" onClick={() => setStatus(u.id, 'suspended')}>Suspend</button>
-                  <button className="text-xs text-red-600 underline" onClick={() => confirm(`Ban ${u.email}?`) && setStatus(u.id, 'banned')}>Ban</button>
+                  <button className="text-xs font-medium text-amber-600 hover:underline dark:text-amber-400" onClick={() => setStatus(u.id, 'suspended')}>Suspend</button>
+                  <button className="text-xs font-medium text-red-500 hover:underline" onClick={() => confirm(`Ban ${u.email}?`) && setStatus(u.id, 'banned')}>Ban</button>
                 </>
               ) : (
-                <button className="text-xs text-green-700 underline" onClick={() => setStatus(u.id, 'active')}>Reactivate</button>
+                <button className="text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => setStatus(u.id, 'active')}>Reactivate</button>
               )}
             </span>
           </div>
@@ -329,7 +354,7 @@ function StaffForm({ onDone }: { onDone: () => void }) {
   const [msg, setMsg] = useState('');
   return (
     <form
-      className="mt-4 grid gap-2 border-t pt-4 sm:grid-cols-4"
+      className="mt-5 border-t pt-4"
       onSubmit={async (e) => {
         e.preventDefault();
         const form = new FormData(e.currentTarget);
@@ -343,14 +368,19 @@ function StaffForm({ onDone }: { onDone: () => void }) {
         }
       }}
     >
-      <input name="name" placeholder="Name" required className="input" />
-      <input name="email" type="email" placeholder="Email" required className="input" />
-      <select name="role" className="input">
-        <option value="quality_officer">Quality officer</option>
-        <option value="platform_admin">Platform admin</option>
-      </select>
-      <button className="btn-secondary">Invite staff</button>
-      {msg && <p className="text-xs text-brand-700 sm:col-span-4">{msg}</p>}
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <UserPlus className="h-3.5 w-3.5 text-brand-500" /> Invite staff
+      </p>
+      <div className="grid gap-2 sm:grid-cols-4">
+        <input name="name" placeholder="Name" required className="input" />
+        <input name="email" type="email" placeholder="Email" required className="input" />
+        <select name="role" className="input">
+          <option value="quality_officer">Quality officer</option>
+          <option value="platform_admin">Platform admin</option>
+        </select>
+        <button className="btn-secondary">Invite staff</button>
+        {msg && <p className="text-xs font-medium text-brand-600 sm:col-span-4">{msg}</p>}
+      </div>
     </form>
   );
 }
@@ -369,16 +399,19 @@ function CoursesTab() {
   return (
     <div className="card space-y-3">
       <h2 className="font-semibold">Course lifecycle overrides</h2>
-      <input className="input" placeholder="Search courses by title…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input className="input !pl-9" placeholder="Search courses by title…" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
       <div className="divide-y text-sm">
-        {!data?.length && <p className="text-gray-500">No courses match.</p>}
+        {!data?.length && <EmptyRows label="No courses match." />}
         {data?.map((c) => (
-          <div key={c.id} className="flex items-center justify-between py-2">
-            <span>{c.title} <span className="rounded bg-gray-100 px-2 py-0.5 text-xs">{c.status}</span></span>
-            <span className="flex gap-2 text-xs">
-              {(c.status === 'published' || c.status === 'flagged') && <button className="text-brand-700 underline" onClick={() => act(c.id, 'unlist')}>Unlist</button>}
-              {(c.status === 'unlisted' || c.status === 'flagged') && <button className="text-brand-700 underline" onClick={() => act(c.id, 'restore')}>Restore</button>}
-              {c.status !== 'archived' && <button className="text-red-600 underline" onClick={() => confirm(`Archive "${c.title}"? This is terminal.`) && act(c.id, 'archive')}>Archive</button>}
+          <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
+            <span className="flex min-w-0 items-center gap-2 text-foreground"><span className="truncate">{c.title}</span> <StatusBadge status={c.status} /></span>
+            <span className="flex shrink-0 gap-3 text-xs">
+              {(c.status === 'published' || c.status === 'flagged') && <button className="font-medium text-brand-600 hover:underline" onClick={() => act(c.id, 'unlist')}>Unlist</button>}
+              {(c.status === 'unlisted' || c.status === 'flagged') && <button className="font-medium text-brand-600 hover:underline" onClick={() => act(c.id, 'restore')}>Restore</button>}
+              {c.status !== 'archived' && <button className="font-medium text-red-500 hover:underline" onClick={() => confirm(`Archive "${c.title}"? This is terminal.`) && act(c.id, 'archive')}>Archive</button>}
             </span>
           </div>
         ))}

@@ -3,12 +3,15 @@
 import { FormEvent, Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { AlertCircle, LogIn } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
-import { GoogleSignInButton } from '@/components/GoogleSignInButton';
+import { useT } from '@/lib/i18n';
+import { AuthShell } from '@/components/PageChrome';
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useT();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -38,29 +41,41 @@ function LoginForm() {
   };
 
   return (
-    <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-bold">Log in</h1>
-      <form onSubmit={submit} className="card mt-4 space-y-4">
+    <AuthShell
+      icon={<LogIn className="h-6 w-6" />}
+      title={t('login')}
+      subtitle="Welcome back — pick up right where you left off."
+      footer={
+        <>
+          <Link href="/reset-password" className="font-medium text-brand-600 hover:underline">
+            {t('forgot_password')}
+          </Link>
+          <span className="mx-2 text-gray-400">·</span>
+          <Link href="/signup" className="font-medium text-brand-600 hover:underline">
+            {t('create_account')}
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={submit} className="space-y-4">
         <div>
-          <label className="label">Email</label>
-          <input name="email" type="email" required className="input" />
+          <label className="label">{t('email')}</label>
+          <input name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />
         </div>
         <div>
-          <label className="label">Password</label>
-          <input name="password" type="password" required className="input" />
+          <label className="label">{t('password')}</label>
+          <input name="password" type="password" required autoComplete="current-password" className="input" placeholder="••••••••" />
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button className="btn w-full" disabled={busy}>
-          {busy ? 'Logging in…' : 'Log in'}
+        {error && (
+          <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+          </p>
+        )}
+        <button className="btn w-full !py-3" disabled={busy}>
+          {busy ? 'Logging in…' : t('login')}
         </button>
-        <GoogleSignInButton next={params.get('next')} />
-        <p className="text-center text-sm text-gray-500">
-          <Link href="/reset-password" className="text-brand-700 underline">Forgot password?</Link>
-          {' · '}
-          <Link href="/signup" className="text-brand-700 underline">Create account</Link>
-        </p>
       </form>
-    </div>
+    </AuthShell>
   );
 }
 
