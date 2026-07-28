@@ -6,11 +6,18 @@ import { env, envBool, envInt } from '../config/env';
  * Schemas are created by docker/postgres-init.sql; TypeORM owns the tables.
  */
 export function buildTypeOrmOptions(schema: string, entities: TypeOrmModuleOptions['entities']): TypeOrmModuleOptions {
+  const url = env('DATABASE_URL', 'postgres://ethiopialearn:ethiopialearn@localhost:5432/ethiopialearn');
+  // Managed Postgres (Neon, RDS, Supabase) requires TLS. Inferred from the
+  // connection string so `?sslmode=require` alone is enough; DB_SSL overrides
+  // either way. Managed providers terminate TLS with their own chain, so cert
+  // verification is opt-in via DB_SSL_STRICT rather than on by default.
+  const sslEnabled = process.env.DB_SSL ? envBool('DB_SSL', false) : /sslmode=(require|verify)/.test(url);
   return {
     type: 'postgres',
-    url: env('DATABASE_URL', 'postgres://ethiopialearn:ethiopialearn@localhost:5432/ethiopialearn'),
+    url,
     schema,
     entities,
+    ...(sslEnabled ? { ssl: { rejectUnauthorized: envBool('DB_SSL_STRICT', false) } } : {}),
     // Dev convenience only. TODO(spec-open-question): replace with generated
     // migrations before any production deploy.
     synchronize: envBool('DB_SYNC', true),

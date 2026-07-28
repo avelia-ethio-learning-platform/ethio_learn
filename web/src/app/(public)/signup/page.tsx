@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
 import { AuthShell } from '@/components/PageChrome';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 function SignupForm() {
   const params = useSearchParams();
