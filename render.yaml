@@ -126,22 +126,25 @@ services:
       - fromGroup: ethiopialearn-shared
       - key: PKG
         value: "@ethiopialearn/gateway"
-      # Render's `host` property yields a bare hostname with no scheme, which
-      # these vars need, so they are entered by hand after the first deploy.
+      # fromService resolves to a bare `host:port` on Render's private network
+      # (no public internet hop, no bandwidth cost) at every deploy, so a
+      # service rename or redeploy can never leave this pointing at a stale
+      # URL — nothing to hand-copy from the dashboard. routes.ts prepends
+      # http:// since fromService never includes a scheme.
       - key: AUTH_SERVICE_URL
-        sync: false
+        fromService: { name: ethiopialearn-auth, type: web, property: hostport }
       - key: COURSE_SERVICE_URL
-        sync: false
+        fromService: { name: ethiopialearn-course, type: web, property: hostport }
       - key: ENROLLMENT_SERVICE_URL
-        sync: false
+        fromService: { name: ethiopialearn-enrollment, type: web, property: hostport }
       - key: OUTCOMES_SERVICE_URL
-        sync: false
+        fromService: { name: ethiopialearn-outcomes, type: web, property: hostport }
       - key: FINANCIAL_SERVICE_URL
-        sync: false
+        fromService: { name: ethiopialearn-financial, type: web, property: hostport }
       - key: QUALITY_SERVICE_URL
-        sync: false
+        fromService: { name: ethiopialearn-quality, type: web, property: hostport }
       - key: NOTIFICATION_SERVICE_URL
-        sync: false
+        fromService: { name: ethiopialearn-notification, type: web, property: hostport }
 
   # ---- domain services -----------------------------------------------------
   # These trust the gateway's x-user-* headers, so they are only safe because

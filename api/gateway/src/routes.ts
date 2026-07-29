@@ -10,13 +10,19 @@ export interface RouteRule {
   auth: AuthMode | ((method: string, path: string) => AuthMode);
 }
 
-const AUTH = () => env('AUTH_SERVICE_URL', 'http://localhost:4101');
-const COURSE = () => env('COURSE_SERVICE_URL', 'http://localhost:4102');
-const ENROLLMENT = () => env('ENROLLMENT_SERVICE_URL', 'http://localhost:4103');
-const OUTCOMES = () => env('OUTCOMES_SERVICE_URL', 'http://localhost:4104');
-const FINANCIAL = () => env('FINANCIAL_SERVICE_URL', 'http://localhost:4105');
-const QUALITY = () => env('QUALITY_SERVICE_URL', 'http://localhost:4106');
-const NOTIFICATION = () => env('NOTIFICATION_SERVICE_URL', 'http://localhost:4107');
+// Render's `fromService` blueprint field yields a bare `host:port` (no
+// scheme) so the URL auto-updates if a service is ever renamed — this is
+// what lets *_SERVICE_URL be wired automatically instead of hand-copied
+// from the dashboard after each service's first deploy.
+const withScheme = (v: string) => (/^https?:\/\//.test(v) ? v : `http://${v}`);
+
+const AUTH = () => withScheme(env('AUTH_SERVICE_URL', 'localhost:4101'));
+const COURSE = () => withScheme(env('COURSE_SERVICE_URL', 'localhost:4102'));
+const ENROLLMENT = () => withScheme(env('ENROLLMENT_SERVICE_URL', 'localhost:4103'));
+const OUTCOMES = () => withScheme(env('OUTCOMES_SERVICE_URL', 'localhost:4104'));
+const FINANCIAL = () => withScheme(env('FINANCIAL_SERVICE_URL', 'localhost:4105'));
+const QUALITY = () => withScheme(env('QUALITY_SERVICE_URL', 'localhost:4106'));
+const NOTIFICATION = () => withScheme(env('NOTIFICATION_SERVICE_URL', 'localhost:4107'));
 
 /**
  * Ordered route table — first match wins. The gateway is the ONLY entry point
