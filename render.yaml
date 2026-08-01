@@ -93,7 +93,9 @@ envVarGroups:
         sync: false
 
       # ---- public URLs ------------------------------------------------------
-      # WEB_URL doubles as the CORS allowlist; CORS_ORIGINS extends it.
+      # main.ts reads CORS_ORIGINS with WEB_URL as its FALLBACK, so setting
+      # CORS_ORIGINS replaces the allowlist rather than extending it — it must
+      # list every allowed origin, including the one in WEB_URL.
       - key: WEB_URL
         sync: false
       - key: CORS_ORIGINS
