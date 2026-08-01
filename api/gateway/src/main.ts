@@ -9,18 +9,25 @@ import * as jwt from 'jsonwebtoken';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { timingSafeEqual } from 'crypto';
 import { Agent } from 'http';
+import { Agent as HttpsAgent } from 'https';
 import { env, envInt } from '@ethiopialearn/common';
 import { AuthMode, resolveRoute } from './routes';
 import { classifyRequest, RatePolicy } from './rate-policy';
 
 // Reuse TCP connections to the upstream services instead of opening a new
 // socket per request — the single biggest gateway win under high concurrency.
-const keepAliveAgent = new Agent({
+const agentOptions = {
   keepAlive: true,
   keepAliveMsecs: 15_000,
   maxSockets: envInt('PROXY_MAX_SOCKETS', 256),
   maxFreeSockets: 32,
-});
+};
+const keepAliveAgent = new Agent(agentOptions);
+// An http.Agent throws ERR_INVALID_PROTOCOL on an https: target, so the scheme
+// of the resolved target decides which agent is used. Targets are http:// in
+// docker-compose and https://*.onrender.com on Render's free plan, where
+// service-to-service traffic has to leave over the public internet.
+const keepAliveHttpsAgent = new HttpsAgent(agentOptions);
 
 @Controller('health')
 class GatewayHealthController {
@@ -120,16 +127,19 @@ async function bootstrap() {
   };
   const generalLimiter = makeLimiter(envInt('RATE_LIMIT_PER_MIN', 300), userKey);
 
-  const proxy = createProxyMiddleware<Request, Response>({
+  const targetFor = (req: Request) => resolveRoute((req.originalUrl ?? req.url).split('?')[0])?.target();
+
+  const makeProxy = (agent: Agent | HttpsAgent) =>
+    createProxyMiddleware<Request, Response>({
     changeOrigin: true,
-    agent: keepAliveAgent,
+    agent,
     // Fail fast on a stuck upstream so gateway sockets don't pile up under load.
     proxyTimeout: envInt('PROXY_TIMEOUT_MS', 30_000),
     timeout: envInt('PROXY_TIMEOUT_MS', 30_000),
     // The full request path (e.g. /api/v1/auth/login) is preserved and
     // forwarded to the target service unchanged — services answer under the
     // same /api/v1 prefix (spec §9).
-    router: (req) => resolveRoute((req.originalUrl ?? req.url).split('?')[0])?.target(),
+    router: (req) => targetFor(req),
     on: {
       error: (err, _req, res) => {
         Logger.error(`proxy error: ${err.message}`, 'Gateway');
@@ -143,6 +153,11 @@ async function bootstrap() {
       },
     },
   });
+
+  const httpProxy = makeProxy(keepAliveAgent);
+  const httpsProxy = makeProxy(keepAliveHttpsAgent);
+  const proxy = (req: Request, res: Response, next: NextFunction) =>
+    (targetFor(req)?.startsWith('https:') ? httpsProxy : httpProxy)(req, res, next);
 
   // Mounted at the ROOT so Express never strips the /api/v1 prefix — the full
   // path is used both for route resolution and for forwarding upstream.
