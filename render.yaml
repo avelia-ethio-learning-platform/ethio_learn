@@ -112,6 +112,12 @@ envVarGroups:
       - key: GROQ_MODEL
         value: llama-3.3-70b-versatile
 
+      # Services are reachable on public *.onrender.com URLs (free plan has no
+      # private inbound), so they must reject anything not carrying the shared
+      # token — otherwise x-user-role could be forged straight at a service.
+      - key: REQUIRE_INTERNAL_TOKEN
+        value: "true"
+
       - key: CHAPA_MODE
         value: live
       - key: KYC_PAYOUT_THRESHOLD_ETB
@@ -133,25 +139,27 @@ services:
       - fromGroup: ethiopialearn-shared
       - key: PKG
         value: "@ethiopialearn/gateway"
-      # fromService resolves to a bare `host:port` on Render's private network
-      # (no public internet hop, no bandwidth cost) at every deploy, so a
-      # service rename or redeploy can never leave this pointing at a stale
-      # URL — nothing to hand-copy from the dashboard. routes.ts prepends
-      # http:// since fromService never includes a scheme.
+      # NOTE: these were `fromService: {property: hostport}` (private network),
+      # which is the better mechanism — but Render's free web services "can send
+      # private network requests, but can't receive them", so every gateway ->
+      # service call 502'd. Public URLs are the only option on the free plan.
+      # Traffic leaves and re-enters Render, so services are internet-reachable;
+      # REQUIRE_INTERNAL_TOKEN below is what keeps them from being open to all.
+      # Switch back to fromService if these ever move to a paid instance type.
       - key: AUTH_SERVICE_URL
-        fromService: { name: ethiopialearn-auth, type: web, property: hostport }
+        value: https://ethiopialearn-auth.onrender.com
       - key: COURSE_SERVICE_URL
-        fromService: { name: ethiopialearn-course, type: web, property: hostport }
+        value: https://ethiopialearn-course.onrender.com
       - key: ENROLLMENT_SERVICE_URL
-        fromService: { name: ethiopialearn-enrollment, type: web, property: hostport }
+        value: https://ethiopialearn-enrollment.onrender.com
       - key: OUTCOMES_SERVICE_URL
-        fromService: { name: ethiopialearn-outcomes, type: web, property: hostport }
+        value: https://ethiopialearn-outcomes.onrender.com
       - key: FINANCIAL_SERVICE_URL
-        fromService: { name: ethiopialearn-financial, type: web, property: hostport }
+        value: https://ethiopialearn-financial.onrender.com
       - key: QUALITY_SERVICE_URL
-        fromService: { name: ethiopialearn-quality, type: web, property: hostport }
+        value: https://ethiopialearn-quality.onrender.com
       - key: NOTIFICATION_SERVICE_URL
-        fromService: { name: ethiopialearn-notification, type: web, property: hostport }
+        value: https://ethiopialearn-notification.onrender.com
 
   # ---- domain services -----------------------------------------------------
   # These trust the gateway's x-user-* headers, so they are only safe because
