@@ -168,6 +168,13 @@ async function bootstrap() {
 
     const mode: AuthMode = typeof rule.auth === 'function' ? rule.auth(req.method, path) : rule.auth;
 
+    // Proof to the upstream service that this request came through the gateway
+    // rather than straight off the internet (services enforce it when
+    // REQUIRE_INTERNAL_TOKEN is on). Set from our own env, never echoed from
+    // the client — the client-presented value was already stripped above.
+    const ownInternalToken = env('INTERNAL_API_TOKEN', '');
+    if (ownInternalToken) req.headers['x-internal-token'] = ownInternalToken;
+
     if (mode === 'internal') {
       if (!validInternalToken(presentedInternal)) {
         res.status(401).json({ statusCode: 401, message: 'Internal endpoint' });
