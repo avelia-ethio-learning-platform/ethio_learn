@@ -39,6 +39,36 @@ A zero-budget way to get a real deployment live, one Render web service per app 
 - **Chapa in production**: set `GATEWAY_PUBLIC_URL` to the gateway's Render URL so `callback_url` is sent, register `<gateway>/api/v1/payments/webhook/chapa` in the Chapa dashboard, and set `CHAPA_WEBHOOK_SECRET` to the dashboard's **webhook secret hash** (not the `CHAPUBK_…` public key). The financial-service background sweep (see below) means a sleeping/missed webhook still confirms within ~2 minutes once the service wakes.
 - Replace every `dev-*-change-me` secret before this goes public — `INTERNAL_API_TOKEN` matters even more here since inter-service URLs are technically internet-reachable.
 
+## Render (backend) + Vercel (frontend)
+
+`render.yaml` at the repo root is a Render **Blueprint** describing all 8 backend
+services. Render → New → Blueprint → pick this repo, and it prompts once for
+every `sync: false` secret. All 8 build from the same `api/Dockerfile`; the
+per-service `PKG` env var selects the workspace package, which works because
+Render exposes a service's env vars to the image build as Docker build args.
+
+The frontend is deliberately **not** in that blueprint — `web/` goes to Vercel
+with **Root Directory = `web`**.
+
+Three things about this split are easy to miss:
+
+- **The refresh cookie is cross-site.** `*.vercel.app` and `*.onrender.com` are
+  different registrable domains, so the default `SameSite=Lax` cookie is never
+  sent on the refresh call and every session dies at the 15-minute access-token
+  expiry. Set `COOKIE_SAMESITE=none` on the backend (it forces `Secure` on).
+- **CORS is an explicit allowlist** built from `WEB_URL` + `CORS_ORIGINS`, and
+  the localhost escape hatch is disabled when `NODE_ENV=production`. Vercel
+  preview deployments get random hostnames, so they are blocked unless you add
+  them to `CORS_ORIGINS`.
+- **Neon needs TLS.** `buildTypeOrmOptions` turns SSL on automatically when the
+  connection string carries `sslmode=require`; `DB_SSL` overrides either way.
+  Use the **pooled** (`…-pooler.…`) host and keep `DB_POOL_MAX` small — 7
+  services each holding a pool adds up fast on the free tier.
+
+Before the first boot, run `docker/postgres-init.sql` against the Neon database
+once to create the 7 schemas and `pgcrypto`; TypeORM creates tables but never
+schemas.
+
 ## Required infrastructure (managed services in prod)
 
 | Component | Local | Production |

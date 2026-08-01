@@ -76,12 +76,18 @@ export class AuthController {
   }
 
   private setRefreshCookie(res: Response, token: string) {
+    // When the web app and the API sit on different registrable domains — the
+    // Vercel + Render split, say — the refresh call is cross-site and a Lax
+    // cookie is never sent, silently logging everyone out at the 15-minute
+    // access-token expiry. Set COOKIE_SAMESITE=none there; browsers only honour
+    // SameSite=None over HTTPS, so it forces Secure regardless of NODE_ENV.
+    const sameSite = (process.env.COOKIE_SAMESITE ?? 'lax').toLowerCase() as 'lax' | 'none' | 'strict';
     res.setHeader(
       'Set-Cookie',
       serialize(REFRESH_COOKIE, token, {
         httpOnly: true, // spec §0.3: refresh token lives in an httpOnly cookie
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
+        sameSite,
+        secure: sameSite === 'none' || process.env.NODE_ENV === 'production',
         path: '/api/v1/auth',
         maxAge: this.auth.refreshCookieMaxAge(),
       }),

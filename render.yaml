@@ -1,0 +1,260 @@
+# Render Blueprint — the 8 backend services (API gateway + 7 domain services).
+# The frontend is NOT here: web/ deploys to Vercel.
+#
+# Every service builds from the same api/Dockerfile; PKG selects which workspace
+# package gets built and shipped. Render exposes a service's env vars to the
+# image build as Docker build args, which is how PKG reaches `ARG PKG`.
+#
+# Deploy:  Render Dashboard → New → Blueprint → pick this repo.
+# Render prompts once for every `sync: false` value (the secrets); nothing
+# sensitive is committed here.
+#
+# Region note: Neon lives in us-east-2, so `ohio` keeps query latency low.
+# Every service must stay in the same region to keep the mesh calls cheap.
+
+envVarGroups:
+  # Shared by all 8 services. Change a value once here, not eight times.
+  - name: ethiopialearn-shared
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # ---- secrets: Render prompts for these during Blueprint creation ------
+      - key: DATABASE_URL # Neon POOLED connection string (…-pooler.…)
+        sync: false
+      - key: REDIS_URL # Upstash: rediss://default:<password>@<host>:6379
+        sync: false
+      - key: RABBITMQ_URL # CloudAMQP: amqps://user:pass@host/vhost
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: CHAPA_SECRET_KEY
+        sync: false
+      - key: CHAPA_WEBHOOK_SECRET # the dashboard's webhook secret hash, NOT a CHAPUBK_ key
+        sync: false
+      - key: GROQ_API_KEY # without it (or a non-gsk_ value) AI falls back to the offline mock
+        sync: false
+      - key: GOOGLE_CLIENT_ID # leave blank until the OAuth client exists
+        sync: false
+
+      # ---- generated once by Render, then shared verbatim across services ---
+      # These three are what the service mesh trusts, so they must match
+      # everywhere — that is exactly why they live in a group.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CERT_SIGNING_SECRET
+        generateValue: true
+      - key: INTERNAL_API_TOKEN
+        generateValue: true
+
+      # ---- database ---------------------------------------------------------
+      # Neon's free tier is connection-poor and Render free instances sleep, so
+      # keep pools tiny and let them drain to zero while idle.
+      - key: DB_POOL_MAX
+        value: "3"
+      - key: DB_POOL_MIN
+        value: "0"
+      # No migrations exist yet, so the first boot must create the tables.
+      # Flip to false once the schema is live (see DEPLOYMENT.md).
+      - key: DB_SYNC
+        value: "true"
+
+      # ---- object storage (Cloudflare R2) -----------------------------------
+      # Signed URLs are signed against the S3 API endpoint; the public r2.dev
+      # host only serves already-public objects and would fail signature checks.
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_PUBLIC_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        value: auto
+
+      # ---- email (Brevo SMTP) ----------------------------------------------
+      # SMTP_HOST being set is what selects the SMTP provider over Resend.
+      - key: SMTP_HOST
+        value: smtp-relay.brevo.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false" # 587 is STARTTLS, not implicit TLS
+      - key: EMAIL_FROM # must be a Brevo-VERIFIED sender or every send is rejected
+        sync: false
+      - key: SUPPORT_EMAIL
+        value: aisubyazew@gmail.com
+      - key: PLATFORM_ADMIN_EMAIL
+        sync: false
+
+      # ---- public URLs ------------------------------------------------------
+      # WEB_URL doubles as the CORS allowlist; CORS_ORIGINS extends it.
+      - key: WEB_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: GATEWAY_PUBLIC_URL
+        sync: false
+      # The frontend is on vercel.app and the API on onrender.com — different
+      # sites, so the refresh cookie must be SameSite=None or it is never sent.
+      - key: COOKIE_SAMESITE
+        value: none
+
+      # Matches the code default, pinned here so a model deprecation is a
+      # dashboard edit rather than a redeploy.
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+
+      - key: CHAPA_MODE
+        value: live
+      - key: KYC_PAYOUT_THRESHOLD_ETB
+        value: "10000"
+
+services:
+  # ---- API gateway: the only service the browser ever talks to --------------
+  - type: web
+    name: ethiopialearn-gateway
+    runtime: docker
+    repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
+    branch: main
+    region: ohio
+    plan: free
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: ethiopialearn-shared
+      - key: PKG
+        value: "@ethiopialearn/gateway"
+      # fromService resolves to a bare `host:port` on Render's private network
+      # (no public internet hop, no bandwidth cost) at every deploy, so a
+      # service rename or redeploy can never leave this pointing at a stale
+      # URL — nothing to hand-copy from the dashboard. routes.ts prepends
+      # http:// since fromService never includes a scheme.
+      - key: AUTH_SERVICE_URL
+        fromService: { name: ethiopialearn-auth, type: web, property: hostport }
+      - key: COURSE_SERVICE_URL
+        fromService: { name: ethiopialearn-course, type: web, property: hostport }
+      - key: ENROLLMENT_SERVICE_URL
+        fromService: { name: ethiopialearn-enrollment, type: web, property: hostport }
+      - key: OUTCOMES_SERVICE_URL
+        fromService: { name: ethiopialearn-outcomes, type: web, property: hostport }
+      - key: FINANCIAL_SERVICE_URL
+        fromService: { name: ethiopialearn-financial, type: web, property: hostport }
+      - key: QUALITY_SERVICE_URL
+        fromService: { name: ethiopialearn-quality, type: web, property: hostport }
+      - key: NOTIFICATION_SERVICE_URL
+        fromService: { name: ethiopialearn-notification, type: web, property: hostport }
+
+  # ---- domain services -----------------------------------------------------
+  # These trust the gateway's x-user-* headers, so they are only safe because
+  # every mesh call carries INTERNAL_API_TOKEN. Never disable that check.
+  - type: web
+    name: ethiopialearn-auth
+    runtime: docker
+    repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
+    branch: main
+    region: ohio
+    plan: free
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: ethiopialearn-shared
+      - key: PKG
+        value: "@ethiopialearn/auth-service"
+
+  - type: web
+    name: ethiopialearn-course
+    runtime: docker
+    repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
+    branch: main
+    region: ohio
+    plan: free
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: ethiopialearn-shared
+      - key: PKG
+        value: "@ethiopialearn/course-service"
+
+  - type: web
+    name: ethiopialearn-enrollment
+    runtime: docker
+    repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
+    branch: main
+    region: ohio
+    plan: free
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: ethiopialearn-shared
+      - key: PKG
+        value: "@ethiopialearn/enrollment-service"
+
+  - type: web
+    name: ethiopialearn-outcomes
+    runtime: docker
+    repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
+    branch: main
+    region: ohio
+    plan: free
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: ethiopialearn-shared
+      - key: PKG
+        value: "@ethiopialearn/outcomes-service"
+
+  - type: web
+    name: ethiopialearn-financial
+    runtime: docker
+    repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
+    branch: main
+    region: ohio
+    plan: free
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: ethiopialearn-shared
+      - key: PKG
+        value: "@ethiopialearn/financial-service"
+
+  - type: web
+    name: ethiopialearn-quality
+    runtime: docker
+    repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
+    branch: main
+    region: ohio
+    plan: free
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: ethiopialearn-shared
+      - key: PKG
+        value: "@ethiopialearn/quality-service"
+
+  - type: web
+    name: ethiopialearn-notification
+    runtime: docker
+    repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
+    branch: main
+    region: ohio
+    plan: free
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: ethiopialearn-shared
+      - key: PKG
+        value: "@ethiopialearn/notification-service"

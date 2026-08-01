@@ -7,6 +7,7 @@ import { AlertCircle, LogIn } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { AuthShell } from '@/components/PageChrome';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 function LoginForm() {
   const router = useRouter();
@@ -74,6 +75,7 @@ function LoginForm() {
         <button className="btn w-full !py-3" disabled={busy}>
           {busy ? 'Logging in…' : t('login')}
         </button>
+        <GoogleSignInButton next={params.get('next')} />
       </form>
     </AuthShell>
   );
