@@ -38,7 +38,7 @@ envVarGroups:
         sync: false
       - key: CHAPA_WEBHOOK_SECRET # the dashboard's webhook secret hash, NOT a CHAPUBK_ key
         sync: false
-      - key: GROQ_API_KEY # optional; without it the AI features use a deterministic mock
+      - key: GROQ_API_KEY # without it (or a non-gsk_ value) AI falls back to the offline mock
         sync: false
       - key: GOOGLE_CLIENT_ID # leave blank until the OAuth client exists
         sync: false
@@ -104,6 +104,11 @@ envVarGroups:
       # sites, so the refresh cookie must be SameSite=None or it is never sent.
       - key: COOKIE_SAMESITE
         value: none
+
+      # Matches the code default, pinned here so a model deprecation is a
+      # dashboard edit rather than a redeploy.
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
 
       - key: CHAPA_MODE
         value: live
