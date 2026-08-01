@@ -1,12 +1,12 @@
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
-import { env, envBool, envInt } from '../config/env';
+import { envBool, envInt, envOrLocalDefault } from '../config/env';
 
 /**
  * Schema-per-service on a single PostgreSQL instance (spec §4.4).
  * Schemas are created by docker/postgres-init.sql; TypeORM owns the tables.
  */
 export function buildTypeOrmOptions(schema: string, entities: TypeOrmModuleOptions['entities']): TypeOrmModuleOptions {
-  const url = env('DATABASE_URL', 'postgres://ethiopialearn:ethiopialearn@localhost:5432/ethiopialearn');
+  const url = envOrLocalDefault('DATABASE_URL', 'postgres://ethiopialearn:ethiopialearn@localhost:5432/ethiopialearn');
   // Managed Postgres (Neon, RDS, Supabase) requires TLS. Inferred from the
   // connection string so `?sslmode=require` alone is enough; DB_SSL overrides
   // either way. Managed providers terminate TLS with their own chain, so cert

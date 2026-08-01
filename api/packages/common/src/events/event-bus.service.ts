@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdo
 import * as amqp from 'amqplib';
 import { randomUUID } from 'crypto';
 import { EventEnvelope, EventType } from '@ethiopialearn/contracts';
+import { envOrLocalDefault } from '../config/env';
 
 export const EVENTS_EXCHANGE = 'ethiopialearn.events';
 export const COMMANDS_EXCHANGE = 'ethiopialearn.commands';
@@ -97,7 +98,7 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
   }
 
   private async connect(): Promise<amqp.Channel> {
-    const url = this.options.url ?? process.env.RABBITMQ_URL ?? 'amqp://guest:guest@localhost:5672';
+    const url = this.options.url ?? envOrLocalDefault('RABBITMQ_URL', 'amqp://guest:guest@localhost:5672');
     let attempt = 0;
     // Retry: RabbitMQ regularly starts slower than the services in docker-compose.
     for (;;) {
