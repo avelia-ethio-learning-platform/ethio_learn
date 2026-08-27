@@ -120,7 +120,7 @@ export class CourseService implements OnModuleInit {
     });
   }
 
-  async create(ctx: UserContext, dto: CreateCourseDto): Promise<Course> {
+  async create(ctx: UserContext, dto: CreateCourseDto) {
     // Institutions do not author courses directly — their instructors do.
     if (ctx.role === Role.INSTITUTION_ADMIN) {
       throw new ForbiddenException('Institutions do not create courses directly. Invite instructors to create courses.');
@@ -153,7 +153,7 @@ export class CourseService implements OnModuleInit {
     return this.detailForOwner(course.id);
   }
 
-  async update(ctx: UserContext, courseId: string, dto: UpdateCourseDto): Promise<Course> {
+  async update(ctx: UserContext, courseId: string, dto: UpdateCourseDto) {
     const course = await this.ownedDraft(ctx, courseId);
     Object.assign(course, {
       ...(dto.title !== undefined ? { title: dto.title } : {}),
