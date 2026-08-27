@@ -310,16 +310,21 @@ export class CourseController {
     const { lesson, section, course } = await this.service.lessonWithCourse(id);
     if (!lesson.video_s3_key) throw new ForbiddenException('Lesson has no video yet');
 
-    const isOwner = course.created_by === ctx.id;
+    const isOwner = course.owner_id === ctx.id || course.created_by === ctx.id;
     const isStaff = ctx.role === Role.QUALITY_OFFICER || ctx.role === Role.PLATFORM_ADMIN;
     let allowed = isOwner || isStaff || section.is_free_preview;
 
     if (!allowed) {
       // Server-side entitlement verification with Enrollment & Progress.
-      const res = await this.internal.get<{ entitlement_status: string }>(
-        `/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${course.id}`,
-      );
-      allowed = res.entitlement_status === EntitlementStatus.ACTIVE;
+      try {
+        const res = await this.internal.get<{ entitlement_status: string }>(
+          `/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${course.id}`,
+        );
+        allowed = res.entitlement_status === EntitlementStatus.ACTIVE;
+      } catch {
+        // Enrollment service may be sleeping on free tier — deny gracefully.
+        throw new ForbiddenException('Could not verify enrollment. Please try again in a moment.');
+      }
     }
     if (!allowed) throw new ForbiddenException('No active entitlement for this course');
 

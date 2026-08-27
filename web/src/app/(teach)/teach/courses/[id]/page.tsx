@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import Hls from 'hls.js';
-import { CheckCircle2, ImagePlus, Layers, LoaderCircle, Play, PlayCircle, Sparkles, Trash2, Upload } from 'lucide-react';
+
+import { CheckCircle2, ImagePlus, Layers, Play, Sparkles, Trash2, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 import { extractTextFromFile } from '@/lib/extract-text';
 import { RequireRole } from '@/components/RequireRole';
@@ -26,52 +26,12 @@ async function uploadToS3(kind: 'video' | 'thumbnail', file: File): Promise<stri
 function ManageCourse({ courseId }: { courseId: string }) {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState('');
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
-  const [activeLesson, setActiveLesson] = useState<{ id: string; title: string } | null>(null);
-  const [videoLoading, setVideoLoading] = useState(false);
-  const [videoError, setVideoError] = useState('');
   const { data: course } = useQuery({ queryKey: ['manage-course', courseId], queryFn: () => api<any>(`/courses/${courseId}`) });
   const { data: reviews } = useQuery({ queryKey: ['reviews', courseId], queryFn: () => api<any>(`/courses/${courseId}/reviews`), retry: false });
   const { data: pendingProjects } = useQuery({ queryKey: ['pending-projects', courseId], queryFn: () => api<any[]>(`/courses/${courseId}/pending-projects`), retry: false });
 
-  // Tear down any HLS instance when leaving the page.
-  useEffect(() => () => hlsRef.current?.destroy(), []);
-
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['manage-course', courseId] });
 
-  const previewLesson = async (lesson: { id: string; title: string; has_video: boolean }) => {
-    setVideoError('');
-    hlsRef.current?.destroy();
-    hlsRef.current = null;
-    if (!lesson.has_video) {
-      setVideoError('This lesson has no video uploaded yet.');
-      setActiveLesson(lesson);
-      return;
-    }
-    setActiveLesson(lesson);
-    setVideoLoading(true);
-    try {
-      const res = await api<{ url: string }>(`/lessons/${lesson.id}/stream-url`);
-      const video = videoRef.current;
-      if (!video) return;
-      if (res.url.includes('.m3u8') && Hls.isSupported()) {
-        const hls = new Hls();
-        hlsRef.current = hls;
-        hls.on(Hls.Events.ERROR, (_e, data) => { if (data.fatal) setVideoError('Could not play this video. Try again.'); });
-        hls.loadSource(res.url);
-        hls.attachMedia(video);
-      } else {
-        video.src = res.url;
-      }
-      video.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      void video.play().catch(() => undefined);
-    } catch (err) {
-      setVideoError((err as Error).message);
-    } finally {
-      setVideoLoading(false);
-    }
-  };
   if (!course) {
     return (
       <PageShell>
@@ -84,6 +44,7 @@ function ManageCourse({ courseId }: { courseId: string }) {
     );
   }
   const isDraft = course.status === 'draft';
+  const canEdit = !['archived', 'flagged'].includes(course.status);
 
   const action = async (path: string, ok: string, body?: any) => {
     setMessage('');
@@ -147,7 +108,7 @@ function ManageCourse({ courseId }: { courseId: string }) {
       {course.review_feedback && <ReviewFeedback feedback={course.review_feedback} />}
       {course.status === 'flagged' && <AppealBox courseId={courseId} onDone={(m) => { setMessage(m); refresh(); }} />}
 
-      {isDraft && (
+      {canEdit && (
         <div className="card animate-fade-in-up">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -192,41 +153,12 @@ function ManageCourse({ courseId }: { courseId: string }) {
         </div>
       )}
 
-      {isDraft && <StructureGenerator courseId={courseId} title={course.title} onDone={refresh} />}
-
-      {/* ---- Video preview player ---- */}
-      <div className="card animate-fade-in-up !rounded-3xl overflow-hidden">
-        <div className="relative overflow-hidden rounded-2xl bg-black shadow-floating">
-          <video
-            ref={videoRef}
-            controls
-            playsInline
-            className="aspect-video w-full"
-            onError={() => activeLesson && setVideoError('Could not play this video. The file may be corrupted or in an unsupported format.')}
-          />
-          {videoLoading && (
-            <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 text-sm text-white backdrop-blur-sm">
-              <LoaderCircle className="h-4 w-4 animate-spin" /> Loading video…
-            </div>
-          )}
-          {!activeLesson && !videoLoading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-gray-300">
-              <PlayCircle className="h-10 w-10 opacity-70" />
-              Click a lesson below to preview its video
-            </div>
-          )}
-        </div>
-        {activeLesson && (
-          <p className="mt-3 text-sm font-semibold text-foreground">Previewing: {activeLesson.title}</p>
-        )}
-        {videoError && <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">{videoError}</p>}
-      </div>
+      {canEdit && <StructureGenerator courseId={courseId} title={course.title} onDone={refresh} />}
 
       <SectionsAndLessons
         course={course}
+        canEdit={canEdit}
         isDraft={isDraft}
-        activeLesson={activeLesson}
-        previewLesson={previewLesson}
         refresh={refresh}
       />
 
@@ -512,9 +444,9 @@ function UploadVideoButton({ lessonId, hasVideo, onDone }: { lessonId: string; h
   );
 }
 
-function SectionsAndLessons({ course, isDraft, activeLesson, previewLesson, refresh }: {
-  course: any; isDraft: boolean; activeLesson: { id: string; title: string } | null;
-  previewLesson: (l: any) => void; refresh: () => void;
+function SectionsAndLessons({ course, canEdit, isDraft, refresh }: {
+  course: any; canEdit: boolean; isDraft: boolean;
+  refresh: () => void;
 }) {
   return (
     <div className="space-y-3">
@@ -531,7 +463,7 @@ function SectionsAndLessons({ course, isDraft, activeLesson, previewLesson, refr
                 {section.lessons.length} lesson{section.lessons.length === 1 ? '' : 's'}
               </span>
             </p>
-            {isDraft && (
+            {canEdit && (
               <button
                 className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10"
                 onClick={async () => { if (!confirm('Delete this section and all its lessons?')) return; await api(`/sections/${section.id}`, { method: 'DELETE' }); refresh(); }}
@@ -541,22 +473,18 @@ function SectionsAndLessons({ course, isDraft, activeLesson, previewLesson, refr
             )}
           </div>
           <ul className="mt-2 space-y-0.5 text-sm text-gray-600">
-            {section.lessons.map((lesson: any) => {
-              const isActive = activeLesson?.id === lesson.id;
-              return (
-                <li key={lesson.id} className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors ${isActive ? 'bg-brand-500/10 ring-1 ring-brand-500/20' : 'hover:bg-brand-500/5'}`}>
-                  <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => previewLesson(lesson)}>
-                    {lesson.has_video
-                      ? <PlayCircle className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-600' : 'text-brand-400'}`} />
-                      : <Play className="h-3.5 w-3.5 shrink-0 text-gray-400" />}
+            {section.lessons.map((lesson: any) => (
+                <li key={lesson.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <Play className={`h-3.5 w-3.5 shrink-0 ${lesson.has_video ? 'text-brand-400' : 'text-gray-400'}`} />
                     <span className="truncate">{lesson.title}</span>
                     {lesson.has_video
                       ? <span className="badge-success shrink-0 !text-[10px]"><CheckCircle2 className="h-2.5 w-2.5" /> video</span>
                       : <span className="badge-warn shrink-0 !text-[10px]">no video</span>}
-                  </button>
+                  </span>
                   <span className="flex shrink-0 items-center gap-1">
-                    {isDraft && <UploadVideoButton lessonId={lesson.id} hasVideo={lesson.has_video} onDone={refresh} />}
-                    {isDraft && (
+                    {canEdit && <UploadVideoButton lessonId={lesson.id} hasVideo={lesson.has_video} onDone={refresh} />}
+                    {canEdit && (
                       <button
                         className="rounded-lg px-2 py-0.5 text-xs font-medium text-red-500 opacity-70 transition-all hover:bg-red-500/10 hover:opacity-100"
                         onClick={async () => { if (!confirm('Remove this lesson?')) return; await api(`/lessons/${lesson.id}`, { method: 'DELETE' }); refresh(); }}
@@ -566,14 +494,13 @@ function SectionsAndLessons({ course, isDraft, activeLesson, previewLesson, refr
                     )}
                   </span>
                 </li>
-              );
-            })}
+            ))}
             {!section.lessons.length && <li className="px-2 py-1.5 text-xs text-gray-400">No lessons in this section yet.</li>}
           </ul>
-          {isDraft && <AddLesson sectionId={section.id} onDone={refresh} />}
+          {canEdit && <AddLesson sectionId={section.id} onDone={refresh} />}
         </div>
       ))}
-      {isDraft && <AddSection courseId={course.id} onDone={refresh} />}
+      {canEdit && <AddSection courseId={course.id} onDone={refresh} />}
     </div>
   );
 }

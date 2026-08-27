@@ -110,8 +110,14 @@ export class AssessmentService {
     if (ctx.role !== Role.PLATFORM_ADMIN && course.owner_id !== ctx.id && ctx.role !== Role.INSTITUTION_ADMIN) {
       throw new ForbiddenException('Not your course');
     }
-    const questions = await this.ai.generateQuiz(topic, count, difficulty);
-    return { questions, ai_live: this.ai.isLive };
+    try {
+      const questions = await this.ai.generateQuiz(topic, count, difficulty);
+      return { questions, ai_live: this.ai.isLive };
+    } catch (err) {
+      this.logger.warn(`AI quiz generation failed, falling back to mock: ${(err as Error).message}`);
+      const questions = await new MockAiAssessor().generateQuiz(topic, count);
+      return { questions, ai_live: false, note: 'AI generation failed — showing placeholder questions. Edit them or try again.' };
+    }
   }
 
   /** Learner-safe listing: quiz answers stripped. */
