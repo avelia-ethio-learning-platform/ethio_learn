@@ -855,14 +855,28 @@ export class CourseService implements OnModuleInit {
     return course;
   }
 
-  private async detailForOwner(courseId: string): Promise<Course> {
+  private async detailForOwner(courseId: string) {
     const course = await this.courses.findOne({ where: { id: courseId } });
     const sections = await this.sections.find({ where: { course_id: courseId }, order: { order_index: 'ASC' } });
+    const sectionsOut = [];
     for (const section of sections) {
-      section.lessons = await this.lessons.find({ where: { section_id: section.id }, order: { order_index: 'ASC' } });
+      const lessons = await this.lessons.find({ where: { section_id: section.id }, order: { order_index: 'ASC' } });
+      sectionsOut.push({
+        id: section.id,
+        title: section.title,
+        order: section.order_index,
+        is_free_preview: section.is_free_preview,
+        lessons: lessons.map((l) => ({
+          id: l.id,
+          title: l.title,
+          summary: l.summary,
+          duration_seconds: l.duration_seconds,
+          order: l.order_index,
+          has_video: !!l.video_s3_key,
+        })),
+      });
     }
-    course!.sections = sections;
-    return course!;
+    return { ...this.publicSummary(course!), status: course!.status, sections: sectionsOut };
   }
 
   private async addSectionInternal(courseId: string, dto: SectionInputDto, orderIndex: number): Promise<Section> {

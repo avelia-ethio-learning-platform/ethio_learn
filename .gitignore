@@ -12,3 +12,4 @@ coverage/
 /storage/
 # dev-server pidfiles/logs from scripts/start-*.sh
 .devlogs/
+./HANDOFF.md
