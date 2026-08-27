@@ -13,3 +13,4 @@ coverage/
 # dev-server pidfiles/logs from scripts/start-*.sh
 .devlogs/
 ./HANDOFF.md
+./PRODUCT_ROADMAP.md
