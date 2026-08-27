@@ -849,8 +849,9 @@ export class CourseService implements OnModuleInit {
 
   private async ownedDraft(ctx: UserContext, courseId: string): Promise<Course> {
     const course = await this.ownedCourse(ctx, courseId);
-    if (course.status !== CourseStatus.DRAFT) {
-      throw new BadRequestException('Course can only be edited while in draft');
+    const locked: string[] = ['archived', 'flagged'];
+    if (locked.includes(course.status)) {
+      throw new BadRequestException('This course cannot be edited in its current status');
     }
     return course;
   }
