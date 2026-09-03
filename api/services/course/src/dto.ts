@@ -37,6 +37,29 @@ export class LessonInputDto {
   duration_seconds?: number;
 }
 
+/** Used for PUT /lessons/:id — all fields are optional (partial update). */
+export class UpdateLessonDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(160)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  summary?: string;
+
+  @IsOptional()
+  @IsString()
+  video_s3_key?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  duration_seconds?: number;
+}
+
 export class SectionInputDto {
   @IsString()
   @MinLength(2)
