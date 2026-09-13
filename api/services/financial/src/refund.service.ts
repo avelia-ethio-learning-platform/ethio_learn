@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
 import { PaymentStatus, RefundDecisionPayload, RefundRequestedPayload, RefundStatus, Role } from '@ethiopialearn/contracts';
+import { PaymentMethod, PaymentPurpose } from '@ethiopialearn/contracts';
 import { Payment, RefundRequest } from './entities';
 
 const REFUND_WINDOW_DAYS = 7; // spec §10.4
@@ -24,6 +25,13 @@ export class RefundService {
     if (!payment) throw new NotFoundException('Payment not found');
     if (payment.learner_id !== ctx.id) throw new ForbiddenException('Not your payment');
     if (payment.status !== PaymentStatus.CONFIRMED) throw new BadRequestException('Only confirmed payments can be refunded');
+    // Legacy rows predate the purpose column and are course purchases.
+    if ((payment.purpose ?? PaymentPurpose.COURSE) !== PaymentPurpose.COURSE) {
+      throw new BadRequestException('Gifts, sponsored seats, bulk orders and wallet top-ups are refunded by support — contact us from Help');
+    }
+    if (payment.method === PaymentMethod.WALLET || payment.method === PaymentMethod.COUPON) {
+      throw new BadRequestException('Purchases settled with wallet credits or a 100% coupon are refunded by support — contact us from Help');
+    }
     const existing = await this.refunds.findOne({ where: { payment_id: paymentId, status: RefundStatus.PENDING } });
     if (existing) throw new BadRequestException('Refund already pending for this payment');
 

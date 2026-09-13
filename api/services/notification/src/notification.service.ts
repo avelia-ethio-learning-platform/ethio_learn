@@ -5,6 +5,16 @@ import { env, EventBusService, InternalHttpClient } from '@ethiopialearn/common'
 import { courseCategoryLabel } from '@ethiopialearn/contracts';
 import {
   AssessmentResultPayload,
+  BulkPurchaseActivatedPayload,
+  CourseProgressMilestonePayload,
+  CourseUpdatedPayload,
+  LearnerInactivePayload,
+  PayRequestCreatedPayload,
+  PaymentAbandonedPayload,
+  ReferralInviteSentPayload,
+  SponsorshipGrantedPayload,
+  SponsorshipInvitedPayload,
+  WalletCreditedPayload,
   CertificateIssuedPayload,
   CourseAppealSubmittedPayload,
   CourseInstitutionReviewedPayload,
@@ -213,6 +223,85 @@ export class NotificationService implements OnModuleInit {
         layout('Assessment not passed', `<p>Your ${p.assessment_type} attempt for "${p.course_title}" scored ${p.score}. You can try again from the course page.</p>`));
     });
 
+    // ---- Growth & commerce ----
+
+    this.bus.subscribe<SponsorshipGrantedPayload>('SponsorshipGranted', async (p) => {
+      const what = p.source === 'bulk' ? `${p.organization_name || p.sponsor_name} enrolled you in` : p.source === 'gift' ? `${p.sponsor_name || 'Someone'} gifted you` : `${p.sponsor_name || 'Someone'} paid for`;
+      this.inbox({ user_id: p.recipient_user_id, type: 'gift', title: `🎁 ${what} "${p.course_title}"`, body: p.message || 'The course is unlocked — start learning from your dashboard.', link: `/learn/${p.course_id}` });
+      if (p.sponsor_id) {
+        this.inbox({ user_id: p.sponsor_id, type: 'gift_delivered', title: `Delivered: "${p.course_title}"`, body: `${p.recipient_email} now has access. Follow their progress from your dashboard.`, link: '/dashboard' });
+      }
+      const user = await this.userInfo(p.recipient_user_id);
+      const to = user.email || p.recipient_email;
+      if (to) this.deliver('SponsorshipGranted', p.recipient_user_id, to, `${what} a course on EthiopiaLearn`,
+        layout('A course was unlocked for you 🎁', `<p>Hi ${user.name || 'there'},</p><p>${what} <strong>"${p.course_title}"</strong>.</p>${p.message ? `<blockquote style="border-left:3px solid #0f766e;margin:12px 0;padding:6px 12px;color:#374151">${p.message}</blockquote>` : ''}<p><a href="${this.webUrl}/learn/${p.course_id}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Start learning</a></p>`));
+    });
+
+    this.bus.subscribe<SponsorshipInvitedPayload>('SponsorshipInvited', (p) => {
+      const who = p.source === 'bulk' ? (p.organization_name || p.sponsor_name) : p.sponsor_name || 'Someone';
+      this.deliver('SponsorshipInvited', null, p.recipient_email, `${who} has enrolled you in "${p.course_title}"`,
+        layout('You have a course waiting 🎁', `<p>${who} bought <strong>"${p.course_title}"</strong> on EthiopiaLearn for you.</p>${p.message ? `<blockquote style="border-left:3px solid #0f766e;margin:12px 0;padding:6px 12px;color:#374151">${p.message}</blockquote>` : ''}<p>Create a free account with <strong>this email address</strong> and the course unlocks automatically:</p><p><a href="${p.signup_url}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Create my account</a></p><p style="color:#6b7280;font-size:12px">Or open: ${p.signup_url}</p>`));
+    });
+
+    this.bus.subscribe<PayRequestCreatedPayload>('PayRequestCreated', (p) => {
+      this.inbox({ user_id: p.requester_id, type: 'pay_request', title: 'Payment request sent', body: `We emailed ${p.payer_email} asking them to pay for "${p.course_title}".`, link: '/dashboard' });
+      this.deliver('PayRequestCreated', null, p.payer_email, `${p.requester_name} is asking you to pay for a course`,
+        layout(`${p.requester_name} needs your help 🙏`, `<p><strong>${p.requester_name}</strong> would like to take <strong>"${p.course_title}"</strong> on EthiopiaLearn (${p.amount_etb} ETB) and is asking you to cover it.</p>${p.message ? `<blockquote style="border-left:3px solid #0f766e;margin:12px 0;padding:6px 12px;color:#374151">${p.message}</blockquote>` : ''}<p><a href="${p.pay_url}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">View the course &amp; pay</a></p><p style="color:#6b7280;font-size:12px">You pay securely with Chapa (Telebirr, CBE Birr and 18+ banks). ${p.requester_name} gets access the moment it clears.</p>`));
+    });
+
+    this.bus.subscribe<ReferralInviteSentPayload>('ReferralInviteSent', (p) => {
+      const cta = p.existing_user ? `<p>You already have an account — <a href="${this.webUrl}/login">log in</a> and browse the catalog.</p>` : `<p><a href="${p.signup_url}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Join EthiopiaLearn</a></p><p style="color:#6b7280;font-size:12px">Or open: ${p.signup_url}</p>`;
+      this.deliver('ReferralInviteSent', null, p.to_email, `${p.referrer_name} invited you to EthiopiaLearn`,
+        layout(`${p.referrer_name} thinks you'd like this`, `<p><strong>${p.referrer_name}</strong> invited you to ${p.role_hint === 'educator' ? 'teach on' : 'learn on'} EthiopiaLearn — real skills from Ethiopian experts, verifiable certificates, pay with Telebirr or any Ethiopian bank.</p>${p.message ? `<blockquote style="border-left:3px solid #0f766e;margin:12px 0;padding:6px 12px;color:#374151">${p.message}</blockquote>` : ''}${cta}`));
+    });
+
+    this.bus.subscribe<PaymentAbandonedPayload>('PaymentAbandoned', (p) => {
+      this.inbox({ user_id: p.learner_id, type: 'abandoned_cart', title: `Still want "${p.course_title}"?`, body: `Your checkout didn't complete. Your place is waiting — finish in one tap.`, link: `/courses/${p.course_id}` });
+      if (p.learner_email) this.deliver('PaymentAbandoned', p.learner_id, p.learner_email, `Finish enrolling in "${p.course_title}"`,
+        layout('Your course is waiting', `<p>Hi ${p.learner_name || 'there'},</p><p>You started enrolling in <strong>"${p.course_title}"</strong> (${p.amount_etb} ETB) but the payment didn't complete. No money was taken.</p><p><a href="${p.resume_url}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Finish enrolling</a></p><p style="color:#6b7280;font-size:12px">Not interested any more? Just ignore this — we won't remind you again.</p>`));
+    });
+
+    this.bus.subscribe<WalletCreditedPayload>('WalletCredited', (p) => {
+      const title = p.kind === 'referral_reward' ? `You earned ${p.amount_etb} ETB 🎉` : p.kind === 'cashback' ? `${p.amount_etb} ETB cashback added` : `${p.amount_etb} ETB added to your wallet`;
+      this.inbox({ user_id: p.user_id, type: 'wallet', title, body: `${p.note}. Balance: ${p.balance_etb} ETB — spend it on any course.`, link: '/dashboard' });
+    });
+
+    this.bus.subscribe<BulkPurchaseActivatedPayload>('BulkPurchaseActivated', (p) => {
+      this.inbox({ user_id: p.buyer_id, type: 'bulk', title: `${p.seats} seats ready: "${p.course_title}"`, body: 'Assign seats to your team by email from the Institution page.', link: '/institution' });
+      if (p.buyer_email) this.deliver('BulkPurchaseActivated', p.buyer_id, p.buyer_email, `Your ${p.seats} seats for "${p.course_title}" are ready`,
+        layout('Bulk purchase confirmed', `<p>Payment of <strong>${p.total_etb} ETB</strong> for <strong>${p.seats} seats</strong> of "${p.course_title}" (${p.organization_name}) is confirmed.</p><p>Assign seats by entering your team's email addresses — people with an account get instant access, everyone else gets an invitation that unlocks the course when they sign up.</p><p><a href="${this.webUrl}/institution" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Assign seats</a></p>`));
+    });
+
+    // ---- Engagement ----
+
+    this.bus.subscribe<CourseUpdatedPayload>('CourseUpdated', (p) => void this.notifyCourseUpdated(p));
+
+    this.bus.subscribe<CourseProgressMilestonePayload>('CourseProgressMilestone', async (p) => {
+      const cheer = p.percent === 25 ? 'Great start' : p.percent === 50 ? 'Halfway there' : 'Almost done';
+      this.inbox({ user_id: p.learner_id, type: 'progress', title: `${cheer} — ${p.percent}% of "${p.course_title}"`, body: p.percent === 75 ? 'Finish the last lessons to earn your certificate.' : 'Keep the momentum going.', link: `/learn/${p.course_id}` });
+      if (p.percent >= 50) {
+        const pref = await this.prefs.findOne({ where: { user_id: p.learner_id } });
+        if (pref?.progress_emails === false) return;
+        const user = await this.userInfo(p.learner_id);
+        const to = p.learner_email || user.email;
+        if (to) this.deliver('CourseProgressMilestone', p.learner_id, to, `${cheer}! You're ${p.percent}% through "${p.course_title}"`,
+          layout(`${cheer} 🚀`, `<p>Hi ${user.name || 'there'},</p><p>You've completed <strong>${p.percent}%</strong> of "${p.course_title}".${p.percent === 75 ? ' A few more lessons and your verifiable certificate is yours.' : ''}</p><p><a href="${this.webUrl}/learn/${p.course_id}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Continue learning</a></p>`));
+      }
+    });
+
+    this.bus.subscribe<LearnerInactivePayload>('LearnerInactive', async (p) => {
+      if (p.channel === 'in_app') {
+        this.inbox({ user_id: p.learner_id, type: 'inactive', title: `Pick up "${p.course_title}" where you left off`, body: `It's been ${p.days_inactive} days. You're ${p.progress_percent}% through — a short lesson today keeps it going.`, link: `/learn/${p.course_id}` });
+        return;
+      }
+      const pref = await this.prefs.findOne({ where: { user_id: p.learner_id } });
+      if (pref?.inactivity_emails === false || pref?.marketing_opt_out) return;
+      const user = await this.userInfo(p.learner_id);
+      if (!user.email) return;
+      this.deliver('LearnerInactive', p.learner_id, user.email, `We miss you in "${p.course_title}"`,
+        layout('Your course is still here', `<p>Hi ${user.name || 'there'},</p><p>It's been ${p.days_inactive} days since you last studied <strong>"${p.course_title}"</strong>. You're already <strong>${p.progress_percent}%</strong> through — pick a lesson and keep going.</p><p><a href="${this.webUrl}/learn/${p.course_id}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Resume the course</a></p><p style="color:#6b7280;font-size:12px">You can turn these reminders off in Account → Notification preferences.</p>`));
+    });
+
     this.bus.subscribe<CourseStatusPayload>('CourseUnlisted', (p) => {
       this.inbox({ user_id: p.owner_user_id, type: 'course_unlisted', title: 'Your course was unlisted', body: `"${p.title}" was removed from the catalog.`, link: `/teach/courses/${p.course_id}` });
       if (p.owner_email) this.deliver('CourseUnlisted', p.owner_user_id, p.owner_email, 'Your course was unlisted',
@@ -265,6 +354,29 @@ export class NotificationService implements OnModuleInit {
           <p><a href="${this.webUrl}${link}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">View the course</a></p>
           <p style="color:#6b7280;font-size:12px;margin-top:16px">You're getting this because you follow ${followsInstructor ? 'this instructor' : `the ${categoryLabel} category`}. Manage alerts in your account settings.</p>`));
       }
+    }
+  }
+
+  /** Major course update → every active learner gets an inbox item, and an email unless they opted out. */
+  private async notifyCourseUpdated(p: CourseUpdatedPayload) {
+    let learnerIds: string[] = [];
+    try {
+      learnerIds = (await this.internal.get<{ learner_ids: string[] }>(`/api/v1/internal/courses/${p.course_id}/learners`)).learner_ids;
+    } catch (err) {
+      this.logger.warn(`course-updated fan-out: could not list learners for ${p.course_id}: ${(err as Error).message}`);
+      return;
+    }
+    learnerIds = learnerIds.filter((id) => id !== p.owner_user_id).slice(0, 5000);
+    if (!learnerIds.length) return;
+    this.logger.log(`CourseUpdated "${p.course_title}" → ${learnerIds.length} learner(s)`);
+    for (const learnerId of learnerIds) {
+      await this.inbox({ user_id: learnerId, type: 'course_updated', title: `Updated: "${p.course_title}"`, body: p.summary, link: `/learn/${p.course_id}?changelog=1` });
+      const pref = await this.prefs.findOne({ where: { user_id: learnerId } });
+      if (pref?.course_updates_email === false) continue;
+      const user = await this.userInfo(learnerId);
+      if (!user.email) continue;
+      await this.deliver('CourseUpdated', learnerId, user.email, `"${p.course_title}" has new content`,
+        layout('Your course was updated', `<p>Hi ${user.name || 'there'},</p><p>The instructor updated <strong>"${p.course_title}"</strong>:</p><blockquote style="border-left:3px solid #0f766e;margin:12px 0;padding:6px 12px;color:#374151">${p.summary}</blockquote><p><a href="${this.webUrl}/learn/${p.course_id}?changelog=1" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">See what changed</a></p>`));
     }
   }
 

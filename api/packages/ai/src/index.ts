@@ -41,6 +41,28 @@ export interface GeneratedSection {
   lessons: GeneratedLesson[];
 }
 
+export interface TutorChunk {
+  /** e.g. "Lesson 3: Variables" or "Educator notes: Setup" */
+  title: string;
+  text: string;
+}
+
+export interface TutorInput {
+  course_title: string;
+  question: string;
+  chunks: TutorChunk[];
+  /** prior turns, oldest first */
+  history: { role: 'user' | 'assistant'; content: string }[];
+}
+
+export interface TutorAnswer {
+  answer: string;
+  /** titles of the chunks the answer drew on */
+  sources: string[];
+  /** true when the material did not cover the question */
+  not_covered: boolean;
+}
+
 export interface CourseStructureInput {
   title: string;
   source_text?: string;
@@ -64,6 +86,11 @@ export interface AiAssessor {
   generateQuiz(topic: string, count: number, difficulty?: string): Promise<QuizQuestion[]>;
   /** Organize source material / a prompt into an ordered course outline. */
   generateCourseStructure(input: CourseStructureInput): Promise<{ sections: GeneratedSection[] }>;
+  /**
+   * Course tutor: answer a learner's question ONLY from the retrieved course
+   * excerpts (RAG). Must say so when the material does not cover the question.
+   */
+  answerWithContext(input: TutorInput): Promise<TutorAnswer>;
   /** Whether this is a real AI backend (vs the offline mock). */
   readonly isLive: boolean;
 }
@@ -138,6 +165,19 @@ export class MockAiAssessor implements AiAssessor {
       })),
     }));
     return { sections };
+  }
+
+  /** Offline tutor: no model call — surfaces the best-matching excerpts verbatim. */
+  async answerWithContext(input: TutorInput): Promise<TutorAnswer> {
+    if (!input.chunks.length) {
+      return { answer: "I couldn't find anything in this course's material about that. Try rephrasing, or ask your instructor directly.", sources: [], not_covered: true };
+    }
+    const top = input.chunks.slice(0, 3);
+    return {
+      answer: `The AI tutor is offline, but here is what the course material says:\n\n${top.map((c) => `• ${c.title}: ${c.text.slice(0, 280)}`).join('\n\n')}`,
+      sources: top.map((c) => c.title),
+      not_covered: false,
+    };
   }
 }
 
@@ -229,6 +269,23 @@ export class GroqAiAssessor implements AiAssessor {
     }));
   }
 
+  async answerWithContext(input: TutorInput): Promise<TutorAnswer> {
+    if (!input.chunks.length) {
+      return { answer: "I couldn't find anything in this course's material about that. Try rephrasing, or ask your instructor directly.", sources: [], not_covered: true };
+    }
+    const context = input.chunks.map((c, i) => `[${i + 1}] ${c.title}\n${c.text}`).join('\n\n');
+    const history = input.history.slice(-6).map((h) => `${h.role === 'user' ? 'Learner' : 'Tutor'}: ${h.content.slice(0, 600)}`).join('\n');
+    const raw = await this.chat(
+      `You are the course tutor for "${input.course_title}" on EthiopiaLearn. Answer the learner's question using ONLY the numbered course excerpts provided. Be concise, friendly and concrete; use short paragraphs or bullets. Reply in the same language the learner wrote in (Amharic if they wrote Amharic). If the excerpts do not contain the answer, say you couldn't find it in the course material and suggest asking the instructor — never invent facts. Reply with JSON {"answer": "...", "sources": [excerpt numbers you used, e.g. 1, 3], "not_covered": bool}.`,
+      `${history ? `Conversation so far:\n${history}\n\n` : ''}Course excerpts:\n${context.slice(0, 14000)}\n\nLearner question: ${input.question.slice(0, 1500)}`,
+    );
+    const p = this.parseJson<{ answer: string; sources?: (number | string)[]; not_covered?: boolean }>(raw);
+    const titles = (p.sources ?? [])
+      .map((n) => input.chunks[Number(n) - 1]?.title)
+      .filter((t): t is string => !!t);
+    return { answer: p.answer, sources: [...new Set(titles)], not_covered: !!p.not_covered };
+  }
+
   async generateCourseStructure(input: CourseStructureInput): Promise<{ sections: GeneratedSection[] }> {
     const sc = Math.max(1, Math.min(input.section_count, 12));
     const lc = Math.max(1, Math.min(input.lessons_per_section, 12));
@@ -247,6 +304,8 @@ export class GroqAiAssessor implements AiAssessor {
     return { sections: sections.length ? sections : (await new MockAiAssessor().generateCourseStructure(input)).sections };
   }
 }
+
+// (Groq tutor implementation lives inside GroqAiAssessor above.)
 
 export function createAiAssessor(): AiAssessor {
   return groqConfigured() ? new GroqAiAssessor() : new MockAiAssessor();

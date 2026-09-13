@@ -32,6 +32,7 @@ export const ROUTES: RouteRule[] = [
   // ---- internal service-to-service reads (shared-token auth) ----
   { pattern: /^\/api\/v1\/internal\/educators\/[^/]+\/trust-tier$/, target: QUALITY, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/(users|educators|institutions)\b/, target: AUTH, auth: 'internal' },
+  { pattern: /^\/api\/v1\/internal\/courses\/[^/]+\/learners$/, target: ENROLLMENT, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/(courses|lessons|owners)\b/, target: COURSE, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/enrollments\/[^/]+\/outcomes-status$/, target: OUTCOMES, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/(entitlements|enrollments)\b/, target: ENROLLMENT, auth: 'internal' },
@@ -44,6 +45,11 @@ export const ROUTES: RouteRule[] = [
   { pattern: /^\/api\/v1\/payments\/webhook\/chapa$/, target: FINANCIAL, auth: 'public' },
   { pattern: /^\/api\/v1\/payments\/mock\/complete$/, target: FINANCIAL, auth: 'public' },
   { pattern: /^\/api\/v1\/(payments|refunds|payouts|admin\/payments)\b/, target: FINANCIAL, auth: 'jwt' },
+
+  // ---- growth & commerce: coupons, wallet, referrals, gifts, pay requests, bulk seats ----
+  // The pay-request landing page is public (the payer may not be logged in yet); paying requires a JWT.
+  { pattern: /^\/api\/v1\/pay-requests\/[^/]+$/, target: FINANCIAL, auth: (method) => (method === 'GET' ? 'public' : 'jwt') },
+  { pattern: /^\/api\/v1\/(coupons|wallet|referrals|gifts|pay-requests|sponsorships|bulk-purchases|admin\/wallet|admin\/analytics\/financial)\b/, target: FINANCIAL, auth: 'jwt' },
 
   // ---- community: course discussion + DMs (route BEFORE generic /courses) ----
   {
@@ -70,6 +76,10 @@ export const ROUTES: RouteRule[] = [
   { pattern: /^\/api\/v1\/(assessments|attempts|me\/certificates)\b/, target: OUTCOMES, auth: 'jwt' },
   { pattern: /^\/api\/v1\/(certificates|verify)\/[^/]+$/, target: OUTCOMES, auth: 'public' },
 
+  // ---- course extras: change log (public read), tutor knowledge + chat (route BEFORE generic /courses) ----
+  { pattern: /^\/api\/v1\/courses\/[^/]+\/changelog$/, target: COURSE, auth: (method) => (method === 'GET' ? 'public' : 'jwt') },
+  { pattern: /^\/api\/v1\/courses\/[^/]+\/(knowledge|chat)(\/.*)?$/, target: COURSE, auth: 'jwt' },
+
   // ---- course & content ----
   // Institution internal review/management (singular 'institution' — distinct
   // from auth's plural 'institutions').
@@ -84,7 +94,7 @@ export const ROUTES: RouteRule[] = [
   { pattern: /^\/api\/v1\/(courses|sections|lessons|uploads|admin\/courses)\b/, target: COURSE, auth: 'jwt' },
 
   // ---- enrollment & progress ----
-  { pattern: /^\/api\/v1\/(enrollments|progress)\b/, target: ENROLLMENT, auth: 'jwt' },
+  { pattern: /^\/api\/v1\/(enrollments|progress|admin\/enrollments)\b/, target: ENROLLMENT, auth: 'jwt' },
 
   // ---- notifications ----
   { pattern: /^\/api\/v1\/(notifications|notification-preferences|admin\/notifications)\b/, target: NOTIFICATION, auth: 'jwt' },

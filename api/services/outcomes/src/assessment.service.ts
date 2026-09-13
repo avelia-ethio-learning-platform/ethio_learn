@@ -6,8 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { randomUUID } from 'crypto';
+import { IsNull, Repository } from 'typeorm';
+import { randomInt, randomUUID } from 'crypto';
 import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
 import { AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import { AssessmentResultPayload, AssessmentType, EntitlementStatus, Role } from '@ethiopialearn/contracts';
@@ -15,12 +15,26 @@ import { S3StorageProvider } from '@ethiopialearn/storage';
 import { Assessment, AssessmentAttempt } from './entities';
 
 const PROJECT_MAX_BYTES = 50 * 1024 * 1024; // 50MB (spec §10.1)
+/** Quiz attempts per learner unless the educator sets max_attempts. */
+const DEFAULT_MAX_ATTEMPTS = 3;
+/** Seconds of grace past the time limit before a submission is refused as late. */
+const TIME_LIMIT_GRACE_SECONDS = 90;
 
 /** Proctoring: violations of one type tolerated before the exam is force-ended. */
 export const PROCTOR_WARNING_LIMIT = 3;
 const PROCTOR_EVENT_TYPES = ['no_face', 'multiple_faces', 'tab_switch', 'copy_paste', 'other'] as const;
 /** ~97KB binary — screenshots are captured client-side as small JPEG thumbnails. */
 const SCREENSHOT_BASE64_MAX = 130_000;
+
+/** Fisher–Yates with crypto randomness — the paper order must not be guessable. */
+function shuffled<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = randomInt(0, i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 
 interface QuizQuestionCfg {
   kind: 'mcq' | 'written';
@@ -64,11 +78,19 @@ export class AssessmentService {
     if (dto.type === AssessmentType.QUIZ) {
       const questions = this.validateQuizQuestions(config?.questions);
       const timeLimit = Number(config?.time_limit_minutes);
+      const maxAttempts = Number(config?.max_attempts);
+      const poolSize = Number(config?.pool_size);
+      const cooldown = Number(config?.cooldown_minutes);
       config = {
         ...config,
         questions,
         proctored: !!config?.proctored,
         time_limit_minutes: Number.isFinite(timeLimit) && timeLimit >= 1 ? Math.min(Math.round(timeLimit), 240) : null,
+        // Anti-cheat knobs (all server-enforced):
+        shuffle: config?.shuffle === undefined ? true : !!config.shuffle, // randomize question + option order per attempt
+        pool_size: Number.isFinite(poolSize) && poolSize >= 1 ? Math.min(Math.round(poolSize), questions.length) : null, // serve N of the bank
+        max_attempts: Number.isFinite(maxAttempts) && maxAttempts >= 1 ? Math.min(Math.round(maxAttempts), 20) : DEFAULT_MAX_ATTEMPTS,
+        cooldown_minutes: Number.isFinite(cooldown) && cooldown >= 0 ? Math.min(Math.round(cooldown), 10_080) : 0,
       };
     }
     return this.assessments.save(
@@ -135,6 +157,8 @@ export class AssessmentService {
         written_count: a.type === AssessmentType.QUIZ ? questions.filter((q) => q?.kind === 'written').length : undefined,
         proctored: a.type === AssessmentType.QUIZ ? !!a.config.proctored : undefined,
         time_limit_minutes: a.type === AssessmentType.QUIZ ? (a.config.time_limit_minutes ?? null) : undefined,
+        max_attempts: a.type === AssessmentType.QUIZ ? (a.config.max_attempts ?? DEFAULT_MAX_ATTEMPTS) : undefined,
+        pool_size: a.type === AssessmentType.QUIZ ? (a.config.pool_size ?? null) : undefined,
       };
     });
   }
@@ -142,6 +166,41 @@ export class AssessmentService {
   async startAttempt(ctx: UserContext, assessmentId: string) {
     const assessment = await this.assessmentOrThrow(assessmentId);
     const entitlement = await this.entitlement(ctx.id, assessment.course_id);
+
+    if (assessment.type === AssessmentType.QUIZ) {
+      // Anti-cheat: an unfinished attempt is resumed, never replaced — restarting
+      // to fish for an easier question set is not possible. Expired open attempts
+      // are auto-submitted as late before a new one can start.
+      const open = await this.attempts.findOne({
+        where: { assessment_id: assessment.id, learner_id: ctx.id, submitted_at: IsNull() },
+        order: { created_at: 'DESC' },
+      });
+      if (open) {
+        if (this.timeLimitExpired(assessment, open)) {
+          open.submitted_at = new Date();
+          open.terminated = true;
+          open.passed = false;
+          open.score = open.score ?? 0;
+          open.detail = { ...open.detail, termination_reason: 'Time limit expired before submission' };
+          await this.attempts.save(open);
+        } else {
+          return this.quizAttemptView(assessment, open);
+        }
+      }
+      const finished = await this.attempts.find({
+        where: { assessment_id: assessment.id, learner_id: ctx.id },
+        order: { created_at: 'DESC' },
+      });
+      if (finished.some((a) => a.passed === true)) throw new BadRequestException('You have already passed this quiz');
+      const maxAttempts = Number(assessment.config.max_attempts ?? DEFAULT_MAX_ATTEMPTS);
+      if (finished.length >= maxAttempts) throw new ForbiddenException(`You have used all ${maxAttempts} attempts for this quiz`);
+      const cooldown = Number(assessment.config.cooldown_minutes ?? 0);
+      const last = finished[0];
+      if (cooldown > 0 && last?.submitted_at && Date.now() - last.submitted_at.getTime() < cooldown * 60_000) {
+        const wait = Math.ceil((cooldown * 60_000 - (Date.now() - last.submitted_at.getTime())) / 60_000);
+        throw new ForbiddenException(`Please wait ${wait} more minute(s) before trying again`);
+      }
+    }
 
     const attempt = await this.attempts.save(
       this.attempts.create({
@@ -156,24 +215,24 @@ export class AssessmentService {
     );
 
     if (assessment.type === AssessmentType.QUIZ) {
-      // Learner-safe view: correct_index and marking guidance stripped.
-      const questions = (assessment.config.questions ?? []).map((q: any, i: number) => ({
-        index: i,
-        kind: q.kind === 'written' ? 'written' : 'mcq',
-        prompt: q.prompt,
-        options: q.kind === 'written' ? undefined : q.options,
-        points: Number(q.points) > 0 ? Number(q.points) : 1,
-      }));
-      return {
-        attempt_id: attempt.id,
-        type: assessment.type,
-        questions,
-        pass_score: assessment.pass_score,
-        proctored: !!assessment.config.proctored,
-        time_limit_minutes: assessment.config.time_limit_minutes ?? null,
-        warning_limit: PROCTOR_WARNING_LIMIT,
-        started_at: attempt.created_at,
-      };
+      // Per-attempt paper: pick pool_size questions from the bank and shuffle
+      // question + option order. The served order is stored on the attempt so
+      // grading can map the learner's positional answers back to the bank —
+      // two learners sitting side by side never see the same paper.
+      const bank: any[] = assessment.config.questions ?? [];
+      let order = bank.map((_, i) => i);
+      if (assessment.config.shuffle !== false) order = shuffled(order);
+      const poolSize = Number(assessment.config.pool_size);
+      if (Number.isFinite(poolSize) && poolSize >= 1 && poolSize < order.length) order = order.slice(0, poolSize);
+      const optionOrders = order.map((qi) => {
+        const q = bank[qi];
+        if (q.kind === 'written' || !Array.isArray(q.options)) return null;
+        const idx = q.options.map((_: unknown, i: number) => i);
+        return assessment.config.shuffle !== false ? shuffled(idx) : idx;
+      });
+      attempt.detail = { ...attempt.detail, order, option_orders: optionOrders };
+      await this.attempts.save(attempt);
+      return this.quizAttemptView(assessment, attempt);
     }
 
     if (assessment.type === AssessmentType.AI_VIVA) {
@@ -218,6 +277,11 @@ export class AssessmentService {
     const assessment = await this.assessmentOrThrow(attempt.assessment_id);
 
     if (assessment.type === AssessmentType.QUIZ) {
+      // Server-side clock: the client timer is advisory. Past the grace window
+      // the paper is recorded as late — graded for the record, but not passed.
+      if (this.timeLimitExpired(assessment, attempt)) {
+        body = { ...body, terminated: true, termination_reason: 'Submitted after the time limit' };
+      }
       await this.gradeQuiz(assessment, attempt, body);
     } else if (assessment.type === AssessmentType.AI_VIVA) {
       if (!body.answer?.trim()) throw new BadRequestException('answer is required');
@@ -257,16 +321,27 @@ export class AssessmentService {
     attempt: AssessmentAttempt,
     body: { answers?: number[]; responses?: { index?: number; selected_index?: number | null; text?: string | null }[]; terminated?: boolean; termination_reason?: string },
   ) {
-    const questions: any[] = assessment.config.questions ?? [];
+    const bank: any[] = assessment.config.questions ?? [];
+    // The paper this attempt was served (subset + order); legacy attempts have the full bank in order.
+    const order: number[] = Array.isArray(attempt.detail?.order) ? attempt.detail.order : bank.map((_, i) => i);
+    const optionOrders: (number[] | null)[] = Array.isArray(attempt.detail?.option_orders) ? attempt.detail.option_orders : order.map(() => null);
+    const questions = order.map((qi) => bank[qi]).filter(Boolean);
 
-    // Normalize either the new responses[] shape or the legacy answers[] (MCQ indices).
-    const responses: QuizResponse[] = questions.map((_, i) => ({ selected_index: null, text: null }));
+    // Normalize either the new responses[] shape or the legacy answers[] (MCQ
+    // indices). `index` and `selected_index` are POSITIONS on the served paper;
+    // selected options are mapped back to the bank's option order here.
+    const responses: QuizResponse[] = questions.map(() => ({ selected_index: null, text: null }));
+    const mapOption = (pos: number, sel: number | null) => {
+      if (sel === null) return null;
+      const oo = optionOrders[pos];
+      return oo && Number.isInteger(oo[sel]) ? oo[sel] : sel;
+    };
     if (Array.isArray(body.responses)) {
       for (const r of body.responses) {
         const i = Number(r?.index);
         if (!Number.isInteger(i) || i < 0 || i >= questions.length) continue;
         responses[i] = {
-          selected_index: Number.isInteger(r?.selected_index) ? Number(r!.selected_index) : null,
+          selected_index: mapOption(i, Number.isInteger(r?.selected_index) ? Number(r!.selected_index) : null),
           text: typeof r?.text === 'string' ? r.text.slice(0, 10000) : null,
         };
       }
@@ -275,7 +350,7 @@ export class AssessmentService {
         throw new BadRequestException(`Provide answers[] with ${questions.length} entries`);
       }
       body.answers.forEach((a, i) => {
-        if (i < questions.length) responses[i] = { selected_index: Number.isInteger(a) ? a : null, text: null };
+        if (i < questions.length) responses[i] = { selected_index: mapOption(i, Number.isInteger(a) ? a : null), text: null };
       });
     } else if (!body.terminated) {
       throw new BadRequestException('Provide responses[] ({index, selected_index | text})');
@@ -583,6 +658,46 @@ export class AssessmentService {
       passed: !!attempt.passed,
     };
     await this.bus.publish(attempt.passed ? 'AssessmentPassed' : 'AssessmentFailed', payload);
+  }
+
+  /** Learner-safe paper for an attempt: served order, shuffled options, no answer key or guidance. */
+  private quizAttemptView(assessment: Assessment, attempt: AssessmentAttempt) {
+    const bank: any[] = assessment.config.questions ?? [];
+    const order: number[] = Array.isArray(attempt.detail?.order) ? attempt.detail.order : bank.map((_, i) => i);
+    const optionOrders: (number[] | null)[] = Array.isArray(attempt.detail?.option_orders) ? attempt.detail.option_orders : order.map(() => null);
+    const questions = order.map((qi, pos) => {
+      const q = bank[qi];
+      const oo = optionOrders[pos];
+      return {
+        index: pos,
+        kind: q.kind === 'written' ? 'written' : 'mcq',
+        prompt: q.prompt,
+        options: q.kind === 'written' ? undefined : oo ? oo.map((oi) => q.options[oi]) : q.options,
+        points: Number(q.points) > 0 ? Number(q.points) : 1,
+      };
+    });
+    const limit = assessment.config.time_limit_minutes ?? null;
+    const deadline = limit ? new Date(attempt.created_at.getTime() + limit * 60_000) : null;
+    return {
+      attempt_id: attempt.id,
+      type: assessment.type,
+      questions,
+      pass_score: assessment.pass_score,
+      proctored: !!assessment.config.proctored,
+      time_limit_minutes: limit,
+      /** Server deadline — the client timer must count down to THIS, not to now+limit. */
+      deadline_at: deadline,
+      seconds_left: deadline ? Math.max(0, Math.floor((deadline.getTime() - Date.now()) / 1000)) : null,
+      warning_limit: PROCTOR_WARNING_LIMIT,
+      started_at: attempt.created_at,
+      resumed: !!attempt.detail?.order && Date.now() - attempt.created_at.getTime() > 5_000,
+    };
+  }
+
+  private timeLimitExpired(assessment: Assessment, attempt: AssessmentAttempt): boolean {
+    const limit = Number(assessment.config.time_limit_minutes);
+    if (!Number.isFinite(limit) || limit <= 0) return false;
+    return Date.now() > attempt.created_at.getTime() + limit * 60_000 + TIME_LIMIT_GRACE_SECONDS * 1000;
   }
 
   private async assessmentOrThrow(id: string): Promise<Assessment> {

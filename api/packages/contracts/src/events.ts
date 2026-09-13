@@ -41,6 +41,18 @@ export const EVENT_TYPES = [
   'RefundRequested', // a refund needs a platform admin decision (manual-review band)
   'InstructorLinked', // an existing account was added as an institution instructor
   'CourseRated', // learner review saved → course service caches rating aggregates for ranking
+  // Growth & commerce (financial service):
+  'SponsorshipGranted', // a gift / paid request / bulk seat is paid → enrollment grants access
+  'SponsorshipInvited', // sponsored seat for an email with no account yet → invite email
+  'PayRequestCreated', // learner asked someone to pay for a course → email the payer
+  'ReferralInviteSent', // user invited friends by email → invite emails
+  'PaymentAbandoned', // checkout started, never completed → "finish your purchase" nudge
+  'WalletCredited', // referral reward / cashback landed in a wallet → in-app ping
+  'BulkPurchaseActivated', // corporate bulk purchase paid → buyer can assign seats
+  // Engagement (enrollment + course services):
+  'CourseUpdated', // educator posted a MAJOR change log entry → tell enrolled learners
+  'CourseProgressMilestone', // learner crossed 25/50/75% → progress ping
+  'LearnerInactive', // no activity for N days → in-app first, email later
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -299,4 +311,120 @@ export interface TrustTierChangedPayload {
   educator_id: string;
   previous_tier: TrustTier;
   new_tier: TrustTier;
+}
+
+// ---- Growth & commerce -------------------------------------------------------
+
+export type SponsorshipSource = 'gift' | 'pay_request' | 'bulk';
+
+/** Access paid for by someone other than the learner. The ONLY non-payment path to entitlement. */
+export interface SponsorshipGrantedPayload {
+  sponsorship_id: string;
+  source: SponsorshipSource;
+  sponsor_id: string | null;
+  sponsor_name: string;
+  recipient_user_id: string;
+  recipient_email: string;
+  course_id: string;
+  course_title: string;
+  message: string;
+  /** e.g. the organization for a bulk seat */
+  organization_name: string | null;
+}
+
+export interface SponsorshipInvitedPayload {
+  sponsorship_id: string;
+  source: SponsorshipSource;
+  sponsor_name: string;
+  recipient_email: string;
+  course_id: string;
+  course_title: string;
+  message: string;
+  organization_name: string | null;
+  /** signup link that claims the seat once the account exists */
+  signup_url: string;
+}
+
+export interface PayRequestCreatedPayload {
+  sponsorship_id: string;
+  requester_id: string;
+  requester_name: string;
+  requester_email: string;
+  payer_email: string;
+  course_id: string;
+  course_title: string;
+  amount_etb: number;
+  message: string;
+  pay_url: string;
+}
+
+export interface ReferralInviteSentPayload {
+  referrer_id: string;
+  referrer_name: string;
+  to_email: string;
+  message: string;
+  signup_url: string;
+  /** true when the address already has an account (email says "log in" instead of "sign up") */
+  existing_user: boolean;
+  role_hint: string;
+}
+
+export interface PaymentAbandonedPayload {
+  payment_id: string;
+  learner_id: string;
+  learner_email: string;
+  learner_name: string;
+  course_id: string;
+  course_title: string;
+  amount_etb: number;
+  resume_url: string;
+}
+
+export interface WalletCreditedPayload {
+  user_id: string;
+  amount_etb: number;
+  balance_etb: number;
+  kind: 'referral_reward' | 'cashback' | 'topup' | 'admin_adjust';
+  note: string;
+}
+
+export interface BulkPurchaseActivatedPayload {
+  bulk_purchase_id: string;
+  buyer_id: string;
+  buyer_email: string;
+  organization_name: string;
+  course_id: string;
+  course_title: string;
+  seats: number;
+  total_etb: number;
+}
+
+// ---- Engagement --------------------------------------------------------------
+
+export interface CourseUpdatedPayload {
+  course_id: string;
+  course_title: string;
+  owner_user_id: string;
+  summary: string;
+  changelog_id: string;
+}
+
+export interface CourseProgressMilestonePayload {
+  enrollment_id: string;
+  learner_id: string;
+  learner_email: string;
+  course_id: string;
+  course_title: string;
+  percent: 25 | 50 | 75;
+}
+
+export interface LearnerInactivePayload {
+  enrollment_id: string;
+  learner_id: string;
+  course_id: string;
+  course_title: string;
+  days_inactive: number;
+  progress_percent: number;
+  /** escalation step: in-app first, email when still inactive later */
+  channel: 'in_app' | 'email';
 }

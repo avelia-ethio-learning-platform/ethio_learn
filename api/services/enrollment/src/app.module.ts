@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { buildTypeOrmOptions, EventBusModule, HealthController, InternalHttpClient } from '@ethiopialearn/common';
 import { CourseCache, Enrollment, LessonProgress, VideoProgress } from './entities';
@@ -12,6 +13,7 @@ const entities = [Enrollment, LessonProgress, CourseCache, VideoProgress];
     TypeOrmModule.forRoot(buildTypeOrmOptions('enrollment', entities)),
     TypeOrmModule.forFeature(entities),
     EventBusModule.forRoot({ serviceName: 'enrollment' }),
+    ScheduleModule.forRoot(),
   ],
   controllers: [EnrollmentController, EnrollmentInternalController, HealthController],
   providers: [EnrollmentService, InternalHttpClient],

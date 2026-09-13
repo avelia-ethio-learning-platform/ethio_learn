@@ -30,7 +30,15 @@ function setup(paymentRow: Record<string, unknown> | null): Setup {
   };
   const bus = { publish: jest.fn().mockResolvedValue(undefined) };
   const internal = { get: jest.fn().mockResolvedValue({ email: 'l@e.et', name: 'Learner' }) };
-  const service = new PaymentService(payments as never, chapa as never, bus as never, internal as never);
+  const growth = {
+    quote: jest.fn(async (_c: string, price: number) => ({ coupon: null, list_price_etb: price, discount_etb: 0, amount_due_etb: price })),
+    recordCouponUse: jest.fn().mockResolvedValue(undefined),
+    onCoursePurchaseConfirmed: jest.fn().mockResolvedValue(undefined),
+    debit: jest.fn().mockResolvedValue(0),
+    credit: jest.fn().mockResolvedValue(0),
+    adminWalletStats: jest.fn().mockResolvedValue({ outstanding_balance_etb: 0, by_kind: [] }),
+  };
+  const service = new PaymentService(payments as never, chapa as never, bus as never, internal as never, growth as never);
   return { service, payments, chapa, bus };
 }
 

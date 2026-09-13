@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, RawBodyRequest, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
-import { IsIn, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { PaymentService } from './payment.service';
@@ -10,6 +10,17 @@ import { PayoutService } from './payout.service';
 class InitiateDto {
   @IsUUID()
   course_id: string;
+
+  /** Optional promo / scholarship code — priced server-side, never trusted from the client. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  coupon_code?: string;
+
+  /** Settle from the learner's wallet balance instead of opening Chapa. */
+  @IsOptional()
+  @IsBoolean()
+  use_wallet?: boolean;
 }
 
 class MockCompleteDto {
@@ -63,7 +74,7 @@ export class FinancialController {
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
   initiate(@CurrentUser() ctx: UserContext, @Body() dto: InitiateDto) {
-    return this.paymentService.initiate(ctx, dto.course_id);
+    return this.paymentService.initiate(ctx, dto.course_id, { coupon_code: dto.coupon_code, use_wallet: dto.use_wallet });
   }
 
   /**

@@ -58,6 +58,18 @@ export class NotificationPreference {
 
   @Column({ default: true })
   new_course_in_app: boolean;
+
+  /** Email when an instructor posts a MAJOR update to a course I'm enrolled in. */
+  @Column({ default: true })
+  course_updates_email: boolean;
+
+  /** Email at 50% / 75% progress milestones ("you're almost there"). */
+  @Column({ default: true })
+  progress_emails: boolean;
+
+  /** Email when I've been inactive for a while (in-app nudges always happen). */
+  @Column({ default: true })
+  inactivity_emails: boolean;
 }
 
 /**

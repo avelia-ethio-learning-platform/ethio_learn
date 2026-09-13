@@ -19,6 +19,14 @@ export class InternalController {
     @InjectRepository(InstitutionInstructor) private readonly instructors: Repository<InstitutionInstructor>,
   ) {}
 
+  /** Resolve an account by email (gifts, pay requests, bulk seats, invites). 404 when none. */
+  @Get('users/by-email/:email')
+  async userByEmail(@Param('email') email: string) {
+    const user = await this.users.findOne({ where: { email: decodeURIComponent(email).toLowerCase().trim() } });
+    if (!user) throw new NotFoundException('User not found');
+    return { id: user.id, name: user.name, email: user.email, role: user.role };
+  }
+
   @Get('users/:id')
   async user(@Param('id') id: string) {
     const user = await this.users.findOne({ where: { id } });

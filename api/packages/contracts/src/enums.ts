@@ -117,6 +117,19 @@ export enum EntitlementStatus {
 export enum PaymentMethod {
   CHAPA = 'chapa',
   BANK_TRANSFER = 'bank_transfer',
+  /** Paid entirely from the learner's EthiopiaLearn wallet (credits). */
+  WALLET = 'wallet',
+  /** 100%-off coupon — nothing charged, ledger row kept for the audit trail. */
+  COUPON = 'coupon',
+}
+
+/** What a payment row is for. Only course-revenue purposes reach payouts. */
+export enum PaymentPurpose {
+  COURSE = 'course',
+  GIFT = 'gift',
+  PAY_REQUEST = 'pay_request',
+  BULK = 'bulk',
+  WALLET_TOPUP = 'wallet_topup',
 }
 
 export enum PaymentStatus {
