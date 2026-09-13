@@ -19,7 +19,7 @@ import { EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
 import { CourseService } from './course.service';
 import { CourseExtrasService } from './course-extras.service';
-import { CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UploadRequestDto } from './dto';
+import { CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UploadRequestDto } from './dto';
 
 class GenerateStructureDto {
   @IsString()
@@ -279,7 +279,7 @@ export class CourseController {
   @Put('lessons/:id')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  updateLesson(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: LessonInputDto) {
+  updateLesson(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: UpdateLessonDto) {
     return this.service.updateLesson(ctx, id, dto);
   }
 
