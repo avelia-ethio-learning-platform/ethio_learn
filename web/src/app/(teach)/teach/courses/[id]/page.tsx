@@ -10,6 +10,7 @@ import { extractTextFromFile } from '@/lib/extract-text';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell, StatusBadge } from '@/components/PageChrome';
+import { ChangelogTool, TutorKnowledgeTool } from './course-tools';
 
 const S3_PUBLIC_URL = process.env.NEXT_PUBLIC_S3_PUBLIC_URL ?? 'http://localhost:9000/ethiopialearn';
 
@@ -165,6 +166,10 @@ function ManageCourse({ courseId }: { courseId: string }) {
       <LearnerFeedback reviews={reviews} />
 
       <AssessmentManager courseId={courseId} />
+
+      <ChangelogTool courseId={courseId} published={course.status === 'published'} />
+
+      <TutorKnowledgeTool courseId={courseId} />
 
 
       {pendingProjects && pendingProjects.length > 0 && (
@@ -558,6 +563,13 @@ function AssessmentManager({ courseId }: { courseId: string }) {
   const [type, setType] = useState('quiz');
   const [passScore, setPassScore] = useState(60);
   const [questions, setQuestions] = useState<QDraft[]>([]);
+  // Anti-cheat settings (server-enforced): attempts, cooldown, time limit, shuffle, pool size, proctoring.
+  const [maxAttempts, setMaxAttempts] = useState(3);
+  const [cooldown, setCooldown] = useState(0);
+  const [timeLimit, setTimeLimit] = useState<number | ''>('');
+  const [shuffle, setShuffle] = useState(true);
+  const [poolSize, setPoolSize] = useState<number | ''>('');
+  const [proctored, setProctored] = useState(false);
   const [topic, setTopic] = useState('');
   const [count, setCount] = useState(5);
   const [busy, setBusy] = useState(false);
@@ -581,7 +593,15 @@ function AssessmentManager({ courseId }: { courseId: string }) {
       let config: any = {};
       if (type === 'quiz') {
         if (!questions.length) { setNote('Add or generate at least one question.'); setBusy(false); return; }
-        config = { questions };
+        config = {
+          questions,
+          max_attempts: maxAttempts,
+          cooldown_minutes: cooldown,
+          time_limit_minutes: timeLimit || undefined,
+          shuffle,
+          pool_size: poolSize || undefined,
+          proctored,
+        };
       } else if (type === 'ai_viva') config = { topic_context: vivaTopic };
       else config = { instructions: projectInstr };
       await api('/assessments', { method: 'POST', body: { course_id: courseId, type, pass_score: passScore, is_required: true, config } });
@@ -645,6 +665,16 @@ function AssessmentManager({ courseId }: { courseId: string }) {
               </div>
             ))}
             <button className="text-sm text-brand-600" onClick={() => setQuestions((qs) => [...qs, { prompt: '', options: ['', ''], correct_index: 0 }])}>+ Add question manually</button>
+            <div className="glass-secondary grid gap-2 rounded-xl p-3 text-xs sm:grid-cols-3">
+              <p className="font-semibold text-foreground sm:col-span-3">Integrity settings (enforced on the server)</p>
+              <label>Max attempts <input type="number" min={1} max={20} className="input mt-1" value={maxAttempts} onChange={(e) => setMaxAttempts(+e.target.value)} /></label>
+              <label>Cooldown between attempts (min) <input type="number" min={0} className="input mt-1" value={cooldown} onChange={(e) => setCooldown(+e.target.value)} /></label>
+              <label>Time limit (min, blank = none) <input type="number" min={1} max={240} className="input mt-1" value={timeLimit} onChange={(e) => setTimeLimit(e.target.value ? +e.target.value : '')} /></label>
+              <label>Questions per paper (blank = all {questions.length}) <input type="number" min={1} max={questions.length || 1} className="input mt-1" value={poolSize} onChange={(e) => setPoolSize(e.target.value ? +e.target.value : '')} /></label>
+              <label className="flex items-center gap-2 self-end pb-2"><input type="checkbox" checked={shuffle} onChange={(e) => setShuffle(e.target.checked)} /> Shuffle questions &amp; options per learner</label>
+              <label className="flex items-center gap-2 self-end pb-2"><input type="checkbox" checked={proctored} onChange={(e) => setProctored(e.target.checked)} /> Webcam proctoring (face, tab &amp; clipboard)</label>
+              <p className="text-gray-500 sm:col-span-3">Each learner gets a different paper drawn from your bank; the answer key never leaves the server; refreshing resumes the same attempt with the same deadline.</p>
+            </div>
           </div>
         )}
         {type === 'ai_viva' && <textarea className="input" rows={2} placeholder="Topic context the AI uses to generate the viva question" value={vivaTopic} onChange={(e) => setVivaTopic(e.target.value)} />}

@@ -12,6 +12,18 @@ import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 function SignupForm() {
   const params = useSearchParams();
+  // Referral / gift context survives the email-verification round trip via
+  // localStorage; the dashboard claims it on first login.
+  if (typeof window !== 'undefined') {
+    const ref = params.get('ref');
+    const gift = params.get('gift');
+    try {
+      if (ref) localStorage.setItem('el_ref', ref.toUpperCase());
+      if (gift) localStorage.setItem('el_gift', gift);
+    } catch {
+      /* private mode */
+    }
+  }
   const { t } = useT();
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);

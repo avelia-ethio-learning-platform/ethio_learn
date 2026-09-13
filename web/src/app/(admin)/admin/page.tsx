@@ -6,18 +6,23 @@ import { ChevronDown, Inbox, PartyPopper, Search, ShieldCheck, UserPlus } from '
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
+import { AnalyticsTab, BroadcastTab, CouponsTab, WalletTab } from './growth-tabs';
 
-type Tab = 'payments' | 'payouts' | 'refunds' | 'fraud' | 'users' | 'courses';
+type Tab = 'analytics' | 'payments' | 'payouts' | 'refunds' | 'fraud' | 'users' | 'courses' | 'coupons' | 'wallet' | 'broadcast';
 
 function AdminConsole() {
-  const [tab, setTab] = useState<Tab>('payments');
+  const [tab, setTab] = useState<Tab>('analytics');
   const tabs: { id: Tab; label: string }[] = [
+    { id: 'analytics', label: 'Analytics' },
     { id: 'payments', label: 'Payments' },
     { id: 'payouts', label: 'Payouts' },
     { id: 'refunds', label: 'Refunds' },
     { id: 'fraud', label: 'Fraud flags' },
     { id: 'users', label: 'Users' },
     { id: 'courses', label: 'Course overrides' },
+    { id: 'coupons', label: 'Coupons' },
+    { id: 'wallet', label: 'Wallets' },
+    { id: 'broadcast', label: 'Announce' },
   ];
   return (
     <PageShell>
@@ -28,7 +33,7 @@ function AdminConsole() {
           </span>
         }
         title="Platform admin console"
-        subtitle="Payments ledger, payouts, refunds, fraud signals, users and course overrides."
+        subtitle="Analytics, payments, payouts, refunds, fraud, users, courses, coupons, wallets and announcements."
       />
       <div className="space-y-6">
         <div className="flex flex-wrap gap-2">
@@ -39,12 +44,16 @@ function AdminConsole() {
           ))}
         </div>
         <div key={tab} className="animate-fade-in-up">
+          {tab === 'analytics' && <AnalyticsTab />}
           {tab === 'payments' && <PaymentsTab />}
           {tab === 'payouts' && <PayoutsTab />}
           {tab === 'refunds' && <RefundsTab />}
           {tab === 'fraud' && <FraudTab />}
           {tab === 'users' && <UsersTab />}
           {tab === 'courses' && <CoursesTab />}
+          {tab === 'coupons' && <CouponsTab />}
+          {tab === 'wallet' && <WalletTab />}
+          {tab === 'broadcast' && <BroadcastTab />}
         </div>
       </div>
     </PageShell>

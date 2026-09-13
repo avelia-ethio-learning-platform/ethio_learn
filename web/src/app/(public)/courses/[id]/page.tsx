@@ -10,6 +10,7 @@ import { PageShell } from '@/components/PageChrome';
 import { EnrollPanel } from './enroll-panel';
 
 interface CourseDetail {
+  last_major_update_at?: string | null;
   id: string;
   title: string;
   description: string;
@@ -91,6 +92,9 @@ export default async function CoursePage({ params }: { params: { id: string } })
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="animate-fade-in-up lg:col-span-2">
           <span className="badge-info uppercase tracking-wider">{course.category}</span>
+          {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
+            <span className="badge-success ml-2">Recently updated</span>
+          )}
           <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-foreground md:text-4xl">{course.title}</h1>
           <p className="mt-4 leading-relaxed text-gray-600">{course.description}</p>
 
@@ -154,7 +158,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
         <aside className="animate-fade-in-up">
           <div className="card sticky top-28 !rounded-3xl !p-6 shadow-elevated">
             <p className="gradient-text-blue text-3xl font-extrabold">{priceLabel(course)}</p>
-            <EnrollPanel courseId={course.id} pricingType={course.pricing_type} />
+            <EnrollPanel courseId={course.id} pricingType={course.pricing_type}  price={course.price_etb} />
             <ul className="mt-5 space-y-2.5 text-sm text-gray-600">
               <li className="flex items-center gap-2.5">
                 <PlayCircle className="h-4 w-4 shrink-0 text-brand-500" /> Adaptive HLS video streaming

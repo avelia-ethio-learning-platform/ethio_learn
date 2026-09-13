@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, HandCoins, LayoutDashboard, Plus, Wallet } from 'lucide-react';
+import { BarChart3, BookOpen, HandCoins, LayoutDashboard, Plus, Ticket, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
@@ -35,9 +35,17 @@ function TeachDashboard() {
         title="Educator dashboard"
         subtitle="Create courses, track earnings and get paid nightly."
         actions={
-          <Link href="/teach/new" className="btn">
-            <Plus className="h-4 w-4" /> New course
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/teach/analytics" className="btn-secondary">
+              <BarChart3 className="h-4 w-4" /> Analytics
+            </Link>
+            <Link href="/teach/coupons" className="btn-secondary">
+              <Ticket className="h-4 w-4" /> Coupons
+            </Link>
+            <Link href="/teach/new" className="btn">
+              <Plus className="h-4 w-4" /> New course
+            </Link>
+          </div>
         }
       />
 
