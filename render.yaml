@@ -102,6 +102,18 @@ envVarGroups:
         sync: false
       - key: GATEWAY_PUBLIC_URL
         sync: false
+      # Every cross-service READ (entitlement checks, user/email lookups,
+      # course ownership checks) goes through the gateway with the internal
+      # token. Free-plan private networking is receive-disabled, so this is the
+      # gateway's public URL. Without it services fall back to localhost:4000
+      # and every such read fails.
+      - key: GATEWAY_INTERNAL_URL
+        value: https://ethiopialearn-gateway.onrender.com
+      # Growth features (wallet rewards) — ETB amounts, tune freely.
+      - key: REFERRAL_REWARD_ETB
+        value: "50"
+      - key: PURCHASE_CASHBACK_PERCENT
+        value: "5"
       # The frontend is on vercel.app and the API on onrender.com — different
       # sites, so the refresh cookie must be SameSite=None or it is never sent.
       - key: COOKIE_SAMESITE
