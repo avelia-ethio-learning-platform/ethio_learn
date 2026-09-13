@@ -36,6 +36,9 @@ describe('NotificationController preferences', () => {
       new_course_instructor_ids: [],
       new_course_email: true,
       new_course_in_app: true,
+      course_updates_email: true,
+      progress_emails: true,
+      inactivity_emails: true,
     });
   });
 

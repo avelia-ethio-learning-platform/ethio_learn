@@ -17,12 +17,15 @@ function PaymentReturn() {
   const params = useSearchParams();
   const courseId = params.get('course_id');
   const txRef = params.get('tx_ref');
+  const purpose = params.get('purpose') ?? 'course';
+  const instant = params.get('instant') === '1'; // wallet / 100% coupon — already confirmed server-side
   const [state, setState] = useState<State>('polling');
   const done = useRef(false);
 
   /** One reconcile + entitlement check. Returns true once a terminal state is reached. */
   const check = useCallback(async (): Promise<boolean> => {
     if (done.current) return true;
+    if (instant) { done.current = true; setState('active'); return true; }
     // Server verifies directly with Chapa and returns the real status — the
     // browser's word grants nothing.
     if (txRef) {
@@ -44,7 +47,7 @@ function PaymentReturn() {
       }
     }
     return false;
-  }, [courseId, txRef]);
+  }, [courseId, txRef, instant]);
 
   useEffect(() => {
     // Local dev: Chapa redirects to the 127.0.0.1 form (its validator rejects
@@ -54,7 +57,7 @@ function PaymentReturn() {
       window.location.replace(window.location.href.replace('//127.0.0.1', '//localhost'));
       return;
     }
-    if (!courseId) return;
+    if (!courseId && !txRef) return;
     let attempts = 0;
     void check();
     const timer = setInterval(async () => {
@@ -91,9 +94,11 @@ function PaymentReturn() {
         )}
         {state === 'active' && (
           <>
-            <p className="text-sm leading-relaxed text-gray-500">Payment confirmed and your course is unlocked.</p>
-            <Link href={`/learn/${courseId}`} className="btn mt-5 inline-flex !px-8 !py-3">
-              Start learning <ArrowRight className="h-4 w-4" />
+            <p className="text-sm leading-relaxed text-gray-500">
+              {purpose === 'wallet_topup' ? 'Your wallet has been topped up.' : purpose === 'gift' || purpose === 'pay_request' ? 'Payment confirmed — the learner now has access.' : purpose === 'bulk' ? 'Payment confirmed — assign your seats from the Institution page.' : 'Payment confirmed and your course is unlocked.'}
+            </p>
+            <Link href={purpose === 'course' && courseId ? `/learn/${courseId}` : purpose === 'bulk' ? '/institution' : '/dashboard'} className="btn mt-5 inline-flex !px-8 !py-3">
+              {purpose === 'course' ? 'Start learning' : 'Continue'} <ArrowRight className="h-4 w-4" />
             </Link>
           </>
         )}

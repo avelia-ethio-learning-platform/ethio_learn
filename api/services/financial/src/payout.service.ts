@@ -13,7 +13,8 @@ import {
   Role,
   TrustTier,
 } from '@ethiopialearn/contracts';
-import { Payment, Payout, PayoutHold, RefundRequest } from './entities';
+import { PaymentPurpose } from '@ethiopialearn/contracts';
+import { Payment, Payout, PayoutHold, PLATFORM_PAYEE_ID, RefundRequest } from './entities';
 
 const PLATFORM_FEE_RATE = 0.2; // 80/20 split, computed at payout time (spec §0.4)
 const STANDARD_HOLD_DAYS = 7; // spec §10.3
@@ -73,9 +74,12 @@ export class PayoutService implements OnModuleInit {
   }
 
   async runPayouts(): Promise<{ created: number; held: number }> {
-    const eligible = await this.payments.find({
-      where: { status: PaymentStatus.CONFIRMED, payout_id: IsNull() },
-    });
+    // Wallet top-ups are platform liabilities, not course revenue — never paid out.
+    const eligible = (
+      await this.payments.find({
+        where: { status: PaymentStatus.CONFIRMED, payout_id: IsNull() },
+      })
+    ).filter((p) => p.purpose !== PaymentPurpose.WALLET_TOPUP && p.payee_id !== PLATFORM_PAYEE_ID && Number(p.amount_etb) > 0);
 
     // Group settled, hold-cleared payments per payee.
     const byPayee = new Map<string, Payment[]>();
@@ -157,7 +161,9 @@ export class PayoutService implements OnModuleInit {
   /** Pending (not-yet-paid-out) earnings for the calling educator/institution. */
   async balance(ctx: UserContext) {
     const payeeId = await this.resolvePayeeId(ctx);
-    const rows = await this.payments.find({ where: { payee_id: payeeId, status: PaymentStatus.CONFIRMED, payout_id: IsNull() } });
+    const rows = (await this.payments.find({ where: { payee_id: payeeId, status: PaymentStatus.CONFIRMED, payout_id: IsNull() } })).filter(
+      (p) => p.purpose !== PaymentPurpose.WALLET_TOPUP,
+    );
     const gross = rows.reduce((sum, p) => sum + Number(p.amount_etb), 0);
     return {
       payee_id: payeeId,

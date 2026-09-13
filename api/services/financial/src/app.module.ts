@@ -3,14 +3,29 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ChapaModule } from 'chapa-nestjs';
 import { buildTypeOrmOptions, EventBusModule, HealthController, InternalHttpClient } from '@ethiopialearn/common';
-import { Payment, Payout, PayoutHold, RefundRequest } from './entities';
+import {
+  BulkPurchase,
+  Coupon,
+  Payment,
+  Payout,
+  PayoutHold,
+  Referral,
+  ReferralCode,
+  RefundRequest,
+  Sponsorship,
+  Wallet,
+  WalletTransaction,
+} from './entities';
 import { CHAPA_PROVIDER, chapaMode, LiveChapaProvider, MockChapaProvider } from './chapa.provider';
 import { PaymentService } from './payment.service';
 import { RefundService } from './refund.service';
 import { PayoutService } from './payout.service';
+import { GrowthService } from './growth.service';
+import { SponsorshipService } from './sponsorship.service';
 import { FinancialController } from './controllers';
+import { GrowthController } from './growth.controller';
 
-const entities = [Payment, Payout, RefundRequest, PayoutHold];
+const entities = [Payment, Payout, RefundRequest, PayoutHold, Coupon, Wallet, WalletTransaction, Sponsorship, BulkPurchase, ReferralCode, Referral];
 
 @Module({
   imports: [
@@ -25,13 +40,15 @@ const entities = [Payment, Payout, RefundRequest, PayoutHold];
       secretKey: process.env.CHAPA_SECRET_KEY ?? 'CHASECK_TEST-placeholder',
     }),
   ],
-  controllers: [FinancialController, HealthController],
+  controllers: [FinancialController, GrowthController, HealthController],
   providers: [
     {
       provide: CHAPA_PROVIDER,
       useClass: chapaMode() === 'live' ? LiveChapaProvider : MockChapaProvider,
     },
+    GrowthService,
     PaymentService,
+    SponsorshipService,
     RefundService,
     PayoutService,
     InternalHttpClient,

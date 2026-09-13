@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
-import { IsArray, IsBoolean, IsIn, IsOptional, IsUUID } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
@@ -36,6 +36,39 @@ class PreferencesDto {
   @IsOptional()
   @IsBoolean()
   new_course_in_app?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  course_updates_email?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  progress_emails?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  inactivity_emails?: boolean;
+}
+
+/** Platform announcement: new feature, maintenance, campaign. In-app only (see notes in FEATURES_ADDED.md). */
+class BroadcastDto {
+  @IsString()
+  @MaxLength(120)
+  title: string;
+
+  @IsString()
+  @MaxLength(1000)
+  body: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  link?: string;
+
+  /** Target one role, or omit for everyone. */
+  @IsOptional()
+  @IsIn(['learner', 'educator', 'institution_admin', 'quality_officer', 'platform_admin'])
+  role?: string;
 }
 
 function prefView(row: NotificationPreference | null, userId: string) {
@@ -46,6 +79,9 @@ function prefView(row: NotificationPreference | null, userId: string) {
     new_course_instructor_ids: row?.new_course_instructor_ids ?? [],
     new_course_email: row?.new_course_email ?? true,
     new_course_in_app: row?.new_course_in_app ?? true,
+    course_updates_email: row?.course_updates_email ?? true,
+    progress_emails: row?.progress_emails ?? true,
+    inactivity_emails: row?.inactivity_emails ?? true,
   };
 }
 
@@ -128,6 +164,9 @@ export class NotificationController {
     if (dto.new_course_instructor_ids !== undefined) current.new_course_instructor_ids = uniq(dto.new_course_instructor_ids);
     if (dto.new_course_email !== undefined) current.new_course_email = dto.new_course_email;
     if (dto.new_course_in_app !== undefined) current.new_course_in_app = dto.new_course_in_app;
+    if (dto.course_updates_email !== undefined) current.course_updates_email = dto.course_updates_email;
+    if (dto.progress_emails !== undefined) current.progress_emails = dto.progress_emails;
+    if (dto.inactivity_emails !== undefined) current.inactivity_emails = dto.inactivity_emails;
     const saved = await this.prefs.save(current);
     return prefView(saved, userId);
   }
@@ -167,6 +206,22 @@ export class NotificationController {
   @Roles(Role.PLATFORM_ADMIN)
   recent() {
     return this.log.find({ order: { sent_at: 'DESC' }, take: 100 });
+  }
+
+  /**
+   * Announcement to a role or to everyone (one inbox row per targeted role —
+   * the inbox query already matches on target_role, so no per-user fan-out).
+   */
+  @Post('admin/notifications/broadcast')
+  @Roles(Role.PLATFORM_ADMIN)
+  async broadcast(@Body() dto: BroadcastDto) {
+    const roles = dto.role ? [dto.role] : Object.values(Role);
+    await this.inbox.save(
+      roles.map((role) =>
+        this.inbox.create({ user_id: null, target_role: role, type: 'announcement', title: dto.title, body: dto.body, link: dto.link ?? null, read_at: null }),
+      ),
+    );
+    return { sent_to_roles: roles };
   }
 
   private assertSelfOrAdmin(ctx: UserContext, userId: string) {

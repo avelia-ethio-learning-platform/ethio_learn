@@ -92,6 +92,10 @@ export class Course {
 
   @Column({ type: 'timestamptz', nullable: true })
   last_reviewed_at: Date | null;
+
+  /** Last MAJOR change-log entry — drives the "Recently updated" badge and learner notifications. */
+  @Column({ type: 'timestamptz', nullable: true })
+  last_major_update_at: Date | null;
 }
 
 @Entity({ name: 'sections' })
@@ -150,4 +154,94 @@ export class Lesson {
 
   @Column({ type: 'int' })
   order_index: number;
+}
+
+
+/**
+ * Educator-authored change log on a published course. Major entries notify
+ * every enrolled learner and flip the "Updated" badge; minor ones are
+ * auto-written when lessons are added/replaced and just show in the log.
+ */
+@Entity({ name: 'course_changelog' })
+export class CourseChangeLog {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Index()
+  @Column('uuid')
+  course_id: string;
+
+  @Column({ type: 'varchar', default: 'minor' })
+  kind: 'major' | 'minor';
+
+  @Column({ type: 'text' })
+  summary: string;
+
+  @Column('uuid')
+  created_by: string;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  created_at: Date;
+}
+
+/**
+ * Retrieval corpus for the per-course tutor chatbot: the course description,
+ * lesson titles/summaries and any notes the educator uploads, chunked to
+ * ~800 chars. Ranked with Postgres full-text search (no embedding API needed).
+ */
+@Entity({ name: 'course_knowledge' })
+export class CourseKnowledge {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Index()
+  @Column('uuid')
+  course_id: string;
+
+  /** description | lessons | notes */
+  @Column({ type: 'varchar', default: 'notes' })
+  source: string;
+
+  /** Document title the chunk came from (shown as a citation). */
+  @Column({ length: 200 })
+  title: string;
+
+  @Column({ type: 'int', default: 0 })
+  chunk_index: number;
+
+  @Column({ type: 'text' })
+  text: string;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  created_at: Date;
+}
+
+/** Tutor conversation log — lets learners resume and shows educators what is being asked. */
+@Entity({ name: 'course_chat_messages' })
+export class CourseChatMessage {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Index()
+  @Column('uuid')
+  course_id: string;
+
+  @Index()
+  @Column('uuid')
+  learner_id: string;
+
+  @Column({ type: 'varchar' })
+  role: 'user' | 'assistant';
+
+  @Column({ type: 'text' })
+  content: string;
+
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  sources: string[];
+
+  @Column({ default: false })
+  not_covered: boolean;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  created_at: Date;
 }

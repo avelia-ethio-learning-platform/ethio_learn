@@ -46,6 +46,23 @@ export class EnrollmentController {
     return this.service.status(ctx, courseId);
   }
 
+  /** Educator / institution / admin funnel per course (ownership checked per id). Declared before :id. */
+  @Get('enrollments/analytics')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  analytics(@CurrentUser() ctx: UserContext, @Query('course_ids') courseIds = '') {
+    const ids = courseIds.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!ids.length) throw new BadRequestException('course_ids is required (comma-separated)');
+    return this.service.analytics(ctx, ids);
+  }
+
+  @Get('admin/enrollments/analytics')
+  @UseGuards(RolesGuard)
+  @Roles(Role.PLATFORM_ADMIN)
+  adminAnalytics() {
+    return this.service.adminAnalytics();
+  }
+
   @Get('enrollments/:id')
   @UseGuards(RolesGuard)
   @Roles()
@@ -74,6 +91,13 @@ export class EnrollmentController {
     return this.service.saveVideoProgress(ctx, lessonId, dto.position_seconds, dto.duration_seconds);
   }
 
+  @Post('enrollments/:id/changelog-seen')
+  @UseGuards(RolesGuard)
+  @Roles(Role.LEARNER)
+  changelogSeen(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+    return this.service.markChangelogSeen(ctx, id);
+  }
+
   @Get('enrollments/:id/video-progress')
   @UseGuards(RolesGuard)
   @Roles()
@@ -96,5 +120,11 @@ export class EnrollmentInternalController {
   @Get('enrollments/:id')
   byId(@Param('id') id: string) {
     return this.service.internalById(id);
+  }
+
+  /** Active learners of a course (audience for course-update notifications). */
+  @Get('courses/:id/learners')
+  learners(@Param('id') courseId: string) {
+    return this.service.learnersForCourse(courseId);
   }
 }

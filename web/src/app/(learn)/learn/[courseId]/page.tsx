@@ -1,19 +1,36 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Hls from 'hls.js';
-import { CheckCircle2, ChevronLeft, ChevronRight, CircleCheck, ListVideo, LoaderCircle, Play, PlayCircle, Star } from 'lucide-react';
+import {
+  BellRing,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  CloudOff,
+  History,
+  ListVideo,
+  LoaderCircle,
+  Play,
+  PlayCircle,
+  Star,
+} from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/hooks';
+import { queuedApi, useOffline } from '@/lib/offline-queue';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { AssessmentsPanel } from './assessments-panel';
+import { TutorPanel } from './tutor-panel';
 
 interface Lesson {
   id: string;
   title: string;
+  summary?: string | null;
   duration_seconds: number;
   has_video: boolean;
 }
@@ -27,15 +44,35 @@ interface CourseDetail {
   id: string;
   title: string;
   sections: Section[];
+  last_major_update_at?: string | null;
 }
+interface ChangelogEntry {
+  id: string;
+  kind: 'major' | 'minor';
+  summary: string;
+  created_at: string;
+}
+interface VideoProgress {
+  last_lesson_id: string | null;
+  lessons: { lesson_id: string; position_seconds: number; duration_seconds: number; percent_watched: number }[];
+}
+
+const HEARTBEAT_MS = 10_000;
 
 function Player({ courseId }: { courseId: string }) {
   const queryClient = useQueryClient();
+  const search = useSearchParams();
+  const { user } = useAuth();
+  const { online, pending } = useOffline();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [videoError, setVideoError] = useState('');
   const [videoLoading, setVideoLoading] = useState(false);
+  const [watermark, setWatermark] = useState('');
+  const [showChangelog, setShowChangelog] = useState(search.get('changelog') === '1');
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = activeId;
 
   // Tear down any HLS instance when leaving the page.
   useEffect(() => () => hlsRef.current?.destroy(), []);
@@ -45,24 +82,74 @@ function Player({ courseId }: { courseId: string }) {
     queryKey: ['enrollment-status', courseId],
     queryFn: () => api<{ entitlement_status: string; enrollment_id: string | null }>(`/enrollments/status?course_id=${courseId}`),
   });
+  const enrollmentId = status?.enrollment_id ?? null;
   const { data: progress } = useQuery({
-    queryKey: ['progress', status?.enrollment_id],
+    queryKey: ['progress', enrollmentId],
     queryFn: () =>
-      api<{ completed_lessons: { lesson_id: string }[]; progress_percent: number; completed_at: string | null }>(
-        `/enrollments/${status!.enrollment_id}/progress`,
+      api<{ completed_lessons: { lesson_id: string }[]; progress_percent: number; completed_at: string | null; changelog_seen_at: string | null }>(
+        `/enrollments/${enrollmentId}/progress`,
       ),
-    enabled: !!status?.enrollment_id,
+    enabled: !!enrollmentId,
+  });
+  const { data: videoProgress } = useQuery({
+    queryKey: ['video-progress', enrollmentId],
+    queryFn: () => api<VideoProgress>(`/enrollments/${enrollmentId}/video-progress`),
+    enabled: !!enrollmentId,
+    staleTime: 60_000,
+  });
+  const { data: changelog } = useQuery({
+    queryKey: ['changelog', courseId],
+    queryFn: () => api<ChangelogEntry[]>(`/courses/${courseId}/changelog`),
   });
 
   // Flat, ordered lesson list for prev/next navigation.
   const flat = useMemo(() => (course?.sections ?? []).flatMap((s) => s.lessons.map((l) => ({ ...l, sectionTitle: s.title }))), [course]);
   const activeIndex = flat.findIndex((l) => l.id === activeId);
   const completedIds = new Set(progress?.completed_lessons.map((l) => l.lesson_id) ?? []);
+  const positions = useMemo(() => new Map((videoProgress?.lessons ?? []).map((v) => [v.lesson_id, v])), [videoProgress]);
+
+  // "Updated" badge: a major change newer than the last time this learner opened the log.
+  const latestMajor = changelog?.find((c) => c.kind === 'major');
+  const hasUnseenUpdate =
+    !!latestMajor && (!progress?.changelog_seen_at || new Date(latestMajor.created_at).getTime() > new Date(progress.changelog_seen_at).getTime());
+
+  const openChangelog = async () => {
+    setShowChangelog((v) => !v);
+    if (hasUnseenUpdate && enrollmentId) {
+      await api(`/enrollments/${enrollmentId}/changelog-seen`, { method: 'POST' });
+      queryClient.invalidateQueries({ queryKey: ['progress', enrollmentId] });
+    }
+  };
+
+  // ---- Video progress: heartbeat every 10s, on pause, and on leave; resume from the saved position.
+  const sendHeartbeat = useCallback(async () => {
+    const video = videoRef.current;
+    const lessonId = activeIdRef.current;
+    if (!video || !lessonId || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    await queuedApi(`/progress/lessons/${lessonId}/video`, {
+      method: 'POST',
+      body: { position_seconds: Math.floor(video.currentTime), duration_seconds: Math.floor(video.duration) },
+    });
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const video = videoRef.current;
+      if (video && !video.paused && !video.ended) void sendHeartbeat();
+    }, HEARTBEAT_MS);
+    const onLeave = () => void sendHeartbeat();
+    window.addEventListener('pagehide', onLeave);
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && onLeave());
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('pagehide', onLeave);
+    };
+  }, [sendHeartbeat]);
 
   const playLesson = async (lesson: Lesson) => {
+    await sendHeartbeat(); // save the lesson we are leaving
     setActiveId(lesson.id);
     setVideoError('');
-    // Always tear down a previous HLS instance so streams don't stack up.
     hlsRef.current?.destroy();
     hlsRef.current = null;
     if (!lesson.has_video) {
@@ -71,13 +158,21 @@ function Player({ courseId }: { courseId: string }) {
     }
     setVideoLoading(true);
     try {
-      const res = await api<{ url: string }>(`/lessons/${lesson.id}/stream-url`);
+      const res = await api<{ url: string; watermark?: string }>(`/lessons/${lesson.id}/stream-url`);
+      setWatermark(res.watermark ?? user?.email ?? '');
       const video = videoRef.current;
       if (!video) return;
+      const resumeAt = positions.get(lesson.id)?.position_seconds ?? 0;
+      const seekToResume = () => {
+        if (resumeAt > 5 && resumeAt < (video.duration || Infinity) - 5) video.currentTime = resumeAt;
+      };
+      video.addEventListener('loadedmetadata', seekToResume, { once: true });
       if (res.url.includes('.m3u8') && Hls.isSupported()) {
         const hls = new Hls();
         hlsRef.current = hls;
-        hls.on(Hls.Events.ERROR, (_e, data) => { if (data.fatal) setVideoError('Could not play this video. Please try again.'); });
+        hls.on(Hls.Events.ERROR, (_e, data) => {
+          if (data.fatal) setVideoError('Could not play this video. Please try again.');
+        });
         hls.loadSource(res.url);
         hls.attachMedia(video);
       } else {
@@ -93,7 +188,7 @@ function Player({ courseId }: { courseId: string }) {
   };
 
   const markComplete = async (lessonId: string) => {
-    await api(`/progress/lessons/${lessonId}/complete`, { method: 'POST' });
+    await queuedApi(`/progress/lessons/${lessonId}/complete`, { method: 'POST' });
     await queryClient.invalidateQueries({ queryKey: ['progress'] });
     await queryClient.invalidateQueries({ queryKey: ['enrollments'] });
   };
@@ -120,38 +215,90 @@ function Player({ courseId }: { courseId: string }) {
     );
   }
   const active = flat[activeIndex];
+  const resumeLesson = !activeId && videoProgress?.last_lesson_id ? flat.find((l) => l.id === videoProgress.last_lesson_id) : null;
 
   return (
     <PageShell>
       <BackButton fallback="/dashboard" label="My Learning" />
+      {(!online || pending > 0) && (
+        <p className="badge-warn mb-4 flex w-fit items-center gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-xs">
+          <CloudOff className="h-3.5 w-3.5" />
+          {online ? `Syncing ${pending} saved update${pending === 1 ? '' : 's'}…` : `You're offline — your progress is saved on this device${pending ? ` (${pending} pending)` : ''} and will sync when you reconnect.`}
+        </p>
+      )}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="animate-fade-in-up lg:col-span-2">
-          <h1 className="text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{course.title}</h1>
-          <div className="relative mt-5 overflow-hidden rounded-2xl bg-black shadow-floating">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{course.title}</h1>
+            {changelog && changelog.length > 0 && (
+              <button onClick={openChangelog} className={hasUnseenUpdate ? 'badge-warn !rounded-xl !px-3 !py-1.5 !text-xs' : 'btn-secondary !px-3 !py-1.5 !text-xs'}>
+                {hasUnseenUpdate ? <BellRing className="h-3.5 w-3.5" /> : <History className="h-3.5 w-3.5" />}
+                {hasUnseenUpdate ? 'Updated — see what changed' : "What's changed"}
+              </button>
+            )}
+          </div>
+          {showChangelog && changelog && (
+            <div className="card mt-3 !p-4 text-sm">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">Course updates</p>
+              <ul className="space-y-2">
+                {changelog.map((c) => (
+                  <li key={c.id} className="flex gap-3">
+                    <span className={c.kind === 'major' ? 'badge-info shrink-0' : 'badge-neutral shrink-0'}>{c.kind}</span>
+                    <span className="min-w-0 flex-1 text-gray-600">
+                      {c.summary} <span className="text-xs text-gray-400">· {new Date(c.created_at).toLocaleDateString()}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="relative mt-5 overflow-hidden rounded-2xl bg-black shadow-floating" onContextMenu={(e) => e.preventDefault()}>
             <video
               ref={videoRef}
               controls
               playsInline
+              controlsList="nodownload noremoteplayback"
+              disablePictureInPicture
               className="aspect-video w-full"
-              onEnded={() => active && markComplete(active.id)}
+              onPause={() => void sendHeartbeat()}
+              onEnded={() => {
+                void sendHeartbeat();
+                if (active) markComplete(active.id);
+              }}
               onError={() => active?.has_video && setVideoError('Could not play this video. Please try again.')}
             />
+            {watermark && active && (
+              // Moving viewer watermark — a screen recording carries the viewer's identity.
+              <div className="pointer-events-none absolute inset-0 select-none">
+                <span className="el-watermark absolute text-[11px] font-semibold text-white/40 drop-shadow">{watermark}</span>
+              </div>
+            )}
             {videoLoading && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 text-sm text-white backdrop-blur-sm">
                 <LoaderCircle className="h-4 w-4 animate-spin" /> Loading video…
               </div>
             )}
             {!active && !videoLoading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-gray-300">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-gray-300">
                 <PlayCircle className="h-10 w-10 opacity-70" />
-                Select a lesson to begin
+                {resumeLesson ? (
+                  <button className="btn !px-4 !py-2 !text-xs" onClick={() => playLesson(resumeLesson)}>
+                    <Play className="h-3.5 w-3.5" /> Resume: {resumeLesson.title}
+                  </button>
+                ) : (
+                  'Select a lesson to begin'
+                )}
               </div>
             )}
           </div>
 
           {active ? (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="min-w-0 flex-1 font-semibold text-foreground">{active.title}</p>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-foreground">{active.title}</p>
+                {active.summary && <p className="mt-0.5 text-xs text-gray-500">{active.summary}</p>}
+              </div>
               <div className="flex gap-2">
                 <button className="btn-secondary !px-3 !py-1.5 !text-xs" disabled={activeIndex <= 0} onClick={() => goto(-1)}>
                   <ChevronLeft className="h-3.5 w-3.5" /> Previous
@@ -183,6 +330,7 @@ function Player({ courseId }: { courseId: string }) {
           )}
 
           <AssessmentsPanel courseId={courseId} />
+          <TutorPanel courseId={courseId} />
           <ReviewBox courseId={courseId} progressPercent={progress?.progress_percent ?? 0} />
         </div>
 
@@ -198,50 +346,68 @@ function Player({ courseId }: { courseId: string }) {
           {course.sections.map((section) => {
             const doneInSection = section.lessons.filter((l) => completedIds.has(l.id)).length;
             return (
-            <div key={section.id} className="card !p-4">
-              <h3 className="flex items-center justify-between gap-2 text-sm font-bold text-foreground">
-                <span className="min-w-0 truncate">{section.title}</span>
-                <span
-                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                    doneInSection === section.lessons.length && section.lessons.length > 0
-                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-brand-500/10 text-brand-600'
-                  }`}
-                >
-                  {doneInSection}/{section.lessons.length}
-                </span>
-              </h3>
-              <ul className="mt-2 space-y-1">
-                {section.lessons.map((lesson) => {
-                  const isActive = lesson.id === activeId;
-                  const done = completedIds.has(lesson.id);
-                  return (
-                    <li key={lesson.id}>
-                      <button
-                        onClick={() => playLesson(lesson)}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors ${
-                          isActive ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600 hover:bg-brand-500/5 hover:text-foreground'
-                        }`}
-                      >
-                        <span className="flex min-w-0 flex-1 items-center gap-2">
-                          {done ? (
-                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                          ) : (
-                            <Play className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-400'}`} />
-                          )}
-                          <span className="truncate">{lesson.title}</span>
-                        </span>
-                        <span className="shrink-0 text-xs text-gray-400">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
+              <div key={section.id} className="card !p-4">
+                <h3 className="flex items-center justify-between gap-2 text-sm font-bold text-foreground">
+                  <span className="min-w-0 truncate">{section.title}</span>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      doneInSection === section.lessons.length && section.lessons.length > 0
+                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                        : 'bg-brand-500/10 text-brand-600'
+                    }`}
+                  >
+                    {doneInSection}/{section.lessons.length}
+                  </span>
+                </h3>
+                <ul className="mt-2 space-y-1">
+                  {section.lessons.map((lesson) => {
+                    const isActive = lesson.id === activeId;
+                    const done = completedIds.has(lesson.id);
+                    const watched = positions.get(lesson.id)?.percent_watched ?? 0;
+                    return (
+                      <li key={lesson.id}>
+                        <button
+                          onClick={() => playLesson(lesson)}
+                          className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors ${
+                            isActive ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600 hover:bg-brand-500/5 hover:text-foreground'
+                          }`}
+                        >
+                          <span className="flex min-w-0 flex-1 items-center gap-2">
+                            {done ? (
+                              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                            ) : (
+                              <Play className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-400'}`} />
+                            )}
+                            <span className="min-w-0">
+                              <span className="block truncate">{lesson.title}</span>
+                              {!done && watched > 0 && (
+                                <span className="mt-1 block h-1 w-24 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                                  <span className="block h-full bg-brand-500" style={{ width: `${watched}%` }} />
+                                </span>
+                              )}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-xs text-gray-400">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             );
           })}
         </aside>
       </div>
+      <style jsx global>{`
+        @keyframes el-wm {
+          0% { top: 8%; left: 6%; }
+          25% { top: 70%; left: 60%; }
+          50% { top: 15%; left: 65%; }
+          75% { top: 75%; left: 10%; }
+          100% { top: 8%; left: 6%; }
+        }
+        .el-watermark { animation: el-wm 90s linear infinite; }
+      `}</style>
     </PageShell>
   );
 }

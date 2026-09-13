@@ -22,6 +22,8 @@ export const metadata: Metadata = {
     description: 'Educator-first online learning marketplace for Ethiopia with verifiable certificates.',
   },
   robots: { index: true, follow: true },
+  manifest: '/manifest.webmanifest',
+  icons: { icon: '/icon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -30,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* Apply saved theme before paint to avoid a flash of the wrong mode */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <meta name="theme-color" content="#0f766e" />
       </head>
       <body>
         <Providers>

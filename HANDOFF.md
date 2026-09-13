@@ -446,7 +446,14 @@ read from code:
 
 ---
 
-## 8. Immediate next step, as of this handoff
+## 8. Feature batch of 2026-09-13
+
+A large feature batch (coupons, wallet, referrals, gifts, pay requests, bulk seats, change log +
+notifications, milestones, inactivity nudges, quiz anti-cheat, course tutor RAG, offline PWA,
+analytics) plus the `GATEWAY_INTERNAL_URL` production fix are documented in `FEATURES_ADDED.md`
+— read that before touching the financial, enrollment, course or outcomes services.
+
+## 9. Immediate next step, as of this handoff
 
 Branch `deploy/render-vercel` is ahead of `main`, currently at `35f95ab`,
 containing commits `aafd55e` (env var fail-fast), `0d4bf1a` (public URLs +

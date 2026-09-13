@@ -18,6 +18,7 @@ import { CurrentUser, InternalHttpClient, Roles, RolesGuard, UserContext, userFr
 import { EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
 import { CourseService } from './course.service';
+import { CourseExtrasService } from './course-extras.service';
 import { CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UploadRequestDto } from './dto';
 
 class GenerateStructureDto {
@@ -70,6 +71,34 @@ class ApplyStructureDto {
   sections: SectionInputDto[];
 }
 
+class ChangelogDto {
+  @IsString()
+  @MinLength(3)
+  @MaxLength(1000)
+  summary: string;
+
+  @IsOptional()
+  major?: boolean;
+}
+
+class KnowledgeDto {
+  @IsString()
+  @MaxLength(200)
+  title: string;
+
+  @IsString()
+  @MinLength(20)
+  @MaxLength(200000)
+  text: string;
+}
+
+class ChatDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(1500)
+  question: string;
+}
+
 class InstitutionDecisionDto {
   @IsIn(['approve', 'reject'])
   action: 'approve' | 'reject';
@@ -82,8 +111,12 @@ class InstitutionDecisionDto {
 
 @Controller()
 export class CourseController {
+  /** Per-learner stream-URL issuance window: deters account sharing / bulk scraping of signed URLs. */
+  private readonly streamIssuance = new Map<string, number[]>();
+
   constructor(
     private readonly service: CourseService,
+    private readonly extras: CourseExtrasService,
     private readonly storage: S3StorageProvider,
     private readonly internal: InternalHttpClient,
   ) {}
@@ -328,7 +361,87 @@ export class CourseController {
     }
     if (!allowed) throw new ForbiddenException('No active entitlement for this course');
 
-    return this.storage.getSignedStreamUrl(lesson.video_s3_key, 900);
+    // Leak mitigation: at most STREAM_URLS_PER_MIN signed URLs per learner per
+    // minute. A real viewer needs one per lesson; a scraper or a shared account
+    // being watched from several devices at once trips this fast.
+    const cap = Number(process.env.STREAM_URLS_PER_MIN ?? 8);
+    const now = Date.now();
+    const recent = (this.streamIssuance.get(ctx.id) ?? []).filter((t) => now - t < 60_000);
+    if (recent.length >= cap) throw new ForbiddenException('Too many video requests — please wait a minute and try again');
+    recent.push(now);
+    this.streamIssuance.set(ctx.id, recent);
+    if (this.streamIssuance.size > 5000) this.streamIssuance.clear();
+
+    const signed = await this.storage.getSignedStreamUrl(lesson.video_s3_key, 900);
+    // The player overlays this over the video: a screen recording carries the viewer's identity.
+    return { ...signed, watermark: `${ctx.email || ctx.id} · ${new Date().toISOString().slice(0, 10)}` };
+  }
+
+  // ---- Change log (learners see it; owners write it) ----
+
+  @Get('courses/:id/changelog')
+  changelog(@Param('id') id: string) {
+    return this.extras.listChangelog(id);
+  }
+
+  @Post('courses/:id/changelog')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  postChangelog(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ChangelogDto) {
+    return this.extras.postChangelog(ctx, id, dto.summary, !!dto.major);
+  }
+
+  // ---- Tutor knowledge base (owner) ----
+
+  @Get('courses/:id/knowledge')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  listKnowledge(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+    return this.extras.listKnowledge(ctx, id);
+  }
+
+  @Post('courses/:id/knowledge')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  addKnowledge(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: KnowledgeDto) {
+    return this.extras.addKnowledge(ctx, id, dto.title, dto.text);
+  }
+
+  @Post('courses/:id/knowledge/reindex')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  reindex(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+    return this.extras.reindexOwned(ctx, id);
+  }
+
+  @Delete('courses/:id/knowledge/:title')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  deleteKnowledge(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Param('title') title: string) {
+    return this.extras.deleteKnowledge(ctx, id, decodeURIComponent(title));
+  }
+
+  // ---- Tutor chat (entitled learners) ----
+
+  @Post('courses/:id/chat')
+  @UseGuards(RolesGuard)
+  @Roles()
+  ask(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ChatDto) {
+    return this.extras.ask(ctx, id, dto.question);
+  }
+
+  @Get('courses/:id/chat')
+  @UseGuards(RolesGuard)
+  @Roles()
+  chatHistory(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+    return this.extras.chatHistory(ctx, id);
+  }
+
+  @Get('courses/:id/chat/insights')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  chatInsights(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+    return this.extras.chatInsights(ctx, id);
   }
 
   // ---- Admin lifecycle overrides ----

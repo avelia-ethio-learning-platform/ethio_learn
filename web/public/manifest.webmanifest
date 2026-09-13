@@ -1,0 +1,15 @@
+{
+  "name": "EthiopiaLearn",
+  "short_name": "EthiopiaLearn",
+  "description": "Learn real skills from Ethiopian experts — works offline for pages you have opened.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f766e",
+  "lang": "en",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

@@ -21,6 +21,11 @@ interface StartedAttempt {
   pass_score: number;
   proctored: boolean;
   time_limit_minutes: number | null;
+  /** Server-side deadline: the countdown is anchored to this, not to now+limit. */
+  deadline_at?: string | null;
+  seconds_left?: number | null;
+  /** True when the server handed back an attempt that was already in progress. */
+  resumed?: boolean;
   warning_limit: number;
 }
 
@@ -165,7 +170,12 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
       endedRef.current = false;
       setAttempt(res);
       setPhase('exam');
-      if (res.time_limit_minutes) setSecondsLeft(res.time_limit_minutes * 60);
+      // The server owns the clock: a refresh or a reopened tab resumes the SAME
+      // attempt with the SAME deadline, so restarting cannot buy more time.
+      if (res.time_limit_minutes) setSecondsLeft(res.seconds_left ?? res.time_limit_minutes * 60);
+      if (res.resumed) setBanner({ text: 'Resumed your attempt in progress — the original time limit still applies.', key: Date.now() });
+      // Best-effort fullscreen: leaving it is visible (and logged as a tab switch by the proctor).
+      void document.documentElement.requestFullscreen?.().catch(() => undefined);
       // Monitors arm AFTER the attempt exists so violations attach to it.
       engineRef.current?.arm();
     } catch (err) {
@@ -193,6 +203,11 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
     };
     window.addEventListener('beforeunload', h);
     return () => window.removeEventListener('beforeunload', h);
+  }, [phase]);
+
+  // Exit fullscreen when the exam ends.
+  useEffect(() => {
+    if (phase === 'done' && document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
   }, [phase]);
 
   const answered = attempt ? attempt.questions.filter((q) => (q.kind === 'mcq' ? responses[q.index]?.selected_index !== undefined : (responses[q.index]?.text ?? '').trim().length > 0)).length : 0;

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { envOrLocalDefault } from '../config/env';
 
 /**
  * Cross-service synchronous READS go through the API Gateway (spec §0 rule 4)
@@ -8,7 +9,10 @@ import { Injectable, Logger } from '@nestjs/common';
 @Injectable()
 export class InternalHttpClient {
   private readonly logger = new Logger(InternalHttpClient.name);
-  private readonly gatewayUrl = process.env.GATEWAY_INTERNAL_URL ?? 'http://localhost:4000';
+  // Fatal in production when unset: a silent localhost fallback here turned
+  // every cross-service read (entitlement checks, learner email lookups,
+  // pending-project lists) into an opaque 500 on Render.
+  private readonly gatewayUrl = envOrLocalDefault('GATEWAY_INTERNAL_URL', 'http://localhost:4000');
 
   async get<T>(path: string): Promise<T> {
     // Bounded timeout so a slow/stuck peer can't tie up this service's request

@@ -7,6 +7,7 @@ import { ArrowRight, Building2, Eye, MessageSquareText, Star, UserRound, Users }
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
+import { BulkPurchases } from './bulk-purchases';
 
 function InstitutionDashboard() {
   const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
@@ -42,6 +43,7 @@ function InstitutionDashboard() {
       />
       <div className="space-y-10">
         <InstructorManager institutionId={institution.id} />
+        <BulkPurchases organizationName={institution.name} />
         <InstitutionCourses />
       </div>
     </PageShell>

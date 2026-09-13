@@ -14,6 +14,9 @@ interface Prefs {
   new_course_instructor_ids: string[];
   new_course_email: boolean;
   new_course_in_app: boolean;
+  course_updates_email: boolean;
+  progress_emails: boolean;
+  inactivity_emails: boolean;
 }
 
 function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
@@ -47,6 +50,9 @@ function PreferencesForm() {
   const [cats, setCats] = useState<Set<string>>(new Set());
   const [email, setEmail] = useState(true);
   const [inApp, setInApp] = useState(true);
+  const [updatesEmail, setUpdatesEmail] = useState(true);
+  const [progressEmail, setProgressEmail] = useState(true);
+  const [inactivityEmail, setInactivityEmail] = useState(true);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   useEffect(() => {
@@ -54,6 +60,9 @@ function PreferencesForm() {
     setCats(new Set(data.new_course_categories ?? []));
     setEmail(data.new_course_email ?? true);
     setInApp(data.new_course_in_app ?? true);
+    setUpdatesEmail(data.course_updates_email ?? true);
+    setProgressEmail(data.progress_emails ?? true);
+    setInactivityEmail(data.inactivity_emails ?? true);
   }, [data]);
 
   const toggleCat = (value: string) => {
@@ -70,7 +79,14 @@ function PreferencesForm() {
     setStatus('saving');
     await api(`/notification-preferences/${userId}`, {
       method: 'PUT',
-      body: { new_course_categories: Array.from(cats), new_course_email: email, new_course_in_app: inApp },
+      body: {
+        new_course_categories: Array.from(cats),
+        new_course_email: email,
+        new_course_in_app: inApp,
+        course_updates_email: updatesEmail,
+        progress_emails: progressEmail,
+        inactivity_emails: inactivityEmail,
+      },
     });
     setStatus('saved');
   };
@@ -80,7 +96,7 @@ function PreferencesForm() {
   return (
     <div className="mx-auto max-w-2xl">
       <BackButton fallback="/notifications" label="Notifications" />
-      <h1 className="text-2xl font-bold">New-course alerts</h1>
+      <h1 className="text-2xl font-bold">Notification preferences</h1>
       <p className="mt-1 text-sm text-gray-600">
         Tell us what you care about and we&apos;ll let you know the moment a matching course goes live.
       </p>
@@ -113,6 +129,13 @@ function PreferencesForm() {
         <h2 className="pb-1 text-sm font-semibold text-gray-900">How you hear about them</h2>
         <Toggle checked={inApp} onChange={(v) => { setInApp(v); setStatus('idle'); }} label="In-app notifications" hint="Show new-course alerts in your notification bell." />
         <Toggle checked={email} onChange={(v) => { setEmail(v); setStatus('idle'); }} label="Email" hint="Send a short email when a matching course launches." />
+      </section>
+
+      <section className="card mt-4 divide-y">
+        <h2 className="pb-1 text-sm font-semibold text-gray-900">Emails about courses you&apos;re taking</h2>
+        <Toggle checked={updatesEmail} onChange={(v) => { setUpdatesEmail(v); setStatus('idle'); }} label="Course updates" hint="When an instructor adds or changes major content in a course you're enrolled in." />
+        <Toggle checked={progressEmail} onChange={(v) => { setProgressEmail(v); setStatus('idle'); }} label="Progress milestones" hint="A short cheer at 50% and 75% — in-app milestones always show." />
+        <Toggle checked={inactivityEmail} onChange={(v) => { setInactivityEmail(v); setStatus('idle'); }} label="Reminders when you go quiet" hint="One email if you haven't studied for two weeks. In-app nudges still appear after a week." />
       </section>
 
       <section className="card mt-4 flex items-center justify-between">

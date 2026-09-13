@@ -15,6 +15,7 @@ import {
   Role,
 } from '@ethiopialearn/contracts';
 import { Course, Lesson, Section } from './entities';
+import { CourseExtrasService } from './course-extras.service';
 import { CreateCourseDto, SectionInputDto, UpdateCourseDto } from './dto';
 
 /** Tiny in-process TTL cache for the hot public catalog reads. */
@@ -61,6 +62,7 @@ export class CourseService implements OnModuleInit {
     @InjectRepository(Lesson) private readonly lessons: Repository<Lesson>,
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
+    private readonly extras: CourseExtrasService,
   ) {}
 
   onModuleInit() {
@@ -78,6 +80,8 @@ export class CourseService implements OnModuleInit {
         course.published_at = new Date();
         await this.courses.save(course);
         this.searchCache.clear(); // new course is now visible in the catalog
+        // Tutor corpus: description + lesson outline become searchable on publish.
+        this.extras.reindexCourse(course.id).catch((err) => this.logger.warn(`tutor reindex failed: ${(err as Error).message}`));
         await this.bus.publish('CoursePublished', {
           course_id: course.id,
           title: course.title,
@@ -235,8 +239,11 @@ export class CourseService implements OnModuleInit {
     await this.ownedDraft(ctx, section!.course_id);
     if (dto.title !== undefined) lesson.title = dto.title;
     if (dto.duration_seconds !== undefined) lesson.duration_seconds = dto.duration_seconds;
+    const videoChanged = dto.video_s3_key !== undefined && dto.video_s3_key !== lesson.video_s3_key;
     if (dto.video_s3_key !== undefined) lesson.video_s3_key = dto.video_s3_key;
-    return this.lessons.save(lesson);
+    const saved = await this.lessons.save(lesson);
+    if (videoChanged) await this.extras.autoChangelog(section!.course_id, ctx.id, `Video updated for lesson "${lesson.title}"`);
+    return saved;
   }
 
   async deleteLesson(ctx: UserContext, lessonId: string) {
@@ -262,7 +269,7 @@ export class CourseService implements OnModuleInit {
     if (!section) throw new NotFoundException('Section not found');
     await this.ownedDraft(ctx, section.course_id);
     const count = await this.lessons.count({ where: { section_id: sectionId } });
-    return this.lessons.save(
+    const lesson = await this.lessons.save(
       this.lessons.create({
         section_id: sectionId,
         title: dto.title,
@@ -271,6 +278,8 @@ export class CourseService implements OnModuleInit {
         order_index: count,
       }),
     );
+    await this.extras.autoChangelog(section.course_id, ctx.id, `New lesson added: "${dto.title}"`);
+    return lesson;
   }
 
   /** draft → submitted; validates the §7.2 required fields. */
@@ -827,6 +836,7 @@ export class CourseService implements OnModuleInit {
       category: course.category,
       language: course.language,
       thumbnail_url: course.thumbnail_url,
+      last_major_update_at: course.last_major_update_at,
       pricing_type: course.pricing_type,
       price_etb: course.price_etb ? Number(course.price_etb) : null,
       owner_id: course.owner_id,

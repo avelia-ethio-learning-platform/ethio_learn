@@ -2,12 +2,13 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { buildTypeOrmOptions, EventBusModule, HealthController, InternalHttpClient } from '@ethiopialearn/common';
 import { S3StorageProvider } from '@ethiopialearn/storage';
-import { Course, Lesson, Section } from './entities';
+import { Course, CourseChangeLog, CourseChatMessage, CourseKnowledge, Lesson, Section } from './entities';
 import { CourseService } from './course.service';
+import { CourseExtrasService } from './course-extras.service';
 import { CourseController } from './course.controller';
 import { CourseInternalController } from './internal.controller';
 
-const entities = [Course, Section, Lesson];
+const entities = [Course, Section, Lesson, CourseChangeLog, CourseKnowledge, CourseChatMessage];
 
 @Module({
   imports: [
@@ -16,6 +17,6 @@ const entities = [Course, Section, Lesson];
     EventBusModule.forRoot({ serviceName: 'course' }),
   ],
   controllers: [CourseController, CourseInternalController, HealthController],
-  providers: [CourseService, InternalHttpClient, S3StorageProvider],
+  providers: [CourseService, CourseExtrasService, InternalHttpClient, S3StorageProvider],
 })
 export class AppModule {}
