@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { GraduationCap, LogOut, Menu, User, X } from 'lucide-react';
-import { setAuth } from '@/lib/api';
+import { api, setAuth } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { NotificationBell } from './NotificationBell';
@@ -56,7 +56,14 @@ export function Header() {
 
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
 
-  const logout = () => {
+  const logout = async () => {
+    // Revoke the refresh token server-side (best-effort), then clear local state.
+    // Without the server call the session stayed valid in Redis for up to 7 days.
+    try {
+      await api('/auth/logout', { method: 'POST', auth: false });
+    } catch {
+      /* offline or already expired — still clear local state */
+    }
     setAuth(null);
     router.push('/');
   };

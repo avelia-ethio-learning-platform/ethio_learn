@@ -48,6 +48,20 @@ export class AuthController {
     return body;
   }
 
+  /**
+   * Log out: revoke the refresh token server-side and clear the cookie. Without
+   * this, "log out" only forgot the token client-side while it stayed valid in
+   * Redis for up to 7 days — a real session-fixation risk on shared devices.
+   */
+  @Post('logout')
+  @HttpCode(200)
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const cookies = parse(req.headers.cookie ?? '');
+    await this.auth.logout(cookies[REFRESH_COOKIE]);
+    this.clearRefreshCookie(res);
+    return { ok: true };
+  }
+
   /** Invitee opens their link → we show whom it belongs to. */
   @Get('invite/:token')
   inviteInfo(@Param('token') token: string) {
@@ -90,6 +104,21 @@ export class AuthController {
         secure: sameSite === 'none' || process.env.NODE_ENV === 'production',
         path: '/api/v1/auth',
         maxAge: this.auth.refreshCookieMaxAge(),
+      }),
+    );
+  }
+
+  /** Expire the refresh cookie with the same attributes it was set with. */
+  private clearRefreshCookie(res: Response) {
+    const sameSite = (process.env.COOKIE_SAMESITE ?? 'lax').toLowerCase() as 'lax' | 'none' | 'strict';
+    res.setHeader(
+      'Set-Cookie',
+      serialize(REFRESH_COOKIE, '', {
+        httpOnly: true,
+        sameSite,
+        secure: sameSite === 'none' || process.env.NODE_ENV === 'production',
+        path: '/api/v1/auth',
+        maxAge: 0,
       }),
     );
   }

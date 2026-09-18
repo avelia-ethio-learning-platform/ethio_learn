@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { randomInt, randomUUID } from 'crypto';
 import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
-import { AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
+import { aiFallbackNote, AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import { AssessmentResultPayload, AssessmentType, EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
 import { Assessment, AssessmentAttempt } from './entities';
@@ -138,7 +138,7 @@ export class AssessmentService {
     } catch (err) {
       this.logger.warn(`AI quiz generation failed, falling back to mock: ${(err as Error).message}`);
       const questions = await new MockAiAssessor().generateQuiz(topic, count);
-      return { questions, ai_live: false, note: 'AI generation failed — showing placeholder questions. Edit them or try again.' };
+      return { questions, ai_live: false, note: aiFallbackNote(err) };
     }
   }
 

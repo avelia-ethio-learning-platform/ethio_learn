@@ -50,7 +50,7 @@ function verifyBearer(req: Request): TokenClaims | null {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return null;
   try {
-    return jwt.verify(header.slice(7), env('JWT_SECRET'), { issuer: 'ethiopialearn' }) as unknown as TokenClaims;
+    return jwt.verify(header.slice(7), env('JWT_SECRET'), { issuer: 'ethiopialearn', algorithms: ['HS256'] }) as unknown as TokenClaims;
   } catch {
     return null;
   }

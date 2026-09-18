@@ -55,7 +55,11 @@ export class AdminUsersController {
     user.status = dto.status;
     user.status_reason = dto.status === UserStatus.ACTIVE ? null : (dto.reason ?? null);
     await this.users.save(user);
-    await appendAudit(this.audit, ctx.id, `user.${dto.status}`, id, { reason: dto.reason ?? null });
+    // Suspending or banning kicks the user out NOW: revoke every refresh token
+    // so they can't keep working until their access token expires + refreshes.
+    let revoked = 0;
+    if (dto.status !== UserStatus.ACTIVE) revoked = await this.auth.revokeAllSessions(id);
+    await appendAudit(this.audit, ctx.id, `user.${dto.status}`, id, { reason: dto.reason ?? null, sessions_revoked: revoked });
     return { id: user.id, status: user.status, status_reason: user.status_reason };
   }
 

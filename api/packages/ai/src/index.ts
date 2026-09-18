@@ -102,6 +102,18 @@ function groqConfigured(): boolean {
   return !!key && key !== 'gsk_REPLACE_ME' && key.startsWith('gsk_');
 }
 
+/**
+ * Operator-facing explanation for why an AI call fell back to the offline
+ * generator. Distinguishes an expired/invalid key (rotate it) from a rate limit
+ * (wait) from an outage, so the note in the UI is actionable instead of generic.
+ */
+export function aiFallbackNote(err: unknown): string {
+  const reason = (err as { reason?: string })?.reason;
+  if (reason === 'auth') return 'The AI service rejected the API key (expired or invalid) — an admin needs to rotate GROQ_API_KEY. Showing placeholder questions you can edit.';
+  if (reason === 'rate_limit') return 'The AI service is rate-limited right now — showing placeholder questions. Try again in a minute.';
+  return 'AI generation was unavailable — showing placeholder questions. Edit them or try again.';
+}
+
 export class MockAiAssessor implements AiAssessor {
   readonly isLive = false;
 
@@ -201,7 +213,13 @@ export class GroqAiAssessor implements AiAssessor {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Groq request failed (${res.status}): ${text.slice(0, 300)}`);
+      // Classify so callers can tell the operator to rotate the key (401 =
+      // expired/invalid) or back off (429) rather than showing a generic error.
+      const err = new Error(`Groq request failed (${res.status}): ${text.slice(0, 300)}`) as Error & { status?: number; reason?: string };
+      err.status = res.status;
+      if (res.status === 401 || /invalid[_ ]api[_ ]key|expired/i.test(text)) err.reason = 'auth';
+      else if (res.status === 429) err.reason = 'rate_limit';
+      throw err;
     }
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const content = body.choices?.[0]?.message?.content;

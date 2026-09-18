@@ -207,6 +207,7 @@ export class AuthService {
     this.assertActive(user); // suspended/banned users are locked out within one token TTL
     // Rotate: single-use refresh tokens (allowlist lives in Redis, spec §1 stack table).
     await this.redis.del(key);
+    await this.redis.srem(`refresh:user:${userId}`, refreshToken);
     const next = await this.issueRefreshToken(user.id);
     return {
       access_token: this.signAccessToken(user),
@@ -242,6 +243,9 @@ export class AuthService {
   /** Authenticated password change (used for first-login and normal changes). */
   async changePassword(userId: string, newPassword: string): Promise<{ message: string }> {
     await this.users.update(userId, { password_hash: await bcrypt.hash(newPassword, 10), must_change_password: false });
+    // Security: a password change signs the account out everywhere. The caller
+    // gets a fresh session; every other refresh token is revoked.
+    await this.revokeAllSessions(userId);
     return { message: 'Password changed.' };
   }
 
@@ -309,6 +313,9 @@ export class AuthService {
     record.used_at = new Date();
     await this.resets.save(record);
     await this.users.update(record.user_id, { password_hash: await bcrypt.hash(newPassword, 10) });
+    // A reset is often triggered by "my account was compromised" — kill every
+    // existing session so an attacker holding an old refresh token is locked out.
+    await this.revokeAllSessions(record.user_id);
     return { message: 'Password updated. You can now log in.' };
   }
 
@@ -316,9 +323,41 @@ export class AuthService {
     return REFRESH_TOKEN_TTL_SECONDS;
   }
 
+  /**
+   * Revoke a single refresh token (logout on this device). Idempotent — a
+   * missing/already-rotated token is a no-op, so logging out twice is fine.
+   */
+  async logout(refreshToken: string | undefined): Promise<void> {
+    if (!refreshToken) return;
+    const key = `refresh:${refreshToken}`;
+    const userId = await this.redis.get(key);
+    await this.redis.del(key);
+    // Drop it from the user's live-session set too (used by revokeAllSessions).
+    if (userId) await this.redis.srem(`refresh:user:${userId}`, refreshToken);
+  }
+
+  /**
+   * Revoke EVERY refresh token for a user — "sign out everywhere". Called after
+   * a password change / reset so a stolen or shared session can't outlive the
+   * credential change (only the access token, ≤15 min, survives). Returns how
+   * many sessions were killed.
+   */
+  async revokeAllSessions(userId: string): Promise<number> {
+    const setKey = `refresh:user:${userId}`;
+    const tokens = await this.redis.smembers(setKey);
+    if (tokens.length) {
+      await this.redis.del(...tokens.map((t) => `refresh:${t}`));
+    }
+    await this.redis.del(setKey);
+    return tokens.length;
+  }
+
   private async issueRefreshToken(userId: string): Promise<string> {
     const token = randomUUID() + randomBytes(16).toString('hex');
     await this.redis.set(`refresh:${token}`, userId, 'EX', REFRESH_TOKEN_TTL_SECONDS);
+    // Index the token under the user so all their sessions can be revoked at once.
+    await this.redis.sadd(`refresh:user:${userId}`, token);
+    await this.redis.expire(`refresh:user:${userId}`, REFRESH_TOKEN_TTL_SECONDS);
     return token;
   }
 
@@ -326,6 +365,7 @@ export class AuthService {
     return jwt.sign({ sub: user.id, role: user.role, email: user.email, name: user.name }, env('JWT_SECRET'), {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
       issuer: 'ethiopialearn',
+      algorithm: 'HS256', // pinned; the gateway verifies with algorithms:['HS256']
     });
   }
 

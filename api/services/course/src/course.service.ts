@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
-import { AiAssessor, createAiAssessor, GeneratedSection, MockAiAssessor } from '@ethiopialearn/ai';
+import { aiFallbackNote, AiAssessor, createAiAssessor, GeneratedSection, MockAiAssessor } from '@ethiopialearn/ai';
 import {
   CourseCategory,
   CourseRatedPayload,
@@ -217,18 +217,20 @@ export class CourseService implements OnModuleInit {
     // The AI call can fail (upstream outage, rate limit, malformed model reply).
     // Never surface that as a 500 to the educator — fall back to an offline
     // starter outline they can edit, and tell them the AI was unavailable.
+    let aiError: unknown;
     try {
       const result = await this.ai.generateCourseStructure(input);
       if (result.sections?.length) return { sections: result.sections, ai_live: this.ai.isLive };
       this.logger.warn('AI returned an empty outline — using offline draft');
     } catch (err) {
+      aiError = err;
       this.logger.error(`AI outline generation failed: ${(err as Error).message}`);
     }
     const fallback = await new MockAiAssessor().generateCourseStructure(input);
     return {
       sections: fallback.sections,
       ai_live: false,
-      note: 'The AI outline service was unavailable, so here is a starter outline. Edit the titles to fit your course.',
+      note: aiError ? aiFallbackNote(aiError) : 'The AI outline service returned nothing usable — here is a starter outline you can edit.',
     };
   }
 
