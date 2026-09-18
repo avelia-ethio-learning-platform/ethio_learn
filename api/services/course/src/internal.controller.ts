@@ -28,6 +28,12 @@ export class CourseInternalController {
     return { lesson_ids: await this.service.lessonIdsForCourse(id) };
   }
 
+  /** Section + lesson titles as a flat outline — used by the AI study coach. */
+  @Get('courses/:id/outline')
+  async outline(@Param('id') id: string) {
+    return { outline: await this.service.outlineForCourse(id) };
+  }
+
   @Get('lessons/:id')
   async lesson(@Param('id') id: string) {
     const { lesson, course } = await this.service.lessonWithCourse(id);

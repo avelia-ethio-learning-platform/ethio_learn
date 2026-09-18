@@ -296,6 +296,8 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
           </div>
         )}
 
+        {result && !result.terminated && attempt && <StudyCoach attemptId={attempt.attempt_id} passed={result.passed} />}
+
         {result?.breakdown && attempt && (
           <div className="card">
             <h2 className="font-semibold">Question results</h2>
@@ -426,6 +428,61 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface StudyPlan {
+  summary: string;
+  plan: { focus: string; reason: string }[];
+  ai_live: boolean;
+  missed_count: number;
+}
+
+/**
+ * AI study coach: on the results screen, turns the questions the learner missed
+ * into a specific, encouraging review plan pointing at real lessons. Loaded on
+ * demand so a pass with no weak spots doesn't spend an AI call unasked.
+ */
+function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean }) {
+  const [plan, setPlan] = useState<StudyPlan | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const load = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      setPlan(await api<StudyPlan>(`/attempts/${attemptId}/study-plan`));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setBusy(false);
+  };
+  if (!plan) {
+    return (
+      <div className="card border-2 border-brand-200 bg-brand-50/50">
+        <p className="font-semibold text-foreground">✨ {passed ? 'Want to reinforce what you learned?' : 'Not quite — let the AI coach help you retry'}</p>
+        <p className="mt-1 text-sm text-gray-600">Get a personalized review plan built from the exact questions you missed and this course&apos;s lessons.</p>
+        <button className="btn mt-3" disabled={busy} onClick={load}>
+          {busy ? 'Building your plan…' : 'Get my study plan'}
+        </button>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      </div>
+    );
+  }
+  return (
+    <div className="card border-2 border-brand-200 bg-brand-50/50">
+      <h2 className="flex items-center gap-2 font-semibold text-foreground">✨ Your study plan</h2>
+      <p className="mt-1 text-sm text-gray-700">{plan.summary}</p>
+      <ol className="mt-3 space-y-2">
+        {plan.plan.map((item, i) => (
+          <li key={i} className="rounded-lg bg-white p-3 text-sm dark:bg-slate-900">
+            <p className="font-semibold text-foreground">{i + 1}. {item.focus}</p>
+            <p className="mt-0.5 text-gray-600">{item.reason}</p>
+          </li>
+        ))}
+      </ol>
+      {!plan.ai_live && <p className="mt-2 text-xs text-gray-400">Offline coach — set a valid GROQ_API_KEY for AI-tailored plans.</p>}
     </div>
   );
 }

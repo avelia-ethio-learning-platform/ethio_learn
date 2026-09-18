@@ -162,6 +162,13 @@ export class OutcomesController {
   }
 
   /** Flag report with screenshots — learner (own attempt) or course/platform staff. */
+  @Get('attempts/:id/study-plan')
+  @UseGuards(RolesGuard)
+  @Roles(Role.LEARNER)
+  studyPlan(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+    return this.assessmentService.studyPlan(ctx, id);
+  }
+
   @Get('attempts/:id/proctor-report')
   @UseGuards(RolesGuard)
   @Roles()

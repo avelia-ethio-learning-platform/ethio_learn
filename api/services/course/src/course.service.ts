@@ -820,6 +820,18 @@ export class CourseService implements OnModuleInit {
     return this.courses.count({ where: { owner_id: ownerId, status: CourseStatus.PUBLISHED } });
   }
 
+  /** Flat "Section — Lesson" outline titles for the AI study coach (spec: grounded suggestions). */
+  async outlineForCourse(courseId: string): Promise<string[]> {
+    const sections = await this.sections.find({ where: { course_id: courseId }, order: { order_index: 'ASC' } });
+    const out: string[] = [];
+    for (const section of sections) {
+      const lessons = await this.lessons.find({ where: { section_id: section.id }, order: { order_index: 'ASC' } });
+      if (!lessons.length) out.push(section.title);
+      for (const l of lessons) out.push(`${section.title} — ${l.title}`);
+    }
+    return out;
+  }
+
   async lessonIdsForCourse(courseId: string): Promise<string[]> {
     const rows = await this.lessons
       .createQueryBuilder('l')

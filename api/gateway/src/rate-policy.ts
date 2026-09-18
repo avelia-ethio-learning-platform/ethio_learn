@@ -19,6 +19,8 @@ const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const AUTH_STRICT =
   /^\/api\/v1\/auth\/(login|signup|verify-email|accept-invite|reset-password(\/confirm)?)$/;
 const AI_ENDPOINTS = /^\/api\/v1\/courses\/generate-structure$|^\/api\/v1\/assessments\/generate$|^\/api\/v1\/courses\/[^/]+\/chat$/;
+// GET endpoints that still hit the LLM (study coach). Chat history GETs do not.
+const AI_GET = /^\/api\/v1\/attempts\/[^/]+\/study-plan$/;
 const COMMUNITY_WRITE = /^\/api\/v1\/(comments|messages)\b|^\/api\/v1\/courses\/[^/]+\/comments$/;
 // Public support contact form — spam target, keyed by IP via the same bucket.
 const SUPPORT = /^\/api\/v1\/support\/contact$/;
@@ -35,6 +37,9 @@ export function classifyRequest(method: string, path: string): RatePolicy {
   if (path.startsWith('/api/v1/auth/')) {
     return m === 'POST' && AUTH_STRICT.test(path) ? 'auth-strict' : 'auth';
   }
+  // The study-plan READ calls the LLM, so it belongs in the AI bucket even
+  // though it is a GET (chat history GETs do NOT call the model — only POSTs do).
+  if (AI_GET.test(path)) return 'ai';
   if (!MUTATING.has(m)) return 'general';
   if (WEBHOOK.test(path)) return 'general';
   if (AI_ENDPOINTS.test(path)) return 'ai';
