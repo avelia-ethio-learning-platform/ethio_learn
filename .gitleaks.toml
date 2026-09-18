@@ -1,0 +1,29 @@
+# Gitleaks config for EthiopiaLearn CI.
+# Uses the default rule set, plus allowlists for intentional placeholders and
+# test fixtures so real leaks stand out. .env*.local is gitignored and never
+# scanned from the working tree; this catches anything that slips into history.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholders, examples and test fixtures — not real secrets"
+paths = [
+  '''\.env\.example$''',
+  '''\.env\..*\.local$''', # gitignored anyway; belt-and-braces
+  '''.*\.spec\.ts$''',
+  '''.*\.test\.ts$''',
+  '''scripts/(demo-seed|e2e-smoke)\.mjs$''',
+]
+regexes = [
+  '''REPLACE[_-][A-Z_]+''',
+  '''gsk_REPLACE_ME''',
+  '''gsk_REPLACE_WITH_A_FRESH_GROQ_KEY''',
+  '''CHASECK_TEST-placeholder''',
+  '''your-app-password''',
+  '''re_xxxx''',
+  '''Password123!''', # documented demo seed password
+  '''dev-webhook-secret''',
+  '''minioadmin''',
+  '''ethiopialearn:ethiopialearn''', # local dev postgres dsn
+  '''guest:guest@localhost''', # local dev rabbitmq
+]

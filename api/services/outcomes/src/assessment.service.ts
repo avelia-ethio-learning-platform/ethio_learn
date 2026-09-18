@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { randomInt, randomUUID } from 'crypto';
 import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
-import { AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
+import { aiFallbackNote, AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import { AssessmentResultPayload, AssessmentType, EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
 import { Assessment, AssessmentAttempt } from './entities';
@@ -138,7 +138,7 @@ export class AssessmentService {
     } catch (err) {
       this.logger.warn(`AI quiz generation failed, falling back to mock: ${(err as Error).message}`);
       const questions = await new MockAiAssessor().generateQuiz(topic, count);
-      return { questions, ai_live: false, note: 'AI generation failed — showing placeholder questions. Edit them or try again.' };
+      return { questions, ai_live: false, note: aiFallbackNote(err) };
     }
   }
 
@@ -621,6 +621,53 @@ export class AssessmentService {
       });
     }
     return out;
+  }
+
+  /**
+   * AI study coach: turn a submitted quiz attempt into a personalized review
+   * plan grounded in the course outline. The learner sees "here's what to
+   * revisit before you retry", pointing at real lessons. Falls back to the
+   * offline coach if the AI is unavailable.
+   */
+  async studyPlan(ctx: UserContext, attemptId: string) {
+    const attempt = await this.attempts.findOne({ where: { id: attemptId } });
+    if (!attempt) throw new NotFoundException('Attempt not found');
+    if (attempt.learner_id !== ctx.id) throw new ForbiddenException('Not your attempt');
+    if (!attempt.submitted_at) throw new BadRequestException('Finish the quiz first');
+    const assessment = await this.assessmentOrThrow(attempt.assessment_id);
+    if (assessment.type !== AssessmentType.QUIZ) throw new BadRequestException('Study plans are for quizzes');
+
+    // The questions this learner got wrong, mapped back to the served paper.
+    const breakdown: any[] = attempt.detail?.breakdown ?? [];
+    const bank: any[] = assessment.config.questions ?? [];
+    const order: number[] = Array.isArray(attempt.detail?.order) ? attempt.detail.order : bank.map((_, i) => i);
+    const missed = breakdown
+      .filter((b) => b.earned < b.points)
+      .map((b) => {
+        const q = bank[order[b.index]] ?? {};
+        return { prompt: String(q.prompt ?? `Question ${b.index + 1}`).slice(0, 300), topic: q.topic ? String(q.topic) : undefined };
+      });
+
+    let courseTitle = 'this course';
+    let outline: string[] = [];
+    try {
+      const course = await this.internal.get<{ title: string }>(`/api/v1/internal/courses/${assessment.course_id}`);
+      courseTitle = course.title;
+      outline = (await this.internal.get<{ outline: string[] }>(`/api/v1/internal/courses/${assessment.course_id}/outline`)).outline;
+    } catch (err) {
+      this.logger.warn(`study plan: outline lookup failed: ${(err as Error).message}`);
+    }
+
+    let plan;
+    let aiLive = this.ai.isLive;
+    try {
+      plan = await this.ai.buildStudyPlan(courseTitle, attempt.score ?? 0, missed, outline);
+    } catch (err) {
+      this.logger.warn(`AI study plan failed, using offline coach: ${(err as Error).message}`);
+      plan = await new MockAiAssessor().buildStudyPlan(courseTitle, attempt.score ?? 0, missed, outline);
+      aiLive = false;
+    }
+    return { attempt_id: attempt.id, score: attempt.score, passed: attempt.passed, missed_count: missed.length, ai_live: aiLive, ...plan };
   }
 
   private async publishResult(assessment: Assessment, attempt: AssessmentAttempt, learnerEmail: string) {

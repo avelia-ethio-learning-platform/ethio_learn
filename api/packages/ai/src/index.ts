@@ -75,9 +75,34 @@ export interface CourseStructureInput {
   learning_style?: string;
 }
 
+export interface StudyPlanItem {
+  /** what to review, e.g. "Section 2: Variables and types" */
+  focus: string;
+  /** why — the concept the learner missed */
+  reason: string;
+}
+
+export interface StudyPlan {
+  /** one-paragraph encouraging summary addressed to the learner */
+  summary: string;
+  /** ordered, specific things to review before retrying */
+  plan: StudyPlanItem[];
+}
+
+export interface MissedQuestion {
+  prompt: string;
+  /** the concept/topic the question tests, if the educator tagged it */
+  topic?: string;
+}
+
 export interface AiAssessor {
   generateVivaQuestion(courseTitle: string, topicContext: string): Promise<string>;
   evaluateVivaAnswer(question: string, answer: string): Promise<VivaEvaluation>;
+  /**
+   * Personalized study coach: turn the questions a learner got wrong into a
+   * short, specific review plan, grounded in the course's lesson outline.
+   */
+  buildStudyPlan(courseTitle: string, score: number, missed: MissedQuestion[], outline: string[]): Promise<StudyPlan>;
   /** Grade an exam written answer against the question (and optional educator guidance). */
   gradeWrittenAnswer(question: string, answer: string, guidance?: string, courseTitle?: string): Promise<WrittenGrade>;
   /** Screen a listing for spam / fabrication and near-duplication of `corpus` (existing catalog). */
@@ -100,6 +125,18 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 function groqConfigured(): boolean {
   const key = process.env.GROQ_API_KEY;
   return !!key && key !== 'gsk_REPLACE_ME' && key.startsWith('gsk_');
+}
+
+/**
+ * Operator-facing explanation for why an AI call fell back to the offline
+ * generator. Distinguishes an expired/invalid key (rotate it) from a rate limit
+ * (wait) from an outage, so the note in the UI is actionable instead of generic.
+ */
+export function aiFallbackNote(err: unknown): string {
+  const reason = (err as { reason?: string })?.reason;
+  if (reason === 'auth') return 'The AI service rejected the API key (expired or invalid) — an admin needs to rotate GROQ_API_KEY. Showing placeholder questions you can edit.';
+  if (reason === 'rate_limit') return 'The AI service is rate-limited right now — showing placeholder questions. Try again in a minute.';
+  return 'AI generation was unavailable — showing placeholder questions. Edit them or try again.';
 }
 
 export class MockAiAssessor implements AiAssessor {
@@ -179,6 +216,18 @@ export class MockAiAssessor implements AiAssessor {
       not_covered: false,
     };
   }
+
+  /** Offline study plan: point at the outline sections nearest the missed topics. */
+  async buildStudyPlan(courseTitle: string, score: number, missed: MissedQuestion[], outline: string[]): Promise<StudyPlan> {
+    const plan = (missed.length ? missed : [{ prompt: 'the core concepts' }]).slice(0, 5).map((m) => ({
+      focus: outline[0] ?? `Review "${courseTitle}"`,
+      reason: `Revisit before retrying: ${(m.topic || m.prompt).slice(0, 120)}`,
+    }));
+    return {
+      summary: `You scored ${score}%. Review the topics below and try again — you're close.`,
+      plan,
+    };
+  }
 }
 
 export class GroqAiAssessor implements AiAssessor {
@@ -201,7 +250,13 @@ export class GroqAiAssessor implements AiAssessor {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Groq request failed (${res.status}): ${text.slice(0, 300)}`);
+      // Classify so callers can tell the operator to rotate the key (401 =
+      // expired/invalid) or back off (429) rather than showing a generic error.
+      const err = new Error(`Groq request failed (${res.status}): ${text.slice(0, 300)}`) as Error & { status?: number; reason?: string };
+      err.status = res.status;
+      if (res.status === 401 || /invalid[_ ]api[_ ]key|expired/i.test(text)) err.reason = 'auth';
+      else if (res.status === 429) err.reason = 'rate_limit';
+      throw err;
     }
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const content = body.choices?.[0]?.message?.content;
@@ -284,6 +339,18 @@ export class GroqAiAssessor implements AiAssessor {
       .map((n) => input.chunks[Number(n) - 1]?.title)
       .filter((t): t is string => !!t);
     return { answer: p.answer, sources: [...new Set(titles)], not_covered: !!p.not_covered };
+  }
+
+  async buildStudyPlan(courseTitle: string, score: number, missed: MissedQuestion[], outline: string[]): Promise<StudyPlan> {
+    const raw = await this.chat(
+      'You are an encouraging study coach on EthiopiaLearn. A learner just took a quiz and got some questions wrong. Using ONLY the course outline provided, produce a short, specific review plan that points them at the outline sections most relevant to what they missed. Be warm and concrete; never invent lessons that are not in the outline. Reply in the learner\'s likely language (Amharic if the questions are in Amharic). Reply with JSON {"summary": "one encouraging paragraph", "plan": [{"focus": "an outline section title, verbatim", "reason": "the concept to revisit, one sentence"}]} — at most 5 plan items.',
+      `Course: ${courseTitle}\nScore: ${score}%\n\nCourse outline (use these titles verbatim in "focus"):\n${outline.slice(0, 40).map((o, i) => `${i + 1}. ${o}`).join('\n')}\n\nQuestions the learner got wrong:\n${missed.slice(0, 15).map((m, i) => `${i + 1}. ${m.prompt}${m.topic ? ` [topic: ${m.topic}]` : ''}`).join('\n') || '(none — they passed, reinforce the whole course)'}`,
+    );
+    const p = this.parseJson<StudyPlan>(raw);
+    return {
+      summary: p.summary ?? `You scored ${score}%. Review the topics below and try again.`,
+      plan: (p.plan ?? []).slice(0, 5).filter((x) => x?.focus),
+    };
   }
 
   async generateCourseStructure(input: CourseStructureInput): Promise<{ sections: GeneratedSection[] }> {

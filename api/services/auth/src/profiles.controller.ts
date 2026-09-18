@@ -106,6 +106,8 @@ export class ProfilesController {
       await this.educatorProfiles.save(profile);
     }
 
+    // Kill every live session so the just-deleted account can't keep acting.
+    await this.auth.revokeAllSessions(ctx.id);
     await appendAudit(this.audit, ctx.id, 'user.self_deleted', ctx.id, {});
     return { deleted: true, message: 'Your account has been deleted. Personal data was removed.' };
   }
