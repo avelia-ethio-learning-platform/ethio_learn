@@ -2,7 +2,8 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, BookPlus } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, BookPlus, FileText } from 'lucide-react';
 import { api } from '@/lib/api';
 import { COURSE_CATEGORIES } from '@/lib/categories';
 import { RequireRole } from '@/components/RequireRole';
@@ -11,13 +12,16 @@ import { PageShell } from '@/components/PageChrome';
 
 function NewCourseForm() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'draft' | 'generate' | null>(null);
   const [pricing, setPricing] = useState('free');
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setBusy(true);
+    // Which button submitted: "Create and generate from a file" opens the outline generator next.
+    const generate = ((e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value === 'generate';
+    setBusy(generate ? 'generate' : 'draft');
     setError('');
     const form = new FormData(e.currentTarget);
     try {
@@ -32,10 +36,11 @@ function NewCourseForm() {
           ...(pricing !== 'free' ? { price_etb: Number(form.get('price_etb')) } : {}),
         },
       });
-      router.push(`/teach/courses/${course.id}`);
+      queryClient.invalidateQueries({ queryKey: ['own-courses'] });
+      router.push(generate ? `/teach/courses/${course.id}?generate=1` : `/teach/courses/${course.id}`);
     } catch (err) {
       setError((err as Error).message);
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -64,12 +69,12 @@ function NewCourseForm() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="label">Category</label>
-              <select name="category" className="input">
-                <option value="tech">Tech</option>
-                <option value="business">Business</option>
-                <option value="freelancing">Freelancing</option>
-                <option value="healthcare">Healthcare</option>
-                <option value="other">Other</option>
+              <select name="category" className="input" defaultValue="tech">
+                {COURSE_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -92,10 +97,18 @@ function NewCourseForm() {
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
             </p>
           )}
-          <button className="btn w-full !py-3" disabled={busy}>
-            {busy ? 'Creating…' : 'Create draft'}
-          </button>
-          <p className="text-xs text-gray-400">Next you&apos;ll add sections, lessons and a thumbnail, then submit for quality review (24–48h).</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button className="btn w-full !py-3" name="action" value="draft" disabled={!!busy}>
+              {busy === 'draft' ? 'Creating…' : 'Create draft'}
+            </button>
+            <button className="btn-secondary w-full !py-3" name="action" value="generate" disabled={!!busy}>
+              <FileText className="h-4 w-4" /> {busy === 'generate' ? 'Creating…' : 'Create and generate from a file'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400">
+            Next you&apos;ll add sections, lessons and a thumbnail, then submit for quality review (24–48h). &ldquo;Generate from a file&rdquo; opens the AI
+            outline tool: upload a PDF, Word file or notes and it drafts the sections and lessons for you to edit.
+          </p>
         </form>
       </div>
     </PageShell>

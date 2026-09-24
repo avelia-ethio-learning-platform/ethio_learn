@@ -88,6 +88,9 @@ jobs:
           for i in $(seq 1 30); do curl -sf http://localhost:4000/health && break; sleep 2; done
       - name: End-to-end flow (educator → QO → learner → certificate)
         run: node scripts/demo-seed.mjs
+      # Before the smoke step: that one hammers the login limiter on purpose.
+      - name: Re-review, resumable upload and outline flows
+        run: node scripts/e2e-revisions.mjs
       - name: Smoke assertions (security envelope + video progress + 429)
         run: E2E_CHECK_RATE_LIMIT=1 node scripts/e2e-smoke.mjs
       - name: Dump service logs on failure

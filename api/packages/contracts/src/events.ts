@@ -1,4 +1,4 @@
-import { OwnerType, PricingType, QaDecisionAction, TrustTier } from './enums';
+import { OwnerType, PricingType, QaDecisionAction, QaItemKind, TrustTier } from './enums';
 
 /**
  * Full domain event registry (spec §5). No other events exist in MVP.
@@ -53,6 +53,11 @@ export const EVENT_TYPES = [
   'CourseUpdated', // educator posted a MAJOR change log entry → tell enrolled learners
   'CourseProgressMilestone', // learner crossed 25/50/75% → progress ping
   'LearnerInactive', // no activity for N days → in-app first, email later
+  // Post-approval re-review (staged revisions of a live course):
+  'CourseRevisionSubmitted', // educator submitted staged changes to a live course → QO queue
+  'CourseReviewWithdrawn', // a submission or revision was pulled back → close its QA item
+  'CourseRevisionReviewed', // QO decided a revision (approve | coach | reject)
+  'CourseRevisionClosed', // revision applied / rejected / discarded → outcomes, enrollment, notification react
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -142,6 +147,12 @@ export interface CourseReviewedPayload {
   owner_user_id: string;
   owner_email: string;
   course_title: string;
+  /**
+   * What the QA item was reviewing. Optional for events published before it
+   * existed: 'post_publish' / 'appeal' approvals must not be announced as a
+   * first publish ("Your course is live").
+   */
+  kind?: QaItemKind;
 }
 
 export interface CourseAppealSubmittedPayload {
@@ -166,6 +177,8 @@ export interface CourseSubmittedToInstitutionPayload {
   course_title: string;
   institution_admin_user_id: string;
   instructor_name: string;
+  /** Set when this is a revision of a live course rather than a first submission. */
+  revision_id?: string | null;
 }
 
 export interface CourseInstitutionReviewedPayload {
@@ -174,6 +187,8 @@ export interface CourseInstitutionReviewedPayload {
   owner_user_id: string; // the instructor
   action: 'approve' | 'reject';
   notes: string | null;
+  /** Set when the institution decided a revision of a live course. */
+  revision_id?: string | null;
 }
 
 export interface PaymentConfirmedPayload {
@@ -427,4 +442,99 @@ export interface LearnerInactivePayload {
   progress_percent: number;
   /** escalation step: in-app first, email when still inactive later */
   channel: 'in_app' | 'email';
+}
+
+
+// ---- Post-approval re-review (staged revisions) ------------------------------
+
+/** Deterministic, cheap summary of a revision — shown as chips in the QA queue. */
+export interface RevisionDiffSummary {
+  /** course-level fields that change, e.g. ['title','description','thumbnail_url','category','pricing_type','price_etb'] */
+  fields_changed: string[];
+  sections_added: number;
+  sections_removed: number;
+  sections_changed: number;
+  lessons_added: number;
+  lessons_removed: number;
+  lessons_changed: number;
+  videos_replaced: number;
+  price_from: number | null;
+  price_to: number | null;
+  pricing_type_from: string | null;
+  pricing_type_to: string | null;
+  /** an added or changed section becomes free-preview (content becomes public) */
+  new_free_preview_section: boolean;
+  knowledge_added: number;
+  assessments_added: number;
+}
+
+export interface CourseRevisionSubmittedPayload {
+  course_id: string;
+  revision_id: string;
+  /** LIVE title (the pending title, if any, is in changed_text / diff) */
+  course_title: string;
+  owner_id: string;
+  owner_type: OwnerType;
+  owner_user_id: string;
+  owner_email: string;
+  owner_name: string;
+  diff_summary: RevisionDiffSummary;
+  /** new/changed learner-facing text only (titles, descriptions, lesson summaries, note excerpts), ≤ 8000 chars — for the AI screen */
+  changed_text: string;
+  changelog_summary: string | null;
+  major: boolean;
+  /**
+   * Hash of the staged content frozen at submit. Quality echoes it back on
+   * CourseRevisionReviewed so an approval can only apply the exact content
+   * the officer reviewed (a revision id is reused across resubmissions).
+   */
+  content_hash: string;
+  /** Pending assessment ids the reviewer is shown; only these go live on approve. */
+  assessment_ids: string[];
+}
+
+export interface CourseReviewWithdrawnPayload {
+  course_id: string;
+  /** null = a first-time submission (course status) was withdrawn, not a revision */
+  revision_id: string | null;
+}
+
+export interface CourseRevisionReviewedPayload {
+  course_id: string;
+  revision_id: string;
+  review_item_id: string;
+  action: 'approve' | 'coach' | 'reject';
+  notes: string | null;
+  qo_id: string;
+  owner_user_id: string;
+  owner_email: string;
+  course_title: string;
+  /** content_hash from the CourseRevisionSubmitted this item was created from */
+  content_hash: string;
+}
+
+export interface CourseRevisionClosedPayload {
+  course_id: string;
+  revision_id: string;
+  outcome: 'applied' | 'rejected' | 'discarded';
+  /** ISO time the revision was submitted (null if discarded before submit) */
+  submitted_at: string | null;
+  added_lesson_ids: string[];
+  removed_lesson_ids: string[];
+  replaced_video_lesson_ids: string[];
+  changelog_summary: string | null;
+  major: boolean;
+  owner_user_id: string;
+  owner_email: string;
+  course_title: string;
+  /** reviewer notes (coach/reject); null when applied without notes */
+  notes: string | null;
+  /**
+   * applied/rejected: the pending assessment ids frozen at submit (the ones the
+   * reviewer saw) — outcomes activates or deletes exactly these.
+   * discarded: empty; outcomes deletes pending assessments created before closed_at.
+   */
+  assessment_ids: string[];
+  /** ISO time the revision was closed */
+  closed_at: string;
 }

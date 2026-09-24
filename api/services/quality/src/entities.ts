@@ -1,5 +1,13 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Unique } from 'typeorm';
-import { FraudSignalStatus, FraudSubjectType, OwnerType, QaReviewStatus, TrustTier } from '@ethiopialearn/contracts';
+import {
+  FraudSignalStatus,
+  FraudSubjectType,
+  OwnerType,
+  QaItemKind,
+  QaReviewStatus,
+  RevisionDiffSummary,
+  TrustTier,
+} from '@ethiopialearn/contracts';
 
 @Entity({ name: 'qa_review_items' })
 export class QaReviewItem {
@@ -39,12 +47,50 @@ export class QaReviewItem {
   @Column({ type: 'text', default: '' })
   coaching_notes: string;
 
-  /** AI plagiarism screening result (spec §12.1). */
+  /**
+   * AI plagiarism screening result (spec §12.1). `{ pending: true }` while the screen is still
+   * running: the item is saved before the screen so a withdrawal can always find it.
+   */
   @Column({ type: 'jsonb', default: {} })
   plagiarism: Record<string, unknown>;
 
   @Column({ default: 'submission' })
   trigger: string;
+
+  /** What is under review — decides the allowed actions, the event published and the SLA. */
+  @Column({ type: 'varchar', length: 20, default: 'new_course' })
+  kind: QaItemKind;
+
+  /** Course-service revision (staged change set) this item reviews; kind 'revision' only. */
+  @Column({ type: 'uuid', nullable: true })
+  revision_id: string | null;
+
+  /**
+   * Fingerprint of the staged content this item was created for (CourseRevisionSubmitted),
+   * echoed on the decision. The course service reuses a revision id when the educator withdraws
+   * and resubmits, so without it an approval of this item could apply content nobody reviewed.
+   * Null for non-revision items (and revision items queued before the column existed).
+   */
+  @Column({ type: 'varchar', nullable: true })
+  content_hash: string | null;
+
+  /** Event-carried change counts, rendered as chips in the queue (revisions only). */
+  @Column({ type: 'jsonb', default: {} })
+  diff_summary: Partial<RevisionDiffSummary>;
+
+  @Column({ type: 'text', default: '' })
+  changelog_summary: string;
+
+  /** Queue tie-breaker after the SLA deadline (1 = low-risk revision). Never an approval signal. */
+  @Column({ type: 'int', default: 0 })
+  priority: number;
+
+  /** Soft lock so two officers don't review the same item; it lapses after 30 minutes. */
+  @Column({ type: 'uuid', nullable: true })
+  claimed_by: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  claimed_at: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

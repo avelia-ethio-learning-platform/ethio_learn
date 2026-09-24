@@ -157,8 +157,9 @@ export class CertificateService implements OnModuleInit {
     return this.storage.getSignedStreamUrl(cert.pdf_s3_key, 900);
   }
 
+  /** Pending (not yet reviewed) assessments never gate or decorate a certificate. */
   async allRequiredAssessmentsPassed(courseId: string, learnerId: string): Promise<boolean> {
-    const required = await this.assessments.find({ where: { course_id: courseId, is_required: true } });
+    const required = await this.assessments.find({ where: { course_id: courseId, is_required: true, state: 'live' } });
     for (const assessment of required) {
       const passed = await this.attempts.findOne({
         where: { assessment_id: assessment.id, learner_id: learnerId, passed: true },
@@ -169,7 +170,7 @@ export class CertificateService implements OnModuleInit {
   }
 
   private async passedAssessmentTypes(courseId: string, learnerId: string): Promise<string[]> {
-    const all = await this.assessments.find({ where: { course_id: courseId } });
+    const all = await this.assessments.find({ where: { course_id: courseId, state: 'live' } });
     const types: string[] = [];
     for (const assessment of all) {
       const passed = await this.attempts.findOne({

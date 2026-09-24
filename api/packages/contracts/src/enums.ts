@@ -168,6 +168,8 @@ export enum QaDecisionAction {
   APPROVE = 'approve',
   COACH = 'coach',
   FLAG = 'flag',
+  /** Revisions only: discard the staged changes (the live course is untouched). */
+  REJECT = 'reject',
 }
 
 export enum QaReviewStatus {
@@ -176,7 +178,29 @@ export enum QaReviewStatus {
   APPROVED = 'approved',
   COACHED = 'coached',
   FLAGGED = 'flagged',
+  /** A revision the QO turned down (staged changes discarded). */
+  REJECTED = 'rejected',
+  /** The educator pulled the submission back before a decision. */
+  WITHDRAWN = 'withdrawn',
 }
+
+/** What a QA queue item is reviewing. */
+export type QaItemKind = 'new_course' | 'revision' | 'appeal' | 'post_publish';
+export const QA_ITEM_KINDS: QaItemKind[] = ['new_course', 'revision', 'appeal', 'post_publish'];
+
+/**
+ * Lifecycle of a staged change set on an already-approved (published/unlisted)
+ * course. The live course is never modified until the revision is 'applied'.
+ */
+export type CourseRevisionStatus =
+  | 'draft' // educator is still editing; changes are staged, not visible to learners
+  | 'institution_review' // institution course: waiting for the institution admin
+  | 'submitted' // waiting for a quality officer
+  | 'applied' // approved and copied onto the live course (terminal)
+  | 'rejected' // QO rejected; staged data discarded (terminal)
+  | 'withdrawn' // legacy/terminal marker for a revision closed by a course status change
+  | 'discarded'; // educator threw the staged changes away (terminal)
+export const OPEN_REVISION_STATUSES: CourseRevisionStatus[] = ['draft', 'institution_review', 'submitted'];
 
 export enum FraudSubjectType {
   USER = 'user',

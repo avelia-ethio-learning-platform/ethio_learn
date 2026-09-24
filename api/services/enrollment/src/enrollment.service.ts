@@ -8,12 +8,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { In, IsNull, LessThan, Repository } from 'typeorm';
+import { In, IsNull, LessThan, MoreThan, Repository } from 'typeorm';
 import { envInt, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
 import {
   CourseCompletedPayload,
   CourseProgressMilestonePayload,
   CoursePublishedPayload,
+  CourseRevisionClosedPayload,
   EnrollmentCreatedPayload,
   EntitlementStatus,
   LearnerInactivePayload,
@@ -35,6 +36,9 @@ interface CourseInfo {
 }
 
 const MILESTONES = [25, 50, 75] as const;
+
+/** Enrollments re-checked per query when a revision removes lessons. */
+const RECHECK_BATCH = 200;
 
 @Injectable()
 export class EnrollmentService implements OnModuleInit {
@@ -66,6 +70,7 @@ export class EnrollmentService implements OnModuleInit {
         }),
       );
     });
+    this.bus.subscribe<CourseRevisionClosedPayload>('CourseRevisionClosed', (p) => this.onRevisionApplied(p));
   }
 
   /** Direct enrollment — FREE courses only. Paid/freemium go through the payment flow (spec §4.3). */
@@ -133,7 +138,7 @@ export class EnrollmentService implements OnModuleInit {
   }
 
   async completeLesson(ctx: UserContext, lessonId: string) {
-    const lesson = await this.internal.get<{ course_id: string }>(`/api/v1/internal/lessons/${lessonId}`);
+    const lesson = await this.liveLesson(lessonId);
     const enrollment = await this.enrollments.findOne({ where: { learner_id: ctx.id, course_id: lesson.course_id } });
     if (!enrollment || enrollment.entitlement_status !== EntitlementStatus.ACTIVE) {
       throw new ForbiddenException('No active entitlement for this course');
@@ -149,7 +154,7 @@ export class EnrollmentService implements OnModuleInit {
    * Watching ≥90% auto-completes the lesson.
    */
   async saveVideoProgress(ctx: UserContext, lessonId: string, positionSeconds: number, durationSeconds: number) {
-    const lesson = await this.internal.get<{ course_id: string }>(`/api/v1/internal/lessons/${lessonId}`);
+    const lesson = await this.liveLesson(lessonId);
     const enrollment = await this.enrollments.findOne({ where: { learner_id: ctx.id, course_id: lesson.course_id } });
     if (!enrollment || enrollment.entitlement_status !== EntitlementStatus.ACTIVE) {
       throw new ForbiddenException('No active entitlement for this course');
@@ -199,6 +204,16 @@ export class EnrollmentService implements OnModuleInit {
     enrollment.changelog_seen_at = new Date();
     await this.enrollments.save(enrollment);
     return { changelog_seen_at: enrollment.changelog_seen_at };
+  }
+
+  /**
+   * A lesson added by a revision that is not approved yet is invisible to
+   * learners, so progress on it is refused until the revision goes live.
+   */
+  private async liveLesson(lessonId: string): Promise<{ course_id: string }> {
+    const lesson = await this.internal.get<{ course_id: string; live?: boolean }>(`/api/v1/internal/lessons/${lessonId}`);
+    if (lesson.live === false) throw new NotFoundException('Lesson not available yet');
+    return lesson;
   }
 
   private async recordCompletion(enrollment: Enrollment, lessonId: string, learnerEmail: string) {
@@ -444,6 +459,91 @@ export class EnrollmentService implements OnModuleInit {
     this.logger.log(`entitlement refunded: enrollment ${enrollment.id}`);
   }
 
+  /**
+   * A revision went live on the course. Only an applied revision changes what
+   * learners see, so rejected and discarded ones are ignored.
+   * - Replaced videos: the old video's duration would stay as the
+   *   denominator (saveVideoProgress keeps the longest duration seen), so a
+   *   shorter new video could never reach the auto-complete threshold. Watch
+   *   state restarts; a completed lesson stays completed (lesson_progress is
+   *   kept).
+   * - Removed lessons: a learner who had finished every other lesson is now
+   *   at 100% but only gets completed when they next complete a lesson, so
+   *   unfinished enrollments are re-checked here.
+   */
+  private async onRevisionApplied(p: CourseRevisionClosedPayload) {
+    if (p.outcome !== 'applied') return;
+    // CoursePublished only fires on a first publish, so an approved rename
+    // reaches My Learning and the progress/inactivity messages only from here.
+    // course_title is the post-apply title. A failed write only leaves the old
+    // title, so it must not stop the progress fixes below.
+    if (p.course_title) {
+      try {
+        await this.courseCache.update({ course_id: p.course_id }, { title: p.course_title });
+      } catch (err) {
+        this.logger.warn(`revision ${p.revision_id}: course title cache not updated: ${(err as Error).message}`);
+      }
+    }
+    if (p.replaced_video_lesson_ids?.length) {
+      const { affected } = await this.videoProgress.update(
+        { lesson_id: In(p.replaced_video_lesson_ids) },
+        // Keep updated_at so the reset doesn't make this lesson the player's "resume here" lesson.
+        { position_seconds: 0, duration_seconds: 0, percent_watched: 0, updated_at: () => 'updated_at' },
+      );
+      this.logger.log(`revision ${p.revision_id}: video progress reset on ${affected ?? 0} row(s)`);
+    }
+    if (p.removed_lesson_ids?.length) await this.recheckCompletions(p.course_id, p.revision_id);
+  }
+
+  /** Completes every unfinished active enrollment on the course that has now done all live lessons. */
+  private async recheckCompletions(courseId: string, revisionId: string) {
+    const { lesson_ids } = await this.internal.get<{ lesson_ids: string[] }>(`/api/v1/internal/courses/${courseId}/lesson-ids`);
+    if (lesson_ids.length === 0) return;
+    let completed = 0;
+    let afterId: string | null = null;
+    for (;;) {
+      // Keyset paging: completing an enrollment drops it out of the
+      // completed_at IS NULL filter, so OFFSET paging would skip rows.
+      const batch: Enrollment[] = await this.enrollments.find({
+        where: {
+          course_id: courseId,
+          entitlement_status: EntitlementStatus.ACTIVE,
+          completed_at: IsNull(),
+          ...(afterId ? { id: MoreThan(afterId) } : {}),
+        },
+        order: { id: 'ASC' },
+        take: RECHECK_BATCH,
+      });
+      if (batch.length === 0) break;
+      afterId = batch[batch.length - 1].id;
+      const done = await this.liveLessonsDone(batch.map((e) => e.id), lesson_ids);
+      for (const enrollment of batch) {
+        if ((done.get(enrollment.id) ?? 0) < lesson_ids.length) continue;
+        try {
+          // No request context here: detectCompletion looks the learner's email up.
+          if (await this.detectCompletion(enrollment, '', lesson_ids)) completed += 1;
+        } catch (err) {
+          this.logger.warn(`completion re-check failed for enrollment ${enrollment.id}: ${(err as Error).message}`);
+        }
+      }
+      if (batch.length < RECHECK_BATCH) break;
+    }
+    this.logger.log(`revision ${revisionId}: ${completed} enrollment(s) completed after lessons were removed`);
+  }
+
+  /** Completed live lessons per enrollment, in one grouped query. */
+  private async liveLessonsDone(enrollmentIds: string[], lessonIds: string[]): Promise<Map<string, number>> {
+    const rows = await this.progress
+      .createQueryBuilder('p')
+      .select('p.enrollment_id', 'enrollment_id')
+      .addSelect('COUNT(*)', 'done')
+      .where('p.enrollment_id IN (:...enrollmentIds)', { enrollmentIds })
+      .andWhere('p.lesson_id IN (:...lessonIds)', { lessonIds })
+      .groupBy('p.enrollment_id')
+      .getRawMany<{ enrollment_id: string; done: string }>();
+    return new Map(rows.map((r) => [r.enrollment_id, Number(r.done)]));
+  }
+
   private async publishEnrollmentCreated(
     enrollment: Enrollment,
     courseTitle: string,
@@ -481,25 +581,31 @@ export class EnrollmentService implements OnModuleInit {
     });
   }
 
-  private async detectCompletion(enrollment: Enrollment, learnerEmail: string) {
-    if (enrollment.completed_at) return;
-    const { lesson_ids } = await this.internal.get<{ lesson_ids: string[] }>(
-      `/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`,
-    );
-    if (lesson_ids.length === 0) return;
+  /** Returns true when this call completed the enrollment (and published CourseCompleted). */
+  private async detectCompletion(enrollment: Enrollment, learnerEmail: string, lessonIds?: string[]): Promise<boolean> {
+    if (enrollment.completed_at) return false;
+    const lesson_ids =
+      lessonIds ??
+      (await this.internal.get<{ lesson_ids: string[] }>(`/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`)).lesson_ids;
+    if (lesson_ids.length === 0) return false;
     const done = await this.progress.count({ where: { enrollment_id: enrollment.id, lesson_id: In(lesson_ids) } });
-    if (done < lesson_ids.length) return;
+    if (done < lesson_ids.length) return false;
 
-    enrollment.completed_at = new Date();
-    await this.enrollments.save(enrollment);
+    // Conditional write: the learner's own last lesson and the revision
+    // re-check can race, and only one of them may publish CourseCompleted.
+    const completedAt = new Date();
+    const { affected } = await this.enrollments.update({ id: enrollment.id, completed_at: IsNull() }, { completed_at: completedAt });
+    if (affected === 0) return false;
+    enrollment.completed_at = completedAt;
 
     let learnerName = '';
     let educatorId = '';
     let educatorName = '';
     let courseTitle = '';
     try {
-      const user = await this.internal.get<{ name: string }>(`/api/v1/internal/users/${enrollment.learner_id}`);
+      const user = await this.internal.get<{ name: string; email: string }>(`/api/v1/internal/users/${enrollment.learner_id}`);
       learnerName = user.name;
+      learnerEmail = learnerEmail || user.email;
       const course = await this.internal.get<{ title: string; owner_id: string; owner_type: string }>(
         `/api/v1/internal/courses/${enrollment.course_id}`,
       );
@@ -521,9 +627,10 @@ export class EnrollmentService implements OnModuleInit {
       course_title: courseTitle,
       educator_id: educatorId,
       educator_name: educatorName,
-      completed_at: enrollment.completed_at.toISOString(),
+      completed_at: completedAt.toISOString(),
     });
     this.logger.log(`course completed: enrollment ${enrollment.id}`);
+    return true;
   }
 
   private async progressPercent(enrollment: Enrollment): Promise<number> {

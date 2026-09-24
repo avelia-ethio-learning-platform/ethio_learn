@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ClipboardCheck, FileUp, Mic, Play } from 'lucide-react';
 import { api } from '@/lib/api';
+import { formatBytes, putFile, type UploadState } from '@/lib/upload';
+import { UploadProgress } from '@/components/UploadProgress';
 
 interface AssessmentSummary {
   id: string;
@@ -145,6 +147,8 @@ function VivaForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => v
 function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => void }) {
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
+  const [progress, setProgress] = useState<{ fileName: string; state: UploadState } | null>(null);
+  const [error, setError] = useState('');
   return (
     <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
       <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -153,20 +157,40 @@ function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) =
       {attempt.instructions && <p className="mt-2 text-sm leading-relaxed text-gray-600">{attempt.instructions}</p>}
       <input
         type="file"
+        disabled={uploading}
         className="mt-3 block w-full text-sm text-gray-500 file:mr-3 file:cursor-pointer file:rounded-xl file:border-0 file:bg-brand-500/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand-600 hover:file:bg-brand-500/20"
         onChange={async (e) => {
-          const file = e.target.files?.[0];
+          const input = e.currentTarget;
+          const file = input.files?.[0];
           if (!file) return;
+          setError('');
+          setUploaded(false);
+          setProgress(null);
           if (file.size > attempt.max_bytes) {
-            alert('File exceeds the 50MB limit.');
+            setError(`This file is ${formatBytes(file.size)}; the limit is ${formatBytes(attempt.max_bytes)}. Compress it or upload a smaller file.`);
+            input.value = '';
             return;
           }
           setUploading(true);
-          await fetch(attempt.upload_url, { method: 'PUT', body: file, headers: { 'Content-Type': 'application/octet-stream' } });
-          setUploading(false);
-          setUploaded(true);
+          try {
+            // The signed URL comes from the attempt; only a 2xx from storage means the file is there.
+            await putFile(attempt.upload_url, file, {
+              contentType: 'application/octet-stream',
+              onState: (state) => setProgress({ fileName: file.name, state }),
+            });
+            setUploaded(true);
+          } catch (err) {
+            setProgress(null);
+            setError((err as Error).message);
+            // Clear the picker so choosing the same file again fires onChange.
+            input.value = '';
+          } finally {
+            setUploading(false);
+          }
         }}
       />
+      {progress && <UploadProgress fileName={progress.fileName} state={progress.state} />}
+      {error && <p className="mt-2 text-sm font-medium text-red-500">{error}</p>}
       <button className="btn mt-3" disabled={!uploaded || uploading} onClick={() => onSubmit({ file_key: attempt.file_key })}>
         {uploading ? 'Uploading…' : 'Submit project'}
       </button>

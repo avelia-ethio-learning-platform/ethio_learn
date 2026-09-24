@@ -1,14 +1,15 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { Brackets, Repository } from 'typeorm';
+import { InternalHttpClient, UserContext } from '@ethiopialearn/common';
 import { AiAssessor, createAiAssessor, MockAiAssessor, TutorChunk } from '@ethiopialearn/ai';
-import { CourseStatus, CourseUpdatedPayload, EntitlementStatus, Role } from '@ethiopialearn/contracts';
+import { CourseStatus, EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { Course, CourseChangeLog, CourseChatMessage, CourseKnowledge, Lesson, Section } from './entities';
 
 const CHUNK_CHARS = 800;
 const MAX_KNOWLEDGE_CHARS = 200_000; // per upload
 const TOP_K = 6;
+const KNOWLEDGE_EXCERPT_CHARS = 400;
 
 /** Split text on paragraph/sentence boundaries into ~CHUNK_CHARS pieces. */
 export function chunkText(text: string, size = CHUNK_CHARS): string[] {
@@ -56,45 +57,23 @@ export class CourseExtrasService {
     @InjectRepository(CourseChangeLog) private readonly changelog: Repository<CourseChangeLog>,
     @InjectRepository(CourseKnowledge) private readonly knowledge: Repository<CourseKnowledge>,
     @InjectRepository(CourseChatMessage) private readonly chat: Repository<CourseChatMessage>,
-    private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
   ) {}
 
   // ---- Change log ----------------------------------------------------------
 
-  /** Educator posts an update. Major → enrolled learners are notified + badge flips. */
-  async postChangelog(ctx: UserContext, courseId: string, summary: string, major: boolean) {
+  /**
+   * Educator posts a note to the change log. Always MINOR (no learner email):
+   * a major announcement goes out only when a reviewed revision is applied,
+   * so learners are never told about changes that are not live.
+   */
+  async postChangelog(ctx: UserContext, courseId: string, summary: string) {
     const course = await this.ownedCourse(ctx, courseId);
     if (course.status !== CourseStatus.PUBLISHED) throw new BadRequestException('Change log entries are for published courses');
     const entry = await this.changelog.save(
-      this.changelog.create({ course_id: courseId, kind: major ? 'major' : 'minor', summary: summary.trim().slice(0, 1000), created_by: ctx.id }),
+      this.changelog.create({ course_id: courseId, kind: 'minor', summary: summary.trim().slice(0, 1000), created_by: ctx.id }),
     );
-    if (major) {
-      course.last_major_update_at = entry.created_at;
-      await this.courses.save(course);
-      await this.bus.publish<CourseUpdatedPayload>('CourseUpdated', {
-        course_id: course.id,
-        course_title: course.title,
-        owner_user_id: course.created_by,
-        summary: entry.summary,
-        changelog_id: entry.id,
-      });
-    }
     return this.changelogView(entry);
-  }
-
-  /** Auto-written by authoring actions on a PUBLISHED course (lesson added, video replaced…). */
-  async autoChangelog(courseId: string, userId: string, summary: string) {
-    const course = await this.courses.findOne({ where: { id: courseId } });
-    if (!course || course.status !== CourseStatus.PUBLISHED) return;
-    // Collapse bursts: one auto entry per summary per 10 minutes.
-    const recent = await this.changelog
-      .createQueryBuilder('c')
-      .where('c.course_id = :courseId AND c.kind = :kind AND c.summary = :summary', { courseId, kind: 'minor', summary })
-      .andWhere("c.created_at > now() - interval '10 minutes'")
-      .getOne();
-    if (recent) return;
-    await this.changelog.save(this.changelog.create({ course_id: courseId, kind: 'minor', summary: summary.slice(0, 1000), created_by: userId }));
   }
 
   async listChangelog(courseId: string) {
@@ -108,16 +87,37 @@ export class CourseExtrasService {
 
   // ---- Tutor knowledge base --------------------------------------------------
 
-  /** Educator uploads notes / transcript text the tutor may answer from. */
-  async addKnowledge(ctx: UserContext, courseId: string, title: string, text: string) {
-    await this.ownedCourse(ctx, courseId);
+  /**
+   * Store notes / transcript text the tutor may answer from. Authorization and
+   * the revision gate live in CourseService.addKnowledge. 'pending' notes (on an
+   * approved course) replace only an earlier pending upload of the same title:
+   * the live version keeps serving learners until the revision is applied.
+   */
+  async addKnowledge(course: Course, title: string, text: string, state: 'live' | 'pending') {
     const cleanTitle = title.trim().slice(0, 200) || 'Notes';
     if (text.length > MAX_KNOWLEDGE_CHARS) throw new BadRequestException(`Text is too long (max ${MAX_KNOWLEDGE_CHARS.toLocaleString()} characters per upload)`);
     const chunks = chunkText(text);
     if (!chunks.length) throw new BadRequestException('Text is empty');
-    await this.knowledge.delete({ course_id: courseId, source: 'notes', title: cleanTitle });
-    await this.knowledge.save(chunks.map((c, i) => this.knowledge.create({ course_id: courseId, source: 'notes', title: cleanTitle, chunk_index: i, text: c })));
-    return { title: cleanTitle, chunks: chunks.length };
+    await this.knowledge.delete({ course_id: course.id, source: 'notes', title: cleanTitle, state });
+    await this.knowledge.save(
+      chunks.map((c, i) => this.knowledge.create({ course_id: course.id, source: 'notes', title: cleanTitle, chunk_index: i, text: c, state })),
+    );
+    return { title: cleanTitle, chunks: chunks.length, state };
+  }
+
+  /** Notes staged on an approved course, one entry per document (working copy + review diff). */
+  async pendingKnowledge(courseId: string): Promise<Array<{ title: string; chars: number; excerpt: string }>> {
+    const rows = await this.knowledge.find({
+      where: { course_id: courseId, state: 'pending' },
+      order: { title: 'ASC', chunk_index: 'ASC' },
+    });
+    const docs = new Map<string, string[]>();
+    for (const r of rows) docs.set(r.title, [...(docs.get(r.title) ?? []), r.text]);
+    return [...docs.entries()].map(([title, texts]) => ({
+      title,
+      chars: texts.reduce((n, t) => n + t.length, 0),
+      excerpt: texts.join(' ').slice(0, KNOWLEDGE_EXCERPT_CHARS),
+    }));
   }
 
   async listKnowledge(ctx: UserContext, courseId: string) {
@@ -128,24 +128,42 @@ export class CourseExtrasService {
       .addSelect('k.title', 'title')
       .addSelect('COUNT(*)', 'chunks')
       .addSelect('SUM(LENGTH(k.text))', 'chars')
+      .addSelect('k.state', 'state')
       .where('k.course_id = :courseId', { courseId })
       .groupBy('k.source')
       .addGroupBy('k.title')
+      .addGroupBy('k.state')
       .orderBy('k.source', 'ASC')
-      .getRawMany<{ source: string; title: string; chunks: string; chars: string }>();
-    return rows.map((r) => ({ source: r.source, title: r.title, chunks: Number(r.chunks), chars: Number(r.chars) }));
-  }
-
-  async deleteKnowledge(ctx: UserContext, courseId: string, title: string) {
-    await this.ownedCourse(ctx, courseId);
-    const res = await this.knowledge.delete({ course_id: courseId, source: 'notes', title });
-    return { deleted: res.affected ?? 0 };
+      .getRawMany<{ source: string; title: string; chunks: string; chars: string; state: 'live' | 'pending' }>();
+    return rows.map((r) => ({ source: r.source, title: r.title, chunks: Number(r.chunks), chars: Number(r.chars), state: r.state }));
   }
 
   /**
-   * (Re)build the automatic part of the corpus from the course itself:
-   * description + every section/lesson title and summary. Runs on publish and
-   * on demand; educator notes are left untouched.
+   * Remove a tutor note by title. Authorization and the edit gate live in
+   * CourseService.deleteKnowledge. On an approved course (`staged`) a title
+   * can exist twice — the approved live note and a pending re-upload — and
+   * only one of them is ever removed: `state` picks it, and without `state`
+   * the pending upload goes first, so undoing a staged re-upload never takes
+   * the approved note away from learners. A live note is removed at once: it
+   * is tutor reference material, not learner-visible course content.
+   * On a draft every note is live, so the title alone identifies it.
+   */
+  async deleteKnowledge(courseId: string, title: string, staged: boolean, state?: 'live' | 'pending') {
+    const note = { course_id: courseId, source: 'notes', title };
+    if (!staged) return { deleted: (await this.knowledge.delete(note)).affected ?? 0, state: 'live' as const };
+    for (const s of state ? [state] : (['pending', 'live'] as const)) {
+      const res = await this.knowledge.delete({ ...note, state: s });
+      if (res.affected || state) return { deleted: res.affected ?? 0, state: s };
+    }
+    return { deleted: 0, state: null };
+  }
+
+  /**
+   * (Re)build the automatic part of the corpus from the LIVE course:
+   * description + every live section/lesson title and summary. Staged edits
+   * ('added' rows, pending fields) are left out until their revision is
+   * applied, which reindexes again. Runs on publish and on demand; educator
+   * notes are left untouched.
    */
   async reindexCourse(courseId: string) {
     const course = await this.courses.findOne({ where: { id: courseId } });
@@ -158,7 +176,10 @@ export class CourseExtrasService {
     );
     const sections = await this.sections.find({ where: { course_id: courseId }, order: { order_index: 'ASC' } });
     for (const section of sections) {
-      const lessons = await this.lessons.find({ where: { section_id: section.id }, order: { order_index: 'ASC' } });
+      if (section.pending_state === 'added') continue;
+      const lessons = (await this.lessons.find({ where: { section_id: section.id }, order: { order_index: 'ASC' } })).filter(
+        (l) => l.pending_state !== 'added',
+      );
       lessons.forEach((l, i) => {
         const text = `${section.title} — ${l.title}. ${l.summary ?? ''}`.trim();
         rows.push(this.knowledge.create({ course_id: courseId, source: 'lessons', title: `Lesson: ${l.title}`, chunk_index: i, text }));
@@ -229,10 +250,12 @@ export class CourseExtrasService {
     };
   }
 
+  /** Only 'live' knowledge: notes staged on an approved course wait for review. */
   private async retrieve(courseId: string, question: string): Promise<TutorChunk[]> {
     const ranked = await this.knowledge
       .createQueryBuilder('k')
       .where('k.course_id = :courseId', { courseId })
+      .andWhere("k.state = 'live'")
       .andWhere("to_tsvector('simple', k.text) @@ plainto_tsquery('simple', :q)", { q: question })
       .orderBy("ts_rank(to_tsvector('simple', k.text), plainto_tsquery('simple', :q))", 'DESC')
       .limit(TOP_K)
@@ -246,9 +269,15 @@ export class CourseExtrasService {
       .sort((a, b) => b.length - a.length)
       .slice(0, 3);
     if (!words.length) return [];
-    const qb = this.knowledge.createQueryBuilder('k').where('k.course_id = :courseId', { courseId });
-    words.forEach((w, i) => qb.orWhere(`k.text ILIKE :w${i}`, { [`w${i}`]: `%${w}%` }));
-    const rows = await qb.andWhere('k.course_id = :courseId', { courseId }).limit(TOP_K).getMany();
+    // The keyword alternatives are bracketed so the OR can never widen the
+    // search beyond this course's live rows.
+    const rows = await this.knowledge
+      .createQueryBuilder('k')
+      .where('k.course_id = :courseId', { courseId })
+      .andWhere("k.state = 'live'")
+      .andWhere(new Brackets((b) => words.forEach((w, i) => b.orWhere(`k.text ILIKE :w${i}`, { [`w${i}`]: `%${w}%` }))))
+      .limit(TOP_K)
+      .getMany();
     return rows.map((k) => ({ title: k.title, text: k.text }));
   }
 

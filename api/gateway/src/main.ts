@@ -11,8 +11,9 @@ import { timingSafeEqual } from 'crypto';
 import { Agent } from 'http';
 import { Agent as HttpsAgent } from 'https';
 import { env, envInt } from '@ethiopialearn/common';
-import { AuthMode, resolveRoute } from './routes';
-import { classifyRequest, RatePolicy } from './rate-policy';
+import { AuthMode, authModeFor, resolveRoute } from './routes';
+import { matchPath } from './request-path';
+import { classifyRequest, DEFAULT_LIMITS_PER_MIN as DEFAULTS, RatePolicy } from './rate-policy';
 
 // Reuse TCP connections to the upstream services instead of opening a new
 // socket per request — the single biggest gateway win under high concurrency.
@@ -117,15 +118,15 @@ async function bootstrap() {
         res.status(429).json({ statusCode: 429, message: 'Too many requests — please slow down and try again shortly.' }),
     });
   const limiters: Record<RatePolicy, ReturnType<typeof rateLimit> | null> = {
-    'auth-strict': makeLimiter(envInt('RATE_LIMIT_AUTH_STRICT_PER_MIN', 10), ipKey),
-    auth: makeLimiter(envInt('RATE_LIMIT_AUTH_PER_MIN', 30), ipKey),
-    ai: makeLimiter(envInt('RATE_LIMIT_AI_PER_MIN', 5), userKey),
-    'community-write': makeLimiter(envInt('RATE_LIMIT_COMMUNITY_PER_MIN', 20), userKey),
-    'payment-initiate': makeLimiter(envInt('RATE_LIMIT_PAYMENT_PER_MIN', 10), userKey),
-    write: makeLimiter(envInt('RATE_LIMIT_WRITE_PER_MIN', 60), userKey),
+    'auth-strict': makeLimiter(envInt('RATE_LIMIT_AUTH_STRICT_PER_MIN', DEFAULTS['auth-strict']), ipKey),
+    auth: makeLimiter(envInt('RATE_LIMIT_AUTH_PER_MIN', DEFAULTS.auth), ipKey),
+    ai: makeLimiter(envInt('RATE_LIMIT_AI_PER_MIN', DEFAULTS.ai), userKey),
+    'community-write': makeLimiter(envInt('RATE_LIMIT_COMMUNITY_PER_MIN', DEFAULTS['community-write']), userKey),
+    'payment-initiate': makeLimiter(envInt('RATE_LIMIT_PAYMENT_PER_MIN', DEFAULTS['payment-initiate']), userKey),
+    write: makeLimiter(envInt('RATE_LIMIT_WRITE_PER_MIN', DEFAULTS.write), userKey),
     general: null, // covered by the always-on limiter below
   };
-  const generalLimiter = makeLimiter(envInt('RATE_LIMIT_PER_MIN', 300), userKey);
+  const generalLimiter = makeLimiter(envInt('RATE_LIMIT_PER_MIN', DEFAULTS.general), userKey);
 
   const targetFor = (req: Request) => resolveRoute((req.originalUrl ?? req.url).split('?')[0])?.target();
 
@@ -162,8 +163,11 @@ async function bootstrap() {
   // Mounted at the ROOT so Express never strips the /api/v1 prefix — the full
   // path is used both for route resolution and for forwarding upstream.
   app.use((req: Request, res: Response, next: NextFunction) => {
+    // Upstream routing ignores case and a trailing slash, so the prefix check,
+    // route table and rate buckets all use the normalised path. The request is
+    // forwarded with its original URL.
     const path = (req.originalUrl ?? req.url).split('?')[0];
-    if (!path.startsWith('/api/v1')) {
+    if (!matchPath(path).startsWith('/api/v1')) {
       next();
       return;
     }
@@ -181,7 +185,7 @@ async function bootstrap() {
     delete req.headers['x-user-email'];
     delete req.headers['x-internal-token'];
 
-    const mode: AuthMode = typeof rule.auth === 'function' ? rule.auth(req.method, path) : rule.auth;
+    const mode: AuthMode = authModeFor(rule, req.method, path);
 
     // Proof to the upstream service that this request came through the gateway
     // rather than straight off the internet (services enforce it when

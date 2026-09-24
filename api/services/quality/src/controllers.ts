@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
 import { FraudSubjectType, QaDecisionAction, Role, TrustTier } from '@ethiopialearn/contracts';
@@ -67,11 +67,37 @@ export class QualityController {
     return this.service.reviewDetail(courseId);
   }
 
+  /** Back-compat: works only while the course has exactly one open item (else 409 → decide by item). */
   @Post('qa/courses/:id/decision')
   @UseGuards(RolesGuard)
   @Roles(Role.QUALITY_OFFICER, Role.PLATFORM_ADMIN)
   decide(@CurrentUser() ctx: UserContext, @Param('id') courseId: string, @Body() dto: QaDecisionDto) {
     return this.service.decide(ctx, courseId, dto.action, dto.notes);
+  }
+
+  @Get('qa/items/:id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.QUALITY_OFFICER, Role.PLATFORM_ADMIN)
+  item(@Param('id', ParseUUIDPipe) itemId: string) {
+    return this.service.getItem(itemId);
+  }
+
+  @Post('qa/items/:id/claim')
+  @UseGuards(RolesGuard)
+  @Roles(Role.QUALITY_OFFICER, Role.PLATFORM_ADMIN)
+  claim(@CurrentUser() ctx: UserContext, @Param('id', ParseUUIDPipe) itemId: string) {
+    return this.service.claim(ctx, itemId);
+  }
+
+  @Post('qa/items/:id/decision')
+  @UseGuards(RolesGuard)
+  @Roles(Role.QUALITY_OFFICER, Role.PLATFORM_ADMIN)
+  decideItem(
+    @CurrentUser() ctx: UserContext,
+    @Param('id', ParseUUIDPipe) itemId: string,
+    @Body() dto: QaDecisionDto,
+  ) {
+    return this.service.decideItem(ctx, itemId, dto.action, dto.notes);
   }
 
   // ---- Ratings & reviews ----

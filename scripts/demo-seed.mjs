@@ -71,7 +71,7 @@ async function loadSampleVideo() {
 async function uploadVideo(educatorToken, bytes) {
   if (!bytes) return undefined;
   try {
-    const grant = await call('/uploads', { method: 'POST', token: educatorToken, body: { kind: 'video', filename: 'sample.mp4', content_type: 'video/mp4' } });
+    const grant = await call('/uploads', { method: 'POST', token: educatorToken, body: { kind: 'video', filename: 'sample.mp4', content_type: 'video/mp4', size: bytes.length } });
     const put = await fetch(grant.upload_url, { method: 'PUT', body: bytes, headers: { 'Content-Type': 'video/mp4' } });
     if (!put.ok) throw new Error(`status ${put.status}`);
     console.log(`→ uploaded sample video to MinIO (${(bytes.length / 1024).toFixed(0)} KB, key ${grant.key})`);
@@ -317,7 +317,29 @@ async function main() {
         },
       },
     });
-    console.log(`→ added a quiz to "${quizCourse.title}"`);
+    // The course is already live, so the quiz is staged until a quality officer
+    // approves the update — submit it and approve it like a real revision.
+    const { revision_id } = await call(`/courses/${quizCourse.id}/revisions/submit`, {
+      method: 'POST',
+      token: educator,
+      body: { summary: 'Added a short HTML quiz', major: false },
+    });
+    let item = null;
+    for (let i = 0; i < 15 && !item; i++) {
+      await sleep(600);
+      item = (await call('/qa/queue', { token: qo })).find((it) => it.revision_id === revision_id) ?? null;
+    }
+    if (item) {
+      await call(`/qa/items/${item.id}/decision`, { method: 'POST', token: qo, body: { action: 'approve' } });
+      let live = false;
+      for (let i = 0; i < 15 && !live; i++) {
+        await sleep(600);
+        live = (await call(`/assessments?course_id=${quizCourse.id}`, { token: learner })).length > 0;
+      }
+      console.log(`→ added a quiz to "${quizCourse.title}" ${live ? '(update approved ✓)' : '(approve sent, applying…)'}`);
+    } else {
+      console.log(`→ added a quiz to "${quizCourse.title}" … update NOT queued (check quality service)`);
+    }
   }
 
   // Enroll the learner in a free course and complete every lesson → certificate.

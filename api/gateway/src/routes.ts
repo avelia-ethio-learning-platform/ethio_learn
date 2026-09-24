@@ -1,9 +1,10 @@
 import { env } from '@ethiopialearn/common';
+import { matchPath } from './request-path';
 
 export type AuthMode = 'public' | 'jwt' | 'internal';
 
 export interface RouteRule {
-  /** Regex tested against the request path (without query string). */
+  /** Regex tested against the normalised request path (see matchPath): lower case, no trailing slash. */
   pattern: RegExp;
   target: () => string;
   /** Static auth mode, or a resolver for method-dependent routes. */
@@ -33,6 +34,8 @@ export const ROUTES: RouteRule[] = [
   { pattern: /^\/api\/v1\/internal\/educators\/[^/]+\/trust-tier$/, target: QUALITY, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/(users|educators|institutions)\b/, target: AUTH, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/courses\/[^/]+\/learners$/, target: ENROLLMENT, auth: 'internal' },
+  // Staged assessments of a live course live in outcomes; the course service reads them for the revision diff.
+  { pattern: /^\/api\/v1\/internal\/courses\/[^/]+\/pending-assessments$/, target: OUTCOMES, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/(courses|lessons|owners)\b/, target: COURSE, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/enrollments\/[^/]+\/outcomes-status$/, target: OUTCOMES, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/(entitlements|enrollments)\b/, target: ENROLLMENT, auth: 'internal' },
@@ -103,6 +106,13 @@ export const ROUTES: RouteRule[] = [
   { pattern: /^\/api\/v1\/support\/contact$/, target: NOTIFICATION, auth: 'public' },
 ];
 
-export function resolveRoute(path: string): RouteRule | undefined {
+/** The rule for a path (without query string). Case and trailing-slash variants resolve like the canonical path. */
+export function resolveRoute(rawPath: string): RouteRule | undefined {
+  const path = matchPath(rawPath);
   return ROUTES.find((rule) => rule.pattern.test(path));
+}
+
+/** How a request on `rule` is authenticated; method-dependent rules see the normalised path. */
+export function authModeFor(rule: RouteRule, method: string, rawPath: string): AuthMode {
+  return typeof rule.auth === 'function' ? rule.auth(method.toUpperCase(), matchPath(rawPath)) : rule.auth;
 }

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -29,6 +30,7 @@ export class LessonInputDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(400)
   video_s3_key?: string;
 
   @IsOptional()
@@ -52,6 +54,7 @@ export class UpdateLessonDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(400)
   video_s3_key?: string;
 
   @IsOptional()
@@ -71,9 +74,23 @@ export class SectionInputDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(12, { message: 'A section can have at most 12 lessons — split it into two sections.' })
   @ValidateNested({ each: true })
   @Type(() => LessonInputDto)
   lessons?: LessonInputDto[];
+}
+
+/** Used for PUT /sections/:id — all fields are optional (partial update). */
+export class UpdateSectionDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(160)
+  title?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  is_free_preview?: boolean;
 }
 
 export class CreateCourseDto {
@@ -142,17 +159,4 @@ export class UpdateCourseDto {
   @IsNumber()
   @Min(1)
   price_etb?: number;
-}
-
-export class UploadRequestDto {
-  @IsIn(['video', 'thumbnail', 'photo'])
-  kind: 'video' | 'thumbnail' | 'photo';
-
-  @IsString()
-  @MaxLength(200)
-  filename: string;
-
-  @IsString()
-  @MaxLength(100)
-  content_type: string;
 }
