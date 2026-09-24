@@ -3,6 +3,7 @@ import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-valid
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { env } from '@ethiopialearn/common';
+import { escapeHtml } from './email-html';
 import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
 import { NotificationLog } from './entities';
 
@@ -24,10 +25,6 @@ class ContactDto {
   @MinLength(10)
   @MaxLength(4000)
   message: string;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
 
 /**

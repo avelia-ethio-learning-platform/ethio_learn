@@ -1,5 +1,38 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
-import { CourseCategory, CourseStatus, OwnerType, PricingType } from '@ethiopialearn/contracts';
+import { CourseCategory, CourseRevisionStatus, CourseStatus, OwnerType, PricingType } from '@ethiopialearn/contracts';
+
+/**
+ * Staged (not yet reviewed) metadata edits on a PUBLISHED/UNLISTED course.
+ * Only keys that differ from the live columns are present; learner paths
+ * never read it. price_etb uses the same string form as the live column.
+ */
+export interface CoursePending {
+  title?: string;
+  description?: string;
+  category?: CourseCategory;
+  thumbnail_url?: string | null;
+  pricing_type?: PricingType;
+  price_etb?: string | null;
+}
+
+export interface SectionPending {
+  title?: string;
+  is_free_preview?: boolean;
+}
+
+export interface LessonPending {
+  title?: string;
+  summary?: string | null;
+  duration_seconds?: number;
+  video_s3_key?: string | null;
+}
+
+/**
+ * 'added'   = created inside an open revision; invisible to learners until applied.
+ * 'removed' = deleted inside an open revision; still live until applied.
+ * null      = plain live row.
+ */
+export type PendingState = 'added' | 'removed';
 
 // NOTE: the spec's data dictionary lists a `course_categories` table; the
 // authoritative creation payload (§7.2) fixes categories to a closed enum, so
@@ -96,6 +129,10 @@ export class Course {
   /** Last MAJOR change-log entry — drives the "Recently updated" badge and learner notifications. */
   @Column({ type: 'timestamptz', nullable: true })
   last_major_update_at: Date | null;
+
+  /** Staged metadata overrides of the open revision (see CoursePending). */
+  @Column({ type: 'jsonb', nullable: true })
+  pending: CoursePending | null;
 }
 
 @Entity({ name: 'sections' })
@@ -123,6 +160,12 @@ export class Section {
 
   @OneToMany(() => Lesson, (l) => l.section)
   lessons: Lesson[];
+
+  @Column({ type: 'varchar', nullable: true })
+  pending_state: PendingState | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  pending: SectionPending | null;
 }
 
 @Entity({ name: 'lessons' })
@@ -154,6 +197,67 @@ export class Lesson {
 
   @Column({ type: 'int' })
   order_index: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  pending_state: PendingState | null;
+
+  /** Staged edits of a live lesson; a replacement video waits in pending.video_s3_key. */
+  @Column({ type: 'jsonb', nullable: true })
+  pending: LessonPending | null;
+}
+
+/**
+ * A staged change set on an approved course. The partial unique index keeps
+ * at most ONE open revision per course, so concurrent get-or-create calls
+ * cannot fork the staged state.
+ */
+@Entity({ name: 'course_revisions' })
+@Index('uq_course_revisions_open', ['course_id'], {
+  unique: true,
+  where: `"status" IN ('draft', 'institution_review', 'submitted')`,
+})
+export class CourseRevision {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Index()
+  @Column('uuid')
+  course_id: string;
+
+  @Column({ type: 'varchar', default: 'draft' })
+  status: CourseRevisionStatus;
+
+  @Column('uuid')
+  created_by: string;
+
+  @Column({ type: 'text', nullable: true })
+  changelog_summary: string | null;
+
+  @Column({ default: false })
+  changelog_major: boolean;
+
+  /** Diff frozen at submit time — what the reviewer approved. */
+  @Column({ type: 'jsonb', nullable: true })
+  diff: Record<string, unknown> | null;
+
+  /** sha256 of the canonical pending state at submit; apply refuses on mismatch. */
+  @Column({ type: 'varchar', nullable: true })
+  content_hash: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  submitted_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  decided_at: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  decided_by: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  decision_notes: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  created_at: Date;
 }
 
 
@@ -211,6 +315,10 @@ export class CourseKnowledge {
 
   @Column({ type: 'text' })
   text: string;
+
+  /** 'pending' = educator note added to a live course; hidden from the tutor until its revision is applied. */
+  @Column({ type: 'varchar', default: 'live' })
+  state: 'live' | 'pending';
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

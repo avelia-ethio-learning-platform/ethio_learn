@@ -195,23 +195,43 @@ List your own courses. → `[ courseSummary + { status } ]`
 // → courseDetail
 ```
 
-### `PUT /courses/:id` `[jwt: educator]`  (draft only)
+### `PUT /courses/:id` `[jwt: educator | institution_admin | platform_admin]`
 Any of: `{ title?, description?, category?, thumbnail_url?, pricing_type?, price_etb? }`
+- **draft** → edits the course directly.
+- **published / unlisted** → the change is **staged** (see *Staged changes to a live course*); learners keep the approved version.
+- **submitted / under_review / institution_review**, or a staged change set that is in review → `409` ("withdraw it to make changes").
+- **flagged / archived** → `400`.
+The same rules apply to every section/lesson/tutor-note write below.
+
+### `GET /courses/:id/working` `[jwt: owner | institution_admin of the course | platform_admin]`
+The educator's **working copy**: the live course with staged changes merged in. The teach page edits this.
+```json
+{ ...courseSummary (merged), "status": "published", "review_feedback": { … } | null,
+  "pending_fields": ["title"],                 // course fields that differ from live
+  "has_pending_changes": true,
+  "revision": { "id", "status": "draft"|"institution_review"|"submitted", "changelog_summary",
+                "major", "submitted_at", "decision_notes" } | null,
+  "pending_assessments_count": 1, "pending_knowledge_count": 0,
+  "sections": [ { "id", "title", "order", "is_free_preview",
+                  "pending_state": "added"|"removed"|null, "changed_fields": ["title"],
+                  "lessons": [ { "id", "title", "summary", "duration_seconds", "order", "has_video",
+                                 "video_pending": false, "pending_state": null, "changed_fields": [] } ] } ] }
+```
 
 ### Lifecycle actions `[jwt: educator]`  (POST, no body unless noted)
 | Endpoint | Effect |
 |---|---|
 | `POST /courses/:id/submit` | draft → `submitted` (solo) or `institution_review` (institution instructor) |
-| `POST /courses/:id/withdraw` | submitted/under_review/institution_review → `draft` |
+| `POST /courses/:id/withdraw` | submitted/under_review/institution_review → `draft` (also removes it from the QO queue) |
 | `POST /courses/:id/unpublish` | published → `unlisted` |
 | `POST /courses/:id/republish` | unlisted → `published` |
 | `POST /courses/:id/appeal` | flagged → `submitted`. Body: `{ "note": "…(10-2000)" }` |
 | `POST /courses/:id/duplicate` | copies course+sections+lessons as a new `draft` |
-| `POST /courses/:id/archive` | draft/unlisted → `archived` |
+| `POST /courses/:id/archive` | draft/unlisted → `archived` (closes an open change set) |
 | `POST /courses/:id/restore` | archived → `draft` |
 
-### `POST /courses/generate-structure` `[jwt: educator | institution_admin]`  ✨ AI
-Draft an outline from a prompt and/or uploaded document text (the file is parsed in the browser; send the extracted text here). Nothing is saved — the educator edits it, then creates sections/lessons.
+### `POST /courses/generate-structure` `[jwt: educator | institution_admin | platform_admin]`  ✨ AI
+Draft an outline from a prompt and/or document text. PDF/DOCX are parsed **in the browser** (pdf.js / mammoth) and condensed to a **digest** — `DOCUMENT OUTLINE (authoritative order):` (one heading per line, 2-space indent per level) then `EXCERPTS:` — that fits `source_text` (≤ 30 000 chars; the model reads the first 24 000). Nothing is saved — the educator edits it, then applies it.
 ```json
 // request
 { "title": "Mobile Money for Merchants",
@@ -223,12 +243,13 @@ Draft an outline from a prompt and/or uploaded document text (the file is parsed
 // response
 { "sections": [ { "title", "is_free_preview", "lessons": [ { "title", "summary" } ] } ],
   "ai_live": true,     // false = offline draft (no GROQ_API_KEY, or AI was unavailable)
-  "note?": "The AI outline service was unavailable, so here is a starter outline…" }
+  "origin": "model" | "headings" | "placeholder",   // headings = built from the document's own headings
+  "note?": "AI is offline — this is a starter outline built from your document's headings; edit it." }
 // Never 500s: if the AI call fails, it returns an editable starter outline + `note`.
 ```
 
 ### `POST /courses/:id/apply-structure` `[jwt: educator | institution_admin | platform_admin]`
-Apply a generated outline in **one atomic call** — sections, lessons and their AI `summary` lines land on the (draft) course together.
+Apply a generated outline in **one atomic call** (one transaction) — sections, lessons and their `summary` lines land together, or nothing does. 1–12 sections, ≤ 12 lessons each. On a live course they are staged.
 ```json
 // request
 { "sections": [ { "title", "is_free_preview",
@@ -237,34 +258,73 @@ Apply a generated outline in **one atomic call** — sections, lessons and their
 { "applied": true, "sections_added": 4, "lessons_added": 12 }
 ```
 
-### Sections & lessons `[jwt: educator]`
+### Sections & lessons `[jwt: educator | institution_admin | platform_admin]`
 | Endpoint | Body | Result |
 |---|---|---|
 | `POST /courses/:id/sections` | `{ title, is_free_preview, lessons? }` | section |
+| `PUT /sections/:id` | `{ title?, is_free_preview? }` | section |
 | `POST /sections/:id/lessons` | `{ title, summary?, video_s3_key?, duration_seconds? }` | lesson |
-| `PUT /lessons/:id` | `{ title?, duration_seconds?, video_s3_key? }` | lesson |
-| `DELETE /lessons/:id` | — | `{ deleted: true }` |
-| `DELETE /sections/:id` | — | `{ deleted: true }` |
+| `PUT /lessons/:id` | `{ title?, summary?, duration_seconds?, video_s3_key? }` | lesson |
+| `DELETE /lessons/:id` | — | `{ deleted: true, staged }` (`staged: true` = marked for removal on a live course) |
+| `DELETE /sections/:id` | — | `{ deleted: true, staged }` |
 
-### `POST /uploads` `[jwt: educator | institution_admin]`
-Get a signed S3 URL, then `PUT` the file bytes to `upload_url`.
+`video_s3_key` must be a key under the **course author's** upload prefix that exists in storage (use the key an upload returned) — otherwise `400`.
+
+### Staged changes to a live course `[jwt]`
+| Endpoint | Who | Result |
+|---|---|---|
+| `GET /courses/:id/revisions/current/diff` | owner, QO, platform admin, the course's institution admin | the focused diff below; `404` = nothing staged; `503` = the new assessments could not be loaded (retry — never approve without them) |
+| `POST /courses/:id/revisions/submit` | owner | body `{ summary?: string (≤1000, the change-log line), major?: boolean (notify enrolled learners) }` → `{ revision_id, status: "submitted" \| "institution_review" }`; `400` "There are no changes to submit." |
+| `POST /courses/:id/revisions/withdraw` | owner | back to `draft` (editable), leaves the QO queue |
+| `POST /courses/:id/revisions/discard` | owner | throws the staged changes away → `{ discarded: true }` |
+```json
+// diff
+{ "revision": { … } | null, "course": { "id", "title", "status", "thumbnail_url" },
+  "metadata": [ { "field": "title", "before": "…", "after": "…" } ],
+  "sections": { "added": [ { "id", "title", "is_free_preview", "lessons": [ … ] } ], "removed": [ { "id", "title" } ],
+                "changed": [ { "id", "before": { "title", "is_free_preview" }, "after": { … } } ] },
+  "lessons":  { "added": [ { "id", "section_id", "section_title", "title", "summary", "has_video" } ],
+                "removed": [ { "id", "section_title", "title" } ],
+                "changed": [ { "id", "section_title", "title_before", "title_after", "summary_before", "summary_after",
+                               "duration_before", "duration_after", "video_replaced" } ] },
+  "knowledge_added": [ { "title", "chars", "excerpt" } ],
+  "pending_assessments": [ { "id", "type", "is_required", "pass_score", "question_count", "questions": [ … answer keys … ] } ],
+  "diff_summary": { "fields_changed": [], "sections_added": 1, "lessons_removed": 1, "videos_replaced": 0, "price_from", "price_to", … },
+  "empty": false }
+```
+On approve the change set is applied atomically; the course keeps its status (`published`/`unlisted`) and `published_at`.
+
+### `POST /uploads` `[jwt: educator | institution_admin | platform_admin]`
+Small files in one signed `PUT` (thumbnails/photos ≤ 5 MiB as jpeg/png/webp; videos < 16 MiB). The signed URL enforces the declared `size` and `content_type` — send exactly that `Content-Type` on the PUT.
 ```json
 // request
-{ "kind": "video" | "thumbnail" | "photo", "filename": "intro.mp4", "content_type": "video/mp4" }
+{ "kind": "video" | "thumbnail" | "photo", "filename": "intro.mp4", "content_type": "video/mp4",
+  "size": 734003, "lesson_id?": "uuid" }     // lesson_id (videos): keys the object under the course author
 // response
 { "upload_url": "https://…signed…", "key": "videos/…" }   // store `key` on the lesson/course
 ```
 
-### `GET /lessons/:id/stream-url` `[jwt]`
-Signed playback URL — allowed for the owner, staff, a free-preview section, or an active entitlement.
-→ `{ "url": "https://…signed (900s)…" }` (`403` if no entitlement)
+### Resumable video uploads (multipart) `[jwt: educator | institution_admin | platform_admin]`
+Bytes go straight to R2 in parts; the API only signs and assembles. `web/src/lib/upload.ts` implements the client.
+| Endpoint | Body | Result |
+|---|---|---|
+| `POST /uploads/multipart` | `{ kind: "video", filename, size (≤ MAX_VIDEO_UPLOAD_BYTES, default 2 GiB), content_type: mp4\|webm\|quicktime\|x-m4v, lesson_id? }` | `{ session_id, key, part_size (≥ 8 MiB), part_count, size }` — `409` over 10 unfinished uploads |
+| `POST /uploads/multipart/:id/parts` | `{ part_numbers: [1..100 numbers] }` | `{ urls: [ { part_number, url } ], expires_at, expires_in }` — PUT exactly the part's bytes to each url |
+| `GET /uploads/multipart/:id` | — | `{ status: "uploading"\|"completed"\|"expired", size, part_size, part_count, parts: [ { part_number, size } ], uploaded_bytes }` — the server's view, used to resume |
+| `POST /uploads/multipart/:id/complete` | `{ lesson_id? }` | `{ key, size, lesson_updated }` (idempotent; with `lesson_id` the video is attached, staged on a live course); `409 { missing: [part numbers] }`; `410` expired |
+| `DELETE /uploads/multipart/:id` | — | `{ aborted: true }`; `409` if it already finished |
+| `GET /uploads/multipart?lesson_id=` | — | your unfinished uploads |
+
+### `GET /lessons/:id/stream-url[?version=pending]` `[jwt]`
+Signed playback URL — allowed for the owner, staff, a free-preview section, or an active entitlement. Learners always get the approved video and `404` for a lesson that is only staged. `?version=pending` (owner/staff) returns the staged replacement video — used by the QO diff page. QOs and platform admins are exempt from the per-minute cap.
+→ `{ "url": "https://…signed (900s)…", "expires_in", "watermark" }` (`403` if no entitlement)
 
 ### Institution course management `[jwt: institution_admin]`
 | Endpoint | Body | Notes |
 |---|---|---|
-| `GET /institution/review-queue` | — | courses awaiting internal review — each item includes `instructor_name` + `instructor_email` (who authored it) |
+| `GET /institution/review-queue` | — | items awaiting internal review — `kind: "new_course"` (a first submission) or `kind: "revision"` (an update to a live course, with `revision_id`, `diff_summary`, `changelog_summary`); each includes `instructor_name` + `instructor_email` |
 | `GET /institution/courses` | — | all institution courses — each includes `instructor_name` + `instructor_email` |
-| `POST /institution/courses/:id/decision` | `{ action: "approve"｜"reject", notes? }` | approve → platform QO queue; reject → back to instructor draft (the `notes` show on the instructor's course page) |
+| `POST /institution/courses/:id/decision` | `{ action: "approve"｜"reject", notes? }` | approve → platform QO queue; reject → back to the instructor (the `notes` show on the instructor's course page). Works for both kinds |
 | `POST /institution/courses/:id/unlist` | — | published → unlisted |
 | `POST /institution/courses/:id/restore` | — | unlisted → published |
 
@@ -378,8 +438,9 @@ Everything the player needs to restore state:
 { "questions": [ { "prompt", "options": ["…"], "correct_index": 0 } ], "ai_live": true }
 ```
 
-### `GET /assessments?course_id=<uuid>` `[jwt]` → `[ assessment ]`
-Quiz rows also carry `question_count, written_count, proctored, time_limit_minutes`.
+### `GET /assessments?course_id=<uuid>[&include_pending=1]` `[jwt]` → `[ assessment ]`
+Quiz rows also carry `question_count, written_count, proctored, time_limit_minutes`, and every row has `state: "live" | "pending"`.
+An assessment created on a **published/unlisted** course is `pending` until its change set is approved; learners never see pending ones (list, attempts `404`, certificates). `include_pending=1` returns them for the course owner, institution admin, QO and platform admin.
 ### `POST /assessments/:id/attempts` `[jwt: learner]` — start an attempt
 Quiz response: `{ attempt_id, questions: [ { index, kind, prompt, options?, points } ], pass_score, proctored, time_limit_minutes, warning_limit, started_at }` — `correct_index` and `guidance` are never sent to learners.
 ### `GET /attempts/mine` `[jwt: learner]` → `[ attempt ]` (includes `flagged`, `terminated`)
@@ -432,9 +493,12 @@ Learner ratings & comments — shown on the course page and to the educator & in
 ### `GET /educators/:id/trust-tier` `[public]` → `{ trust_tier, … }`
 
 ### QA (Quality Officer) `[jwt: quality_officer | platform_admin]`
-- `GET /qa/queue` → pending review items (each has an AI `plagiarism` result)
+- `GET /qa/queue` → open items ordered by SLA deadline (new courses 48 h, updates 24 h), then priority. Each item: `{ id, course_id, course_title, kind: "new_course"|"revision"|"appeal"|"post_publish", revision_id, diff_summary, changelog_summary, priority (1 = low-risk update, still reviewed), plagiarism, claimed_by, claim_active, sla_deadline, … }`
+- `GET /qa/items/:id` → one item
+- `POST /qa/items/:id/claim` → mark it yours for 30 min (`409` if another officer holds it)
+- `POST /qa/items/:id/decision` → `{ "action", "notes?" }` — updates (`kind: "revision"`): `approve` (goes live) · `coach` (back to the educator, notes required) · `reject` (staged changes discarded, notes required). Other kinds: `approve` · `coach` (notes required) · `flag`.
 - `GET /qa/courses/:id` → review detail incl. catalog-aware plagiarism screen
-- `POST /qa/courses/:id/decision` → `{ "action": "approve" | "coach" | "flag", "notes?": "…" }`
+- `POST /qa/courses/:id/decision` → legacy; decides the course's only open item (`409` when more than one is open — decide by item)
 
 ### Fraud `[jwt: platform_admin | quality_officer]`
 - `POST /fraud/signals` — `{ subject_type, subject_id, signal_type, detail?, payee_id? }`
@@ -481,7 +545,7 @@ Find people to message with `GET /profiles/directory?q=` `[jwt]` (auth-service):
 Require the shared `x-internal-token`; the gateway rejects browser calls. Listed for completeness only:
 `GET /internal/users/:id` · `/internal/users/:id/institution` · `/internal/educators/:id` ·
 `/internal/institutions/by-owner/:userId` · `/internal/institutions/:id` ·
-`/internal/courses/:id` · `/internal/courses/:id/lesson-ids` · `/internal/lessons/:id` ·
+`/internal/courses/:id` · `/internal/courses/:id/lesson-ids` · `/internal/courses/:id/pending-assessments` (outcomes) · `/internal/lessons/:id` ·
 `/internal/owners/:id/published-count` · `/internal/entitlements` · `/internal/enrollments/:id` ·
 `/internal/enrollments/:id/outcomes-status` · `/internal/educators/:id/trust-tier`
 
@@ -491,6 +555,8 @@ Require the shared `x-internal-token`; the gateway rejects browser calls. Listed
 
 **Learner enroll & learn (paid):** `POST /payments/initiate` → (Chapa / `POST /payments/mock/complete`) → `POST /enrollments` → `GET /courses/:id` → `GET /lessons/:id/stream-url` → `POST /progress/lessons/:id/complete` → `POST /courses/:id/reviews`.
 
-**Educator publish:** `POST /courses` → `POST /courses/generate-structure` (edit) → `POST /courses/:id/sections` + `/uploads` + `/sections/:id/lessons` → set thumbnail via `PUT /courses/:id` → `POST /courses/:id/submit` → (QO) → published. Feedback via `GET /courses/:id/reviews`.
+**Educator publish:** `POST /courses` → `POST /courses/generate-structure` (edit) → `POST /courses/:id/apply-structure` → `POST /sections/:id/lessons` + `/uploads/multipart` (attach on complete) → set thumbnail via `PUT /courses/:id` → `POST /courses/:id/submit` → (QO) → published. Feedback via `GET /courses/:id/reviews`.
+
+**Educator updates a live course:** edit as usual (`PUT /courses/:id`, sections, lessons, uploads — all staged) → `GET /courses/:id/working` → `POST /courses/:id/revisions/submit { summary, major }` → QO: `GET /qa/queue` → `/preview/:id?revision=…` (`GET /courses/:id/revisions/current/diff`) → `POST /qa/items/:id/claim` → `POST /qa/items/:id/decision` → applied (learners see it; enrolled learners notified if `major`).
 
 **Staff / instructor onboarding:** admin `POST /admin/users/staff` (or institution `POST /institutions/:id/instructors`) → invitee opens link → `GET /auth/invite/:token` → `POST /auth/accept-invite` (sets own password, logged in).

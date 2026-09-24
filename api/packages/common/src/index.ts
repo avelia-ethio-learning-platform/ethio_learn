@@ -9,3 +9,4 @@ export * from './http/internal-client';
 export * from './typeorm/typeorm';
 export * from './bootstrap';
 export * from './health.controller';
+export * from './http/db-error.filter';

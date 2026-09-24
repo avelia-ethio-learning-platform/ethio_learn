@@ -1,87 +1,124 @@
 'use client';
 
-import { useState } from 'react';
-import { useParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { CheckCircle2, ImagePlus, Layers, Play, Sparkles, Trash2, Upload } from 'lucide-react';
+import { CheckCircle2, ImagePlus, Lock, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
-import { extractTextFromFile } from '@/lib/extract-text';
+import { useAuth } from '@/lib/hooks';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell, StatusBadge } from '@/components/PageChrome';
 import { ChangelogTool, TutorKnowledgeTool } from './course-tools';
+import { CourseDetails, EditedChip } from './course-details';
+import { RevisionPanel } from './revision-banner';
+import { SectionsAndLessons } from './sections-editor';
+import { StructureGenerator } from './structure-generator';
+import { LessonUploadsProvider, ThumbnailUploader, useActiveLessonUploads, WAIT_FOR_UPLOAD } from './video-upload';
+import { COURSE_IN_REVIEW, editState, REVISION_IN_REVIEW, type ReviewFeedbackView, type WorkingCourse } from './working';
 
 const S3_PUBLIC_URL = process.env.NEXT_PUBLIC_S3_PUBLIC_URL ?? 'http://localhost:9000/ethiopialearn';
 
-async function uploadToS3(kind: 'video' | 'thumbnail', file: File): Promise<string> {
-  const grant = await api<{ upload_url: string; key: string }>('/uploads', {
-    method: 'POST',
-    body: { kind, filename: file.name, content_type: file.type || 'application/octet-stream' },
-  });
-  const res = await fetch(grant.upload_url, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
-  if (!res.ok) throw new Error('Upload failed');
-  return grant.key;
-}
-
-function ManageCourse({ courseId }: { courseId: string }) {
+function ManageCourse({ courseId, generate }: { courseId: string; generate: boolean }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [message, setMessage] = useState('');
-  const { data: course } = useQuery({ queryKey: ['manage-course', courseId], queryFn: () => api<any>(`/courses/${courseId}`) });
+  // The working copy: live values overlaid with staged edits (what the educator edits).
+  const { data: course, error: loadError } = useQuery({
+    queryKey: ['manage-course', courseId],
+    queryFn: () => api<WorkingCourse>(`/courses/${courseId}/working`),
+  });
   const { data: reviews } = useQuery({ queryKey: ['reviews', courseId], queryFn: () => api<any>(`/courses/${courseId}/reviews`), retry: false });
   const { data: pendingProjects } = useQuery({ queryKey: ['pending-projects', courseId], queryFn: () => api<any[]>(`/courses/${courseId}/pending-projects`), retry: false });
+  // A lesson video still uploading is not attached yet, so a submission now would go to review without it.
+  const uploading = useActiveLessonUploads(courseId) > 0;
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['manage-course', courseId] });
+  /** After anything that changes the course's status, title or staged state. */
+  const refreshAll = () => {
+    refresh();
+    queryClient.invalidateQueries({ queryKey: ['own-courses'] });
+    queryClient.invalidateQueries({ queryKey: ['assessments', courseId] });
+    queryClient.invalidateQueries({ queryKey: ['knowledge', courseId] });
+    queryClient.invalidateQueries({ queryKey: ['changelog', courseId] });
+  };
 
   if (!course) {
     return (
       <PageShell>
-        <div className="space-y-4">
-          <div className="skeleton h-9 w-72" />
-          <div className="skeleton h-40 w-full" />
-          <div className="skeleton h-40 w-full" />
-        </div>
+        {loadError ? (
+          <p className="badge-danger w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm">
+            Could not load this course: {(loadError as Error).message}
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="skeleton h-9 w-72" />
+            <div className="skeleton h-40 w-full" />
+            <div className="skeleton h-40 w-full" />
+          </div>
+        )}
       </PageShell>
     );
   }
   const isDraft = course.status === 'draft';
-  const canEdit = !['archived', 'flagged'].includes(course.status);
+  const edit = editState(course);
+  const { live, canEdit, locked } = edit;
+  const revisionInReview = !!course.revision && REVISION_IN_REVIEW.includes(course.revision.status);
+  const lessonIds = course.sections.flatMap((s) => s.lessons.map((l) => l.id));
 
   const action = async (path: string, ok: string, body?: any) => {
     setMessage('');
     try {
       await api(`/courses/${courseId}/${path}`, { method: 'POST', body });
       setMessage(ok);
-      refresh();
+      refreshAll();
     } catch (err) {
       setMessage((err as Error).message);
     }
   };
 
   async function review(attemptId: string, passed: boolean) {
-    await api(`/attempts/${attemptId}/review`, { method: 'PUT', body: { passed } });
+    try {
+      await api(`/attempts/${attemptId}/review`, { method: 'PUT', body: { passed } });
+    } catch (err) {
+      setMessage((err as Error).message);
+    }
     queryClient.invalidateQueries({ queryKey: ['pending-projects', courseId] });
   }
 
+  // Once a coached (or sent-back) update is resubmitted, those notes are history: hide them while it is in review.
+  const feedback = course.review_feedback;
+  const showFeedback = !!feedback && !(revisionInReview && ['coach', 'institution_reject'].includes(feedback.action));
+
   return (
     <PageShell>
+    <LessonUploadsProvider courseId={courseId} userId={user?.id ?? null} lessonIds={lessonIds} onChanged={refresh}>
     <div className="space-y-6">
       <BackButton fallback="/teach" label="My courses" />
       <div className="flex animate-fade-in-up flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{course.title}</h1>
+        <div className="min-w-0">
+          <h1 className="flex flex-wrap items-center gap-2 break-words text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">
+            {course.title} <EditedChip course={course} fields={['title']} />
+          </h1>
           <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-500">
             <StatusBadge status={course.status} />
+            {revisionInReview && <span className="badge-info">update in review</span>}
+            {live && !revisionInReview && course.has_pending_changes && <span className="badge-warn">unpublished changes</span>}
             <span>
               {course.pricing_type}
-              {course.price_etb ? ` · ${course.price_etb} ETB` : ''}
+              {course.pricing_type !== 'free' && course.price_etb ? ` · ${course.price_etb} ETB` : ''}
               {reviews?.average_rating ? ` · ★ ${reviews.average_rating} (${reviews.review_count})` : ''}
             </span>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {isDraft && <button className="btn" onClick={() => action('submit', 'Submitted for review.')}>Submit for review</button>}
-          {(course.status === 'submitted' || course.status === 'under_review' || course.status === 'institution_review') && (
+          {isDraft && (
+            <button className="btn" disabled={uploading} title={uploading ? WAIT_FOR_UPLOAD : undefined} onClick={() => action('submit', 'Submitted for review.')}>
+              Submit for review
+            </button>
+          )}
+          {COURSE_IN_REVIEW.includes(course.status) && (
             <button className="btn-secondary" onClick={() => action('withdraw', 'Withdrawn to draft — you can edit and resubmit.')}>Withdraw &amp; edit</button>
           )}
           {course.status === 'published' && (
@@ -100,29 +137,44 @@ function ManageCourse({ courseId }: { courseId: string }) {
         </div>
       </div>
       {message && <p className="badge-info w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm">{message}</p>}
+      {isDraft && uploading && <p className="text-sm text-amber-700 dark:text-amber-300">{WAIT_FOR_UPLOAD}</p>}
 
       {course.status === 'institution_review' && (
         <p className="badge-info w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm">
           ⏳ Awaiting your institution&apos;s internal review. Once they approve, it goes to the platform quality officers.
         </p>
       )}
-      {course.review_feedback && <ReviewFeedback feedback={course.review_feedback} />}
-      {course.status === 'flagged' && <AppealBox courseId={courseId} onDone={(m) => { setMessage(m); refresh(); }} />}
+      {locked && !live && edit.lockReason && (
+        <p className="flex w-fit items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
+          <Lock className="h-4 w-4 shrink-0" /> {edit.lockReason}
+        </p>
+      )}
+      {showFeedback && feedback && <ReviewFeedback feedback={feedback} />}
+      {live && (
+        <RevisionPanel
+          course={course}
+          onChanged={(m) => {
+            setMessage(m);
+            refreshAll();
+          }}
+        />
+      )}
+      {course.status === 'flagged' && <AppealBox courseId={courseId} onDone={(m) => { setMessage(m); refreshAll(); }} />}
 
       {canEdit && (
         <div className="card animate-fade-in-up">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               {course.thumbnail_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={course.thumbnail_url} alt="Course thumbnail" className="h-14 w-24 rounded-xl border object-cover shadow-glass" />
+                <img src={course.thumbnail_url} alt="Course thumbnail" className="h-14 w-24 shrink-0 rounded-xl border object-cover shadow-glass" />
               ) : (
-                <span className="glass-secondary flex h-14 w-24 items-center justify-center rounded-xl">
+                <span className="glass-secondary flex h-14 w-24 shrink-0 items-center justify-center rounded-xl">
                   <ImagePlus className="h-5 w-5 text-brand-400" />
                 </span>
               )}
-              <div>
-                <h2 className="flex items-center gap-2 font-semibold">
+              <div className="min-w-0">
+                <h2 className="flex flex-wrap items-center gap-2 font-semibold">
                   Thumbnail
                   {course.thumbnail_url ? (
                     <span className="badge-success">
@@ -131,45 +183,40 @@ function ManageCourse({ courseId }: { courseId: string }) {
                   ) : (
                     <span className="badge-warn">required before submit</span>
                   )}
+                  <EditedChip course={course} fields={['thumbnail_url']} />
                 </h2>
-                <p className="mt-0.5 text-xs text-gray-500">Shown on the course card in the catalog. JPG or PNG works best.</p>
+                <p className="mt-0.5 text-xs text-gray-500">Shown on the course card in the catalog. JPEG, PNG or WebP up to 5 MB.</p>
               </div>
             </div>
-            <label className="btn-secondary cursor-pointer !text-xs">
-              <ImagePlus className="h-3.5 w-3.5" /> {course.thumbnail_url ? 'Replace image' : 'Upload image'}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const key = await uploadToS3('thumbnail', file);
-                  await api(`/courses/${courseId}`, { method: 'PUT', body: { thumbnail_url: `${S3_PUBLIC_URL}/${key}` } });
-                  refresh();
-                }}
-              />
-            </label>
+            <ThumbnailUploader
+              courseId={courseId}
+              publicBaseUrl={S3_PUBLIC_URL}
+              hasThumbnail={!!course.thumbnail_url}
+              disabled={locked}
+              onSaved={() => {
+                if (live) setMessage('Thumbnail staged — it goes live after review.');
+                refreshAll();
+              }}
+            />
           </div>
         </div>
       )}
 
-      {canEdit && <StructureGenerator courseId={courseId} title={course.title} onDone={refresh} />}
+      {canEdit && <CourseDetails course={course} live={live} disabled={locked} onSaved={(m) => { setMessage(m); refreshAll(); }} />}
 
-      <SectionsAndLessons
-        course={course}
-        canEdit={canEdit}
-        isDraft={isDraft}
-        refresh={refresh}
-      />
+      {canEdit && (
+        <StructureGenerator courseId={courseId} title={course.title} live={live} disabled={locked} autoOpen={generate} onApplied={refreshAll} />
+      )}
+
+      <SectionsAndLessons course={course} edit={edit} refresh={refresh} />
 
       <LearnerFeedback reviews={reviews} />
 
-      <AssessmentManager courseId={courseId} />
+      <AssessmentManager courseId={courseId} live={live} locked={locked || !canEdit} onSaved={refresh} />
 
       <ChangelogTool courseId={courseId} published={course.status === 'published'} />
 
-      <TutorKnowledgeTool courseId={courseId} />
+      <TutorKnowledgeTool courseId={courseId} live={live} locked={locked || !canEdit} />
 
 
       {pendingProjects && pendingProjects.length > 0 && (
@@ -177,7 +224,7 @@ function ManageCourse({ courseId }: { courseId: string }) {
           <h2 className="font-semibold">Project submissions awaiting review</h2>
           <ul className="mt-2 space-y-2 text-sm">
             {pendingProjects.map((p) => (
-              <li key={p.attempt_id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
+              <li key={p.attempt_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
                 <span>Submitted {new Date(p.submitted_at).toLocaleString()}</span>
                 <span className="flex gap-2">
                   {p.download_url && <a className="font-medium text-brand-600 hover:underline" href={p.download_url} target="_blank">Download</a>}
@@ -190,6 +237,7 @@ function ManageCourse({ courseId }: { courseId: string }) {
         </div>
       )}
     </div>
+    </LessonUploadsProvider>
     </PageShell>
   );
 }
@@ -197,7 +245,7 @@ function ManageCourse({ courseId }: { courseId: string }) {
 /** Latest reviewer feedback (quality officer or institution) shown on the
  *  course itself, so the educator sees the comments without hunting in
  *  notifications. */
-function ReviewFeedback({ feedback }: { feedback: { action: string; notes: string | null; reviewed_at: string | null } }) {
+function ReviewFeedback({ feedback }: { feedback: ReviewFeedbackView }) {
   const map: Record<string, { tone: string; label: string }> = {
     coach: {
       tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
@@ -211,6 +259,11 @@ function ReviewFeedback({ feedback }: { feedback: { action: string; notes: strin
     approve: {
       tone: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
       label: '✅ Approved by quality review',
+    },
+    // A rejected update of a live course: its staged changes were discarded, the course itself is unchanged.
+    reject: {
+      tone: 'border-red-400/40 bg-red-500/10 text-red-500 dark:text-red-300',
+      label: '⛔ Your update was not approved — its changes were discarded',
     },
   };
   const meta = map[feedback.action] ?? { tone: 'text-gray-600', label: 'Reviewer feedback' };
@@ -282,284 +335,18 @@ function AppealBox({ courseId, onDone }: { courseId: string; onDone: (m: string)
   );
 }
 
-function StructureGenerator({ courseId, title, onDone }: { courseId: string; title: string; onDone: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [prompt, setPrompt] = useState('');
-  const [sourceText, setSourceText] = useState('');
-  const [sectionCount, setSectionCount] = useState(4);
-  const [lessons, setLessons] = useState(3);
-  const [level, setLevel] = useState('beginner');
-  const [learningStyle, setLearningStyle] = useState('hands-on');
-  const [draft, setDraft] = useState<any[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [extracting, setExtracting] = useState(false);
-  const [note, setNote] = useState('');
-
-  const onFile = async (file: File) => {
-    setExtracting(true);
-    setNote('');
-    try {
-      const { text, warning } = await extractTextFromFile(file);
-      if (text) setSourceText((prev) => (prev ? `${prev}\n\n${text}` : text));
-      setNote(warning ?? `Loaded ${Math.round((text.length / 1000))}k characters from ${file.name} — review below, then generate.`);
-    } catch {
-      setNote('Could not read that file. Paste the text into the box instead.');
-    }
-    setExtracting(false);
-  };
-
-  const generate = async () => {
-    setBusy(true);
-    setNote('');
-    try {
-      const res = await api<{ sections: any[]; ai_live: boolean; note?: string }>(`/courses/generate-structure`, {
-        method: 'POST',
-        body: { title, prompt, source_text: sourceText || undefined, section_count: sectionCount, lessons_per_section: lessons, level, learning_style: learningStyle },
-      });
-      setDraft(res.sections);
-      if (res.note) setNote(res.note);
-      else if (!res.ai_live) setNote('Using the offline placeholder generator (set GROQ_API_KEY for real AI outlines).');
-    } catch (err) {
-      setNote((err as Error).message);
-    }
-    setBusy(false);
-  };
-
-  const addAll = async () => {
-    if (!draft) return;
-    setBusy(true);
-    try {
-      for (const s of draft) {
-        const section = await api<{ id: string }>(`/courses/${courseId}/sections`, { method: 'POST', body: { title: s.title, is_free_preview: !!s.is_free_preview } });
-        for (const l of s.lessons ?? []) {
-          await api(`/sections/${section.id}/lessons`, { method: 'POST', body: { title: l.title, duration_seconds: 0 } });
-        }
-      }
-      setDraft(null);
-      setOpen(false);
-      onDone();
-    } catch (err) {
-      setNote((err as Error).message);
-    }
-    setBusy(false);
-  };
-
-  return (
-    <div className="card !rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/60 to-transparent dark:from-blue-950/30">
-      <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 font-bold text-foreground">
-          <span className="glass-secondary flex h-9 w-9 items-center justify-center rounded-xl">
-            <Sparkles className="h-4 w-4 text-brand-600" />
-          </span>
-          Generate an outline with AI
-        </h2>
-        <button className="btn-secondary text-xs" onClick={() => setOpen((o) => !o)}>{open ? 'Close' : 'Open'}</button>
-      </div>
-      {open && (
-        <div className="mt-3 space-y-2">
-          <p className="text-sm text-gray-600">Describe the course, upload a PDF/Word/notes file, or paste text — the AI drafts sections &amp; lessons for you to edit.</p>
-          <textarea className="input" rows={2} placeholder="Prompt: e.g. 'A beginner course on digital marketing for Ethiopian small businesses'" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="btn-secondary cursor-pointer text-xs">
-              {extracting ? 'Reading…' : '📄 Upload PDF / Word / notes'}
-              <input type="file" accept=".pdf,.docx,.txt,.md,.csv,.html,text/*,application/pdf" className="hidden" disabled={extracting}
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.currentTarget.value = ''; }} />
-            </label>
-            {sourceText && <button type="button" className="text-xs text-red-500" onClick={() => setSourceText('')}>clear text</button>}
-          </div>
-          <textarea className="input" rows={4} placeholder="…or paste your document / notes here (extracted file text appears here — edit it freely)" value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="text-sm">Level
-              <select className="input mt-1" value={level} onChange={(e) => setLevel(e.target.value)}>
-                <option value="beginner">Beginner</option>
-                <option value="intermediate">Intermediate</option>
-                <option value="advanced">Advanced</option>
-              </select>
-            </label>
-            <label className="text-sm">Learning style
-              <select className="input mt-1" value={learningStyle} onChange={(e) => setLearningStyle(e.target.value)}>
-                <option value="hands-on">Hands-on / practical</option>
-                <option value="project-based">Project-based</option>
-                <option value="theory-first">Theory-first</option>
-                <option value="visual">Visual / examples</option>
-                <option value="exam-prep">Exam preparation</option>
-              </select>
-            </label>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <label>Sections <input type="number" min={1} max={12} value={sectionCount} onChange={(e) => setSectionCount(+e.target.value)} className="input w-20" /></label>
-            <label>Lessons/section <input type="number" min={1} max={12} value={lessons} onChange={(e) => setLessons(+e.target.value)} className="input w-20" /></label>
-            <button className="btn" disabled={busy || extracting || (!prompt && !sourceText)} onClick={generate}>{busy ? 'Working…' : 'Generate'}</button>
-          </div>
-          {note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{note}</p>}
-          {draft && (
-            <div className="mt-2 space-y-2 border-t pt-2">
-              <p className="text-sm font-medium">Draft outline (edit titles, then add):</p>
-              {draft.map((s, si) => (
-                <div key={si} className="glass-secondary rounded-xl p-3">
-                  <div className="flex items-center gap-2">
-                    <input className="input flex-1 text-sm" value={s.title} onChange={(e) => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, title: e.target.value } : x)))} />
-                    <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={!!s.is_free_preview} onChange={(e) => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, is_free_preview: e.target.checked } : x)))} /> free</label>
-                    <button className="text-xs text-red-500" onClick={() => setDraft((d) => d!.filter((_, i) => i !== si))}>✕</button>
-                  </div>
-                  <ul className="mt-1 space-y-1 pl-2">
-                    {(s.lessons ?? []).map((l: any, li: number) => (
-                      <li key={li} className="flex items-center gap-2">
-                        <input className="input flex-1 text-xs" value={l.title} onChange={(e) => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, lessons: x.lessons.map((y: any, j: number) => (j === li ? { ...y, title: e.target.value } : y)) } : x)))} />
-                        <button className="text-xs text-red-500" onClick={() => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, lessons: x.lessons.filter((_: any, j: number) => j !== li) } : x)))}>✕</button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-              <button className="btn" disabled={busy} onClick={addAll}>Add all to course</button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function UploadVideoButton({ lessonId, hasVideo, onDone }: { lessonId: string; hasVideo: boolean; onDone: () => void }) {
-  const [uploading, setUploading] = useState(false);
-  return (
-    <label className={`cursor-pointer rounded-lg px-2 py-0.5 text-xs font-medium transition-all hover:opacity-100 ${hasVideo ? 'text-brand-600 opacity-70 hover:bg-brand-500/10' : 'text-brand-600 opacity-90 hover:bg-brand-500/10'}`}>
-      <span className="inline-flex items-center gap-1">
-        <Upload className="h-3 w-3" /> {uploading ? 'Uploading…' : hasVideo ? 'replace' : 'upload video'}
-      </span>
-      <input
-        type="file"
-        accept="video/*,.m3u8"
-        className="hidden"
-        onChange={async (e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          setUploading(true);
-          try {
-            const key = await uploadToS3('video', file);
-            await api(`/lessons/${lessonId}`, { method: 'PUT', body: { video_s3_key: key } });
-            onDone();
-          } finally {
-            setUploading(false);
-          }
-        }}
-      />
-    </label>
-  );
-}
-
-function SectionsAndLessons({ course, canEdit, isDraft, refresh }: {
-  course: any; canEdit: boolean; isDraft: boolean;
-  refresh: () => void;
-}) {
-  return (
-    <div className="space-y-3">
-      <h2 className="flex items-center gap-2 text-lg font-semibold">
-        <Layers className="h-5 w-5 text-brand-500" /> Sections &amp; lessons
-      </h2>
-      {course.sections?.map((section: any) => (
-        <div key={section.id} className="card animate-fade-in-up">
-          <div className="flex items-center justify-between gap-2">
-            <p className="flex min-w-0 flex-wrap items-center gap-2 font-medium">
-              <span className="truncate">{section.title}</span>
-              {section.is_free_preview && <span className="badge-info">free preview</span>}
-              <span className="text-xs font-normal text-gray-400">
-                {section.lessons.length} lesson{section.lessons.length === 1 ? '' : 's'}
-              </span>
-            </p>
-            {canEdit && (
-              <button
-                className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10"
-                onClick={async () => { if (!confirm('Delete this section and all its lessons?')) return; await api(`/sections/${section.id}`, { method: 'DELETE' }); refresh(); }}
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Delete section
-              </button>
-            )}
-          </div>
-          <ul className="mt-2 space-y-0.5 text-sm text-gray-600">
-            {section.lessons.map((lesson: any) => (
-                <li key={lesson.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
-                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <Play className={`h-3.5 w-3.5 shrink-0 ${lesson.has_video ? 'text-brand-400' : 'text-gray-400'}`} />
-                    <span className="truncate">{lesson.title}</span>
-                    {lesson.has_video
-                      ? <span className="badge-success shrink-0 !text-[10px]"><CheckCircle2 className="h-2.5 w-2.5" /> video</span>
-                      : <span className="badge-warn shrink-0 !text-[10px]">no video</span>}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1">
-                    {canEdit && <UploadVideoButton lessonId={lesson.id} hasVideo={lesson.has_video} onDone={refresh} />}
-                    {canEdit && (
-                      <button
-                        className="rounded-lg px-2 py-0.5 text-xs font-medium text-red-500 opacity-70 transition-all hover:bg-red-500/10 hover:opacity-100"
-                        onClick={async () => { if (!confirm('Remove this lesson?')) return; await api(`/lessons/${lesson.id}`, { method: 'DELETE' }); refresh(); }}
-                      >
-                        remove
-                      </button>
-                    )}
-                  </span>
-                </li>
-            ))}
-            {!section.lessons.length && <li className="px-2 py-1.5 text-xs text-gray-400">No lessons in this section yet.</li>}
-          </ul>
-          {canEdit && <AddLesson sectionId={section.id} onDone={refresh} />}
-        </div>
-      ))}
-      {canEdit && <AddSection courseId={course.id} onDone={refresh} />}
-    </div>
-  );
-}
-
-function AddSection({ courseId, onDone }: { courseId: string; onDone: () => void }) {
-  return (
-    <form
-      className="card flex flex-wrap items-center gap-2"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        const form = new FormData(e.currentTarget);
-        await api(`/courses/${courseId}/sections`, { method: 'POST', body: { title: form.get('title'), is_free_preview: form.get('preview') === 'on' } });
-        (e.target as HTMLFormElement).reset();
-        onDone();
-      }}
-    >
-      <input name="title" required minLength={2} placeholder="New section title" className="input flex-1" />
-      <label className="flex items-center gap-1 text-sm text-gray-600"><input type="checkbox" name="preview" /> free preview</label>
-      <button className="btn-secondary">Add section</button>
-    </form>
-  );
-}
-
-function AddLesson({ sectionId, onDone }: { sectionId: string; onDone: () => void }) {
-  const [uploading, setUploading] = useState(false);
-  const [videoKey, setVideoKey] = useState<string | undefined>();
-  return (
-    <form
-      className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        const form = new FormData(e.currentTarget);
-        await api(`/sections/${sectionId}/lessons`, { method: 'POST', body: { title: form.get('title'), video_s3_key: videoKey, duration_seconds: Number(form.get('minutes') || 0) * 60 } });
-        (e.target as HTMLFormElement).reset();
-        setVideoKey(undefined);
-        onDone();
-      }}
-    >
-      <input name="title" required minLength={2} placeholder="Lesson title" className="input flex-1" />
-      <input name="minutes" type="number" min={0} placeholder="min" className="input w-20" />
-      <label className="btn-secondary cursor-pointer text-xs">
-        {uploading ? 'Uploading…' : videoKey ? 'Video ✓' : 'Upload video'}
-        <input type="file" accept="video/*,.m3u8" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; setUploading(true); try { setVideoKey(await uploadToS3('video', file)); } finally { setUploading(false); } }} />
-      </label>
-      <button className="btn-secondary" disabled={uploading}>Add lesson</button>
-    </form>
-  );
-}
-
 interface QDraft { prompt: string; options: string[]; correct_index: number; }
 
-function AssessmentManager({ courseId }: { courseId: string }) {
+/**
+ * Assessments. On a live course a new one is created as 'pending' and joins the
+ * staged update (learners cannot start it until the update is approved).
+ */
+function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: string; live: boolean; locked: boolean; onSaved: () => void }) {
   const queryClient = useQueryClient();
-  const { data: assessments } = useQuery({ queryKey: ['assessments', courseId], queryFn: () => api<any[]>(`/assessments?course_id=${courseId}`) });
+  const { data: assessments } = useQuery({
+    queryKey: ['assessments', courseId],
+    queryFn: () => api<any[]>(`/assessments?course_id=${courseId}&include_pending=1`),
+  });
   const [type, setType] = useState('quiz');
   const [passScore, setPassScore] = useState(60);
   const [questions, setQuestions] = useState<QDraft[]>([]);
@@ -604,10 +391,15 @@ function AssessmentManager({ courseId }: { courseId: string }) {
         };
       } else if (type === 'ai_viva') config = { topic_context: vivaTopic };
       else config = { instructions: projectInstr };
-      await api('/assessments', { method: 'POST', body: { course_id: courseId, type, pass_score: passScore, is_required: true, config } });
+      const saved = await api<{ state?: string }>('/assessments', { method: 'POST', body: { course_id: courseId, type, pass_score: passScore, is_required: true, config } });
       setQuestions([]); setTopic(''); setVivaTopic(''); setProjectInstr('');
-      setNote('Assessment saved.');
+      setNote(
+        saved?.state === 'pending'
+          ? 'Assessment saved — learners get it once your changes are approved. Submit your changes for review.'
+          : 'Assessment saved.',
+      );
       queryClient.invalidateQueries({ queryKey: ['assessments', courseId] });
+      onSaved();
     } catch (err) { setNote((err as Error).message); }
     setBusy(false);
   };
@@ -617,10 +409,13 @@ function AssessmentManager({ courseId }: { courseId: string }) {
       <h2 className="font-semibold">Assessments</h2>
       <ul className="mt-2 space-y-1 text-sm text-gray-600">
         {assessments?.map((a) => (
-          <li key={a.id} className="flex items-center gap-2 capitalize">
+          <li key={a.id} className="flex flex-wrap items-center gap-2">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-brand-500" />
-            {a.type.replace('_', ' ')} · pass ≥ {a.pass_score}
-            {a.is_required ? ' · required' : ''}
+            <span className="capitalize">
+              {a.type.replace('_', ' ')} · pass ≥ {a.pass_score}
+              {a.is_required ? ' · required' : ''}
+            </span>
+            {a.state === 'pending' && <span className="badge-warn !text-[10px]">pending review</span>}
           </li>
         ))}
         {!assessments?.length && <li className="text-gray-400">None yet — certificates issue on lesson completion alone.</li>}
@@ -681,17 +476,26 @@ function AssessmentManager({ courseId }: { courseId: string }) {
         {type === 'project' && <textarea className="input" rows={2} placeholder="Project instructions for learners" value={projectInstr} onChange={(e) => setProjectInstr(e.target.value)} />}
 
         {note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{note}</p>}
-        <button className="btn" disabled={busy} onClick={save}>Save assessment</button>
+        {live && !locked && <p className="text-xs text-gray-500">New assessments on a live course are reviewed with your other changes before learners see them.</p>}
+        <button className="btn" disabled={busy || locked} onClick={save} title={locked ? 'Editing is locked while your course or changes are in review' : undefined}>Save assessment</button>
       </div>
     </div>
   );
+}
+
+/** ?generate=1 (from "Create and generate from a file" on /teach/new) opens the outline generator. */
+function ManageCourseFromUrl({ courseId }: { courseId: string }) {
+  const search = useSearchParams();
+  return <ManageCourse courseId={courseId} generate={search.get('generate') === '1'} />;
 }
 
 export default function ManageCoursePage() {
   const params = useParams<{ id: string }>();
   return (
     <RequireRole roles={['educator', 'platform_admin']}>
-      <ManageCourse courseId={params.id} />
+      <Suspense>
+        <ManageCourseFromUrl courseId={params.id} />
+      </Suspense>
     </RequireRole>
   );
 }

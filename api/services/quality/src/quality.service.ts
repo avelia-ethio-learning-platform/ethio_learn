@@ -1,13 +1,16 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, In, IsNull, LessThan, Not, Repository } from 'typeorm';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
 import { AiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import {
@@ -15,6 +18,9 @@ import {
   CourseCompletedPayload,
   CourseRatedPayload,
   CourseReviewedPayload,
+  CourseReviewWithdrawnPayload,
+  CourseRevisionReviewedPayload,
+  CourseRevisionSubmittedPayload,
   CourseSubmittedPayload,
   FraudFlagPayload,
   FraudSignalStatus,
@@ -22,8 +28,10 @@ import {
   OwnerType,
   PaymentConfirmedPayload,
   QaDecisionAction,
+  QaItemKind,
   QaReviewStatus,
   RefundDecisionPayload,
+  RevisionDiffSummary,
   TrustTier,
   TrustTierChangedPayload,
 } from '@ethiopialearn/contracts';
@@ -45,10 +53,70 @@ const RATING_TRIGGER = 2.5;
 const RATING_TRIGGER_MIN_REVIEWS = 3;
 const REFUND_ABUSE_COUNT = 3; // >3 refunds / 30 days (spec §10.6)
 
+const OPEN_ITEM_STATUSES = [QaReviewStatus.PENDING, QaReviewStatus.IN_REVIEW];
+/** Items that stand for the course's own review status (SUBMITTED), as opposed to a staged revision. */
+const COURSE_SUBMISSION_KINDS: QaItemKind[] = ['new_course', 'appeal'];
+// A claim lapses on its own so an officer who walks away never blocks an item.
+export const CLAIM_TTL_MS = 30 * 60 * 1000;
+// Review target is 24–48h (spec §2.1). A revision is a focused diff, so it gets the tight end.
+const SLA_HOURS: Record<QaItemKind, number> = { revision: 24, new_course: 48, appeal: 48, post_publish: 48 };
+const CHANGED_TEXT_LIMIT = 8000;
+
+// A revision never touches the live course, so it can't be flagged; the others review the live
+// (or about-to-be-live) course itself, so there are no staged changes to reject.
+const REVISION_ACTIONS = [QaDecisionAction.APPROVE, QaDecisionAction.COACH, QaDecisionAction.REJECT];
+const COURSE_ACTIONS = [QaDecisionAction.APPROVE, QaDecisionAction.COACH, QaDecisionAction.FLAG];
+const DECISION_STATUS: Record<QaDecisionAction, QaReviewStatus> = {
+  [QaDecisionAction.APPROVE]: QaReviewStatus.APPROVED,
+  [QaDecisionAction.COACH]: QaReviewStatus.COACHED,
+  [QaDecisionAction.FLAG]: QaReviewStatus.FLAGGED,
+  [QaDecisionAction.REJECT]: QaReviewStatus.REJECTED,
+};
+
+export type QaQueueItem = QaReviewItem & { claim_active: boolean; sla_deadline: Date };
+type ItemTransition = Partial<
+  Pick<QaReviewItem, 'status' | 'claimed_by' | 'claimed_at' | 'qo_id' | 'coaching_notes' | 'reviewed_at'>
+>;
+
+/**
+ * A revision is low risk when nothing a learner pays for or gets for free changes, no approved
+ * video is swapped, and the text screen came back clear. It only raises queue priority — it is
+ * never a reason to skip or shorten the human review.
+ */
+export function isLowRiskRevision(diff: Partial<RevisionDiffSummary>, plagiarism: Record<string, unknown>): boolean {
+  const fields = diff.fields_changed ?? [];
+  return (
+    (diff.videos_replaced ?? 0) === 0 &&
+    (diff.price_from ?? null) === (diff.price_to ?? null) &&
+    !fields.includes('price_etb') &&
+    (diff.pricing_type_from ?? null) === (diff.pricing_type_to ?? null) &&
+    !fields.includes('pricing_type') &&
+    !diff.new_free_preview_section &&
+    plagiarism.flagged !== true &&
+    // A screen that failed, or has not finished, is not a clear screen.
+    !('error' in plagiarism) &&
+    plagiarism.pending !== true
+  );
+}
+
+/** Stored on a new item until its AI screen returns (see enqueueSubmission / enqueueRevision). */
+const screenPending = (): Record<string, unknown> => ({ pending: true });
+
+export function isClaimActive(item: Pick<QaReviewItem, 'status' | 'claimed_by' | 'claimed_at'>): boolean {
+  return (
+    OPEN_ITEM_STATUSES.includes(item.status) &&
+    !!item.claimed_by &&
+    !!item.claimed_at &&
+    Date.now() - item.claimed_at.getTime() < CLAIM_TTL_MS
+  );
+}
+
 @Injectable()
 export class QualityService implements OnModuleInit {
   private readonly logger = new Logger(QualityService.name);
   private readonly ai: AiAssessor = createAiAssessor();
+  /** Tail of the per-course chain that keeps review-item events in delivery order (see inCourseOrder). */
+  private readonly courseChains = new Map<string, Promise<void>>();
 
   constructor(
     @InjectRepository(QaReviewItem) private readonly reviewItems: Repository<QaReviewItem>,
@@ -63,10 +131,18 @@ export class QualityService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    // Submission → AI plagiarism screen → QO queue (spec §12.1).
+    // Submission → QO queue, then the AI plagiarism screen fills in (spec §12.1).
     this.bus.subscribe<CourseSubmittedPayload>('CourseSubmitted', (p) => this.enqueueSubmission(p));
     // Appeal on a flagged course → back into the review queue for a fresh look.
-    this.bus.subscribe<CourseAppealSubmittedPayload>('CourseAppealSubmitted', (p) => this.enqueueAppeal(p));
+    this.bus.subscribe<CourseAppealSubmittedPayload>('CourseAppealSubmitted', (p) =>
+      this.inCourseOrder(p.course_id, () => this.enqueueAppeal(p)),
+    );
+    // Staged changes to a live course → a focused re-review of the diff only.
+    this.bus.subscribe<CourseRevisionSubmittedPayload>('CourseRevisionSubmitted', (p) => this.enqueueRevision(p));
+    // The educator pulled a submission back → its item must not be decidable any more.
+    this.bus.subscribe<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', (p) =>
+      this.inCourseOrder(p.course_id, () => this.withdrawItems(p)),
+    );
     // Behavioral signals for trust computation (spec §4.3).
     this.bus.subscribe<CourseCompletedPayload>('CourseCompleted', async (p) => {
       const cache = await this.courseCache.findOne({ where: { course_id: p.course_id } });
@@ -96,50 +172,64 @@ export class QualityService implements OnModuleInit {
 
   // ---- QO queue & decisions ----
 
+  /**
+   * Runs `task` once every earlier task for the same course has settled. The bus starts each
+   * handler in delivery order but never waits for one to finish before starting the next (and a
+   * backlog after a restart or free-tier sleep arrives all at once). Without this, the one-UPDATE
+   * CourseReviewWithdrawn handler overtakes the CourseSubmitted / CourseRevisionSubmitted just
+   * ahead of it, finds nothing to close, and the item inserted a moment later stays decidable
+   * for a submission that is back in draft. Must be called synchronously from the bus handler
+   * so the chain order is the delivery order. Single instance, so an in-process chain suffices.
+   */
+  private inCourseOrder<T>(courseId: string, task: () => Promise<T>): Promise<T> {
+    const run = (this.courseChains.get(courseId) ?? Promise.resolve()).then(task);
+    // A failed task must not stall the course's later events (the bus acks it either way).
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.courseChains.set(courseId, tail);
+    // Forget the course once nothing is queued behind this task, so the map stays small.
+    void tail.then(() => {
+      if (this.courseChains.get(courseId) === tail) this.courseChains.delete(courseId);
+    });
+    return run;
+  }
+
   private async enqueueSubmission(p: CourseSubmittedPayload) {
-    await this.courseCache.save(
-      this.courseCache.create({ course_id: p.course_id, owner_id: p.owner_id, owner_type: p.owner_type, title: p.title }),
-    );
-    // Real catalog-aware screening: give the AI the existing course titles from
-    // other owners so it can detect near-duplication within the platform, not
-    // just against its own training knowledge.
-    let plagiarism: Record<string, unknown> = {};
-    try {
-      const others = await this.courseCache
-        .createQueryBuilder('c')
-        .select('c.title', 'title')
-        .where('c.owner_id != :owner', { owner: p.owner_id })
-        .andWhere('c.course_id != :cid', { cid: p.course_id })
-        .limit(60)
-        .getRawMany<{ title: string }>();
-      plagiarism = { ...(await this.ai.plagiarismCheck(p.title, p.description, others.map((o) => o.title))) };
-    } catch (err) {
-      plagiarism = { error: (err as Error).message };
-    }
-    const item = await this.reviewItems.save(
-      this.reviewItems.create({
-        course_id: p.course_id,
-        course_title: p.title,
-        owner_id: p.owner_id,
-        owner_type: p.owner_type,
-        owner_user_id: p.owner_user_id,
-        owner_email: p.owner_email,
-        owner_name: p.owner_name,
-        status: QaReviewStatus.PENDING,
-        plagiarism,
-        trigger: 'submission',
-      }),
-    );
-    if (plagiarism.flagged) {
-      await this.raiseFraudSignal({
-        subject_type: FraudSubjectType.COURSE,
-        subject_id: p.course_id,
-        signal_type: 'plagiarism_suspected',
-        detail: String(plagiarism.reason ?? ''),
-        payee_id: p.owner_id,
-      });
-    }
+    // Queue the item before the AI screen (a Groq call of up to ~25 s), inside the course's
+    // event order, so a CourseReviewWithdrawn right behind this event always finds it to close.
+    const item = await this.inCourseOrder(p.course_id, async () => {
+      await this.courseCache.save(
+        this.courseCache.create({ course_id: p.course_id, owner_id: p.owner_id, owner_type: p.owner_type, title: p.title }),
+      );
+      // A course is in first-time review at most once at a time, so any submission item still
+      // open is stale (a withdraw that predates CourseReviewWithdrawn, or a redelivered event).
+      // Left open it would be decidable and would make the by-course decision ambiguous.
+      await this.closeOpenItems({ course_id: p.course_id, kind: In(COURSE_SUBMISSION_KINDS) });
+      return this.reviewItems.save(
+        this.reviewItems.create({
+          course_id: p.course_id,
+          course_title: p.title,
+          owner_id: p.owner_id,
+          owner_type: p.owner_type,
+          owner_user_id: p.owner_user_id,
+          owner_email: p.owner_email,
+          owner_name: p.owner_name,
+          status: QaReviewStatus.PENDING,
+          plagiarism: screenPending(),
+          trigger: 'submission',
+          kind: 'new_course',
+        }),
+      );
+    });
     this.logger.log(`course ${p.course_id} queued for QO review (item ${item.id})`);
+
+    // Outside the course chain: a withdrawal should not wait on the AI.
+    const plagiarism = await this.screenText(p.course_id, p.owner_id, p.title, p.description);
+    await this.recordScreen(item.id, plagiarism);
+    // The flagged text was submitted even if the item has since been withdrawn or decided.
+    if (plagiarism.flagged) await this.raisePlagiarismSignal(p.course_id, p.owner_id, plagiarism);
   }
 
   private async enqueueAppeal(p: CourseAppealSubmittedPayload) {
@@ -156,21 +246,150 @@ export class QualityService implements OnModuleInit {
         status: QaReviewStatus.PENDING,
         plagiarism: {},
         trigger: `appeal: ${p.appeal_note.slice(0, 300)}`,
+        kind: 'appeal',
       }),
     );
     this.logger.log(`course ${p.course_id} re-queued via appeal`);
   }
 
-  async queue() {
-    const items = await this.reviewItems.find({
-      where: [{ status: QaReviewStatus.PENDING }, { status: QaReviewStatus.IN_REVIEW }],
-      order: { created_at: 'ASC' },
+  private async enqueueRevision(p: CourseRevisionSubmittedPayload) {
+    // Screen only the new or changed text: the approved text was already cleared, and a
+    // video- or price-only change has nothing for the AI to read.
+    const changedText = (p.changed_text ?? '').slice(0, CHANGED_TEXT_LIMIT).trim();
+    const diff = p.diff_summary ?? {};
+
+    // Queue the item before the AI screen, inside the course's event order, so a
+    // CourseReviewWithdrawn right behind this event always finds it to close (see inCourseOrder).
+    const item = await this.inCourseOrder(p.course_id, async () => {
+      // Courses seeded before the cache existed still need the owner mapping for trust math. An
+      // existing row is left alone: the duplicate-screen corpus must only ever hold LIVE titles.
+      const cached = await this.courseCache.findOne({ where: { course_id: p.course_id } });
+      if (!cached) {
+        await this.courseCache.save(
+          this.courseCache.create({
+            course_id: p.course_id,
+            owner_id: p.owner_id,
+            owner_type: p.owner_type,
+            title: p.course_title,
+          }),
+        );
+      }
+      // One open revision per course (course service invariant), so an older open item is a
+      // superseded submission of it — including an earlier submission of this same revision id.
+      await this.closeOpenItems({ course_id: p.course_id, kind: 'revision' });
+      const plagiarism = changedText ? screenPending() : { skipped: 'no new text' };
+      return this.reviewItems.save(
+        this.reviewItems.create({
+          course_id: p.course_id,
+          course_title: p.course_title,
+          owner_id: p.owner_id,
+          owner_type: p.owner_type,
+          owner_user_id: p.owner_user_id,
+          owner_email: p.owner_email,
+          owner_name: p.owner_name,
+          status: QaReviewStatus.PENDING,
+          plagiarism,
+          trigger: 'revision',
+          kind: 'revision',
+          revision_id: p.revision_id,
+          // Binds this item's decision to exactly the content submitted with it.
+          content_hash: p.content_hash || null,
+          diff_summary: diff,
+          changelog_summary: p.changelog_summary ?? '',
+          priority: isLowRiskRevision(diff, plagiarism) ? 1 : 0,
+        }),
+      );
     });
-    // SLA countdown: review target is 24-48h from submission (spec §2.1).
-    return items.map((item) => ({
-      ...item,
-      sla_deadline: new Date(item.created_at.getTime() + 48 * 3600 * 1000),
-    }));
+    this.logger.log(`revision ${p.revision_id} of course ${p.course_id} queued for QO review (item ${item.id})`);
+    if (!changedText) return;
+
+    // Outside the course chain: a withdrawal should not wait on the AI.
+    const plagiarism = await this.screenText(p.course_id, p.owner_id, p.course_title, changedText);
+    await this.recordScreen(item.id, plagiarism, isLowRiskRevision(diff, plagiarism) ? 1 : 0);
+    // The flagged text was submitted even if the item has since been withdrawn or decided.
+    if (plagiarism.flagged) await this.raisePlagiarismSignal(p.course_id, p.owner_id, plagiarism);
+  }
+
+  /**
+   * Stores the AI screen on an item only while it is still open. Once it was withdrawn (or
+   * decided while the screen ran) it is out of the queue, and this write must never touch it.
+   */
+  private async recordScreen(itemId: string, plagiarism: Record<string, unknown>, priority?: number) {
+    const res = await this.reviewItems.update(
+      { id: itemId, status: In(OPEN_ITEM_STATUSES) },
+      {
+        plagiarism: plagiarism as QueryDeepPartialEntity<Record<string, unknown>>,
+        ...(priority === undefined ? {} : { priority }),
+      },
+    );
+    if (!res.affected) {
+      this.logger.log(`item ${itemId} closed before its AI screen finished; screen result not stored on it`);
+    }
+  }
+
+  private async withdrawItems(p: CourseReviewWithdrawnPayload) {
+    // revision_id null = the course's own submission (first-time or appeal) went back to draft.
+    const closed = await this.closeOpenItems(
+      p.revision_id
+        ? { course_id: p.course_id, kind: 'revision', revision_id: p.revision_id }
+        : { course_id: p.course_id, kind: In(COURSE_SUBMISSION_KINDS) },
+    );
+    if (closed) this.logger.log(`course ${p.course_id}: ${closed} review item(s) withdrawn`);
+  }
+
+  private async closeOpenItems(where: FindOptionsWhere<QaReviewItem>): Promise<number> {
+    const res = await this.reviewItems.update(
+      { ...where, status: In(OPEN_ITEM_STATUSES) },
+      { status: QaReviewStatus.WITHDRAWN },
+    );
+    return res.affected ?? 0;
+  }
+
+  /**
+   * Catalog-aware screening: the AI also gets other owners' course titles so it can
+   * detect near-duplication within the platform, not just against its training data.
+   */
+  private async screenText(
+    courseId: string,
+    ownerId: string,
+    title: string,
+    text: string,
+  ): Promise<Record<string, unknown>> {
+    try {
+      const others = await this.courseCache
+        .createQueryBuilder('c')
+        .select('c.title', 'title')
+        .where('c.owner_id != :owner', { owner: ownerId })
+        .andWhere('c.course_id != :cid', { cid: courseId })
+        .limit(60)
+        .getRawMany<{ title: string }>();
+      return { ...(await this.ai.plagiarismCheck(title, text, others.map((o) => o.title))) };
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+  }
+
+  private async raisePlagiarismSignal(courseId: string, ownerId: string, plagiarism: Record<string, unknown>) {
+    await this.raiseFraudSignal({
+      subject_type: FraudSubjectType.COURSE,
+      subject_id: courseId,
+      signal_type: 'plagiarism_suspected',
+      detail: String(plagiarism.reason ?? ''),
+      payee_id: ownerId,
+    });
+  }
+
+  /** Open items, most urgent first: SLA deadline, then priority (spec §2.1). */
+  async queue(): Promise<QaQueueItem[]> {
+    const items = await this.reviewItems.find({ where: { status: In(OPEN_ITEM_STATUSES) } });
+    return items
+      .map((item) => this.withReviewMeta(item))
+      .sort(
+        (a, b) =>
+          a.sla_deadline.getTime() - b.sla_deadline.getTime() ||
+          b.priority - a.priority ||
+          a.created_at.getTime() - b.created_at.getTime(),
+      );
   }
 
   async reviewDetail(courseId: string) {
@@ -182,41 +401,190 @@ export class QualityService implements OnModuleInit {
     return item;
   }
 
-  /** Checklist decision: approve | coach | flag (spec §8). */
+  async getItem(itemId: string): Promise<QaQueueItem> {
+    return this.withReviewMeta(await this.findItem(itemId));
+  }
+
+  /** Take (or refresh) the soft lock on an item so other officers see it is being reviewed. */
+  async claim(ctx: UserContext, itemId: string): Promise<QaQueueItem> {
+    const item = await this.findItem(itemId);
+    this.assertActionable(item, ctx.id);
+    const claim = { status: QaReviewStatus.IN_REVIEW, claimed_by: ctx.id, claimed_at: new Date() };
+    await this.updateIfActionable(item.id, ctx.id, claim);
+    return this.withReviewMeta(Object.assign(item, claim));
+  }
+
+  /**
+   * Back-compat by-course decision (older QA UI). Ambiguous once a course can have a revision
+   * and a post-publish item open at the same time, so it only works when exactly one is open.
+   */
   async decide(ctx: UserContext, courseId: string, action: QaDecisionAction, notes?: string) {
-    const item = await this.reviewItems.findOne({
-      where: [
-        { course_id: courseId, status: QaReviewStatus.PENDING },
-        { course_id: courseId, status: QaReviewStatus.IN_REVIEW },
-      ],
+    const open = await this.reviewItems.find({
+      where: { course_id: courseId, status: In(OPEN_ITEM_STATUSES) },
       order: { created_at: 'DESC' },
+      take: 2,
     });
-    if (!item) throw new NotFoundException('No pending review for this course');
-    if (action === QaDecisionAction.COACH && !notes?.trim()) {
-      throw new BadRequestException('Coaching requires notes for the educator');
+    if (!open.length) throw new NotFoundException('No pending review for this course');
+    if (open.length > 1) {
+      throw new ConflictException('Multiple reviews open — decide by item (POST /qa/items/:id/decision).');
     }
+    return this.decideLoaded(ctx, open[0], action, notes);
+  }
 
-    item.qo_id = ctx.id;
-    item.coaching_notes = notes ?? '';
-    item.reviewed_at = new Date();
-    item.status =
-      action === QaDecisionAction.APPROVE
-        ? QaReviewStatus.APPROVED
-        : action === QaDecisionAction.COACH
-          ? QaReviewStatus.COACHED
-          : QaReviewStatus.FLAGGED;
-    await this.reviewItems.save(item);
+  /**
+   * Checklist decision on one item (spec §8). Revisions: approve | coach | reject, announced
+   * with CourseRevisionReviewed so only the staged changes are applied or discarded. Every other
+   * kind: approve | coach | flag via CourseReviewed. Nothing here is ever decided automatically.
+   */
+  async decideItem(ctx: UserContext, itemId: string, action: QaDecisionAction, notes?: string) {
+    return this.decideLoaded(ctx, await this.findItem(itemId), action, notes);
+  }
 
-    await this.bus.publish<CourseReviewedPayload>('CourseReviewed', {
-      course_id: courseId,
-      action,
-      notes: notes ?? null,
+  private async decideLoaded(ctx: UserContext, item: QaReviewItem, action: QaDecisionAction, notes?: string) {
+    this.assertActionable(item, ctx.id);
+    const trimmed = notes?.trim() ?? '';
+    this.assertDecisionAllowed(item, action, trimmed);
+
+    const previous = {
+      status: item.status,
+      qo_id: item.qo_id,
+      coaching_notes: item.coaching_notes,
+      reviewed_at: item.reviewed_at,
+    };
+    const decided = {
+      status: DECISION_STATUS[action],
       qo_id: ctx.id,
+      coaching_notes: trimmed,
+      reviewed_at: new Date(),
+    };
+    // Conditional write: of two officers deciding at once, exactly one wins and publishes.
+    await this.updateIfActionable(item.id, ctx.id, decided);
+    Object.assign(item, decided);
+
+    try {
+      await this.publishDecision(item, action, trimmed || null, ctx.id);
+    } catch (err) {
+      // The course only changes when it hears the decision. If the event never left, reopen
+      // the item so it can be decided again instead of showing as decided forever.
+      await this.reviewItems.update({ id: item.id, status: decided.status }, previous);
+      this.logger.error(`decision on item ${item.id} not published: ${(err as Error).message}`);
+      throw new ServiceUnavailableException(
+        'The decision could not be delivered to the course service, so nothing changed. Try again in a minute.',
+      );
+    }
+    return item;
+  }
+
+  private async publishDecision(item: QaReviewItem, action: QaDecisionAction, notes: string | null, qoId: string) {
+    if (item.kind === 'revision') {
+      await this.bus.publish<CourseRevisionReviewedPayload>('CourseRevisionReviewed', {
+        course_id: item.course_id,
+        revision_id: item.revision_id as string, // presence checked in assertDecisionAllowed
+        review_item_id: item.id,
+        action: action as CourseRevisionReviewedPayload['action'],
+        notes,
+        qo_id: qoId,
+        owner_user_id: item.owner_user_id ?? '',
+        owner_email: item.owner_email,
+        course_title: item.course_title,
+        // The course service applies the decision only if the revision still holds this exact
+        // content, so a stale decision on a withdrawn-and-resubmitted revision is a no-op.
+        content_hash: item.content_hash as string, // presence checked in assertDecisionAllowed
+      });
+      return;
+    }
+    await this.bus.publish<CourseReviewedPayload>('CourseReviewed', {
+      course_id: item.course_id,
+      action,
+      notes,
+      qo_id: qoId,
       owner_user_id: item.owner_user_id ?? '',
       owner_email: item.owner_email,
       course_title: item.course_title,
+      // Lets subscribers tell a first publish ('new_course') from a re-check of a live course.
+      kind: item.kind,
     });
+  }
+
+  private assertDecisionAllowed(item: QaReviewItem, action: QaDecisionAction, notes: string) {
+    const isRevision = item.kind === 'revision';
+    if (!(isRevision ? REVISION_ACTIONS : COURSE_ACTIONS).includes(action)) {
+      throw new BadRequestException(
+        isRevision
+          ? 'Revisions are approved, returned (coach) or rejected. Use the admin tools to unlist a live course.'
+          : 'Reject is only for changes to a live course. ' +
+              'Use coach to send this course back to the educator, or flag to take it down.',
+      );
+    }
+    if (action === QaDecisionAction.COACH && !notes) {
+      throw new BadRequestException('Coaching requires notes for the educator — say what needs to change.');
+    }
+    if (action === QaDecisionAction.REJECT && !notes) {
+      throw new BadRequestException(
+        'Rejecting changes requires notes for the educator — say why they cannot go live.',
+      );
+    }
+    if (isRevision && !item.revision_id) {
+      throw new ConflictException(
+        'This revision item is missing its revision id. Ask the educator to resubmit the changes.',
+      );
+    }
+    // Without the fingerprint a decision can't be tied to the content that was reviewed, and the
+    // course service would ignore it as stale — refuse here so nothing looks decided that isn't.
+    if (isRevision && !item.content_hash) {
+      throw new ConflictException(
+        'This revision item was queued without a content fingerprint, so a decision could not be ' +
+          'tied to the changes you reviewed. Ask the educator to withdraw and resubmit the changes.',
+      );
+    }
+  }
+
+  private async findItem(itemId: string): Promise<QaReviewItem> {
+    const item = await this.reviewItems.findOne({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Review item not found. Refresh the queue.');
     return item;
+  }
+
+  /** The item can be claimed or decided by this officer: still open and not locked by someone else. */
+  private assertActionable(item: QaReviewItem, officerId: string) {
+    if (!OPEN_ITEM_STATUSES.includes(item.status)) {
+      throw new ConflictException(`This review is already closed (${item.status}). Refresh the queue.`);
+    }
+    if (item.claimed_by !== officerId && isClaimActive(item)) {
+      throw new ConflictException(
+        'Already being reviewed by another officer. Pick another item, or try again once their 30-minute claim lapses.',
+      );
+    }
+  }
+
+  /**
+   * Applies `changes` only while the item is still open and unclaimed, claimed by this officer,
+   * or its claim has lapsed — the same rule as assertActionable, enforced by the database so a
+   * concurrent claim or decision can't slip in between the read and the write.
+   */
+  private async updateIfActionable(itemId: string, officerId: string, changes: ItemTransition) {
+    const open = { id: itemId, status: In(OPEN_ITEM_STATUSES) };
+    const res = await this.reviewItems.update(
+      [
+        { ...open, claimed_by: IsNull() },
+        { ...open, claimed_by: officerId },
+        { ...open, claimed_at: LessThan(new Date(Date.now() - CLAIM_TTL_MS)) },
+      ],
+      changes,
+    );
+    if (res.affected) return;
+    // Lost a race: re-read to report what changed.
+    this.assertActionable(await this.findItem(itemId), officerId);
+    throw new ConflictException('This review changed while you were working on it. Refresh the queue and try again.');
+  }
+
+  private withReviewMeta(item: QaReviewItem): QaQueueItem {
+    const slaHours = SLA_HOURS[item.kind] ?? SLA_HOURS.new_course;
+    return {
+      ...item,
+      claim_active: isClaimActive(item),
+      sla_deadline: new Date(item.created_at.getTime() + slaHours * 3600 * 1000),
+    };
   }
 
   // ---- Learner ratings & reviews (spec §10.7) ----
@@ -391,11 +759,10 @@ export class QualityService implements OnModuleInit {
   }
 
   private async reopenForReview(courseId: string, reason: string) {
+    // An open revision item reviews staged changes, not the live course, so it must not
+    // suppress a re-check of what learners are seeing now.
     const open = await this.reviewItems.findOne({
-      where: [
-        { course_id: courseId, status: QaReviewStatus.PENDING },
-        { course_id: courseId, status: QaReviewStatus.IN_REVIEW },
-      ],
+      where: { course_id: courseId, status: In(OPEN_ITEM_STATUSES), kind: Not('revision') },
     });
     if (open) return;
     const last = await this.reviewItems.findOne({ where: { course_id: courseId }, order: { created_at: 'DESC' } });
@@ -406,11 +773,14 @@ export class QualityService implements OnModuleInit {
         course_title: last.course_title,
         owner_id: last.owner_id,
         owner_type: last.owner_type,
+        // Without the user id the decision notification has no recipient.
+        owner_user_id: last.owner_user_id,
         owner_email: last.owner_email,
         owner_name: last.owner_name,
         status: QaReviewStatus.PENDING,
         plagiarism: {},
         trigger: `post-publish: ${reason}`,
+        kind: 'post_publish',
       }),
     );
     this.logger.warn(`course ${courseId} re-queued for QO review (${reason})`);

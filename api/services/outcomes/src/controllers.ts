@@ -43,10 +43,6 @@ class SubmitAttemptDto {
   answer?: string;
 
   @IsOptional()
-  @IsString()
-  file_key?: string;
-
-  @IsOptional()
   @IsBoolean()
   terminated?: boolean;
 
@@ -117,11 +113,12 @@ export class OutcomesController {
     return this.assessmentService.generateQuiz(ctx, dto.course_id, dto.topic, dto.count, dto.difficulty);
   }
 
+  /** ?include_pending=1 — course staff / quality officers also get assessments waiting for review. */
   @Get('assessments')
   @UseGuards(RolesGuard)
   @Roles()
-  list(@Query('course_id') courseId: string) {
-    return this.assessmentService.listForCourse(courseId);
+  list(@CurrentUser() ctx: UserContext, @Query('course_id') courseId: string, @Query('include_pending') includePending?: string) {
+    return this.assessmentService.listForCourse(ctx, courseId, includePending === '1' || includePending === 'true');
   }
 
   @Post('assessments/:id/attempts')

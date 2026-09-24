@@ -1,9 +1,11 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   ForbiddenException,
   Get,
+  NotFoundException,
   Param,
   Post,
   Put,
@@ -11,24 +13,26 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { randomUUID } from 'crypto';
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CurrentUser, InternalHttpClient, Roles, RolesGuard, UserContext, userFromRequest } from '@ethiopialearn/common';
-import { EntitlementStatus, Role } from '@ethiopialearn/contracts';
+import { CourseStatus, EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
-import { CourseService } from './course.service';
+import { CourseService, mergedLesson } from './course.service';
 import { CourseExtrasService } from './course-extras.service';
-import { CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UploadRequestDto } from './dto';
+import { RevisionService } from './revision.service';
+import { CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UpdateSectionDto } from './dto';
 
 class GenerateStructureDto {
   @IsString()
   @MaxLength(120)
   title: string;
 
+  // The web client condenses documents to a ~24k-char digest; this cap is the
+  // server-side bound that keeps the body well under the JSON size limit.
   @IsOptional()
   @IsString()
-  @MaxLength(40000)
+  @MaxLength(30000, { message: 'source_text is too long (max 30,000 characters) — paste a shorter excerpt or the outline only.' })
   source_text?: string;
 
   @IsOptional()
@@ -66,19 +70,20 @@ class AppealDto {
 }
 
 class ApplyStructureDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'The outline has no sections — add at least one section before applying it.' })
+  @ArrayMaxSize(12, { message: 'An outline can have at most 12 sections — merge some sections and try again.' })
   @ValidateNested({ each: true })
   @Type(() => SectionInputDto)
   sections: SectionInputDto[];
 }
 
+/** Standalone change-log posts are minor; a `major` flag is stripped by the whitelist (it belongs to revision submit). */
 class ChangelogDto {
   @IsString()
   @MinLength(3)
   @MaxLength(1000)
   summary: string;
-
-  @IsOptional()
-  major?: boolean;
 }
 
 class KnowledgeDto {
@@ -109,6 +114,19 @@ class InstitutionDecisionDto {
   notes?: string;
 }
 
+/**
+ * The router has already decoded the path once; decode again for clients
+ * that double-encode, but keep a title with a literal '%' (e.g. "100% notes")
+ * as it is instead of failing with a 500 on the malformed escape.
+ */
+function decodeTitle(title: string): string {
+  try {
+    return decodeURIComponent(title);
+  } catch {
+    return title;
+  }
+}
+
 @Controller()
 export class CourseController {
   /** Per-learner stream-URL issuance window: deters account sharing / bulk scraping of signed URLs. */
@@ -116,6 +134,7 @@ export class CourseController {
 
   constructor(
     private readonly service: CourseService,
+    private readonly revisions: RevisionService,
     private readonly extras: CourseExtrasService,
     private readonly storage: S3StorageProvider,
     private readonly internal: InternalHttpClient,
@@ -154,6 +173,14 @@ export class CourseController {
 
   // ---- Authoring (educator / institution_admin) ----
 
+  /** The working copy the authoring page edits: live values overlaid with staged changes. */
+  @Get('courses/:id/working')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  working(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+    return this.service.working(ctx, id);
+  }
+
   @Get('courses')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
@@ -170,7 +197,7 @@ export class CourseController {
 
   @Put('courses/:id')
   @UseGuards(RolesGuard)
-  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   update(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: UpdateCourseDto) {
     return this.service.update(ctx, id, dto);
   }
@@ -236,8 +263,13 @@ export class CourseController {
   @Get('institution/review-queue')
   @UseGuards(RolesGuard)
   @Roles(Role.INSTITUTION_ADMIN)
-  institutionQueue(@CurrentUser() ctx: UserContext) {
-    return this.service.institutionReviewQueue(ctx);
+  async institutionQueue(@CurrentUser() ctx: UserContext) {
+    const institutionId = await this.service.myInstitutionId(ctx);
+    const [courses, revisions] = await Promise.all([
+      this.service.institutionReviewQueue(institutionId),
+      this.revisions.institutionQueueRows(institutionId),
+    ]);
+    return [...courses, ...revisions];
   }
 
   @Get('institution/courses')
@@ -250,8 +282,13 @@ export class CourseController {
   @Post('institution/courses/:id/decision')
   @UseGuards(RolesGuard)
   @Roles(Role.INSTITUTION_ADMIN)
-  institutionDecide(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: InstitutionDecisionDto) {
-    return this.service.institutionDecide(ctx, id, dto.action, dto.notes);
+  async institutionDecide(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: InstitutionDecisionDto) {
+    const course = await this.service.institutionCourseOrThrow(ctx, id);
+    // A first-time submission is decided on the course itself; a live course's
+    // staged update is decided on its open revision.
+    if (course.status === CourseStatus.INSTITUTION_REVIEW) return this.service.institutionDecide(ctx, id, dto.action, dto.notes);
+    if (await this.revisions.hasOpenInstitutionRevision(id)) return this.revisions.institutionDecideRevision(ctx, id, dto.action, dto.notes);
+    throw new NotFoundException('Nothing from this course is awaiting institution review');
   }
 
   @Post('institution/courses/:id/unlist')
@@ -271,35 +308,42 @@ export class CourseController {
   /** AI-assisted outline from a prompt / pasted document (draft, not saved). */
   @Post('courses/generate-structure')
   @UseGuards(RolesGuard)
-  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   generateStructure(@CurrentUser() ctx: UserContext, @Body() dto: GenerateStructureDto) {
     return this.service.generateStructure(ctx, dto);
   }
 
   @Put('lessons/:id')
   @UseGuards(RolesGuard)
-  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   updateLesson(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: UpdateLessonDto) {
     return this.service.updateLesson(ctx, id, dto);
   }
 
   @Delete('lessons/:id')
   @UseGuards(RolesGuard)
-  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   deleteLesson(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
     return this.service.deleteLesson(ctx, id);
   }
 
+  @Put('sections/:id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
+  updateSection(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: UpdateSectionDto) {
+    return this.service.updateSection(ctx, id, dto);
+  }
+
   @Delete('sections/:id')
   @UseGuards(RolesGuard)
-  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   deleteSection(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
     return this.service.deleteSection(ctx, id);
   }
 
   @Post('courses/:id/sections')
   @UseGuards(RolesGuard)
-  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   addSection(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: SectionInputDto) {
     return this.service.addSection(ctx, id, dto);
   }
@@ -314,38 +358,34 @@ export class CourseController {
 
   @Post('sections/:id/lessons')
   @UseGuards(RolesGuard)
-  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
+  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   addLesson(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: LessonInputDto) {
     return this.service.addLesson(ctx, id, dto);
   }
 
-  /**
-   * Signed PUT URL for direct-to-S3 uploads (video/thumbnail). Not a public
-   * spec endpoint but required infrastructure for §7.2 ("thumbnail uploaded to
-   * S3 before submission").
-   */
-  @Post('uploads')
-  @UseGuards(RolesGuard)
-  @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  async requestUpload(@CurrentUser() ctx: UserContext, @Body() dto: UploadRequestDto) {
-    const safeName = dto.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const key = `${dto.kind}s/${ctx.id}/${randomUUID()}-${safeName}`;
-    const upload = await this.storage.getSignedUploadUrl(key, dto.content_type);
-    return { upload_url: upload.url, key };
-  }
-
   // ---- Playback (spec §0 rule 5: signed URL only, after entitlement check) ----
 
+  /**
+   * Learners always get the approved (live) video. The owner and reviewers
+   * (QO, platform admin, the course's institution admin) may pass
+   * ?version=pending to preview a staged replacement before approval.
+   */
   @Get('lessons/:id/stream-url')
   @UseGuards(RolesGuard)
   @Roles()
-  async streamUrl(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  async streamUrl(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Query('version') version?: string) {
     const { lesson, section, course } = await this.service.lessonWithCourse(id);
-    if (!lesson.video_s3_key) throw new ForbiddenException('Lesson has no video yet');
+    const privileged = await this.service.isStaffFor(ctx, course);
+    // A lesson added inside an unapproved revision does not exist for learners.
+    if (!privileged && (lesson.pending_state === 'added' || section.pending_state === 'added')) {
+      throw new NotFoundException('Lesson not available');
+    }
+    const key = privileged && version === 'pending' ? mergedLesson(lesson).video_s3_key : lesson.video_s3_key;
+    if (!key) throw new ForbiddenException('Lesson has no video yet');
 
-    const isOwner = course.owner_id === ctx.id || course.created_by === ctx.id;
-    const isStaff = ctx.role === Role.QUALITY_OFFICER || ctx.role === Role.PLATFORM_ADMIN;
-    let allowed = isOwner || isStaff || section.is_free_preview;
+    // Free preview follows the LIVE flag only: a staged free-preview flip must
+    // not open paid content before it is reviewed.
+    let allowed = privileged || section.is_free_preview;
 
     if (!allowed) {
       // Server-side entitlement verification with Enrollment & Progress.
@@ -363,16 +403,20 @@ export class CourseController {
 
     // Leak mitigation: at most STREAM_URLS_PER_MIN signed URLs per learner per
     // minute. A real viewer needs one per lesson; a scraper or a shared account
-    // being watched from several devices at once trips this fast.
-    const cap = Number(process.env.STREAM_URLS_PER_MIN ?? 8);
-    const now = Date.now();
-    const recent = (this.streamIssuance.get(ctx.id) ?? []).filter((t) => now - t < 60_000);
-    if (recent.length >= cap) throw new ForbiddenException('Too many video requests — please wait a minute and try again');
-    recent.push(now);
-    this.streamIssuance.set(ctx.id, recent);
-    if (this.streamIssuance.size > 5000) this.streamIssuance.clear();
+    // being watched from several devices at once trips this fast. Platform
+    // staff are exempt: a reviewer scrubs through many lessons in a row.
+    const platformStaff = ctx.role === Role.QUALITY_OFFICER || ctx.role === Role.PLATFORM_ADMIN;
+    if (!platformStaff) {
+      const cap = Number(process.env.STREAM_URLS_PER_MIN ?? 8);
+      const now = Date.now();
+      const recent = (this.streamIssuance.get(ctx.id) ?? []).filter((t) => now - t < 60_000);
+      if (recent.length >= cap) throw new ForbiddenException('Too many video requests — please wait a minute and try again');
+      recent.push(now);
+      this.streamIssuance.set(ctx.id, recent);
+      if (this.streamIssuance.size > 5000) this.streamIssuance.clear();
+    }
 
-    const signed = await this.storage.getSignedStreamUrl(lesson.video_s3_key, 900);
+    const signed = await this.storage.getSignedStreamUrl(key, 900);
     // The player overlays this over the video: a screen recording carries the viewer's identity.
     return { ...signed, watermark: `${ctx.email || ctx.id} · ${new Date().toISOString().slice(0, 10)}` };
   }
@@ -388,7 +432,7 @@ export class CourseController {
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   postChangelog(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ChangelogDto) {
-    return this.extras.postChangelog(ctx, id, dto.summary, !!dto.major);
+    return this.extras.postChangelog(ctx, id, dto.summary);
   }
 
   // ---- Tutor knowledge base (owner) ----
@@ -404,7 +448,7 @@ export class CourseController {
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
   addKnowledge(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: KnowledgeDto) {
-    return this.extras.addKnowledge(ctx, id, dto.title, dto.text);
+    return this.service.addKnowledge(ctx, id, dto.title, dto.text);
   }
 
   @Post('courses/:id/knowledge/reindex')
@@ -414,11 +458,19 @@ export class CourseController {
     return this.extras.reindexOwned(ctx, id);
   }
 
+  /**
+   * ?state=live|pending names which copy of a title to remove on an approved
+   * course (a live note and its staged re-upload share the title). Without
+   * it the pending copy goes first; the two are never removed together.
+   */
   @Delete('courses/:id/knowledge/:title')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  deleteKnowledge(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Param('title') title: string) {
-    return this.extras.deleteKnowledge(ctx, id, decodeURIComponent(title));
+  deleteKnowledge(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Param('title') title: string, @Query('state') state?: string) {
+    if (state !== undefined && state !== 'live' && state !== 'pending') {
+      throw new BadRequestException("state must be 'live' or 'pending' (or left out to remove the pending copy first)");
+    }
+    return this.service.deleteKnowledge(ctx, id, decodeTitle(title), state);
   }
 
   // ---- Tutor chat (entitled learners) ----

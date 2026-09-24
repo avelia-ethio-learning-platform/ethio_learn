@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "next build",
-    "dev": "next dev",
+    "build": "node scripts/copy-pdf-worker.mjs && next build",
+    "dev": "node scripts/copy-pdf-worker.mjs && next dev",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -15,7 +15,9 @@
     "framer-motion": "^12.42.2",
     "hls.js": "^1.5.11",
     "lucide-react": "^1.24.0",
+    "mammoth": "1.12.3",
     "next": "^14.2.4",
+    "pdfjs-dist": "5.4.624",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

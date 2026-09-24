@@ -1,3 +1,5 @@
+import { matchPath } from './request-path';
+
 /**
  * Rate-limit policy table: classifies every request into a named bucket so
  * abuse-prone surfaces get tighter caps than plain reads. Kept as a pure
@@ -11,8 +13,26 @@
  *  - payment-initiate payment session creation, keyed by user
  *  - write            any other mutation, keyed by user (falls back to IP)
  *  - general          everything, keyed by user/IP — always applied on top
+ *
+ * Resumable video uploads need no bucket of their own. The bytes go straight
+ * to R2 and never pass through the gateway. The control plane is create, sign
+ * parts, complete and abort, which are ordinary writes, plus a status GET,
+ * which is general. Part URLs are signed up to 100 per request and stay valid
+ * for 2 h, so a 2 GiB video (256 parts of 8 MiB) needs about 3 signing calls.
+ * routes.revisions.spec.ts checks this budget against the write cap.
  */
 export type RatePolicy = 'auth-strict' | 'auth' | 'ai' | 'community-write' | 'payment-initiate' | 'write' | 'general';
+
+/** Per-minute cap for each bucket; main.ts lets RATE_LIMIT_*_PER_MIN override each one. */
+export const DEFAULT_LIMITS_PER_MIN: Record<RatePolicy, number> = {
+  'auth-strict': 10,
+  auth: 30,
+  ai: 5,
+  'community-write': 20,
+  'payment-initiate': 10,
+  write: 60,
+  general: 300,
+};
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -32,8 +52,14 @@ const INVITES = /^\/api\/v1\/(referrals\/invite|pay-requests|bulk-purchases\/[^/
 // confirmations, so it stays on the general bucket only.
 const WEBHOOK = /^\/api\/v1\/payments\/webhook\//;
 
-export function classifyRequest(method: string, path: string): RatePolicy {
+/**
+ * The bucket for a request. `rawPath` is the path without its query string;
+ * it is normalised first (see matchPath), so '/api/v1/auth/LOGIN/' is still
+ * throttled as a credential endpoint.
+ */
+export function classifyRequest(method: string, rawPath: string): RatePolicy {
   const m = method.toUpperCase();
+  const path = matchPath(rawPath);
   if (path.startsWith('/api/v1/auth/')) {
     return m === 'POST' && AUTH_STRICT.test(path) ? 'auth-strict' : 'auth';
   }

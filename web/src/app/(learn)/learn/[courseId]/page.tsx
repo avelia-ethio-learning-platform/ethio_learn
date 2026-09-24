@@ -319,7 +319,11 @@ function Player({ courseId }: { courseId: string }) {
             <div className="card mt-5 !p-4">
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <span>
-                  {progress.progress_percent}% complete{progress.completed_at ? ' — course completed 🎉' : ''}
+                  {/* Completion is permanent (the certificate stands), but an approved
+                      course update can add lessons afterwards and pull the percentage below 100. */}
+                  {progress.completed_at && progress.progress_percent < 100
+                    ? `${progress.progress_percent}% complete — new lessons were added since you completed`
+                    : `${progress.progress_percent}% complete${progress.completed_at ? ' — course completed 🎉' : ''}`}
                 </span>
                 <span className="font-semibold text-brand-600">{progress.progress_percent}%</span>
               </div>

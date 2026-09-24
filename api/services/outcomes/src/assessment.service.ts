@@ -4,15 +4,24 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { randomInt, randomUUID } from 'crypto';
 import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
 import { aiFallbackNote, AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
-import { AssessmentResultPayload, AssessmentType, EntitlementStatus, Role } from '@ethiopialearn/contracts';
+import {
+  AssessmentResultPayload,
+  AssessmentType,
+  CourseRevisionClosedPayload,
+  CourseStatus,
+  EntitlementStatus,
+  EventEnvelope,
+  Role,
+} from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
-import { Assessment, AssessmentAttempt } from './entities';
+import { Assessment, AssessmentAttempt, AssessmentState } from './entities';
 
 const PROJECT_MAX_BYTES = 50 * 1024 * 1024; // 50MB (spec §10.1)
 /** Quiz attempts per learner unless the educator sets max_attempts. */
@@ -25,6 +34,20 @@ export const PROCTOR_WARNING_LIMIT = 3;
 const PROCTOR_EVENT_TYPES = ['no_face', 'multiple_faces', 'tab_switch', 'copy_paste', 'other'] as const;
 /** ~97KB binary — screenshots are captured client-side as small JPEG thumbnails. */
 const SCREENSHOT_BASE64_MAX = 130_000;
+
+/** Statuses of a course that already passed quality review: new assessments on it wait for the next review. */
+const APPROVED_COURSE_STATUSES: string[] = [CourseStatus.PUBLISHED, CourseStatus.UNLISTED];
+/** Waits between tries of the revision-close handler — the event bus acks a message even when its handler throws. */
+const REVISION_CLOSE_RETRY_DELAYS_MS = [1_000, 3_000];
+/** Assessment ids are uuids; one malformed id would make Postgres reject the whole `id IN (...)` statement. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A Date for a valid ISO string, else null. */
+function validDate(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
 /** Fisher–Yates with crypto randomness — the paper order must not be guessable. */
 function shuffled<T>(arr: T[]): T[] {
@@ -56,8 +79,18 @@ interface EntitlementInfo {
   enrollment_id: string | null;
 }
 
+/** The internal course read (course service GET /internal/courses/:id) fields used here. */
+interface CourseRef {
+  title: string;
+  owner_id: string;
+  owner_type?: string;
+  status?: string;
+  created_by?: string;
+  institution_id?: string | null;
+}
+
 @Injectable()
-export class AssessmentService {
+export class AssessmentService implements OnModuleInit {
   private readonly logger = new Logger(AssessmentService.name);
   private readonly ai: AiAssessor = createAiAssessor();
 
@@ -69,11 +102,13 @@ export class AssessmentService {
     private readonly storage: S3StorageProvider,
   ) {}
 
+  onModuleInit() {
+    this.bus.subscribe<CourseRevisionClosedPayload>('CourseRevisionClosed', (p, envelope) => this.onRevisionClosed(p, envelope));
+  }
+
   async create(ctx: UserContext, dto: { course_id: string; type: AssessmentType; is_required?: boolean; config?: any; pass_score?: number }) {
-    const course = await this.internal.get<{ owner_id: string; title: string }>(`/api/v1/internal/courses/${dto.course_id}`);
-    if (ctx.role !== Role.PLATFORM_ADMIN && course.owner_id !== ctx.id && ctx.role !== Role.INSTITUTION_ADMIN) {
-      throw new ForbiddenException('Not your course');
-    }
+    const course = await this.courseRef(dto.course_id);
+    if (!(await this.canManageCourse(ctx, course))) throw new ForbiddenException('Not your course');
     let config = dto.config ?? {};
     if (dto.type === AssessmentType.QUIZ) {
       const questions = this.validateQuizQuestions(config?.questions);
@@ -93,6 +128,10 @@ export class AssessmentService {
         cooldown_minutes: Number.isFinite(cooldown) && cooldown >= 0 ? Math.min(Math.round(cooldown), 10_080) : 0,
       };
     }
+    // Learners of an approved course keep the version the quality officer saw:
+    // a new (possibly required) assessment would otherwise change certificate
+    // criteria unreviewed. It goes live when the course's revision is applied.
+    const state: AssessmentState = APPROVED_COURSE_STATUSES.includes(course.status ?? '') ? 'pending' : 'live';
     return this.assessments.save(
       this.assessments.create({
         course_id: dto.course_id,
@@ -100,6 +139,7 @@ export class AssessmentService {
         is_required: dto.is_required ?? true,
         config,
         pass_score: dto.pass_score ?? 60,
+        state,
       }),
     );
   }
@@ -128,10 +168,8 @@ export class AssessmentService {
 
   /** AI-generate draft quiz questions from a topic (not saved — educator edits then saves). */
   async generateQuiz(ctx: UserContext, courseId: string, topic: string, count: number, difficulty?: string) {
-    const course = await this.internal.get<{ owner_id: string }>(`/api/v1/internal/courses/${courseId}`);
-    if (ctx.role !== Role.PLATFORM_ADMIN && course.owner_id !== ctx.id && ctx.role !== Role.INSTITUTION_ADMIN) {
-      throw new ForbiddenException('Not your course');
-    }
+    const course = await this.courseRef(courseId);
+    if (!(await this.canManageCourse(ctx, course))) throw new ForbiddenException('Not your course');
     try {
       const questions = await this.ai.generateQuiz(topic, count, difficulty);
       return { questions, ai_live: this.ai.isLive };
@@ -142,15 +180,23 @@ export class AssessmentService {
     }
   }
 
-  /** Learner-safe listing: quiz answers stripped. */
-  async listForCourse(courseId: string) {
+  /**
+   * Learner-safe listing: quiz answers stripped, live assessments only.
+   * Course staff (and quality officers) asking with include_pending also get
+   * the assessments waiting for review; anyone else gets the learner view.
+   */
+  async listForCourse(ctx: UserContext, courseId: string, includePending = false) {
+    if (!courseId) throw new BadRequestException('course_id is required');
     const rows = await this.assessments.find({ where: { course_id: courseId } });
-    return rows.map((a) => {
+    let visible = rows.filter((a) => a.state !== 'pending');
+    if (includePending && visible.length < rows.length && (await this.canSeePending(ctx, courseId))) visible = rows;
+    return visible.map((a) => {
       const questions: any[] = a.config.questions ?? [];
       return {
         id: a.id,
         course_id: a.course_id,
         type: a.type,
+        state: a.state ?? 'live',
         is_required: a.is_required,
         pass_score: a.pass_score,
         question_count: a.type === AssessmentType.QUIZ ? questions.length : undefined,
@@ -163,8 +209,106 @@ export class AssessmentService {
     });
   }
 
+  /**
+   * Assessments waiting for review, WITH answer keys and marking guidance —
+   * the quality officer checks them in the course revision diff. Internal
+   * (service-to-service) only; never expose this to learners.
+   */
+  async pendingForReview(courseId: string) {
+    const rows = await this.assessments.find({ where: { course_id: courseId, state: 'pending' }, order: { created_at: 'ASC' } });
+    return rows.map((a) => {
+      const questions: any[] = a.type === AssessmentType.QUIZ ? (a.config.questions ?? []) : [];
+      return {
+        id: a.id,
+        type: a.type,
+        is_required: a.is_required,
+        pass_score: a.pass_score,
+        question_count: questions.length,
+        created_at: a.created_at,
+        questions: questions.map((q) => ({
+          prompt: q.prompt,
+          kind: q.kind === 'written' ? 'written' : 'mcq',
+          options: q.kind === 'written' ? undefined : q.options,
+          correct_index: q.kind === 'written' ? undefined : q.correct_index,
+          guidance: q.kind === 'written' ? q.guidance : undefined,
+        })),
+        instructions: a.type === AssessmentType.PROJECT ? (a.config.instructions ?? '') : undefined,
+        topic_context: a.type === AssessmentType.AI_VIVA ? (a.config.topic_context ?? null) : undefined,
+      };
+    });
+  }
+
+  /**
+   * A course revision closed.
+   * - applied / rejected: exactly the pending assessments frozen at submit
+   *   (`assessment_ids`, the ones the quality officer was shown) go live or are
+   *   deleted. Assessments added later stay pending for the next revision, and
+   *   an empty list touches nothing, so an assessment nobody reviewed (e.g.
+   *   outcomes was unreachable when the diff was built) never reaches learners.
+   * - discarded: pending assessments created up to the discard are deleted; one
+   *   the educator adds right after discarding survives a late-delivered event.
+   * Events published before `assessment_ids` / `closed_at` existed fall back to
+   * the submit time (applied/rejected) or the event's publish time (discarded).
+   */
+  async onRevisionClosed(p: CourseRevisionClosedPayload, envelope?: EventEnvelope<CourseRevisionClosedPayload>): Promise<void> {
+    if (p.outcome === 'discarded') {
+      const closedAt = validDate(p.closed_at) ?? validDate(envelope?.metadata?.timestamp);
+      if (!closedAt) {
+        // Deleting without a cutoff could take assessments added after the
+        // discard; leaving them pending is safe (the educator can discard again).
+        this.logger.warn(`CourseRevisionClosed ${p.revision_id} (discarded) has no valid closed_at — pending assessments left as they are`);
+        return;
+      }
+      await this.withRetry(`discard pending assessments of course ${p.course_id}`, () =>
+        this.assessments.delete({ course_id: p.course_id, state: 'pending', created_at: LessThanOrEqual(closedAt) }),
+      );
+      return;
+    }
+    if (p.outcome !== 'applied' && p.outcome !== 'rejected') {
+      this.logger.warn(`CourseRevisionClosed ${p.revision_id} has unknown outcome '${String(p.outcome)}' — pending assessments left as they are`);
+      return;
+    }
+    const reviewed = Array.isArray(p.assessment_ids) ? this.frozenAssessments(p, p.assessment_ids) : this.reviewedBeforeSubmit(p);
+    if (!reviewed) return;
+    if (p.outcome === 'applied') {
+      await this.withRetry(`activate pending assessments of course ${p.course_id}`, () =>
+        this.assessments.update(reviewed, { state: 'live' }),
+      );
+    } else {
+      await this.withRetry(`delete rejected assessments of course ${p.course_id}`, () => this.assessments.delete(reviewed));
+    }
+  }
+
+  /** The reviewed ids, still pending and on this course (a live or foreign id is never touched); null = nothing to do. */
+  private frozenAssessments(p: CourseRevisionClosedPayload, assessmentIds: unknown[]) {
+    const ids = [...new Set(assessmentIds.filter((id): id is string => typeof id === 'string' && UUID_RE.test(id)))];
+    const malformed = assessmentIds.filter((id) => typeof id !== 'string' || !UUID_RE.test(id));
+    if (malformed.length) {
+      this.logger.warn(`CourseRevisionClosed ${p.revision_id} (${p.outcome}) carries ${malformed.length} malformed assessment id(s) — skipped`);
+    }
+    if (!ids.length) return null;
+    return { id: In(ids), course_id: p.course_id, state: 'pending' as const };
+  }
+
+  /**
+   * Legacy events (no assessment_ids): only assessments created before the
+   * revision was submitted can have been in front of the reviewer. null =
+   * nothing to do.
+   */
+  private reviewedBeforeSubmit(p: CourseRevisionClosedPayload) {
+    const submittedAt = validDate(p.submitted_at);
+    if (!submittedAt) {
+      // Without the submit time we cannot tell reviewed from unreviewed rows;
+      // leaving them pending is safe (they show up in the next revision).
+      this.logger.warn(`CourseRevisionClosed ${p.revision_id} (${p.outcome}) has no valid submitted_at — pending assessments left as they are`);
+      return null;
+    }
+    return { course_id: p.course_id, state: 'pending' as const, created_at: LessThanOrEqual(submittedAt) };
+  }
+
   async startAttempt(ctx: UserContext, assessmentId: string) {
     const assessment = await this.assessmentOrThrow(assessmentId);
+    if (assessment.state === 'pending') throw new NotFoundException('Assessment not available yet');
     const entitlement = await this.entitlement(ctx.id, assessment.course_id);
 
     if (assessment.type === AssessmentType.QUIZ) {
@@ -265,7 +409,6 @@ export class AssessmentService {
       answers?: number[];
       responses?: { index?: number; selected_index?: number | null; text?: string | null }[];
       answer?: string;
-      file_key?: string;
       terminated?: boolean;
       termination_reason?: string;
     },
@@ -290,8 +433,9 @@ export class AssessmentService {
       attempt.passed = evaluation.score >= assessment.pass_score;
       attempt.detail = { ...attempt.detail, answer: body.answer, feedback: evaluation.feedback };
     } else {
-      // project — recorded, graded manually by the educator
-      attempt.detail = { ...attempt.detail, file_key: body.file_key ?? attempt.detail.file_key };
+      // project — recorded, graded manually by the educator. The file is always
+      // the key startAttempt issued (kept in attempt.detail): a client-supplied
+      // key could point the educator's download at someone else's object.
       attempt.score = null;
       attempt.passed = null;
     }
@@ -476,11 +620,8 @@ export class AssessmentService {
     if (attempt.learner_id !== ctx.id) {
       // Not the learner — must be course staff (owner/creator) or platform staff.
       if (![Role.PLATFORM_ADMIN, Role.QUALITY_OFFICER].includes(ctx.role as Role)) {
-        const course = await this.internal.get<{ owner_id: string; created_by: string }>(
-          `/api/v1/internal/courses/${assessment.course_id}`,
-        );
-        const isCourseStaff = [course.owner_id, course.created_by].includes(ctx.id) || ctx.role === Role.INSTITUTION_ADMIN;
-        if (!isCourseStaff) throw new ForbiddenException('Not your attempt or course');
+        const course = await this.courseRef(assessment.course_id);
+        if (!(await this.canManageCourse(ctx, course))) throw new ForbiddenException('Not your attempt or course');
       }
     }
 
@@ -512,12 +653,9 @@ export class AssessmentService {
 
   /** Educator: all submitted attempts across a course's assessments (exam results view). */
   async courseAttempts(ctx: UserContext, courseId: string) {
-    const course = await this.internal.get<{ owner_id: string; created_by: string }>(`/api/v1/internal/courses/${courseId}`);
-    const allowed =
-      [Role.PLATFORM_ADMIN, Role.QUALITY_OFFICER].includes(ctx.role as Role) ||
-      [course.owner_id, course.created_by].includes(ctx.id) ||
-      ctx.role === Role.INSTITUTION_ADMIN;
-    if (!allowed) throw new ForbiddenException('Not your course');
+    if (ctx.role !== Role.QUALITY_OFFICER && !(await this.canManageCourse(ctx, await this.courseRef(courseId)))) {
+      throw new ForbiddenException('Not your course');
+    }
 
     const courseAssessments = await this.assessments.find({ where: { course_id: courseId } });
     if (!courseAssessments.length) return [];
@@ -567,8 +705,7 @@ export class AssessmentService {
     if (!attempt) throw new NotFoundException('Attempt not found');
     const assessment = await this.assessmentOrThrow(attempt.assessment_id);
     if (assessment.type !== AssessmentType.PROJECT) throw new BadRequestException('Only project submissions are manually reviewed');
-    const course = await this.internal.get<{ owner_id: string }>(`/api/v1/internal/courses/${assessment.course_id}`);
-    if (ctx.role !== Role.PLATFORM_ADMIN && course.owner_id !== ctx.id) throw new ForbiddenException('Not your course');
+    if (!(await this.canManageCourse(ctx, await this.courseRef(assessment.course_id)))) throw new ForbiddenException('Not your course');
 
     attempt.passed = passed;
     attempt.score = passed ? 100 : 0;
@@ -580,8 +717,7 @@ export class AssessmentService {
 
   /** Educator: list submitted project attempts awaiting review for a course. */
   async pendingProjects(ctx: UserContext, courseId: string) {
-    const course = await this.internal.get<{ owner_id: string }>(`/api/v1/internal/courses/${courseId}`);
-    if (ctx.role !== Role.PLATFORM_ADMIN && course.owner_id !== ctx.id) throw new ForbiddenException('Not your course');
+    if (!(await this.canManageCourse(ctx, await this.courseRef(courseId)))) throw new ForbiddenException('Not your course');
     const projectAssessments = await this.assessments.find({ where: { course_id: courseId, type: AssessmentType.PROJECT } });
     const out = [];
     for (const assessment of projectAssessments) {
@@ -745,6 +881,55 @@ export class AssessmentService {
     const limit = Number(assessment.config.time_limit_minutes);
     if (!Number.isFinite(limit) || limit <= 0) return false;
     return Date.now() > attempt.created_at.getTime() + limit * 60_000 + TIME_LIMIT_GRACE_SECONDS * 1000;
+  }
+
+  private courseRef(courseId: string): Promise<CourseRef> {
+    return this.internal.get<CourseRef>(`/api/v1/internal/courses/${courseId}`);
+  }
+
+  /**
+   * Who may manage a course's assessments: a platform admin, the course's
+   * owner or instructor (created_by), or the admin of the institution that
+   * owns it. Being an institution admin alone is not enough — any other
+   * institution's admin must be refused.
+   */
+  private async canManageCourse(ctx: UserContext, course: CourseRef): Promise<boolean> {
+    if (ctx.role === Role.PLATFORM_ADMIN) return true;
+    if (course.owner_id === ctx.id || course.created_by === ctx.id) return true;
+    if (ctx.role !== Role.INSTITUTION_ADMIN) return false;
+    try {
+      const institution = await this.internal.get<{ id: string }>(`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+      // Institution-owned courses carry the institution id as owner_id (owner_type 'institution').
+      return institution.id === course.institution_id || institution.id === course.owner_id;
+    } catch {
+      return false; // no institution for this admin (404) — nothing to manage
+    }
+  }
+
+  /** Pending assessments are visible to quality officers (they review them) and to course staff. */
+  private async canSeePending(ctx: UserContext, courseId: string): Promise<boolean> {
+    if (ctx.role === Role.QUALITY_OFFICER || ctx.role === Role.PLATFORM_ADMIN) return true;
+    try {
+      return await this.canManageCourse(ctx, await this.courseRef(courseId));
+    } catch (err) {
+      // The course service may be waking up; serve the learner view rather than fail the whole list.
+      this.logger.warn(`include_pending check for course ${courseId} failed: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  private async withRetry(label: string, work: () => Promise<unknown>): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await work();
+        return;
+      } catch (err) {
+        const delay = REVISION_CLOSE_RETRY_DELAYS_MS[attempt];
+        if (delay === undefined) throw err;
+        this.logger.warn(`${label} failed (${(err as Error).message}); retrying in ${delay} ms`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
   }
 
   private async assessmentOrThrow(id: string): Promise<Assessment> {

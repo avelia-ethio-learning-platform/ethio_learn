@@ -1,6 +1,6 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { InternalGuard } from '@ethiopialearn/common';
-import { CourseService } from './course.service';
+import { CourseService, isLiveRow } from './course.service';
 
 /** Service-to-service READ endpoints (via gateway + internal token). */
 @Controller('internal')
@@ -19,10 +19,13 @@ export class CourseInternalController {
       pricing_type: course.pricing_type,
       price_etb: course.price_etb ? Number(course.price_etb) : null,
       status: course.status,
+      // Outcomes authorizes assessment authoring against these.
+      institution_id: course.institution_id,
+      created_by: course.created_by,
     };
   }
 
-  /** Lesson id list for completion detection in Enrollment & Progress. */
+  /** LIVE lesson id list for completion detection in Enrollment & Progress. */
   @Get('courses/:id/lesson-ids')
   async lessonIds(@Param('id') id: string) {
     return { lesson_ids: await this.service.lessonIdsForCourse(id) };
@@ -34,10 +37,11 @@ export class CourseInternalController {
     return { outline: await this.service.outlineForCourse(id) };
   }
 
+  /** `live: false` = added in an unapproved revision; enrollment refuses progress on it. */
   @Get('lessons/:id')
   async lesson(@Param('id') id: string) {
-    const { lesson, course } = await this.service.lessonWithCourse(id);
-    return { id: lesson.id, course_id: course.id, title: lesson.title };
+    const { lesson, section, course } = await this.service.lessonWithCourse(id);
+    return { id: lesson.id, course_id: course.id, title: lesson.title, live: isLiveRow(lesson) && isLiveRow(section) };
   }
 
   /** Published-course count per owner — used for trust-tier math (spec §10.5). */

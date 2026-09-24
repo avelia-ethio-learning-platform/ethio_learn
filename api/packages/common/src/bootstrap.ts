@@ -2,6 +2,7 @@ import { INestApplication, Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { timingSafeEqual } from 'crypto';
 import { envBool } from './config/env';
+import { DbErrorFilter } from './http/db-error.filter';
 
 export interface BootstrapOptions {
   serviceName: string;
@@ -35,11 +36,20 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
     });
   }
 
+  // Express's default 100kb JSON limit answers ~34k Amharic characters (3 bytes
+  // each) of AI-outline source text with a bare 413 before the DTO's readable
+  // length error can run. 512kb is a backstop; each DTO still bounds its
+  // fields. Registered after the token check so unauthenticated callers cannot
+  // make us parse large bodies. The cast: useBodyParser is declared on the
+  // Express app type, and this package does not depend on platform-express.
+  (app as INestApplication & { useBodyParser(parser: 'json', options: { limit: string }): unknown }).useBodyParser('json', { limit: '512kb' });
+
   // All spec endpoints live under /api/v1 (spec §9). The gateway forwards the
   // full path unchanged, so every service must answer under this prefix.
   // `health` is excluded so container/liveness probes can hit bare /health.
   app.setGlobalPrefix('api/v1', { exclude: ['health'] });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalFilters(new DbErrorFilter(app.getHttpAdapter()));
   app.enableShutdownHooks();
   await app.listen(options.port);
   Logger.log(`${options.serviceName} listening on :${options.port}`, 'Bootstrap');

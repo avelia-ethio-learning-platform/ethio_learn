@@ -1,6 +1,13 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 import { AssessmentType, TrustTier } from '@ethiopialearn/contracts';
 
+/**
+ * 'pending' = added to an already-approved course and waiting for the quality
+ * review of the course's staged revision. Learners never see, start or need a
+ * pending assessment; CourseRevisionClosed makes it live or deletes it.
+ */
+export type AssessmentState = 'live' | 'pending';
+
 @Entity({ name: 'assessments' })
 export class Assessment {
   @PrimaryGeneratedColumn('uuid')
@@ -22,6 +29,9 @@ export class Assessment {
 
   @Column({ type: 'int', default: 60 })
   pass_score: number;
+
+  @Column({ type: 'varchar', length: 16, default: 'live' })
+  state: AssessmentState;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
