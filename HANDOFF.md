@@ -453,6 +453,21 @@ notifications, milestones, inactivity nudges, quiz anti-cheat, course tutor RAG,
 analytics) plus the `GATEWAY_INTERNAL_URL` production fix are documented in `FEATURES_ADDED.md`
 — read that before touching the financial, enrollment, course or outcomes services.
 
+### Batch of 2026-09-24 — read `UPDATES_2026-09-24.md` before touching course authoring
+
+- **Published/unlisted courses never change directly any more.** Every write goes through
+  `CourseService.assertEditable`: drafts are edited in place, live courses get *staged* rows
+  (`courses.pending`, `sections|lessons.pending_state/pending`, `course_knowledge.state`,
+  outcomes `assessments.state`) under one open `course_revisions` row. Learner read paths must
+  keep filtering to live rows (`pending_state IS DISTINCT FROM 'added'`, ignore `pending`).
+  Apply/discard logic lives in `api/services/course/src/staging.ts`; the revision lifecycle in
+  `revision.service.ts`. Events: `CourseRevisionSubmitted/Reviewed/Closed`, `CourseReviewWithdrawn`.
+- **Video uploads are multipart** (`upload.service.ts`, `upload_sessions` table,
+  `web/src/lib/upload.ts`). Lesson video keys are validated by `VideoKeyService`.
+- **PDF/DOCX parsing is pdf.js + mammoth in the browser**; `web/scripts/copy-pdf-worker.mjs`
+  copies the worker into `web/public` on every `dev`/`build` (the copy is gitignored).
+- `scripts/e2e-revisions.mjs` exercises all of this against a running stack and runs in CI.
+
 ## 9. Immediate next step, as of this handoff
 
 Branch `deploy/render-vercel` is ahead of `main`, currently at `35f95ab`,
