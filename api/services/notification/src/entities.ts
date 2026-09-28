@@ -28,6 +28,10 @@ export class NotificationLog {
   @Column({ type: 'varchar', nullable: true })
   provider_message_id: string | null;
 
+  /** Why a send failed (provider/SMTP message), so failures are diagnosable from the DB. */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  error: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   sent_at: Date;
 }

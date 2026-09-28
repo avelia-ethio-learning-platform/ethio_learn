@@ -641,9 +641,10 @@ export class NotificationService implements OnModuleInit {
       );
       await this.bus.publish('NotificationSent', { user_id: userId, event_type: eventType, channel: 'email' });
     } catch (err) {
-      this.logger.error(`email failed for ${eventType} -> ${to}: ${(err as Error).message}`);
+      const reason = ((err as Error).message || String(err)).slice(0, 500);
+      this.logger.error(`email failed for ${eventType} -> ${to} via ${this.email.name}: ${reason}`);
       await this.log.save(
-        this.log.create({ user_id: userId, event_type: eventType, channel: 'email', recipient: to, subject, status: 'failed', provider_message_id: null }),
+        this.log.create({ user_id: userId, event_type: eventType, channel: 'email', recipient: to, subject, status: 'failed', provider_message_id: null, error: reason }),
       );
     }
   }
