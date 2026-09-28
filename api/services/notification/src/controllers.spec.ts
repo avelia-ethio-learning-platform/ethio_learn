@@ -19,7 +19,7 @@ function repo(row: Partial<NotificationPreference> | null) {
 
 function controller(prefsRow: Partial<NotificationPreference> | null) {
   const prefs = repo(prefsRow);
-  const ctrl = new NotificationController(prefs as never, {} as never, {} as never);
+  const ctrl = new NotificationController(prefs as never, {} as never, {} as never, {} as never);
   return { ctrl, prefs };
 }
 

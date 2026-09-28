@@ -1,9 +1,10 @@
-import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
 import { IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
 import { COURSE_CATEGORIES, Role } from '@ethiopialearn/contracts';
+import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
 import { InboxNotification, NotificationLog, NotificationPreference } from './entities';
 
 const CATEGORY_VALUES = COURSE_CATEGORIES as string[];
@@ -92,6 +93,7 @@ export class NotificationController {
     @InjectRepository(NotificationPreference) private readonly prefs: Repository<NotificationPreference>,
     @InjectRepository(NotificationLog) private readonly log: Repository<NotificationLog>,
     @InjectRepository(InboxNotification) private readonly inbox: Repository<InboxNotification>,
+    @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
   ) {}
 
   // ---- In-app inbox (any authenticated user) ----
@@ -222,6 +224,31 @@ export class NotificationController {
       ),
     );
     return { sent_to_roles: roles };
+  }
+
+  /**
+   * Sends one test email to the calling admin through the configured provider
+   * and reports the provider's answer — the quickest way to confirm email
+   * works on a deployment (the result is also written to notification_log).
+   */
+  @Post('admin/notifications/test-email')
+  @Roles(Role.PLATFORM_ADMIN)
+  async testEmail(@CurrentUser() ctx: UserContext) {
+    if (!ctx.email) throw new BadRequestException('Your account has no email address to send the test to.');
+    const subject = 'EthiopiaLearn test email';
+    try {
+      const { message_id } = await this.email.send({
+        to: ctx.email,
+        subject,
+        html: '<p>This is a test email from EthiopiaLearn. If you can read it, email notifications are working.</p>',
+      });
+      await this.log.save(this.log.create({ user_id: ctx.id, event_type: 'TestEmail', channel: 'email', recipient: ctx.email, subject, status: 'sent', provider_message_id: message_id }));
+      return { ok: true, provider: this.email.name, to: ctx.email, message_id };
+    } catch (err) {
+      const error = ((err as Error).message || String(err)).slice(0, 500);
+      await this.log.save(this.log.create({ user_id: ctx.id, event_type: 'TestEmail', channel: 'email', recipient: ctx.email, subject, status: 'failed', provider_message_id: null, error }));
+      return { ok: false, provider: this.email.name, to: ctx.email, error };
+    }
   }
 
   private assertSelfOrAdmin(ctx: UserContext, userId: string) {
