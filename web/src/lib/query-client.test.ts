@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, WakingError } from './api';
-import { makeQueryClient, WAKING_RETRY_MS } from './query-client';
+import { makeQueryClient, retryWhileWaking, WAKING_RETRIES, WAKING_RETRY_MS } from './query-client';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -43,6 +43,14 @@ describe('makeQueryClient', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(fn).toHaveBeenCalledTimes(2);
     expect(await result).toBeInstanceOf(ApiError);
+  });
+
+  it('retryWhileWaking retries only a WakingError, for the same 90 s', () => {
+    expect(retryWhileWaking(0, new WakingError())).toBe(true);
+    expect(retryWhileWaking(WAKING_RETRIES - 1, new WakingError())).toBe(true);
+    expect(retryWhileWaking(WAKING_RETRIES, new WakingError())).toBe(false);
+    expect(retryWhileWaking(0, new ApiError(404, 'Request not found'))).toBe(false);
+    expect(retryWhileWaking(0, new ApiError(500, 'boom'))).toBe(false);
   });
 
   it('mutations never retry a WakingError', async () => {

@@ -1,25 +1,30 @@
 'use client';
 
-import { useEffect, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Hourglass, RefreshCw } from 'lucide-react';
 import { wakeServices } from '@/lib/wake';
 
 /**
- * What a server-rendered page shows when the API is asleep, down or too slow
- * (`serverApi` → `unavailable`), instead of a false 404 or "invalid
- * certificate". It wakes the services on mount; Retry re-renders the page on
- * the server.
+ * What a page shows when the API is asleep, down or too slow (`serverApi` →
+ * `unavailable`, or a client query that gave up), instead of a false 404 or
+ * "invalid certificate". It wakes the services on mount. Retry re-renders the
+ * page on the server, or calls `onRetry` (the query's `refetch`) on a
+ * client-fetched page.
  */
-export function WakingUp() {
+export function WakingUp({ onRetry }: { onRetry?: () => Promise<unknown> }) {
   const router = useRouter();
-  const [retrying, startTransition] = useTransition();
+  const [refreshing, startTransition] = useTransition();
+  const [refetching, setRefetching] = useState(false);
+  const retrying = refreshing || refetching;
 
   useEffect(() => wakeServices(), []);
 
   const retry = () => {
     wakeServices();
-    startTransition(() => router.refresh());
+    if (!onRetry) return startTransition(() => router.refresh());
+    setRefetching(true);
+    void onRetry().finally(() => setRefetching(false));
   };
 
   return (

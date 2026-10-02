@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 const { refresh, wakeServices } = vi.hoisted(() => ({ refresh: vi.fn(), wakeServices: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
@@ -25,5 +25,18 @@ describe('<WakingUp />', () => {
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(wakeServices).toHaveBeenCalledTimes(2);
+  });
+
+  it('on a client-fetched page, Retry calls onRetry instead and says it is checking', async () => {
+    let settle!: () => void;
+    const onRetry = vi.fn(() => new Promise<void>((resolve) => (settle = resolve)));
+    render(<WakingUp onRetry={onRetry} />);
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(wakeServices).toHaveBeenCalledTimes(2);
+    expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => settle());
+    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy();
   });
 });

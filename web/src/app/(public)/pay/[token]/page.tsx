@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, HandCoins, LoaderCircle, Lock, ShoppingCart, Wallet } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, ApiError, WakingError } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
+import { retryWhileWaking } from '@/lib/query-client';
 import { AuthShell } from '@/components/PageChrome';
+import { WakingUp } from '@/components/WakingUp';
 
 interface PayRequest {
   token: string;
@@ -27,10 +29,11 @@ export default function PayRequestPage() {
   const { user, ready } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const { data, isLoading, error: loadError } = useQuery({
+  const { data, isLoading, error: loadError, refetch } = useQuery({
     queryKey: ['pay-request', token],
     queryFn: () => api<PayRequest>(`/pay-requests/${token}`, { auth: false }),
-    retry: false,
+    // A 404 is a dead link and final; a sleeping financial service is not.
+    retry: retryWhileWaking,
   });
   const { data: wallet } = useQuery({ queryKey: ['wallet'], queryFn: () => api<{ balance_etb: number }>('/wallet'), enabled: ready && !!user });
 
@@ -51,6 +54,10 @@ export default function PayRequestPage() {
   };
 
   if (isLoading || !ready) return <AuthShell icon={<LoaderCircle className="h-6 w-6 animate-spin" />} title="Loading request…"><span /></AuthShell>;
+  // Never tell a payer the link is dead while the service is asleep, down or throttled (as serverApi's `unavailable`).
+  const unavailable =
+    loadError instanceof WakingError || (loadError instanceof ApiError && (loadError.status >= 500 || loadError.status === 429));
+  if (unavailable) return <WakingUp onRetry={refetch} />;
   if (loadError || !data) return <AuthShell icon={<HandCoins className="h-6 w-6" />} title="Request not found" subtitle="This payment link is invalid or has expired."><span /></AuthShell>;
 
   const paid = data.status === 'granted' || search.get('paid') === '1';
