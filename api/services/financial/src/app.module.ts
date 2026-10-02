@@ -12,6 +12,7 @@ import { GrowthService } from './growth.service';
 import { SponsorshipService } from './sponsorship.service';
 import { FinancialController } from './controllers';
 import { GrowthController } from './growth.controller';
+import { PayRequestPublicController } from './pay-request-public.controller';
 
 @Module({
   imports: [
@@ -26,7 +27,7 @@ import { GrowthController } from './growth.controller';
       secretKey: process.env.CHAPA_SECRET_KEY ?? 'CHASECK_TEST-placeholder',
     }),
   ],
-  controllers: [FinancialController, GrowthController, HealthController],
+  controllers: [FinancialController, GrowthController, PayRequestPublicController, HealthController],
   providers: [
     {
       provide: CHAPA_PROVIDER,

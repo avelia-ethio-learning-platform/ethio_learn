@@ -261,12 +261,6 @@ export class GrowthController {
     return this.sponsorships.createPayRequest(ctx, dto);
   }
 
-  /** [PUBLIC] landing data for the "someone asked you to pay" page. */
-  @Get('pay-requests/:token')
-  payRequestPublic(@Param('token', new PayRequestTokenPipe()) token: string) {
-    return this.sponsorships.payRequestPublic(token);
-  }
-
   @Post('pay-requests/:token/pay')
   @Roles()
   pay(@CurrentUser() ctx: UserContext, @Param('token', new PayRequestTokenPipe()) token: string, @Body() dto: PayDto) {
