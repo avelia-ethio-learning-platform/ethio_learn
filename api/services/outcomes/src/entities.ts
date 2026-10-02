@@ -108,6 +108,7 @@ export class Certificate {
   qr_code_url: string;
 
   // Event-carried denormalized display fields (no cross-schema joins).
+  @Index('IDX_certificates_learner_id')
   @Column('uuid')
   learner_id: string;
 

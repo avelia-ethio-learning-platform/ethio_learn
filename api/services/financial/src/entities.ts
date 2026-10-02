@@ -8,6 +8,10 @@ import { OwnerType, PaymentMethod, PaymentPurpose, PaymentStatus, PayoutStatus, 
 export const PLATFORM_PAYEE_ID = '00000000-0000-0000-0000-000000000000';
 
 @Entity({ name: 'payments' })
+// Partial indexes for the two background scans: the pending-Chapa sweep and
+// nudges, and the payout run / payee balance over confirmed, unpaid payments.
+@Index('IDX_payments_pending_chapa_created_at', ['created_at'], { where: `status = 'pending' AND method = 'chapa'` })
+@Index('IDX_payments_confirmed_unpaid_payee_id', ['payee_id'], { where: `status = 'confirmed' AND payout_id IS NULL` })
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -319,6 +323,7 @@ export class Sponsorship {
   @Column({ type: 'uuid', nullable: true })
   payment_id: string | null;
 
+  @Index('IDX_sponsorships_bulk_purchase_id')
   @Column({ type: 'uuid', nullable: true })
   bulk_purchase_id: string | null;
 

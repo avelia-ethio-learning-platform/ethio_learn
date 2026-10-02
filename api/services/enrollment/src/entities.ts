@@ -8,7 +8,7 @@ export class Enrollment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index()
+  // Indexed as the leading column of the (learner_id, course_id) unique.
   @Column('uuid')
   learner_id: string;
 
@@ -56,7 +56,7 @@ export class LessonProgress {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index()
+  // Indexed as the leading column of the (enrollment_id, lesson_id) unique.
   @Column('uuid')
   enrollment_id: string;
 
@@ -74,10 +74,12 @@ export class VideoProgress {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index()
+  // Indexed as the leading column of the (enrollment_id, lesson_id) unique.
   @Column('uuid')
   enrollment_id: string;
 
+  // The revision reset updates every learner's row for a lesson.
+  @Index('IDX_video_progress_lesson_id')
   @Column('uuid')
   lesson_id: string;
 

@@ -86,7 +86,7 @@ export class Course {
   @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
   price_etb: string | null;
 
-  @Index()
+  // Lookups by status use the (status, published_at) composite above.
   @Column({ type: 'enum', enum: CourseStatus, enumName: 'course_status', default: CourseStatus.DRAFT })
   status: CourseStatus;
 

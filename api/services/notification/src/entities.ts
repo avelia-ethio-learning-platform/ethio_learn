@@ -122,7 +122,7 @@ export class DmThread {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index()
+  // Indexed as the leading column of the (a_id, b_id) unique.
   @Column('uuid')
   a_id: string;
 
@@ -159,6 +159,8 @@ export class DmThread {
 }
 
 @Entity({ name: 'dm_messages' })
+// A thread's messages in order; the open conversation polls this every few seconds.
+@Index('IDX_dm_messages_thread_id_created_at', ['thread_id', 'created_at'])
 export class DmMessage {
   @PrimaryGeneratedColumn('uuid')
   id: string;
