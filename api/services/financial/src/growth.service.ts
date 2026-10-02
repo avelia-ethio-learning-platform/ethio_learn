@@ -382,6 +382,16 @@ export class GrowthService {
     const clean = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)))].slice(0, 20);
     if (!clean.length) throw new BadRequestException('Provide at least one valid email');
 
+    // Per account: a rolling 24 h allowance, filled in request order. Checked
+    // first so a caller at the cap costs no account lookups.
+    const cap = envInt('REFERRAL_INVITES_PER_DAY', 20);
+    const sentToday = await this.referrals.count({ where: { referrer_id: ctx.id, created_at: MoreThan(new Date(Date.now() - DAY_MS)) } });
+    const remaining = cap - sentToday;
+    if (remaining <= 0) {
+      this.logger.warn(`Referral invite cap hit: user ${ctx.id} POST /referrals/invite`);
+      throw dailyCapExceeded('referral invites');
+    }
+
     // New addresses first: not me, not an account, not already invited by this referrer.
     const alreadyMine = new Set(
       (await this.referrals.find({ where: { referrer_id: ctx.id, referred_email: In(clean) } })).map((r) => r.referred_email),
@@ -406,15 +416,6 @@ export class GrowthService {
         )
       : new Set<string>();
     const candidates = fresh.filter((e) => !recentlyEmailed.has(e));
-
-    // Per account: a rolling 24 h allowance, filled in request order.
-    const cap = envInt('REFERRAL_INVITES_PER_DAY', 20);
-    const sentToday = await this.referrals.count({ where: { referrer_id: ctx.id, created_at: MoreThan(new Date(Date.now() - DAY_MS)) } });
-    const remaining = cap - sentToday;
-    if (remaining <= 0) {
-      this.logger.warn(`Referral invite cap hit: user ${ctx.id} POST /referrals/invite`);
-      throw dailyCapExceeded('referral invites');
-    }
 
     const code = await this.codeFor(ctx.id);
     const me = await this.userInfo(ctx.id);

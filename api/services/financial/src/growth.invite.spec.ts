@@ -33,7 +33,7 @@ function setup() {
   db.repo(ReferralCode).rows.push({ id: 'code-me', user_id: 'me', code: 'MYCODE22' });
   const sent = () => bus.publish.mock.calls.filter((c: unknown[]) => c[0] === 'ReferralInviteSent').map((c: any[]) => c[1].to_email);
   const rows = () => db.repo(Referral).rows;
-  return { svc, db, bus, sent, rows };
+  return { svc, db, bus, internal, sent, rows };
 }
 
 describe('GrowthService.invite', () => {
@@ -83,6 +83,7 @@ describe('GrowthService.invite', () => {
     expect(err.message).toBe("You've reached today's limit for referral invites. Try again tomorrow.");
     expect(t.rows()).toHaveLength(2);
     expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.internal.get).not.toHaveBeenCalled();
   });
 
   it('does not count invites older than 24 h, or other referrers', async () => {
