@@ -22,7 +22,7 @@ import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
 import { SponsorshipService } from './sponsorship.service';
 
-class CreateCouponDto {
+export class CreateCouponDto {
   @IsOptional()
   @IsString()
   @MaxLength(32)
@@ -43,6 +43,12 @@ class CreateCouponDto {
   @IsInt()
   @Min(1)
   max_uses?: number;
+
+  /** How many times one learner may use the code; absent means unlimited. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  max_uses_per_user?: number;
 
   @IsOptional()
   @IsString()
