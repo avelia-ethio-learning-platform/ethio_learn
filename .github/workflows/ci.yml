@@ -106,6 +106,8 @@ jobs:
         run: node scripts/e2e-revisions.mjs
       - name: Institution membership (invite, accept, suspend)
         run: node scripts/e2e-institution.mjs
+      - name: Exactly-once payments (concurrent confirmations, payouts)
+        run: node scripts/e2e-payments.mjs
       - name: Smoke assertions (security envelope + video progress + 429)
         run: E2E_CHECK_RATE_LIMIT=1 node scripts/e2e-smoke.mjs
       - name: Dump logs on failure
