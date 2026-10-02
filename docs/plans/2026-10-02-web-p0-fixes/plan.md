@@ -146,25 +146,25 @@ Acceptance criteria:
    - **Config:** add `NEXT_PUBLIC_WAKE_URLS=` (empty) with a comment to `web/.env.example`. List it in DEPLOYMENT.md's Vercel variables with the eight URLs from `render.yaml`. It is inlined at build time, so a Vercel redeploy follows setting it.
 
 ## Steps
-- [ ] 1. Branch from `origin/main` after Phase 3 merges.
-- [ ] 2. `serverApi` result type, `WakingUp`, `staticFallback` and every caller; root `error.tsx` and `not-found.tsx` (decision 1). Home ISR plus redirects and `coursesUnavailable` (decision 2).
+- [x] 1. Branch from `origin/main` after Phase 3 merges.
+- [x] 2. `serverApi` result type, `WakingUp`, `staticFallback` and every caller; root `error.tsx` and `not-found.tsx` (decision 1). Home ISR plus redirects and `coursesUnavailable` (decision 2).
   - vitest for `serverApi`: 404 vs 5xx vs timeout.
   - vitest for `staticFallback`: build phase returns empty, runtime throws.
   - `next build` shows `/` as ISR (`○` with revalidate), not `ƒ`.
   - `GATEWAY_INTERNAL_URL=http://127.0.0.1:9 pnpm -C web build` passes. This build replaces the `.next` that the running :3000 server serves, so follow the build order in step 9 (round-2 S4).
-- [ ] 3. `WakingUpNotice` (decision 3). · vitest with fake timers.
-- [ ] 3a. (A1) `wake.ts`, the hibernation 429 in `serverApi` and `api()`, `WakingError` retries in `Providers`, callers in `WakingUp` and `WakingUpNotice`; `.env.example` and DEPLOYMENT.md (decision 12).
+- [x] 3. `WakingUpNotice` (decision 3). · vitest with fake timers.
+- [x] 3a. (A1) `wake.ts`, the hibernation 429 in `serverApi` and `api()`, `WakingError` retries in `Providers`, callers in `WakingUp` and `WakingUpNotice`; `.env.example` and DEPLOYMENT.md (decision 12).
   - vitest:
     - `wakeServices`: no calls when unset, one `no-cors` fetch per URL, none on a second call within 60 s.
     - `serverApi`: a hibernation 429 is `unavailable`; the gateway limiter's JSON 429 is as before.
     - `api()`, modelling the browser (a 429 with a plain-text body and **no readable** `x-render-routing`): it throws `WakingError` and wakes. A network rejection does the same. A JSON 429 doesn't.
     - Refresh: a hibernation 429 on `/auth/refresh` keeps auth, wakes and throws `WakingError` to all parallel waiters; a 401 logs out exactly once.
     - Queries retry on `WakingError` and stop after 90 s; a mutation doesn't retry.
-- [ ] 4. `homeForRole` + call sites + guards (decision 4). · vitest.
-- [ ] 5. Single-flight refresh (decision 5). · vitest: 5 parallel 401s → 1 refresh, no logout; failed refresh → logout once.
-- [ ] 6. Layout header spacing + `PageShell` on the six pages; `min-w-0`, `overflow-x: clip`; opaque menu; copy fixes; `/verify` page (decisions 6–10).
-- [ ] 7. Playwright config, specs, CI wiring; coverage script (decision 11).
-- [ ] 8. Before/after screenshots of every touched page at 375/768/1440 into `docs/plans/2026-10-02-refinement-audit/screenshots/after-phase5/` (ignored by git) for the user.
+- [x] 4. `homeForRole` + call sites + guards (decision 4). · vitest.
+- [x] 5. Single-flight refresh (decision 5). · vitest: 5 parallel 401s → 1 refresh, no logout; failed refresh → logout once.
+- [x] 6. Layout header spacing + `PageShell` on the six pages; `min-w-0`, `overflow-x: clip`; opaque menu; copy fixes; `/verify` page (decisions 6–10).
+- [x] 7. Playwright config, specs, CI wiring; coverage script (decision 11).
+- [x] 8. Before/after screenshots of every touched page at 375/768/1440 into `docs/plans/2026-10-02-refinement-audit/screenshots/after-phase5/` (ignored by git) for the user.
 - [ ] 9. Full gate:
   - web typecheck, vitest and build;
   - local build order (round-2 S4):
@@ -197,3 +197,30 @@ Acceptance criteria:
 - **Playwright in CI flakiness:** specs wait on network idle and specific elements, never fixed sleeps; traces are kept on failure.
 
 ## Progress and deviations (implementer)
+Branch `fix/web-p0`, stacked on `fix/payment-integrity` @ `2cdccf9` (handoff → Branch). Commits: `ca0d9fd` plan folder, `f802460` step 2, `3d4c4cd` steps 3/3a/5, `31e1d65` step 4, `3e84bdd` step 6, `62e29a1` step 7, `fe8ce18` the /teach overflow found in step 8.
+
+Deviations (none changes a decision):
+- **Step 1:** branched from `fix/payment-integrity`, not `origin/main`, as the handoff says (merge `origin/main` in once #19, Phase 3 and Phase 4 land).
+- **Step 4:** `homeForRole` is Phase 3's existing `roleHome` (`lib/safe-next.ts`), extended (institution_admin → `/institution`, unknown → `/`), plus `roleHomeLabel` and `RoleHomeBackButton` (`components/BackButton.tsx`) for the shared teach pages. The editor guard keeps `platform_admin`, because `canAuthor` allows it.
+- **Step 2:** `serverApi` maps a malformed id (400) and the gateway limiter's JSON 429 to `404`, as before. `generateMetadata` on `unavailable` also sets `robots: noindex`. `/educators` says "The ranking is loading" when the build had no data.
+- **Steps 3a/5:** offline (`navigator.onLine === false`), a network error stays a network error rather than a `WakingError`. The limiter's JSON 429 on `/auth/refresh` keeps the session and throws `ApiError(429)`. The single logout happens inside the single-flight refresh, so `refreshSession()` (invites) now also logs out on a rejected refresh. The offline outbox treats `WakingError` as a network error and queues the write.
+- **Step 6:** the six pages get the `.page-shell` class on their existing outer div (the same container `PageShell` renders, without the glow). The exam's sticky bar moved to `top-24`, below the fixed header. The mobile-menu backdrop is a sibling of the nav, because the nav's transform would contain a fixed child. The header nav has `aria-label="Main"`.
+- **Step 7:** Playwright's `webServer` starts both servers (`:3000`, reused if it's already up, and the cold twin on `:3100`), so CI has no separate `next start` step. Both servers pin `NODE_ENV=production`: locally, `api/.env.example` (`NODE_ENV=development`) exported into the shell made `next start` drop the stale-page fallback, and the cold home page returned 500. Two corrections to what the plan assumed: the cold server does write `.next` (a failed revalidation re-saves the page it had, with a 30 s retry, which is harmless), and the CI action versions are `actions/cache@v6` and `actions/upload-artifact@v7`.
+- **Step 8 (P0-14, beyond the plan's list):** `/teach` was 414 px wide at 375 (it was 409 before this phase too). `PageHeader`'s actions now wrap. A 375 px sweep of 35 routes across all roles is clean, and the layout spec covers `/teach`.
+
+Verified so far: web typecheck; vitest 26 files and 354 tests, with coverage (46.9% statements); the no-backend build (`GATEWAY_INTERNAL_URL=http://127.0.0.1:9`) passes, with `/` as `○` revalidating every 60 s and the "Browse the catalog" fallback; signalled fetches write the data cache; the full Playwright suite passed (26/26, 4 workers, clean env) on the `el_e2e` stack. Screenshots: 96 in `screenshots/after-phase5/`, the same names as `before/`, plus new `course-waking-*`, `verify-cert-waking-*` and `home-cold-1440`.
+
+### In flight / next step (checkpoint 2026-10-03)
+- Nothing half-done; everything is committed. Not pushed.
+- **Local stack right now:** the backend runs on the throwaway `el_e2e` DB with `.env.example` values (started by `e2e-up.sh`), and `:3000` is `next start` from this tree's e2e build. The dev stack is **not** running.
+- **Next, step 9 (full gate):**
+  1. the no-backend build;
+  2. a normal build against `el_e2e`;
+  3. restart `:3000` (kill the `next-server` PID only);
+  4. the full Playwright suite in a clean env (`env -i HOME=$HOME PATH=<node22>:/usr/bin:/bin ./node_modules/.bin/playwright test`; never with `api/.env.example` exported; at most one run a minute, since setup uses 5 of the 10 auth-strict calls);
+  5. `pnpm -C api test`.
+- Spot-check a few after screenshots by eye (`course-free-375`, `home-375-menu-open`, `course-waking-375`).
+- Then restore the dev stack: `scripts/stop-backend.sh`; drop `el_e2e`; `env -i HOME=$HOME PATH=… bash -c 'cd <repo> && bash scripts/start-backend.sh'`; rebuild web against it and restart `:3000`.
+- Then ask ethio-plan-review for code review: branch `fix/web-p0`, base `fix/payment-integrity`.
+- **Runners** (this session's scratchpad, `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/0d010fd6-606b-45cf-bdfb-30c0c3784a74/scratchpad/`): `e2e-up.sh`, `e2e-env.sh` (source it only for API scripts, never for Playwright), `shots.cjs` (after screenshots), `sweep.cjs` (375 px overflow sweep).
+- **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths; other plan folders in the tree belong to other sessions. Never `pkill -f` a pattern that's also in your own command line (it kills your shell). Production is off-limits.
