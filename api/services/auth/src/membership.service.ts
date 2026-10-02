@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
-import { env, EventBusService, UserContext } from '@ethiopialearn/common';
+import { env, EventBusService, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import { InstructorInvitedPayload, InstructorLinkedPayload, Role, StaffInvitedPayload } from '@ethiopialearn/contracts';
 import { AuditLog, appendAudit } from './audit';
 import { AuthService, generateTempPassword } from './auth.service';
@@ -20,10 +20,6 @@ const ALLOWED_FROM: Record<MembershipStatusDto['status'], MembershipStatus[]> = 
 };
 
 const ACTIVE_ELSEWHERE = "You're already an active instructor with another institution.";
-
-function isUniqueViolation(err: unknown): boolean {
-  return err instanceof QueryFailedError && (err.driverError as { code?: string } | undefined)?.code === '23505';
-}
 
 /**
  * Institution membership is consent-based (P0-03). An institution admin can

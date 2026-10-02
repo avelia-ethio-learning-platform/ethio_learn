@@ -2,6 +2,11 @@ import { ArgumentsHost, Catch, HttpStatus } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
 import { QueryFailedError } from 'typeorm';
 
+/** A unique index or constraint rejected the write (Postgres 23505). */
+export function isUniqueViolation(err: unknown): boolean {
+  return err instanceof QueryFailedError && (err.driverError as { code?: string } | undefined)?.code === '23505';
+}
+
 /**
  * A malformed id in a URL (e.g. `/lessons/undefined`) reaches Postgres as an
  * invalid uuid and used to surface as a 500. Postgres reports that as
