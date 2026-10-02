@@ -35,7 +35,7 @@ Browser ──► Next.js web (SSR/ISR public pages, CSR dashboards, en/am i18n)
 
 ## Features
 
-- **Identity & access** — email/password signup with verification link, JWT + rotating-refresh-cookie login (Redis allowlist), password reset, strong-password enforcement, 5 roles (learner, educator, institution admin, quality officer, platform admin), institution instructor invites, admin user management.
+- **Identity & access** — email/password signup with verification link, JWT + rotating-refresh-cookie login (Redis allowlist), password reset, strong-password enforcement, 5 roles (learner, educator, institution admin, quality officer, platform admin), institution instructor invitations that the user accepts (an institution admin can suspend or remove a membership, never the account), admin user management.
 - **Courses & content** — draft → institution review → QO review → published lifecycle; sections/lessons; presigned video upload; signed, entitlement-gated streaming URLs; freemium free-preview sections; AI course-outline generation (Groq) with human review before applying; course cloning; catalog search/sort/categories; public educator profiles.
 - **Enrollment & learning** — instant free/freemium enrollment; paid enrollment gated on a confirmed payment; per-lesson completion; **video watch-percentage tracking with resume-where-you-left-off** (high-water mark, ≥90% auto-completes); course progress; certificates on completion.
 - **Payments (Chapa)** — initiate → hosted checkout → HMAC-verified webhook → server-side re-verify with amount/currency tamper checks → idempotent confirm → entitlement; browser-triggered reconcile plus an automatic background sweep for missed webhooks; mock gateway for offline dev; manual bank-transfer fallback; admin payment ledger.
@@ -199,4 +199,4 @@ scripts/demo-seed.mjs end-to-end API smoke/demo flow
 
 ## Environment variables
 
-See [api/.env.example](api/.env.example). Set `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` to strong random values before any non-local deployment.
+See [api/.env.example](api/.env.example). Set `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` to strong random values before any non-local deployment. In production (`NODE_ENV=production`) every service and the gateway refuse to boot when one they need is missing, shorter than 32 characters or a value from the repo, when `REQUIRE_INTERNAL_TOKEN` is turned off, or when `WEB_URL` or `GATEWAY_PUBLIC_URL` point at localhost. The log names each variable, never its value.

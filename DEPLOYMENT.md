@@ -82,7 +82,7 @@ the tables (and each schema's `migrations` table) but never the schemas.
 
 All config is via env vars (see `api/.env.example`). The services read `api/.env` locally; in containers/orchestrators they read the injected environment. **Set these to strong secrets in any non-local environment:**
 
-- `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN`, `CHAPA_WEBHOOK_SECRET` — long random values.
+- `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN`, `CHAPA_WEBHOOK_SECRET` — long random values (at least 32 characters). In production (`NODE_ENV=production`) every service and the gateway refuse to boot when one they need is missing, shorter than 32 characters or a value from the repo, when `REQUIRE_INTERNAL_TOKEN` is turned off, or when `WEB_URL` or `GATEWAY_PUBLIC_URL` point at localhost. The log names each variable, never its value. If a deploy fails to boot, its log says which variable to set.
 - `DATABASE_URL`, `REDIS_URL`, `RABBITMQ_URL` — managed endpoints.
 - `S3_*` — real bucket + credentials; **unset `S3_ENDPOINT`** on real AWS so the SDK uses AWS.
 - `WEB_URL`, `GATEWAY_PUBLIC_URL`, `NEXT_PUBLIC_*` — your real domains.

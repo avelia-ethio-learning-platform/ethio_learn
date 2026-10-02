@@ -72,7 +72,7 @@ schema is current (README: "Changing the schema").
 
 ## Production checklist
 
-- [ ] Long random `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CERT_SIGNING_SECRET`
+- [ ] Long random (32+ characters) `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CERT_SIGNING_SECRET`; production refuses to boot without them, and with `REQUIRE_INTERNAL_TOKEN` off
 - [ ] `CHAPA_WEBHOOK_SECRET` = the **webhook secret hash** from the Chapa
       dashboard (a `CHAPUBK_…` public key is the wrong value)
 - [ ] Gateway is the only service with a public ingress; services + RabbitMQ +
