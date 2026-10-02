@@ -11,7 +11,7 @@ import { Cron } from '@nestjs/schedule';
 import { Between, DataSource, EntityManager, In, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { BrokerPublishError, env, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { BrokerPublishError, env, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import {
   OwnerType,
   PaymentAbandonedPayload,
@@ -117,7 +117,7 @@ export class PaymentService {
   }
 
   async courseInfo(courseId: string): Promise<CourseInfo> {
-    return this.internal.get<CourseInfo>(`/api/v1/internal/courses/${courseId}`);
+    return this.internal.get<CourseInfo>(internalPath`/api/v1/internal/courses/${courseId}`);
   }
 
   /**
@@ -741,7 +741,7 @@ export class PaymentService {
 
   private async ownsCourse(learnerId: string, courseId: string): Promise<boolean> {
     try {
-      const e = await this.internal.get<{ entitlement_status: string }>(`/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`);
+      const e = await this.internal.get<{ entitlement_status: string }>(internalPath`/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`);
       return e.entitlement_status === 'active';
     } catch {
       return false;
@@ -827,7 +827,7 @@ export class PaymentService {
 
   async learnerInfo(learnerId: string): Promise<{ email: string; name: string }> {
     try {
-      return await this.internal.get<{ email: string; name: string }>(`/api/v1/internal/users/${learnerId}`);
+      return await this.internal.get<{ email: string; name: string }>(internalPath`/api/v1/internal/users/${learnerId}`);
     } catch {
       return { email: '', name: '' };
     }

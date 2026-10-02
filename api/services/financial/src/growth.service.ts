@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
-import { env, envInt, EventBusService, InternalHttpClient, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, ReferralInviteSentPayload, Role, WalletCreditedPayload } from '@ethiopialearn/contracts';
 import { Coupon, CouponKind, Payment, Referral, ReferralCode, Wallet, WalletTransaction, WalletTxKind } from './entities';
 
@@ -71,11 +71,11 @@ export class GrowthService {
     if (ctx.role !== Role.PLATFORM_ADMIN) {
       // Educators/institutions can only discount their own courses — and never platform-wide.
       if (!courseId) throw new BadRequestException('Pick one of your courses for this coupon');
-      const course = await this.internal.get<{ owner_id: string }>(`/api/v1/internal/courses/${courseId}`);
+      const course = await this.internal.get<{ owner_id: string }>(internalPath`/api/v1/internal/courses/${courseId}`);
       const ownerIds = await this.ownerIdsFor(ctx);
       if (!ownerIds.includes(course.owner_id)) throw new ForbiddenException('Not your course');
     } else if (courseId) {
-      await this.internal.get(`/api/v1/internal/courses/${courseId}`); // 404 if bogus
+      await this.internal.get(internalPath`/api/v1/internal/courses/${courseId}`); // 404 if bogus
     }
 
     const expires = dto.expires_at ? new Date(dto.expires_at) : null;
@@ -132,7 +132,7 @@ export class GrowthService {
 
   /** Public-facing quote for the checkout UI (no coupon internals leaked). */
   async previewCoupon(code: string, courseId: string) {
-    const course = await this.internal.get<{ price_etb: number | null; pricing_type: string }>(`/api/v1/internal/courses/${courseId}`);
+    const course = await this.internal.get<{ price_etb: number | null; pricing_type: string }>(internalPath`/api/v1/internal/courses/${courseId}`);
     if (!course.price_etb) throw new BadRequestException('This course is free — no coupon needed');
     const q = await this.quote(courseId, course.price_etb, code);
     return {
@@ -286,7 +286,7 @@ export class GrowthService {
 
   /** Admin: manual balance adjustment (support credits, corrections). */
   async adminAdjust(adminId: string, userId: string, amount: number, note: string) {
-    await this.internal.get(`/api/v1/internal/users/${userId}`); // 404 if no such user
+    await this.internal.get(internalPath`/api/v1/internal/users/${userId}`); // 404 if no such user
     const ref = `admin:${adminId}`;
     const balance = amount >= 0
       ? await this.credit(userId, amount, 'admin_adjust', ref, note || 'Adjustment by support')
@@ -350,7 +350,7 @@ export class GrowthService {
       if (email === ctx.email?.toLowerCase()) continue;
       let existing = false;
       try {
-        await this.internal.get(`/api/v1/internal/users/by-email/${encodeURIComponent(email)}`);
+        await this.internal.get(internalPath`/api/v1/internal/users/by-email/${email}`);
         existing = true;
       } catch {
         existing = false;
@@ -454,7 +454,7 @@ export class GrowthService {
     const ids = [ctx.id];
     if (ctx.role === Role.INSTITUTION_ADMIN) {
       try {
-        const inst = await this.internal.get<{ id: string }>(`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+        const inst = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
         ids.push(inst.id);
       } catch {
         /* no institution yet */
@@ -465,7 +465,7 @@ export class GrowthService {
 
   private async userInfo(userId: string): Promise<{ email: string; name: string }> {
     try {
-      return await this.internal.get<{ email: string; name: string }>(`/api/v1/internal/users/${userId}`);
+      return await this.internal.get<{ email: string; name: string }>(internalPath`/api/v1/internal/users/${userId}`);
     } catch {
       return { email: '', name: '' };
     }

@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
-import { env, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { env, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import {
   BulkPurchaseActivatedPayload,
   PayRequestCreatedPayload,
@@ -492,7 +492,7 @@ export class SponsorshipService implements OnModuleInit {
       if (s.status === 'granted' && s.recipient_user_id) {
         try {
           const e = await this.internal.get<{ progress_percent: number; lessons_complete: boolean }>(
-            `/api/v1/internal/entitlements?learner_id=${s.recipient_user_id}&course_id=${s.course_id}`,
+            internalPath`/api/v1/internal/entitlements?learner_id=${s.recipient_user_id}&course_id=${s.course_id}`,
           );
           progress = { progress_percent: e.progress_percent ?? 0, lessons_complete: !!e.lessons_complete };
         } catch {
@@ -521,7 +521,7 @@ export class SponsorshipService implements OnModuleInit {
 
   private async entitled(learnerId: string, courseId: string): Promise<boolean> {
     try {
-      const e = await this.internal.get<{ entitlement_status: string }>(`/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`);
+      const e = await this.internal.get<{ entitlement_status: string }>(internalPath`/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`);
       return e.entitlement_status === 'active';
     } catch {
       return false;
@@ -530,7 +530,7 @@ export class SponsorshipService implements OnModuleInit {
 
   private async userByEmail(email: string): Promise<UserInfo | null> {
     try {
-      return await this.internal.get<UserInfo>(`/api/v1/internal/users/by-email/${encodeURIComponent(email)}`);
+      return await this.internal.get<UserInfo>(internalPath`/api/v1/internal/users/by-email/${email}`);
     } catch {
       return null;
     }
@@ -538,7 +538,7 @@ export class SponsorshipService implements OnModuleInit {
 
   private async user(id: string): Promise<{ name: string; email: string }> {
     try {
-      return await this.internal.get<{ name: string; email: string }>(`/api/v1/internal/users/${id}`);
+      return await this.internal.get<{ name: string; email: string }>(internalPath`/api/v1/internal/users/${id}`);
     } catch {
       return { name: '', email: '' };
     }
