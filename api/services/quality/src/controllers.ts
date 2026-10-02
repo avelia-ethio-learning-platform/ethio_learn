@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
-import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { FraudSubjectType, QaDecisionAction, Role, TrustTier } from '@ethiopialearn/contracts';
 import { QualityService } from './quality.service';
 
@@ -63,7 +63,7 @@ export class QualityController {
   @Get('qa/courses/:id')
   @UseGuards(RolesGuard)
   @Roles(Role.QUALITY_OFFICER, Role.PLATFORM_ADMIN)
-  reviewDetail(@Param('id') courseId: string) {
+  reviewDetail(@UuidParam('id') courseId: string) {
     return this.service.reviewDetail(courseId);
   }
 
@@ -71,21 +71,21 @@ export class QualityController {
   @Post('qa/courses/:id/decision')
   @UseGuards(RolesGuard)
   @Roles(Role.QUALITY_OFFICER, Role.PLATFORM_ADMIN)
-  decide(@CurrentUser() ctx: UserContext, @Param('id') courseId: string, @Body() dto: QaDecisionDto) {
+  decide(@CurrentUser() ctx: UserContext, @UuidParam('id') courseId: string, @Body() dto: QaDecisionDto) {
     return this.service.decide(ctx, courseId, dto.action, dto.notes);
   }
 
   @Get('qa/items/:id')
   @UseGuards(RolesGuard)
   @Roles(Role.QUALITY_OFFICER, Role.PLATFORM_ADMIN)
-  item(@Param('id', ParseUUIDPipe) itemId: string) {
+  item(@UuidParam('id') itemId: string) {
     return this.service.getItem(itemId);
   }
 
   @Post('qa/items/:id/claim')
   @UseGuards(RolesGuard)
   @Roles(Role.QUALITY_OFFICER, Role.PLATFORM_ADMIN)
-  claim(@CurrentUser() ctx: UserContext, @Param('id', ParseUUIDPipe) itemId: string) {
+  claim(@CurrentUser() ctx: UserContext, @UuidParam('id') itemId: string) {
     return this.service.claim(ctx, itemId);
   }
 
@@ -94,7 +94,7 @@ export class QualityController {
   @Roles(Role.QUALITY_OFFICER, Role.PLATFORM_ADMIN)
   decideItem(
     @CurrentUser() ctx: UserContext,
-    @Param('id', ParseUUIDPipe) itemId: string,
+    @UuidParam('id') itemId: string,
     @Body() dto: QaDecisionDto,
   ) {
     return this.service.decideItem(ctx, itemId, dto.action, dto.notes);
@@ -105,19 +105,19 @@ export class QualityController {
   @Post('courses/:id/reviews')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  addReview(@CurrentUser() ctx: UserContext, @Param('id') courseId: string, @Body() dto: ReviewDto) {
+  addReview(@CurrentUser() ctx: UserContext, @UuidParam('id') courseId: string, @Body() dto: ReviewDto) {
     return this.service.addReview(ctx, courseId, dto.rating, dto.comment);
   }
 
   /** [PUBLIC] */
   @Get('courses/:id/reviews')
-  listReviews(@Param('id') courseId: string) {
+  listReviews(@UuidParam('id') courseId: string) {
     return this.service.listReviews(courseId);
   }
 
   /** [PUBLIC] trust badge shown on catalog/detail pages */
   @Get('educators/:id/trust-tier')
-  trustTier(@Param('id') educatorId: string) {
+  trustTier(@UuidParam('id') educatorId: string) {
     return this.service.trustTier(educatorId);
   }
 
@@ -146,7 +146,7 @@ export class QualityController {
   @Post('fraud/flags/:id/resolve')
   @UseGuards(RolesGuard)
   @Roles(Role.PLATFORM_ADMIN)
-  resolve(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  resolve(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.resolveFlag(ctx.id, id);
   }
 }
@@ -158,7 +158,7 @@ export class QualityInternalController {
 
   /** Authoritative trust tier (Quality & Trust owns educator_trust_tiers). */
   @Get('educators/:id/trust-tier')
-  async trustTier(@Param('id') educatorId: string): Promise<{ tier: TrustTier }> {
+  async trustTier(@UuidParam('id') educatorId: string): Promise<{ tier: TrustTier }> {
     const res = await this.service.trustTier(educatorId);
     return { tier: res.tier };
   }
