@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { env, EventBusService, InternalHttpClient } from '@ethiopialearn/common';
+import { env, EventBusService, InternalHttpClient, internalPath } from '@ethiopialearn/common';
 import { courseCategoryLabel } from '@ethiopialearn/contracts';
 import {
   AssessmentResultPayload,
@@ -588,7 +588,7 @@ export class NotificationService implements OnModuleInit {
   private async notifyCourseUpdated(p: CourseUpdatedPayload) {
     let learnerIds: string[] = [];
     try {
-      learnerIds = (await this.internal.get<{ learner_ids: string[] }>(`/api/v1/internal/courses/${p.course_id}/learners`)).learner_ids;
+      learnerIds = (await this.internal.get<{ learner_ids: string[] }>(internalPath`/api/v1/internal/courses/${p.course_id}/learners`)).learner_ids;
     } catch (err) {
       this.logger.warn(`course-updated fan-out: could not list learners for ${p.course_id}: ${(err as Error).message}`);
       return;
@@ -610,7 +610,7 @@ export class NotificationService implements OnModuleInit {
   /** Current course status, or null when the course service can't be reached. */
   private async courseStatus(courseId: string): Promise<string | null> {
     try {
-      return (await this.internal.get<{ status: string }>(`/api/v1/internal/courses/${courseId}`)).status;
+      return (await this.internal.get<{ status: string }>(internalPath`/api/v1/internal/courses/${courseId}`)).status;
     } catch {
       return null;
     }
@@ -618,7 +618,7 @@ export class NotificationService implements OnModuleInit {
 
   private async userInfo(userId: string): Promise<{ email: string; name: string }> {
     try {
-      return await this.internal.get<{ email: string; name: string }>(`/api/v1/internal/users/${userId}`);
+      return await this.internal.get<{ email: string; name: string }>(internalPath`/api/v1/internal/users/${userId}`);
     } catch {
       return { email: '', name: '' };
     }
