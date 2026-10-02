@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Post, Query, UseGuards } fr
 import { IsNumber, IsUUID, Min } from 'class-validator';
 import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
+import { AnalyticsQuery } from './analytics-query.dto';
 import { EnrollmentService } from './enrollment.service';
 
 class EnrollDto {
@@ -50,10 +51,8 @@ export class EnrollmentController {
   @Get('enrollments/analytics')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  analytics(@CurrentUser() ctx: UserContext, @Query('course_ids') courseIds = '') {
-    const ids = courseIds.split(',').map((s) => s.trim()).filter(Boolean);
-    if (!ids.length) throw new BadRequestException('course_ids is required (comma-separated)');
-    return this.service.analytics(ctx, ids);
+  analytics(@CurrentUser() ctx: UserContext, @Query() query: AnalyticsQuery) {
+    return this.service.analytics(ctx, query.course_ids);
   }
 
   @Get('admin/enrollments/analytics')
