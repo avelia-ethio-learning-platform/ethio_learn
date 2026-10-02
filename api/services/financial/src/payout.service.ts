@@ -25,6 +25,8 @@ const KYC_PAYOUT_THRESHOLD_ETB = () => envInt('KYC_PAYOUT_THRESHOLD_ETB', 10000)
 const PAYEE_PAGE = 100;
 /** Per payee per run; anything beyond waits for the next run. */
 const PAYMENTS_PER_PAYOUT = 1000;
+/** A run holds with `fraud_flag_open`; a flag raised later re-holds scheduled payouts with `fraud:<signal>`. */
+const isFraudHold = (reason: string | null): reason is string => reason === 'fraud_flag_open' || !!reason?.startsWith('fraud:');
 
 @Injectable()
 export class PayoutService implements OnModuleInit {
@@ -58,12 +60,7 @@ export class PayoutService implements OnModuleInit {
       await this.holds.delete({ flag_id: p.flag_id });
       if (p.payee_id) {
         const remaining = await this.holds.count({ where: { payee_id: p.payee_id } });
-        if (remaining === 0) {
-          await this.payouts.update(
-            { payee_id: p.payee_id, status: PayoutStatus.HELD },
-            { status: PayoutStatus.SCHEDULED, hold_reason: null },
-          );
-        }
+        if (remaining === 0) await this.releaseFraudHolds(p.payee_id);
       }
     });
     // Internal command channel: cron/service trigger via the direct exchange.
@@ -177,6 +174,24 @@ export class PayoutService implements OnModuleInit {
       await m.getRepository(Payout).insert(payout);
       return payout;
     });
+  }
+
+  /**
+   * Once a payee has no open fraud flag, only payouts held *for fraud* move on,
+   * and the KYC rule applies again: a large one stays held as `kyc_required`
+   * until an admin releases it. KYC holds are never touched here. Each change
+   * is conditional on the reason read, so a concurrent admin release wins.
+   */
+  private async releaseFraudHolds(payeeId: string) {
+    const held = await this.payouts.find({ where: { payee_id: payeeId, status: PayoutStatus.HELD } });
+    for (const payout of held) {
+      if (!isFraudHold(payout.hold_reason)) continue;
+      const next =
+        Number(payout.net_amount_etb) > KYC_PAYOUT_THRESHOLD_ETB()
+          ? { hold_reason: 'kyc_required' }
+          : { status: PayoutStatus.SCHEDULED, hold_reason: null };
+      await this.payouts.update({ id: payout.id, status: PayoutStatus.HELD, hold_reason: payout.hold_reason }, next);
+    }
   }
 
   /** Admin releases a held payout (fraud resolved / KYC passed). Twice or concurrently, it is disbursed once. */

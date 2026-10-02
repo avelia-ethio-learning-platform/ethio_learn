@@ -219,6 +219,63 @@ describe('PayoutService: one payout per payment (P1-14)', () => {
   });
 });
 
+describe('PayoutService: a resolved fraud flag never skips KYC', () => {
+  const resolveFlag = async (t: ReturnType<typeof setup>, flagId: string) => {
+    t.service.onModuleInit();
+    const handler = t.bus.subscribe.mock.calls.find(([type]) => type === 'FraudFlagResolved')![1];
+    await handler({ flag_id: flagId, payee_id: 'edu-1' });
+  };
+  const holdForFraud = (t: ReturnType<typeof setup>) => t.db.repo(PayoutHold).rows.push({ id: 'h1', payee_id: 'edu-1', flag_id: 'f1' });
+
+  it('keeps a fraud-held payout above the KYC threshold held for KYC, and a run does not pay it', async () => {
+    const t = setup();
+    t.payment({ amount_etb: '20000.00' }); // net 16000 > 10000
+    holdForFraud(t);
+    await t.service.runPayouts();
+    expect(t.payouts()[0]).toMatchObject({ status: PayoutStatus.HELD, hold_reason: 'fraud_flag_open' });
+
+    await resolveFlag(t, 'f1');
+    expect(t.payouts()[0]).toMatchObject({ status: PayoutStatus.HELD, hold_reason: 'kyc_required' });
+    await t.service.runPayouts();
+    expect(t.payouts()[0].status).toBe(PayoutStatus.HELD);
+    expect(t.published('PayoutCompleted')).toHaveLength(0);
+  });
+
+  it('leaves a kyc_required payout untouched', async () => {
+    const t = setup();
+    t.payment({ amount_etb: '20000.00' });
+    await t.service.runPayouts();
+    holdForFraud(t);
+
+    await resolveFlag(t, 'f1');
+    expect(t.payouts()[0]).toMatchObject({ status: PayoutStatus.HELD, hold_reason: 'kyc_required' });
+    await t.service.runPayouts();
+    expect(t.published('PayoutCompleted')).toHaveLength(0);
+  });
+
+  it('pays a fraud-held payout under the threshold on the next run, once', async () => {
+    const t = setup();
+    t.payment();
+    holdForFraud(t);
+    await t.service.runPayouts();
+
+    await resolveFlag(t, 'f1');
+    expect(t.payouts()[0]).toMatchObject({ status: PayoutStatus.SCHEDULED, hold_reason: null });
+    await Promise.all([t.service.runPayouts(), t.service.runPayouts()]);
+    expect(t.payouts()[0].status).toBe(PayoutStatus.PAID);
+    expect(t.published('PayoutCompleted')).toHaveLength(1);
+  });
+
+  it('treats a hold from a flag raised after scheduling (fraud:<signal>) the same way', async () => {
+    const t = setup();
+    t.db.repo(Payout).rows.push({
+      id: 'po-big', payee_id: 'edu-1', payee_type: OwnerType.EDUCATOR, net_amount_etb: '16000.00', status: PayoutStatus.HELD, hold_reason: 'fraud:velocity',
+    });
+    await resolveFlag(t, 'f-other');
+    expect(t.payouts()[0]).toMatchObject({ status: PayoutStatus.HELD, hold_reason: 'kyc_required' });
+  });
+});
+
 describe('PayoutService.release', () => {
   it('releasing a held payout twice disburses it once', async () => {
     const t = setup();
