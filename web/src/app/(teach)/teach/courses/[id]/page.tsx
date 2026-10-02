@@ -8,7 +8,7 @@ import { CheckCircle2, ImagePlus, Lock, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { RequireRole } from '@/components/RequireRole';
-import { BackButton } from '@/components/BackButton';
+import { RoleHomeBackButton } from '@/components/BackButton';
 import { PageShell, StatusBadge } from '@/components/PageChrome';
 import { ChangelogTool, TutorKnowledgeTool } from './course-tools';
 import { CourseDetails, EditedChip } from './course-details';
@@ -95,7 +95,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
     <PageShell>
     <LessonUploadsProvider courseId={courseId} userId={user?.id ?? null} lessonIds={lessonIds} onChanged={refresh}>
     <div className="space-y-6">
-      <BackButton fallback="/teach" label="My courses" />
+      <RoleHomeBackButton educatorLabel="My courses" />
       <div className="flex animate-fade-in-up flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="flex flex-wrap items-center gap-2 break-words text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">
@@ -492,7 +492,7 @@ function ManageCourseFromUrl({ courseId }: { courseId: string }) {
 export default function ManageCoursePage() {
   const params = useParams<{ id: string }>();
   return (
-    <RequireRole roles={['educator', 'platform_admin']}>
+    <RequireRole roles={['educator', 'institution_admin', 'platform_admin']}>
       <Suspense>
         <ManageCourseFromUrl courseId={params.id} />
       </Suspense>

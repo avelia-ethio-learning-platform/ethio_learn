@@ -117,7 +117,7 @@ function NewCourseForm() {
 
 export default function NewCoursePage() {
   return (
-    <RequireRole roles={['educator', 'institution_admin']}>
+    <RequireRole roles={['educator']}>
       <NewCourseForm />
     </RequireRole>
   );

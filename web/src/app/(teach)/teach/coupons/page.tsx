@@ -3,14 +3,14 @@
 import { Ticket } from 'lucide-react';
 import { RequireRole } from '@/components/RequireRole';
 import { CouponManager } from './coupon-manager';
-import { BackButton } from '@/components/BackButton';
+import { RoleHomeBackButton } from '@/components/BackButton';
 import { PageHeader, PageShell } from '@/components/PageChrome';
 
 export default function TeachCouponsPage() {
   return (
     <RequireRole roles={['educator', 'institution_admin']}>
       <PageShell>
-        <BackButton fallback="/teach" label="Educator dashboard" />
+        <RoleHomeBackButton />
         <PageHeader
           badge={
             <span className="section-badge">
