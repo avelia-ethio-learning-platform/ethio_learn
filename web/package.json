@@ -2,6 +2,9 @@
   "name": "@ethiopialearn/web",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "build": "node scripts/copy-pdf-worker.mjs && next build",
     "dev": "node scripts/copy-pdf-worker.mjs && next dev",

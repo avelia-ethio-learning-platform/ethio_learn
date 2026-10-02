@@ -12,7 +12,7 @@ EthiopiaLearn is split into `api/` (a pnpm/Turborepo workspace of 8 stateless No
 
 ## Container images
 
-Slim multi-stage builds (`node:20-alpine`) are already defined:
+Slim multi-stage builds (`node:22-alpine`) are already defined:
 
 - `api/Dockerfile` — build from the `api/` context; builds any one service via `--build-arg PKG=@ethiopialearn/<name>` and ships only a pruned production `pnpm deploy` (no source, no dev deps, no toolchain). Build all 8 with the same Dockerfile.
 - `web/Dockerfile` — build from the `web/` context; Next.js `output: standalone`, the runtime image carries only the standalone server + static assets.

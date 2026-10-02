@@ -47,7 +47,7 @@ Browser ──► Next.js web (SSR/ISR public pages, CSR dashboards, en/am i18n)
 
 ## Quick start (local dev)
 
-Requirements: Node 20, pnpm 9 (`corepack enable`), Docker.
+Requirements: Node 22 (see `.nvmrc`), pnpm 9 (`corepack enable`), Docker.
 
 The repo is split into two independent workspaces: [api/](api/) (gateway + 7 services, pnpm workspace) and [web/](web/) (standalone Next.js app).
 
@@ -56,6 +56,9 @@ cp api/.env.example api/.env
 
 # 1. infrastructure
 docker compose up -d postgres redis rabbitmq minio minio-init
+# Existing clone? If `minio` exits with "file access denied", its volume was
+# created by the old root image. Fix it once (keeps your files):
+#   docker run --rm -v ethiopialearn_miniodata:/data alpine chown -R 65532:65532 /data
 
 # 2. install + build
 pnpm -C api install && pnpm -C api build
@@ -103,7 +106,7 @@ CI runs all four layers on every push/PR (see [.github/workflows/ci.yml](.github
 docker compose --profile full up --build
 ```
 
-Images are slim by design: `node:20-alpine` multi-stage builds; backend images carry only a pruned production `pnpm deploy` of one service, the web image carries only the Next.js standalone output. No heavyweight sidecars.
+Images are slim by design: `node:22-alpine` multi-stage builds; backend images carry only a pruned production `pnpm deploy` of one service, the web image carries only the Next.js standalone output. No heavyweight sidecars.
 
 ### Demo accounts (after `pnpm -C api seed`)
 
