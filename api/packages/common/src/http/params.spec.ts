@@ -1,10 +1,11 @@
-import { BadRequestException, Controller, Get, ParseUUIDPipe, PipeTransform } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, ParseUUIDPipe, PipeTransform } from '@nestjs/common';
 import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import {
   CertificateUidPipe,
   InviteTokenPipe,
   PayRequestTokenPipe,
   UuidParam,
+  unpipedRouteParams,
 } from './params';
 
 const meta = { type: 'param' as const };
@@ -80,5 +81,27 @@ describe('CertificateUidPipe', () => {
 
   it.each(['not-a-uuid', V4 + '0', V4.slice(0, -1), V4.replace(/-/g, ''), 'g' + V4.slice(1), '../x', ''])('rejects %p', (value) => {
     expectRejects(pipe, value);
+  });
+});
+
+describe('unpipedRouteParams', () => {
+  @Controller()
+  class Mixed {
+    @Get('a/:id')
+    piped(@UuidParam('id') _id: string) {}
+    @Get('b/:id')
+    bare(@Param('id') _id: string) {}
+    @Get('c/:token')
+    token(@Param('token', new InviteTokenPipe()) _t: string) {}
+    @Get('d/:title')
+    free(@Param('title') _t: string) {}
+  }
+
+  it('flags only params with no accepted pipe', () => {
+    expect(unpipedRouteParams([Mixed])).toEqual(['Mixed.bare(:id)', 'Mixed.free(:title)']);
+  });
+
+  it('skips explicit free-text entries', () => {
+    expect(unpipedRouteParams([Mixed], ['Mixed.bare(:id)', 'Mixed.free(:title)'])).toEqual([]);
   });
 });
