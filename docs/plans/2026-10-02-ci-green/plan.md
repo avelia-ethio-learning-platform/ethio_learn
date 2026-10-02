@@ -1,6 +1,6 @@
 # Phase 1: CI green and repo baseline
 
-Status: in code review (round 1)
+Status: code review approved (round 1), waiting for the user to approve push and PR
 Size: S (sessions: 2 — ethio-planner implements, ethio-plan-review reviews plan and code)
 Base branch: `origin/main` · Feature branch: `fix/ci-green`
 Roadmap: [../2026-10-02-refinement-audit/roadmap.md](../2026-10-02-refinement-audit/roadmap.md) · Audit: `../2026-10-02-refinement-audit/audit.md` (local only until phases 3–4 ship)
