@@ -2,15 +2,13 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { buildTypeOrmOptions, EventBusModule, HealthController, InternalHttpClient } from '@ethiopialearn/common';
-import { CourseCache, Enrollment, LessonProgress, VideoProgress } from './entities';
+import { entities, migrations, SCHEMA } from './database';
 import { EnrollmentService } from './enrollment.service';
 import { EnrollmentController, EnrollmentInternalController } from './enrollment.controller';
 
-const entities = [Enrollment, LessonProgress, CourseCache, VideoProgress];
-
 @Module({
   imports: [
-    TypeOrmModule.forRoot(buildTypeOrmOptions('enrollment', entities)),
+    TypeOrmModule.forRoot(buildTypeOrmOptions(SCHEMA, entities, migrations)),
     TypeOrmModule.forFeature(entities),
     EventBusModule.forRoot({ serviceName: 'enrollment' }),
     ScheduleModule.forRoot(),

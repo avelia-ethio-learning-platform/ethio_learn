@@ -105,7 +105,7 @@ export class CourseReview {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index()
+  // Indexed as the leading column of the (course_id, learner_id) unique.
   @Column('uuid')
   course_id: string;
 

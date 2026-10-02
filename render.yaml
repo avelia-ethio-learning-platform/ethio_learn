@@ -60,10 +60,8 @@ envVarGroups:
         value: "3"
       - key: DB_POOL_MIN
         value: "0"
-      # No migrations exist yet, so the first boot must create the tables.
-      # Flip to false once the schema is live (see DEPLOYMENT.md).
-      - key: DB_SYNC
-        value: "true"
+      # No DB_SYNC: each service runs its migrations on boot (DEPLOYMENT.md,
+      # "Database migrations"), and DB_SYNC is ignored if set.
 
       # ---- object storage (Cloudflare R2) -----------------------------------
       # Signed URLs are signed against the S3 API endpoint; the public r2.dev

@@ -66,9 +66,9 @@ pnpm turbo build --filter=@ethiopialearn/course-service
 PORT=4102 node api/services/course/dist/main.js
 ```
 
-Each service exposes `GET /health` for liveness probes. Schema changes are
-applied by TypeORM `synchronize` in development; generate migrations before
-pointing at a production database.
+Each service exposes `GET /health` for liveness probes. On boot a service runs
+its pending migrations before it listens, so `/health` answers only once its
+schema is current (README: "Changing the schema").
 
 ## Production checklist
 
@@ -78,4 +78,5 @@ pointing at a production database.
 - [ ] Gateway is the only service with a public ingress; services + RabbitMQ +
       Postgres live on a private network
 - [ ] `CORS_ORIGINS` locked to the real web origin(s)
-- [ ] Replace `synchronize` with migrations (`DB_SYNC=false`)
+- [ ] Production schema matches the code: `DATABASE_URL=<prod> pnpm -C api db:check`
+      reports no drift (it is read-only)

@@ -94,7 +94,8 @@ export class EducatorProfile {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index({ unique: true })
+  // Unique through the @OneToOne join column's constraint; a separate unique
+  // @Index here built a second identical index.
   @Column('uuid')
   user_id: string;
 

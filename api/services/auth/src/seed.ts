@@ -1,10 +1,12 @@
 import 'reflect-metadata';
-import '@ethiopialearn/common'; // side-effect: load api/.env so DATABASE_URL is set (seed runs standalone, not via a service bootstrap)
+// Importing common also loads api/.env, so DATABASE_URL is set when the seed
+// runs standalone (not via a service bootstrap).
+import { buildTypeOrmOptions } from '@ethiopialearn/common';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Role, TrustTier } from '@ethiopialearn/contracts';
-import { EducatorProfile, EmailVerification, Institution, InstitutionInstructor, PasswordReset, User } from './entities';
-import { AuditLog } from './audit';
+import { entities, migrations, SCHEMA } from './database';
+import { EducatorProfile, Institution, User } from './entities';
 
 /**
  * Dev/demo seed: creates one account per role, all email-verified.
@@ -12,14 +14,11 @@ import { AuditLog } from './audit';
  * way or via the admin console — never via public signup.
  */
 async function main() {
-  const ds = new DataSource({
-    type: 'postgres',
-    url: process.env.DATABASE_URL ?? 'postgres://ethiopialearn:ethiopialearn@localhost:5432/ethiopialearn',
-    schema: 'auth',
-    entities: [User, EmailVerification, PasswordReset, EducatorProfile, Institution, InstitutionInstructor, AuditLog],
-    synchronize: true,
-    uuidExtension: 'pgcrypto',
-  });
+  // The service's own options: the auth migrations run first (CI and the
+  // README seed an empty database before any service has booted), and the
+  // seed can never synchronize a schema. A hand-built DataSource would also
+  // default to the 'all' transaction mode, which rejects CONCURRENTLY migrations.
+  const ds = new DataSource(buildTypeOrmOptions(SCHEMA, entities, migrations));
   await ds.initialize();
   const users = ds.getRepository(User);
 
