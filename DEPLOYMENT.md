@@ -107,22 +107,27 @@ Each service runs its pending TypeORM migrations on boot, inside `DataSource.ini
 
 ### First rollout: from `synchronize` to migrations
 
-In this order. Steps 1, 2 and 4 touch production and are for the owner to run.
+In this order. Steps 1, 2, 4 and 5 touch Neon or Render and are for the owner to run.
 
-1. **Before merging, check production for drift** (read-only):
+1. **Before merging, rehearse on a copy of production.** `db:check` can't run against production directly yet: the branch's entities already include the `IndexTuning` index changes, so it would list those 13 statements (7 `DROP INDEX`, 6 `CREATE INDEX`) as drift. Instead, create a Neon branch from the production branch at the current point in time, copy its connection string, and run the migrations there from the feature branch:
    ```bash
-   DATABASE_URL='<production url>' pnpm -C api db:check
+   REHEARSAL='<rehearsal branch connection string>'
+   pnpm -C api build
+   for s in auth course enrollment financial notification outcomes quality; do
+     DATABASE_URL="$REHEARSAL" pnpm -C api/services/$s migration:run || break
+   done
+   DATABASE_URL="$REHEARSAL" pnpm -C api db:check
    ```
-   Expect "No drift" for all 7 services. Anything else means production differs from the entities. Stop and add a corrective migration first: the baseline would otherwise record a schema that doesn't match it.
+   Expect `Migration Baseline… has been executed successfully` and `Migration IndexTuning… has been executed successfully` for each service, then "No drift". Anything else means production differs from the entities. Stop and add a corrective migration first, because the baseline would otherwise record a schema it doesn't match. Delete the rehearsal branch afterwards.
 2. **Branch the Neon database** right before merging (Neon console → Branches → new branch from the production branch at the current point in time). That branch is the rollback point for data.
 3. **Merge.** Render redeploys every service. On boot each one records its baseline (no DDL) and runs its `IndexTuning` migration (`CREATE`/`DROP INDEX CONCURRENTLY`, which blocks no writes). Each service log shows `Migration Baseline… has been executed successfully` and `Migration IndexTuning… has been executed successfully`.
 4. **After the deploy:**
    - `DATABASE_URL='<production url>' pnpm -C api db:check` → "No drift".
    - `SELECT name FROM "<schema>"."migrations"` → a `Baseline…` and an `IndexTuning…` row in each of the 7 schemas.
    - `SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid` → no rows.
-5. If `DB_SYNC` was ever set by hand in a service's Render environment, delete it. It's ignored, with a warning at boot.
+5. If `DB_SYNC` still shows in the `ethiopialearn-shared` env group or in any service's environment (a Blueprint sync can leave a removed key behind), delete it. It's ignored, with a warning at boot.
 
-**Rolling back:** revert the merge and redeploy. The previous code synchronizes again, which only undoes the index changes; the `migrations` tables stay behind, unused. Restore from the Neon branch only if data itself went wrong.
+**Rolling back:** revert the merge and redeploy. The previous code synchronizes again, which only undoes the index changes; the `migrations` tables stay behind, unused. Restore from the Neon branch only if data itself went wrong. **Before deploying the migrations again**, delete the `IndexTuning` rows (`DELETE FROM "<schema>"."migrations" WHERE name LIKE 'IndexTuning%'` in each of the 7 schemas). Otherwise they still read as done, nothing reruns, and production keeps the old indexes. The baselines stay recorded, which is correct, since every table is still there.
 
 ## Scaling & operations
 

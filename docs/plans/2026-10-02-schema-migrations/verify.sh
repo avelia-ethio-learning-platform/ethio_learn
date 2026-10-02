@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Phase 2 verification: plan step 7 cases (a)–(e) and the step 8 index checks.
+# Phase 2 verification: plan step 7 cases (a)–(e), the step 8 index checks, and
+# (f) the pre-merge rehearsal on a copy of production and (g) rolling forward
+# after a rollback, both from DEPLOYMENT.md.
 #
 # Rerunnable. Works only on throwaway databases named el_verify_* in the local
 # docker Postgres, never on the database in api/.env. Services boot from dist/
@@ -58,6 +60,8 @@ boot() { # service db port
   kill "$pid"; return 1
 }
 boot_all() { local port=5101 ok=0; for s in "${SVCS[@]}"; do boot "$s" "$1" $port || { echo "       $s did not boot, see $LOGS/boot-$s-$1.log"; ok=1; }; port=$((port + 1)); done; return $ok; }
+# db:check exits 1 and lists exactly N statements, all of them index changes.
+expect_index_drift() { ! dbcheck "$1" && eq "$(grep -c '^  ' "$LOGS/dbcheck-$1.log")/$(grep -cE '^  (CREATE|DROP) INDEX' "$LOGS/dbcheck-$1.log")" "$2/$2"; }
 migration_rows() { for s in "${SVCS[@]}"; do sql "$1" "SELECT count(*) FROM \"$s\".migrations"; done | tr '\n' ' ' | sed 's/ $//'; }
 idx_counts() { count "$1" "SELECT (SELECT count(*) FROM pg_indexes WHERE indexname IN ($NEW_IDX)) || ' new, ' || (SELECT count(*) FROM pg_indexes WHERE indexname IN ($OLD_IDX)) || ' redundant'"; }
 invalid_idx() { count "$1" "SELECT count(*) FROM pg_index WHERE NOT indisvalid"; }
@@ -81,6 +85,9 @@ B=el_verify_b
 createdb $B -T $A
 for s in "${SVCS[@]}"; do cli "$s" $B migration:revert; sql $B "DROP TABLE \"$s\".migrations"; done
 check "starts like production: 0 new, 7 redundant indexes, no migrations tables" eq "$(idx_counts $B)/$(count $B "SELECT count(*) FROM pg_tables WHERE tablename = 'migrations'")" "0 new, 7 redundant/0"
+check "db:check before the deploy lists exactly the 13 IndexTuning statements (why DEPLOYMENT.md rehearses on a copy)" expect_index_drift $B 13
+R=el_verify_r
+createdb $R -T $B # the production-like state, for (f)
 snapshot $B > "$LOGS/b-before.txt"
 check "every service boots" boot_all $B
 check "baseline + IndexTuning recorded in each schema" eq "$(migration_rows $B)" "2 2 2 2 2 2 2"
@@ -123,6 +130,28 @@ for s in "${SVCS[@]}"; do cli "$s" $A migration:run; done
 check "after re-run: 6 new, 0 redundant, none invalid" eq "$(idx_counts $A)/$(invalid_idx $A)" "6 new, 0 redundant/0"
 check "db:check reports no drift" dbcheck $A
 
+echo "(f) pre-merge rehearsal on a copy of production, as DEPLOYMENT.md runs it"
+for s in "${SVCS[@]}"; do cli "$s" $R migration:run; done
+check "baseline + IndexTuning recorded in each schema" eq "$(migration_rows $R)" "2 2 2 2 2 2 2"
+check "db:check reports no drift" dbcheck $R
+
+echo "(g) rolling forward after a rollback, as DEPLOYMENT.md says"
+# After "revert the merge", the old code's synchronize restores the redundant
+# indexes and drops the new ones, while each migrations table still records
+# IndexTuning. Emulated by reverting IndexTuning and putting its row back.
+for s in "${SVCS[@]}"; do
+  row=$(sql $R "SELECT timestamp || ', ' || quote_literal(name) FROM \"$s\".migrations WHERE name LIKE 'IndexTuning%'")
+  cli "$s" $R migration:revert
+  sql $R "INSERT INTO \"$s\".migrations (timestamp, name) VALUES ($row)"
+done
+check "post-rollback state: old indexes, IndexTuning still recorded" eq "$(idx_counts $R)/$(migration_rows $R)" "0 new, 7 redundant/2 2 2 2 2 2 2"
+for s in "${SVCS[@]}"; do cli "$s" $R migration:run; done
+check "deploying again alone rebuilds nothing (the trap)" eq "$(idx_counts $R)" "0 new, 7 redundant"
+for s in "${SVCS[@]}"; do sql $R "DELETE FROM \"$s\".migrations WHERE name LIKE 'IndexTuning%'"; done
+for s in "${SVCS[@]}"; do cli "$s" $R migration:run; done
+check "after deleting the IndexTuning rows: 6 new, 0 redundant, none invalid" eq "$(idx_counts $R)/$(invalid_idx $R)" "6 new, 0 redundant/0"
+check "db:check reports no drift" dbcheck $R
+
 echo "db:check exit codes"
 sql $A "ALTER TABLE outcomes.assessments ADD COLUMN drift_probe integer"
 if dbcheck $A; then fail "exits 1 on drift"; else pass "exits 1 on drift"; fi
@@ -130,6 +159,6 @@ check "names the drifted column" grep -q 'drift_probe' "$LOGS/dbcheck-$A.log"
 sql $A "ALTER TABLE outcomes.assessments DROP COLUMN drift_probe"
 check "exits 0 once fixed" dbcheck $A
 
-[ "${KEEP:-0}" = 1 ] || for db in $A $B $C $D; do dropdb $db; done
+[ "${KEEP:-0}" = 1 ] || for db in $A $B $C $D $R; do dropdb $db; done
 echo
 if [ $FAILS -eq 0 ]; then echo "ALL PASSED"; else echo "$FAILS FAILED (logs: $LOGS)"; exit 1; fi

@@ -96,6 +96,7 @@ jobs:
         run: |
           for port in 4101 4102 4103 4104 4105 4106 4107; do
             for _ in $(seq 1 30); do curl -sf "http://localhost:$port/health" > /dev/null && break; sleep 2; done
+            curl -sf "http://localhost:$port/health" > /dev/null || { echo "service on :$port is not healthy"; exit 1; }
           done
           pnpm -C api db:check
       - name: End-to-end flow (educator → QO → learner → certificate)
