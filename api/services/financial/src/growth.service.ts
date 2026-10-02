@@ -1,11 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, MoreThan, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
-import { env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { dailyCapExceeded, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, ReferralInviteSentPayload, Role, WalletCreditedPayload } from '@ethiopialearn/contracts';
 import { Coupon, CouponKind, Payment, Referral, ReferralCode, Wallet, WalletTransaction, WalletTxKind } from './entities';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I confusion
 
 export function randomCode(length: number): string {
@@ -338,39 +339,68 @@ export class GrowthService {
     };
   }
 
-  /** Invite people by email as learners / educators; existing accounts get a "log in" variant. */
+  /**
+   * Invite people by email as learners / educators. Only new addresses are
+   * emailed: not an existing account, not already invited by this referrer, and
+   * not invited by anyone in the last 7 days. The response carries just the
+   * count, so it can't be used to learn who has an account.
+   */
   async invite(ctx: UserContext, emails: string[], message: string, roleHint: string) {
     const clean = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)))].slice(0, 20);
     if (!clean.length) throw new BadRequestException('Provide at least one valid email');
+
+    // New addresses first: not me, not an account, not already invited by this referrer.
+    const alreadyMine = new Set(
+      (await this.referrals.find({ where: { referrer_id: ctx.id, referred_email: In(clean) } })).map((r) => r.referred_email),
+    );
+    const fresh: string[] = [];
+    for (const email of clean) {
+      if (email === ctx.email?.toLowerCase() || alreadyMine.has(email)) continue;
+      try {
+        await this.internal.get(internalPath`/api/v1/internal/users/by-email/${email}`);
+        continue; // an existing account: nothing to send
+      } catch {
+        fresh.push(email);
+      }
+    }
+
+    // Per recipient: one referral email per address per 7 days across all referrers (skipped silently).
+    const recentlyEmailed = fresh.length
+      ? new Set(
+          (await this.referrals.find({ where: { referred_email: In(fresh), created_at: MoreThan(new Date(Date.now() - 7 * DAY_MS)) } })).map(
+            (r) => r.referred_email,
+          ),
+        )
+      : new Set<string>();
+    const candidates = fresh.filter((e) => !recentlyEmailed.has(e));
+
+    // Per account: a rolling 24 h allowance, filled in request order.
+    const cap = envInt('REFERRAL_INVITES_PER_DAY', 20);
+    const sentToday = await this.referrals.count({ where: { referrer_id: ctx.id, created_at: MoreThan(new Date(Date.now() - DAY_MS)) } });
+    const remaining = cap - sentToday;
+    if (remaining <= 0) {
+      this.logger.warn(`Referral invite cap hit: user ${ctx.id} POST /referrals/invite`);
+      throw dailyCapExceeded('referral invites');
+    }
+
     const code = await this.codeFor(ctx.id);
     const me = await this.userInfo(ctx.id);
     const signupUrl = `${env('WEB_URL', 'http://localhost:3000')}/signup?ref=${code}${roleHint ? `&role=${roleHint}` : ''}`;
-    let sent = 0;
-    for (const email of clean) {
-      if (email === ctx.email?.toLowerCase()) continue;
-      let existing = false;
-      try {
-        await this.internal.get(internalPath`/api/v1/internal/users/by-email/${email}`);
-        existing = true;
-      } catch {
-        existing = false;
-      }
-      if (!existing) {
-        const dup = await this.referrals.findOne({ where: { referrer_id: ctx.id, referred_email: email } });
-        if (!dup) await this.referrals.save(this.referrals.create({ referrer_id: ctx.id, referred_email: email, status: 'invited' }));
-      }
+    let invited = 0;
+    for (const email of candidates.slice(0, remaining)) {
+      await this.referrals.save(this.referrals.create({ referrer_id: ctx.id, referred_email: email, status: 'invited' }));
       await this.bus.publish<ReferralInviteSentPayload>('ReferralInviteSent', {
         referrer_id: ctx.id,
         referrer_name: me.name || 'A friend',
         to_email: email,
         message: (message ?? '').slice(0, 500),
         signup_url: signupUrl,
-        existing_user: existing,
+        existing_user: false,
         role_hint: roleHint,
       });
-      sent += 1;
+      invited += 1;
     }
-    return { sent, code, share_url: signupUrl };
+    return { invited };
   }
 
   /** New account attaches itself to the code it signed up with (idempotent). */
