@@ -6,6 +6,7 @@ import { BarChart3, BookOpen, HandCoins, LayoutDashboard, Plus, Ticket, Wallet }
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
+import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
 
 function TeachDashboard() {
   const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
@@ -48,6 +49,7 @@ function TeachDashboard() {
           </div>
         }
       />
+      <PendingInvitesBanner />
 
       <div className="space-y-10">
         {profile && !profile.educator_profile && <EducatorSetup />}

@@ -43,6 +43,14 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Swap the refresh cookie for a new access token, re-reading the user (for
+ * example after accepting an institution invitation changed the role).
+ */
+export async function refreshSession(): Promise<boolean> {
+  return tryRefresh();
+}
+
 async function tryRefresh(): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/api/v1/auth/refresh`, { method: 'POST', credentials: 'include' });

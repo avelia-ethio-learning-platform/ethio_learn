@@ -24,6 +24,7 @@ import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
+import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
 
 function LearnerDashboard() {
   const { t } = useT();
@@ -65,6 +66,7 @@ function LearnerDashboard() {
         title={t('my_learning')}
         subtitle="Your courses, certificates, wallet and payments in one place."
       />
+      <PendingInvitesBanner />
 
       <div className="space-y-10">
         <section className="animate-fade-in-up">

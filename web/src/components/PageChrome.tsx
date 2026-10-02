@@ -52,6 +52,7 @@ const STATUS_STYLE: Record<string, string> = {
   unlisted: 'badge-neutral',
   archived: 'badge-neutral',
   active: 'badge-success',
+  invited: 'badge-info',
   suspended: 'badge-warn',
   banned: 'badge-danger',
   confirmed: 'badge-success',
