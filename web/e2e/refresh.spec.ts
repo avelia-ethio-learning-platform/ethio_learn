@@ -8,7 +8,11 @@ import { logIn } from './support';
 test('parallel 401s share one refresh and the learner stays signed in', async ({ page }) => {
   await logIn(page, 'learner');
 
-  // Expire the session's access token: the gateway now answers 401 to it.
+  // Expire the session's access token: the gateway now answers 401 to it. Do it
+  // on a page where the app isn't running: the dashboard is still firing
+  // queries when logIn returns, and one of them would meet the expired token
+  // and refresh it before the route below holds the refresh.
+  await page.goto('/robots.txt');
   await page.evaluate(() => {
     const auth = JSON.parse(localStorage.getItem('el_auth')!);
     localStorage.setItem('el_auth', JSON.stringify({ ...auth, access_token: 'expired-in-e2e' }));
@@ -28,7 +32,7 @@ test('parallel 401s share one refresh and the learner stays signed in', async ({
     await route.continue();
   });
 
-  await page.reload(); // the dashboard fires its queries in parallel
+  await page.goto('/dashboard'); // the dashboard fires its queries in parallel
   await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   await page.waitForLoadState('networkidle');
 
