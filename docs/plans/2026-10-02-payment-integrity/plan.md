@@ -1,6 +1,6 @@
 # Phase 4: Payment integrity
 
-Status: approved (round 3)
+Status: in implementation (steps 1–10 done; next: step 11 full gate incl. images, then code review)
 Size: L (sessions: 4 — ethio-impl implements, ethio-reviewer reviews code)
 Base branch: `origin/main` once Phase 3 (`fix/access-control`) has merged; until then branch from it and rebase. · Feature branch: `fix/payment-integrity`
 Roadmap: phase 4 (see the change log in the roadmap) · Findings: P0-04, P0-05, P1-03, P1-12, P1-14
@@ -90,16 +90,16 @@ No new endpoints. Behavior changes:
 - `POST /refunds`: 400 when a refund is already open for the payment.
 
 ## Steps
-- [ ] 1. Branch per the base rule.
-- [ ] 2. Migrations 1 and 2 + entity changes; `db:check` 0 on a fresh and an existing local DB; revert round-trip.
-- [ ] 3. `growth.credit`/`debit` idempotent with optional manager (decision 4) + tests.
-- [ ] 4. `confirmPayment` / guarded fail path (decisions 1–3); route webhook, reconcile, sweep, `settleInstantly`, `recordBankTransfer` through it + tests.
-- [ ] 5. Refund guards (5a) + tests.
-- [ ] 6. `publishConfirmed`, `effects_completed_at`, `completePendingEffects` with the running guard (decisions 5–6) + tests.
-- [ ] 7. Webhook signature (decision 7) + tests.
-- [ ] 8. Payout claim/disburse/release (decisions 8–9) + tests.
-- [ ] 9. Financial production rules and `mockComplete` guard (decision 10) + tests.
-- [ ] 10. Local race check, scripted (`scripts/e2e-payments.mjs`, mock mode, added to CI e2e): top up the wallet and fire `mockComplete` and `reconcile` concurrently N times → one credit, one `PaymentConfirmed` (count receipts in the notification inbox); paid course checkout → enrollment active; backdate a few confirmed payments' `webhook_received_at` by 15 days through the compose Postgres (`docker compose exec -T postgres psql …`; hold windows are 7/14 days, `payout.service.ts:20-21`), then trigger `POST /payouts/run` twice concurrently as admin → **at least one payout is created**, its payments carry exactly that `payout_id`, no payment has two, and each payout has one PAID transition (plan-review S5).
+- [x] 1. Branch per the base rule.
+- [x] 2. Migrations 1 and 2 + entity changes; `db:check` 0 on a fresh and an existing local DB; revert round-trip.
+- [x] 3. `growth.credit`/`debit` idempotent with optional manager (decision 4) + tests.
+- [x] 4. `confirmPayment` / guarded fail path (decisions 1–3); route webhook, reconcile, sweep, `settleInstantly`, `recordBankTransfer` through it + tests.
+- [x] 5. Refund guards (5a) + tests.
+- [x] 6. `publishConfirmed`, `effects_completed_at`, `completePendingEffects` with the running guard (decisions 5–6) + tests.
+- [x] 7. Webhook signature (decision 7) + tests.
+- [x] 8. Payout claim/disburse/release (decisions 8–9) + tests.
+- [x] 9. Financial production rules and `mockComplete` guard (decision 10) + tests.
+- [x] 10. Local race check, scripted (`scripts/e2e-payments.mjs`, mock mode, added to CI e2e): top up the wallet and fire `mockComplete` and `reconcile` concurrently N times → one credit, one `PaymentConfirmed` (count receipts in the notification inbox); paid course checkout → enrollment active; backdate a few confirmed payments' `webhook_received_at` by 15 days through the compose Postgres (`docker compose exec -T postgres psql …`; hold windows are 7/14 days, `payout.service.ts:20-21`), then trigger `POST /payouts/run` twice concurrently as admin → **at least one payout is created**, its payments carry exactly that `payout_id`, no payment has two, and each payout has one PAID transition (plan-review S5).
 - [ ] 11. Full gate: api build + tests + `db:check`, all e2e scripts, both images build.
 - [ ] 12. Code review by ethio-reviewer; user approves push/PR (same-day merge and deploy); rollout below.
 
@@ -136,3 +136,32 @@ Production steps are the user's, or a session's only on the user's explicit requ
 - **Existing duplicates in production** block the index migration; rollout step 1 catches them before merge.
 
 ## Progress and deviations (implementer)
+
+Branch `fix/payment-integrity`, cut from `fix/access-control` at `fcbb94a` (Phase 3 code at `b31bb51` plus its docs commit; Phase 3 isn't merged): review with `git diff fix/access-control...fix/payment-integrity`. Commits: `dfa0a1e` plan folder, `59e649b` migrations, `7d9a223` common (publishConfirmed, isUniqueViolation), `d5d5a9e` exactly-once confirmation + effects cron + webhook signature + sponsorship handlers, `0908156` refunds, `651a7c9` payouts, `0c037c9` production rules, `e89b377` e2e-payments in CI.
+
+### How to rerun the checks
+- API: `pnpm -C api build && pnpm -C api test && pnpm -C api typecheck && pnpm -C api db:check` → 12/12 built, 43 suites / 831 tests (736 before), typecheck clean, no drift on a fresh DB and on the existing local DB. New or rewritten specs: `common/src/events/event-bus.service.spec.ts`, `financial/src/{growth.wallet,payment.service,sponsorship.service,refund.service,payout.service,controllers,production-rules}.spec.ts`, `financial/src/migrations/payment-effects.spec.ts`, plus cases in `common/src/config/production-config.spec.ts`.
+- Mutation checks run by hand: removing the confirm UPDATE's status guard fails the two race tests; removing the payout advisory lock, the `payout_id IS NULL` claim guard (new interleaving test) or the disburse status guard each fails a payout test.
+- Migrations, on a throwaway DB: financial migrated alone before enrollment existed (to_regclass branch) → both apply, 0 invalid indexes, all four index predicates as planned in `pg_indexes`; `migration:revert` ×2 removes the column and the indexes; with enrollment present and old-shape rows, the backfill leaves only the confirmed course payment without an enrollment NULL (refunded, enrolled and gift rows marked with their settle time); each unique index rejects exactly its case (topup dup, referral dup, second open refund) and allows the others (other kind, admin_adjust dup, NULL referred, denied refund); `ON CONFLICT DO NOTHING` honours the partial index. `db:check` 0 there. The existing local DB (no payments) applied both on the dev-stack restart.
+- E2E, CI order on a throwaway `el_e2e` DB with only `api/.env.example` values (CHAPA_SECRET_KEY, SMTP_*, GROQ_API_KEY blanked, CHAPA_MODE=mock): seed, `start-backend.sh`, all `/health`, `db:check`, `demo-seed`, `e2e-revisions`, `e2e-institution`, `e2e-payments` (new, 19 checks), `E2E_CHECK_RATE_LIMIT=1 e2e-smoke` → all pass. The financial log shows the races were real: for the course payment all 8 webhooks reached the conditional UPDATE and 7 were turned away as duplicates; in the payout race one run hit the advisory lock (`skipped: another run is creating it`).
+- Production boot check: financial built and started with `NODE_ENV=production`, `CHAPA_MODE=mock`, no key and the `.env.example` webhook secret refuses to start and lists the variables by name (6 problems, 3 of them the new Chapa rules), no values.
+
+### Deviations
+- **One savepoint per secondary effect** (coupon use, cashback, referral reward) instead of one shared savepoint: a cashback bug no longer loses the coupon count or the referral reward too.
+- **Live verify without an amount or currency** is not confirmed and stays pending (`amount not verified`, the sweep retries); only an actual amount or currency mismatch fails the payment.
+- **The mock gateway records the dev checkout's outcome** (`MockChapaProvider.settle`, called by `mockComplete`), so a signed mock "failed" webhook verifies as failed; with decision 3, the old always-success mock verify would have confirmed it.
+- **`publishConfirmed` waits on the per-message publish callback** of the confirm channel rather than `waitForConfirms()`: the same broker ack, not delayed by other in-flight publishes. Any failure is a `BrokerPublishError`; the cron stops only on that type.
+- **Payout claim:** conditional `UPDATE … SET payout_id` then `find({ payout_id })` in the same transaction, instead of `UPDATE … RETURNING`; equivalent, and testable through the repository API. The payee page is a raw `GROUP BY` query; per-payee candidates are capped at 1000 (oldest first).
+- **A run disburses leftover `scheduled` payouts first** (decision 9's crash recovery). This also pays payouts that `FraudFlagResolved` moved back to `scheduled`, which nothing disbursed before.
+- **Cron scan:** besides `webhook_received_at < now-60s` it also takes confirmed rows with a NULL `webhook_received_at` (by `created_at`), so a legacy victim without a confirmation time isn't skipped forever.
+- **Webhook:** a refunded payment returns early (no verify); the controller maps `invalid signature` to 401 and treats a missing body as unsigned; `PaymentFailed` and `WalletCredited` publishes are best effort (logged), so a webhook answers once the row changed.
+- **Production rules** plug in through a new `rules` hook (`ProductionConfigSpec.rules`, `BootstrapOptions.productionRules`); `CHAPA_MODE` must be exactly `live` (unset counts as not live). The test-key warning is logged from `financial/src/main.ts`.
+- **`isUniqueViolation` moved to `@ethiopialearn/common`**; auth's membership service imports it (two-line change) instead of keeping a copy.
+- **Unit-test fake:** `financial/src/testing/fake-db.ts` (excluded from the build) models conditional updates, find operators, partial unique indexes (23505), `ON CONFLICT DO NOTHING`, savepoint rollback and advisory locks. Real-SQL behaviour is proven by `e2e-payments.mjs` on Postgres.
+
+### In flight / next step (checkpoint 2026-10-02)
+- State: steps 1–10 done and committed on `fix/payment-integrity` (HEAD `e89b377`, base `fix/access-control` at `fcbb94a`). Nothing pushed. This plan folder is committed on the branch (`git add -f`, `.git/info/exclude` untouched).
+- Next: step 11, the full gate. API build/tests/typecheck/db:check and all e2e scripts already passed at this HEAD (above); still to do: both docker image builds (the CI `docker-api` matrix, at least `@ethiopialearn/financial-service`; check `.github/workflows/ci.yml` for the exact build command). Then tick step 11, update this note and message ethio-reviewer: "Ready for code review (round 1): branch fix/payment-integrity, base fix/access-control (fcbb94a), plan docs/plans/2026-10-02-payment-integrity/plan.md. Tests: …". Tell ethio-planner too.
+- Environment: `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. The dev stack (:4000/41xx) runs this branch's build on `api/.env` with the local DB migrated; web (:3000) is untouched. The e2e runners are `scratchpad/e2e-up.sh` and `e2e-run.sh` (env from `.env.example`, DB `el_e2e`); afterwards stop the stack, drop `el_e2e` and restart the dev stack from a clean env (`env -i HOME=$HOME PATH=$PATH bash -c '… start-backend.sh'`). Untracked `.playwright-mcp/` and other plan folders in the repo belong to other sessions: stage explicit paths. Production is off-limits; rollout step 1 is the user's.
+- Phase 3 (`fix/access-control`) is APPROVED and waiting on the user for push/PR (it waits on Phase 2 #19).
+
