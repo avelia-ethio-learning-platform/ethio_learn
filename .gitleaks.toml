@@ -1,7 +1,10 @@
 # Gitleaks config for EthiopiaLearn CI.
-# Uses the default rule set, plus allowlists for intentional placeholders and
-# test fixtures so real leaks stand out. .env*.local is gitignored and never
-# scanned from the working tree; this catches anything that slips into history.
+# Uses the default rule set, plus allowlists for specific placeholder values so
+# real leaks stand out. Prefer exact values in `regexes` over path entries: a
+# path entry also hides a real key pasted into that file. The two paths below
+# only ever hold documented placeholders. .env*.local (where production secrets
+# live locally) and test files are deliberately NOT allowlisted, so a
+# force-added env file or a real key in a spec still fails CI.
 [extend]
 useDefault = true
 
@@ -9,9 +12,6 @@ useDefault = true
 description = "Placeholders, examples and test fixtures — not real secrets"
 paths = [
   '''\.env\.example$''',
-  '''\.env\..*\.local$''', # gitignored anyway; belt-and-braces
-  '''.*\.spec\.ts$''',
-  '''.*\.test\.ts$''',
   '''scripts/(demo-seed|e2e-smoke)\.mjs$''',
 ]
 regexes = [

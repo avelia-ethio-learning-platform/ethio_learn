@@ -1,8 +1,8 @@
 # Slim multi-stage build for any backend workspace package (gateway + 7 services).
 # Build from the api/ directory: docker build --build-arg PKG=@ethiopialearn/auth-service api/
-# Base is node:20-alpine and the runtime stage carries ONLY the pruned,
+# Base is node:22-alpine and the runtime stage carries ONLY the pruned,
 # production-only deploy of one service — no source, no dev deps, no toolchain.
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
 WORKDIR /repo
 
@@ -14,7 +14,7 @@ RUN pnpm exec turbo run build --filter=${PKG}
 # Isolated production bundle (workspace deps included with their dist/)
 RUN pnpm --filter=${PKG} deploy --prod /out
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
 RUN addgroup -S app && adduser -S app -G app
 WORKDIR /app

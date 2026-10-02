@@ -1,7 +1,7 @@
 # Next.js standalone build — final image carries only the standalone server
-# output (no node_modules toolchain, no source), on node:20-alpine.
+# output (no node_modules toolchain, no source), on node:22-alpine.
 # Build context is this web/ directory: docker build -t ethiopialearn-web web/
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
 WORKDIR /app
 
@@ -22,7 +22,7 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1
 RUN addgroup -S app && adduser -S app -G app
 WORKDIR /app

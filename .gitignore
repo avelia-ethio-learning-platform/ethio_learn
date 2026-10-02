@@ -14,3 +14,9 @@ coverage/
 .devlogs/
 ./HANDOFF.md
 ./PRODUCT_ROADMAP.md
+# personal Claude Code permissions (each developer has their own)
+.claude/settings.local.json
+# audit evidence: screenshots are large; audit.md describes unfixed
+# vulnerabilities and is committed only after the security phases ship
+docs/plans/*/screenshots/
+docs/plans/2026-10-02-refinement-audit/audit.md
