@@ -17,6 +17,7 @@ import {
 } from 'class-validator';
 import { CurrentUser, PayRequestTokenPipe, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
+import { CouponValidateQuery } from './coupon-validate-query.dto';
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
 import { SponsorshipService } from './sponsorship.service';
@@ -202,8 +203,8 @@ export class GrowthController {
   /** Learner previews a code at checkout: "SAVE20 → 20% off, pay 400 ETB". */
   @Get('coupons/validate')
   @Roles()
-  validate(@Query('code') code: string, @Query('course_id') courseId: string) {
-    return this.growth.previewCoupon(code ?? '', courseId ?? '');
+  validate(@Query() query: CouponValidateQuery) {
+    return this.growth.previewCoupon(query.code ?? '', query.course_id);
   }
 
   // ---- Wallet ----
