@@ -223,10 +223,10 @@ Line numbers are from `fix/access-control` at `3de83c3`. Phase 5 edits some of t
     - **violations outside this phase's findings:** the implementer fixes them if each is a few lines; otherwise it's excluded with a per-rule, per-selector `exclude` in the spec, with a comment naming the phase that owns it, and logged under Deviations. Never a blanket rule disable.
 
 ## Steps
-- [ ] 1. Branch `feat/ui-foundations` from `origin/main` after Phase 5 merges.
-- [ ] 2. Primitives: `components/form/Field.tsx`, `FormStatus.tsx`, `useFormStatus`, `lib/labels.ts`, `lib/format.ts`, `lib/use-dismiss.ts` (decisions 1–3, 7).
+- [x] 1. Branch `feat/ui-foundations` from `origin/main` after Phase 5 merges.
+- [x] 2. Primitives: `components/form/Field.tsx`, `FormStatus.tsx`, `useFormStatus`, `lib/labels.ts`, `lib/format.ts`, `lib/use-dismiss.ts` (decisions 1–3, 7).
   - vitest: `Field` links its label and description ids; `FormStatus`: both regions exist before any status is set, and the text lands in the region for its tone; `statusLabel` on known and unknown values; `formatDate`/`formatETB` in en and am; `useDismiss` handles Escape (focus returns), outside click and a second overlay opening.
-- [ ] 3. Global CSS and layout: `color-scheme`, `:focus-visible`, `select` option colours, `.badge-success`, `.input` placeholder; skip link and `<main id>`; `viewport.themeColor`, plus `ThemeProvider` meta sync (decisions 4–6). · vitest for the ThemeProvider meta sync.
+- [x] 3. Global CSS and layout: `color-scheme`, `:focus-visible`, `select` option colours, `.badge-success`, `.input` placeholder; skip link and `<main id>`; `viewport.themeColor`, plus `ThemeProvider` meta sync (decisions 4–6). · vitest for the ThemeProvider meta sync.
 - [ ] 4. App-wide sweeps (decisions 3–6):
   - contrast classes;
   - small text;
@@ -299,3 +299,19 @@ Phase 7 was one M phase covering about 30 findings across shared chrome and ever
 Phase 8 then applies the 7a primitives to role pages.
 
 ## Progress and deviations (implementer)
+
+Implemented by ethio-planner in the worktree `/home/kal/Documents/code/ethi0-web` (see handoff → Branch → Parallel run), task by task with a fresh subagent per step and a task review after each. The ledger is `.superpowers/sdd/plan/progress.md` (git-ignored scratch in the worktree).
+
+Commits: `9f24b1a` plan folder (step 1); `77f9f89` primitives (step 2); `404e302` skip link, focus ring, themed native controls, theme-color (step 3).
+
+Deviations and notes (none changes a decision):
+- **Step 2:** `pricingLabel` copy is Free / Free preview / Paid. `statusLabel` tones copy `STATUS_STYLE` exactly, so step 7's `StatusBadge` swap is drop-in.
+- **Step 2 → 4 (ruling):** `format.ts` gets a fixed `timeZone: 'Africa/Addis_Ababa'`, applied in step 4 before the 22 date sites move. Without it, server (UTC) and client renders differ, causing hydration mismatches and off-by-one dates. The audience is Ethiopia-first.
+- **Step 3:** also sets `.badge-danger` light text `#b91c1c` (decision 4, round-1 B1). The Amharic `skip_to_content` ("ወደ ዋናው ይዘት ዝለል") is best-effort and needs native review.
+- **Step 4 (ruling):** the date and ETB sweep covers role pages too, per decision 3.
+
+### In flight / next step (checkpoint 2026-10-03)
+- Steps 1–3 are done and task-reviewed (clean). Vitest: 33 files, 386 tests. Typecheck and `next build` pass.
+- **Next:** step 4 (app-wide sweeps) from `404e302`. It isn't dispatched yet; the ledger has the rulings to carry.
+- Playwright (step 10) and screenshots (step 11) need a stack window from ethio-impl. Dark "before" shots come from a build of `4b4a64c` in a temp worktree on :3201, because `after-phase5/` is light only.
+
