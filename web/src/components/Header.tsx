@@ -165,12 +165,12 @@ export function Header() {
                   title={t('account')}
                   className="glass-secondary flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-gray-700 shadow-glass transition-colors hover:text-brand-600"
                 >
-                  <span className="gradient-bg-blue flex h-6 w-6 items-center justify-center rounded-lg text-[11px] font-bold text-white">
+                  <span className="gradient-bg-blue flex h-6 w-6 items-center justify-center rounded-lg text-xs font-bold text-white">
                     {user.name.charAt(0).toUpperCase()}
                   </span>
                   <span className="max-w-[90px] truncate">{user.name.split(' ')[0]}</span>
                 </Link>
-                <button onClick={logout} title={t('logout')} aria-label={t('logout')} className="btn-ghost !px-2.5 hover:!text-red-500">
+                <button onClick={logout} title={t('logout')} aria-label={t('logout')} className="btn-ghost !px-2.5 hover:!text-red-600">
                   <LogOut className="h-4 w-4" />
                 </button>
               </div>
@@ -242,7 +242,7 @@ export function Header() {
                     </div>
                   ) : (
                     ready && (
-                      <button onClick={logout} className="btn-ghost hover:!text-red-500">
+                      <button onClick={logout} className="btn-ghost hover:!text-red-600">
                         <LogOut className="h-4 w-4" /> {t('logout')}
                       </button>
                     )

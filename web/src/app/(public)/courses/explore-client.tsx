@@ -139,14 +139,14 @@ export function ExploreClient({
               e.preventDefault();
               navigate({ q: searchText.trim() || undefined, page: 1 });
             }}
-            className="glass-secondary flex items-center gap-2 rounded-2xl p-2"
+            className="glass-secondary flex items-center gap-2 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-brand-500"
           >
             <Search className="ml-2 h-5 w-5 shrink-0 text-brand-500" />
             <input
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               placeholder={t('search_placeholder')}
-              className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-gray-400"
+              className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-gray-500"
             />
             {searchText && (
               <button
@@ -167,7 +167,7 @@ export function ExploreClient({
           <div className="mt-5 space-y-4">
             {/* Category */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
+              <span className="mr-1 inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
                 <SlidersHorizontal className="h-3.5 w-3.5" /> {t('filter_category')}
               </span>
               <button onClick={() => navigate({ category: undefined, page: 1 })} className={!activeCategory ? 'pill-active' : 'pill'}>
@@ -182,7 +182,7 @@ export function ExploreClient({
 
             {/* Pricing */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
+              <span className="mr-1 inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
                 <Tag className="h-3.5 w-3.5" /> {t('filter_pricing')}
               </span>
               <button onClick={() => navigate({ pricing_type: undefined, page: 1 })} className={!activePricing ? 'pill-active' : 'pill'}>
@@ -198,7 +198,7 @@ export function ExploreClient({
             {/* Page size + clear */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">{t('per_page')}</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">{t('per_page')}</span>
                 {PAGE_SIZES.map((n) => (
                   <button key={n} onClick={() => navigate({ limit: n, page: 1 })} className={limit === n ? 'pill-active !px-3' : 'pill !px-3'}>
                     {n}
@@ -273,7 +273,7 @@ export function ExploreClient({
             </button>
             {pageItems(page, totalPages).map((it, i) =>
               it === 'gap' ? (
-                <span key={`gap-${i}`} className="px-1 text-gray-400">
+                <span key={`gap-${i}`} className="px-1 text-gray-500">
                   …
                 </span>
               ) : (

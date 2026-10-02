@@ -168,7 +168,7 @@ function LearnerDashboard() {
                 <div key={p.id} className="flex items-center justify-between gap-2 py-2.5" style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}>
                   <span className="min-w-0 flex-1 truncate text-foreground">
                     {p.course_title}
-                    {p.purpose && p.purpose !== 'course' && <span className="ml-1 text-xs text-gray-400">({p.purpose.replace('_', ' ')})</span>}
+                    {p.purpose && p.purpose !== 'course' && <span className="ml-1 text-xs text-gray-500">({p.purpose.replace('_', ' ')})</span>}
                   </span>
                   <span className="shrink-0 font-medium text-foreground">
                     {p.amount_etb} ETB{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-600">−{p.discount_etb}</span>}
@@ -224,7 +224,7 @@ function WalletCard() {
             <Wallet className="h-4 w-4 text-brand-500" /> Wallet
           </p>
           <p className="gradient-text-blue mt-1 text-3xl font-extrabold">{wallet?.balance_etb ?? 0} ETB</p>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-gray-500">
             Earn {wallet?.cashback_percent ?? 5}% cashback on every purchase · spend credits on any course
           </p>
         </div>
@@ -235,7 +235,7 @@ function WalletCard() {
           Top up with Chapa
         </button>
       </div>
-      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
       {wallet?.transactions?.length > 0 && (
         <ul className="mt-4 space-y-1 text-xs text-gray-500">
           {wallet.transactions.slice(0, 5).map((tx: any) => (
@@ -306,7 +306,7 @@ function ReferralCard() {
       </form>
       {status && <p className="mt-2 text-xs font-medium text-brand-600">{status}</p>}
       {data?.stats && (
-        <p className="mt-3 text-xs text-gray-400">
+        <p className="mt-3 text-xs text-gray-500">
           {data.stats.signed_up + data.stats.rewarded} joined · {data.stats.rewarded} purchased · earned {data.stats.earned_etb} ETB
         </p>
       )}
@@ -346,7 +346,7 @@ function SponsorshipsSection() {
                       </p>
                     </>
                   )}
-                  {s.status === 'pending_claim' && <p className="mt-1 text-xs text-gray-400">Waiting for them to sign up with that email.</p>}
+                  {s.status === 'pending_claim' && <p className="mt-1 text-xs text-gray-500">Waiting for them to sign up with that email.</p>}
                 </li>
               ))}
             </ul>
@@ -415,7 +415,7 @@ function DownloadCert({ id }: { id: string }) {
 function RefundButton({ paymentId }: { paymentId: string }) {
   return (
     <button
-      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-500 hover:underline"
+      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400 hover:underline"
       onClick={async () => {
         const reason = prompt('Why do you want a refund?');
         if (!reason) return;

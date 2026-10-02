@@ -315,12 +315,12 @@ export function ResumeHints({ lessonId, disabled }: { lessonId: string; disabled
             Unfinished upload: <b>{hint.fileName}</b>
             {hint.percent != null ? ` · ${hint.percent}%` : ''}
           </span>
-          <label className={`font-semibold text-brand-600 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:underline'}`}>
+          <label className={`rounded font-semibold text-brand-600 focus-within:ring-2 focus-within:ring-brand-500 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:underline'}`}>
             Resume (choose the same file)
             <input
               type="file"
               accept={VIDEO_ACCEPT}
-              className="hidden"
+              className="sr-only"
               disabled={disabled}
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -336,12 +336,12 @@ export function ResumeHints({ lessonId, disabled }: { lessonId: string; disabled
               }}
             />
           </label>
-          <button type="button" className="font-semibold text-red-500 hover:underline" onClick={() => void discardHint(hint.storageKey)}>
+          <button type="button" className="font-semibold text-red-600 dark:text-red-400 hover:underline" onClick={() => void discardHint(hint.storageKey)}>
             Discard
           </button>
         </p>
       ))}
-      {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+      {error && <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
     </div>
   );
 }
@@ -360,7 +360,7 @@ export function OrphanUploadHints() {
               {hint.fileName}
               {hint.percent != null ? ` · ${hint.percent}%` : ''}
             </span>
-            <button type="button" className="font-semibold text-red-500 hover:underline" onClick={() => void discardHint(hint.storageKey)}>
+            <button type="button" className="font-semibold text-red-600 dark:text-red-400 hover:underline" onClick={() => void discardHint(hint.storageKey)}>
               Discard
             </button>
           </li>
@@ -380,7 +380,7 @@ export function UploadVideoButton({ lessonId, hasVideo, disabled }: { lessonId: 
   return (
     <span className="inline-flex flex-col items-end">
       <label
-        className={`rounded-lg px-2 py-0.5 text-xs font-medium text-brand-600 transition-all ${
+        className={`rounded-lg px-2 py-0.5 text-xs font-medium text-brand-600 transition-all focus-within:ring-2 focus-within:ring-brand-500 ${
           disabled ? 'cursor-not-allowed opacity-40' : `cursor-pointer hover:bg-brand-500/10 hover:opacity-100 ${hasVideo ? 'opacity-70' : 'opacity-90'}`
         }`}
       >
@@ -390,7 +390,7 @@ export function UploadVideoButton({ lessonId, hasVideo, disabled }: { lessonId: 
         <input
           type="file"
           accept={VIDEO_ACCEPT}
-          className="hidden"
+          className="sr-only"
           disabled={disabled}
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -400,7 +400,7 @@ export function UploadVideoButton({ lessonId, hasVideo, disabled }: { lessonId: 
           }}
         />
       </label>
-      {error && <span className="max-w-[16rem] text-right text-[11px] font-medium text-red-500">{error}</span>}
+      {error && <span className="max-w-[16rem] text-right text-xs font-medium text-red-600 dark:text-red-400">{error}</span>}
     </span>
   );
 }
@@ -462,12 +462,12 @@ export function ThumbnailUploader({
 
   return (
     <div className="flex flex-col items-stretch gap-1 sm:items-end">
-      <label className={`btn-secondary !text-xs ${disabled || busy ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
+      <label className={`btn-secondary !text-xs focus-within:ring-2 focus-within:ring-brand-500 ${disabled || busy ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
         <ImagePlus className="h-3.5 w-3.5" /> {busy ? 'Uploading…' : hasThumbnail ? 'Replace image' : 'Upload image'}
         <input
           type="file"
           accept={IMAGE_ACCEPT}
-          className="hidden"
+          className="sr-only"
           disabled={disabled || busy}
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -486,7 +486,7 @@ export function ThumbnailUploader({
           />
         </div>
       )}
-      {error && progress?.state.phase !== 'failed' && <p className="text-xs font-medium text-red-500">{error}</p>}
+      {error && progress?.state.phase !== 'failed' && <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
     </div>
   );
 }

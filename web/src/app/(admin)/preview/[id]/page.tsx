@@ -113,7 +113,7 @@ function Preview({ courseId }: { courseId: string }) {
   if (isError) {
     return (
       <PageShell>
-        <div className="card mx-auto max-w-md py-8 text-center text-sm font-medium text-red-500">Could not load this course for preview.</div>
+        <div className="card mx-auto max-w-md py-8 text-center text-sm font-medium text-red-600 dark:text-red-400">Could not load this course for preview.</div>
       </PageShell>
     );
   }
@@ -151,13 +151,13 @@ function Preview({ courseId }: { courseId: string }) {
                 {s.lessons.map((l: any) => (
                   <li key={l.id}>
                     <button
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-gray-600 transition-colors hover:bg-brand-500/5 hover:text-brand-600 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:bg-transparent"
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-gray-600 transition-colors hover:bg-brand-500/5 hover:text-brand-600 disabled:cursor-not-allowed disabled:text-gray-500 disabled:hover:bg-transparent"
                       disabled={!l.has_video}
                       onClick={() => play(l.id, l.title)}
                     >
                       <Play className="h-3.5 w-3.5 shrink-0" />
                       <span className="min-w-0 flex-1 truncate">{l.title}</span>
-                      {!l.has_video && <span className="shrink-0 text-xs text-gray-400">(no video)</span>}
+                      {!l.has_video && <span className="shrink-0 text-xs text-gray-500">(no video)</span>}
                     </button>
                   </li>
                 ))}
@@ -219,7 +219,7 @@ function TextChange({ before, after, highlight }: { before: string; after: strin
                     <span key={i}>{s.text}</span>
                   ),
                 )
-            : before || <em className="text-gray-400">empty</em>}
+            : before || <em className="text-gray-500">empty</em>}
         </p>
       </div>
       <div>
@@ -237,7 +237,7 @@ function TextChange({ before, after, highlight }: { before: string; after: strin
                     <span key={i}>{s.text}</span>
                   ),
                 )
-            : after || <em className="text-gray-400">empty</em>}
+            : after || <em className="text-gray-500">empty</em>}
         </p>
       </div>
     </div>
@@ -546,7 +546,7 @@ function PendingAssessments({ items }: { items: PendingAssessment[] }) {
                         })}
                       </ul>
                       {(q.correct_index === undefined || q.correct_index === null || !(q.options ?? [])[q.correct_index]) && (
-                        <p className="mt-1 text-xs font-medium text-red-500">No valid answer key — learners cannot pass this question.</p>
+                        <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">No valid answer key — learners cannot pass this question.</p>
                       )}
                     </>
                   )}
@@ -659,7 +659,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
       <PageShell>
         <BackButton fallback={back.fallback} label={back.label} />
         <div className="card mx-auto max-w-lg space-y-2 py-8 text-center text-sm">
-          <p className="font-semibold text-red-500">Could not load the staged changes.</p>
+          <p className="font-semibold text-red-600 dark:text-red-400">Could not load the staged changes.</p>
           <p className="text-gray-500">
             {(error as Error | null)?.message ?? 'Unknown error.'} If the educator withdrew the update or it was already decided, refresh the queue.
           </p>
@@ -751,7 +751,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
             )}
             <h3 className="mt-4 text-xs font-semibold text-gray-500">Educator&apos;s summary (becomes the change-log entry)</h3>
             <p className="mt-1 whitespace-pre-line break-words text-sm text-gray-600">
-              {revision?.changelog_summary || <em className="text-gray-400">No summary — a sentence is generated from the changes.</em>}
+              {revision?.changelog_summary || <em className="text-gray-500">No summary — a sentence is generated from the changes.</em>}
             </p>
             {revision?.decision_notes && (
               <>

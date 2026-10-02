@@ -114,7 +114,7 @@ function PreferencesForm() {
                 onClick={() => toggleCat(c.value)}
                 aria-pressed={on}
                 className={`rounded-full border px-3 py-1.5 text-sm transition active:scale-95 ${
-                  on ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-brand-400'
+                  on ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-200 bg-card text-gray-700 hover:border-brand-400'
                 }`}
               >
                 <span aria-hidden>{c.icon}</span> {c.label}

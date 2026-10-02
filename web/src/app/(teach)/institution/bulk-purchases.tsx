@@ -78,11 +78,11 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
           <div className="relative sm:col-span-2">
             <input className="input" placeholder="Search a paid course…" value={course ? course.title : courseQuery} onChange={(e) => { setCourse(null); setQuote(null); setCourseQuery(e.target.value); }} />
             {!course && results?.items?.length ? (
-              <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border bg-white shadow-elevated dark:bg-slate-900" style={{ borderColor: 'var(--border)' }}>
+              <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border bg-card shadow-elevated" style={{ borderColor: 'var(--border)' }}>
                 {results.items.map((c) => (
                   <li key={c.id}>
                     <button className="w-full px-3 py-2 text-left text-sm hover:bg-brand-500/5" onClick={() => { setCourse({ id: c.id, title: c.title }); setQuote(null); }}>
-                      {c.title} <span className="text-xs text-gray-400">· {c.price_etb} ETB</span>
+                      {c.title} <span className="text-xs text-gray-500">· {c.price_etb} ETB</span>
                     </button>
                   </li>
                 ))}
@@ -101,7 +101,7 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
             <span>
               <b>{quote.seats} seats</b> × {quote.unit_price_etb} ETB{quote.discount_percent > 0 && <span className="text-emerald-600"> − {quote.discount_percent}% volume discount</span>} ={' '}
               <b className="text-brand-600">{quote.total_etb} ETB</b>
-              {quote.discount_percent > 0 && <span className="text-xs text-gray-400"> (list {quote.list_total_etb} ETB)</span>}
+              {quote.discount_percent > 0 && <span className="text-xs text-gray-500"> (list {quote.list_total_etb} ETB)</span>}
             </span>
             <span className="flex gap-2">
               <button className="btn" disabled={busy} onClick={() => buy(false)}>
@@ -115,7 +115,7 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
             </span>
           </div>
         )}
-        {error && <p className="text-sm font-medium text-red-500">{error}</p>}
+        {error && <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
       </div>
 
       {orders && orders.length > 0 && (
@@ -151,7 +151,7 @@ function BulkOrder({ order: o }: { order: any }) {
     <div className="card text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold text-foreground">
-          {o.course_title} <span className="text-xs font-normal text-gray-400">· {o.seats} seats · {o.total_etb} ETB · {new Date(o.created_at).toLocaleDateString()}</span>
+          {o.course_title} <span className="text-xs font-normal text-gray-500">· {o.seats} seats · {o.total_etb} ETB · {new Date(o.created_at).toLocaleDateString()}</span>
         </p>
         <span className="flex items-center gap-2">
           <StatusBadge status={o.status} />
@@ -181,7 +181,7 @@ function BulkOrder({ order: o }: { order: any }) {
                     {a.progress.progress_percent}%{a.progress.lessons_complete ? ' ✓' : ''}
                   </span>
                 ) : (
-                  <span className="text-gray-400">{a.status === 'pending_claim' ? 'invited — not signed up yet' : a.status}</span>
+                  <span className="text-gray-500">{a.status === 'pending_claim' ? 'invited — not signed up yet' : a.status}</span>
                 )}
               </span>
             </li>

@@ -92,7 +92,7 @@ export function GoogleSignInButton({ next }: { next?: string | null }) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-3 text-xs text-gray-400">
+      <div className="flex items-center gap-3 text-xs text-gray-500">
         <span className="h-px flex-1 bg-gray-200" /> or <span className="h-px flex-1 bg-gray-200" />
       </div>
       <div ref={ref} className="flex justify-center" />

@@ -65,3 +65,33 @@ None.
 
 ### Should-fix
 None.
+
+## Drift check (2026-10-03, against origin/main 4b4a64c)
+Not a review round: the plan stays APPROVED. A read-only check of the code this phase will be built on, after Phases 3–5 merged (`origin/main` 4b4a64c) and with 6a in flight (`fix/security-platform`). Subagents did the sweep; I verified every blocker against the code myself. The planner folds these into the plan before the handoff (or now, for a phase already in progress). Blocker here means the implementer would build something wrong or silently break a merged behaviour or test.
+
+### Blocker
+- **D1. Step 8/10 (the wrong-role card's new h1) breaks Phase 5's role specs.**
+  - `web/e2e/roles.spec.ts:10` expects `/This area is for/` to be visible, so it fails.
+  - `auth.setup.ts:11` and `roles.spec.ts:30` assert the same text is *absent*. Once it's gone they pass vacuously, and P0-11's "no wrong-role landing" guard is silently lost.
+  - **Fix:** point all three assertions at the new h1 "This page isn't available for your account".
+
+### Fixes
+- **D2. The role-home helper is named.** There's no `homeForRole`. Phase 5 kept `roleHome()` and added `roleHomeLabel()` (`web/src/lib/safe-next.ts:1-17`, English strings) and `RoleHomeBackButton` (`components/BackButton.tsx:26-30`). `roles.spec.ts:19` clicks the button named "Institution dashboard".
+  - Use `roleHome` + `roleHomeLabel` for the access-denied button and the footer home link.
+  - If the labels move to `t()`, keep the English strings unchanged.
+- **D3. Current state, Popovers.**
+  - The burger already has `aria-expanded` (`Header.tsx:183-190`); only `aria-controls` is missing.
+  - Phase 5 also added `aria-label="Main"` on the nav (:91), a backdrop with `data-testid="menu-backdrop"` that closes the menu on click (:73-89), and `data-testid="mobile-menu-panel"` (:205).
+  - `useDismiss` must coexist with the backdrop's `onClick`.
+- **D4. Steps 5–7: the hooks Phase 5 specs select by must stay.**
+  - the nav name "Main" (`e2e/support.ts:87`);
+  - the burger name "Menu" and both test ids (`layout.spec.ts:102-111`);
+  - `input[name="email"|"password"|"name"]` (`support.ts:40-41`, `copy.spec.ts:14-16`), so `Field` call sites keep `name=`;
+  - the footer link "Verify a certificate" (`verify.spec.ts:7`);
+  - exactly one `role="status"` on the waking page (`cold-start.spec.ts:12,19`, strict locator), so no `FormStatus` region renders beside `<WakingUp>`.
+- **D5. Step 10's a11y scan of `/login` after a wrong-password submit (light and dark) spends the auth-strict budget.**
+  - Every `POST /auth/login` costs 1 of 10 per minute per IP (`rate-policy.ts:39-40,64`; fixed 60 s window, `main.ts:110`).
+  - The suite already spends 7 (`playwright.config.ts:8-16`), and CI runs `e2e-smoke.mjs`'s 3 logins right after (`ci.yml:133-135`).
+  - **Fix:** answer `**/api/v1/auth/login` with a 401 JSON through `page.route` (no spend), or count the calls and update the config comment.
+
+Checked and still accurate (line shifts only): globals.css (no `color-scheme` or `:focus-visible`; `.input:focus`, badges, placeholder, reduced motion); the layout's theme-color, robots, icons, manifest and `<main>`; the hero motion; `whileTap`; ThemeToggle and NotificationBell (outside-click only); the Footer; `RequireRole`'s `/login`; `StatusBadge`; the hidden file inputs; `next.config.mjs`; the manifest and `sw.js`.

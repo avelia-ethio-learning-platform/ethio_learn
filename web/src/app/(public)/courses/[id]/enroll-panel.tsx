@@ -125,7 +125,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
               ['ask', 'Ask someone to pay'],
             ] as const
           ).map(([m, label]) => (
-            <button key={m} onClick={() => setMode(m)} className={`flex-1 rounded-lg px-2 py-1.5 transition ${mode === m ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-900' : 'text-gray-500 hover:text-foreground'}`}>
+            <button key={m} onClick={() => setMode(m)} className={`flex-1 rounded-lg px-2 py-1.5 transition ${mode === m ? 'bg-card text-brand-700 shadow-sm' : 'text-gray-500 hover:text-foreground'}`}>
               {label}
             </button>
           ))}
@@ -147,7 +147,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
                   {quote.description} — you pay <b>{quote.amount_due_etb} ETB</b> instead of {quote.list_price_etb} ETB
                 </p>
               )}
-              {couponError && <p className="mt-1.5 text-xs font-medium text-red-500">{couponError}</p>}
+              {couponError && <p className="mt-1.5 text-xs font-medium text-red-600 dark:text-red-400">{couponError}</p>}
             </div>
           )}
           <button className="btn w-full !py-3" onClick={() => enroll(false)} disabled={busy}>
@@ -176,7 +176,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
             </button>
           )}
           {paid && !canUseWallet && (wallet?.balance_etb ?? 0) > 0 && (
-            <p className="text-center text-xs text-gray-400">Wallet balance {wallet?.balance_etb} ETB — top up from your dashboard to pay with credits.</p>
+            <p className="text-center text-xs text-gray-500">Wallet balance {wallet?.balance_etb} ETB — top up from your dashboard to pay with credits.</p>
           )}
           {pricingType === 'freemium' && <p className="text-xs text-gray-500">The first section is free to preview — buy to unlock everything.</p>}
         </>
@@ -185,7 +185,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
       {mode === 'gift' && <GiftForm courseId={courseId} amountDue={price ?? 0} walletBalance={wallet?.balance_etb ?? 0} coupon="" />}
       {mode === 'ask' && <AskToPayForm courseId={courseId} />}
 
-      {error && <p className="text-sm font-medium text-red-500">{error}</p>}
+      {error && <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
     </div>
   );
 }
@@ -242,7 +242,7 @@ function GiftForm({ courseId, amountDue, walletBalance, coupon, compact = false 
           <Wallet className="h-4 w-4" /> Pay from my wallet ({walletBalance} ETB)
         </button>
       )}
-      {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+      {error && <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
     </form>
   );
 }
@@ -286,7 +286,7 @@ function AskToPayForm({ courseId }: { courseId: string }) {
       <button className="btn w-full" disabled={busy || !email}>
         {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <HandCoins className="h-4 w-4" />} Send payment request
       </button>
-      {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+      {error && <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
     </form>
   );
 }

@@ -11,7 +11,7 @@ export function EditedChip({ course, fields }: { course: Pick<WorkingCourse, 'pe
   const changed = fields.filter((f) => course.pending_fields.includes(f));
   if (!changed.length) return null;
   return (
-    <span className="badge-warn !text-[10px]" title={`The ${changed.map(fieldLabel).join(' and ')} change goes live after review`}>
+    <span className="badge-warn " title={`The ${changed.map(fieldLabel).join(' and ')} change goes live after review`}>
       Edited
     </span>
   );
@@ -82,7 +82,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
           <dt className="flex items-center gap-1.5 text-gray-500">
             Description <EditedChip course={course} fields={['description']} />
           </dt>
-          <dd className="min-w-0 whitespace-pre-line break-words text-gray-700 dark:text-gray-300">{course.description}</dd>
+          <dd className="min-w-0 whitespace-pre-line break-words text-gray-700">{course.description}</dd>
           <dt className="flex items-center gap-1.5 text-gray-500">
             Category <EditedChip course={course} fields={['category']} />
           </dt>
@@ -150,7 +150,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
               Cancel
             </button>
           </div>
-          {error && <p className="text-sm font-medium text-red-500">{error}</p>}
+          {error && <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
         </form>
       )}
     </div>

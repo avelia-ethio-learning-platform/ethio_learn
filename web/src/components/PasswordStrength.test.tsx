@@ -25,7 +25,7 @@ describe('<PasswordStrength />', () => {
   it('shows the label and the unmet rules', () => {
     render(<PasswordStrength value="Password" />);
     expect(screen.getByText('Fair')).toBeTruthy();
-    expect(screen.getByText(/A number/).className).toContain('text-gray-400'); // unmet
+    expect(screen.getByText(/A number/).className).toContain('text-gray-500'); // unmet
     expect(screen.getByText(/At least 8 characters/).className).toContain('text-green-600'); // met
   });
 });

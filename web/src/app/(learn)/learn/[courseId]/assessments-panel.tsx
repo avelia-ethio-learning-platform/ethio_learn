@@ -67,7 +67,7 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
           <li key={a.id} className="glass-secondary flex items-center justify-between gap-3 rounded-xl px-4 py-2.5">
             <span className="capitalize text-foreground">
               {a.type.replace('_', ' ')}{' '}
-              {a.is_required && <span className="text-xs font-normal text-gray-400">(required for certificate)</span>}
+              {a.is_required && <span className="text-xs font-normal text-gray-500">(required for certificate)</span>}
             </span>
             {passed(a.id) ? (
               <span className="badge-success">
@@ -190,7 +190,7 @@ function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) =
         }}
       />
       {progress && <UploadProgress fileName={progress.fileName} state={progress.state} />}
-      {error && <p className="mt-2 text-sm font-medium text-red-500">{error}</p>}
+      {error && <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
       <button className="btn mt-3" disabled={!uploaded || uploading} onClick={() => onSubmit({ file_key: attempt.file_key })}>
         {uploading ? 'Uploading…' : 'Submit project'}
       </button>

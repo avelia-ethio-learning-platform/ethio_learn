@@ -108,7 +108,7 @@ export function CommentsSection({ courseId }: { courseId: string }) {
       )}
 
       <div className="mt-4 space-y-4">
-        {tree.length === 0 && <p className="text-sm text-gray-400">No comments yet — start the conversation.</p>}
+        {tree.length === 0 && <p className="text-sm text-gray-500">No comments yet — start the conversation.</p>}
         {tree.map((node) => (
           <CommentItem key={node.id} node={node} me={user?.id} myRole={user?.role} onReply={post} onDelete={remove} depth={0} />
         ))}
@@ -142,13 +142,13 @@ function CommentItem({
     <div className={depth > 0 ? 'ml-4 border-l-2 border-gray-100 pl-3 sm:ml-6 sm:pl-4' : ''}>
       <div className="text-sm">
         {node.deleted ? (
-          <p className="italic text-gray-400">[comment removed]</p>
+          <p className="italic text-gray-500">[comment removed]</p>
         ) : (
           <>
             <p>
               <span className="font-medium">{node.author_name}</span>
-              {badge && <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700">{badge}</span>}
-              <span className="ml-2 text-xs text-gray-400">{new Date(node.created_at).toLocaleString()}</span>
+              {badge && <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-700">{badge}</span>}
+              <span className="ml-2 text-xs text-gray-500">{new Date(node.created_at).toLocaleString()}</span>
             </p>
             <p className="mt-0.5 whitespace-pre-wrap text-gray-800">{node.body}</p>
           </>
@@ -165,7 +165,7 @@ function CommentItem({
             </Link>
           )}
           {canDelete && (
-            <button className="text-red-500 hover:underline" onClick={() => onDelete(node.id)}>
+            <button className="text-red-600 dark:text-red-400 hover:underline" onClick={() => onDelete(node.id)}>
               Delete
             </button>
           )}

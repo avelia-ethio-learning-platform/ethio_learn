@@ -134,17 +134,17 @@ function Messenger() {
               onChange={(e) => setSearch(e.target.value)}
             />
             {found && found.length > 0 && (
-              <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg">
+              <div className="absolute z-10 mt-1 w-full rounded-lg border bg-card shadow-lg">
                 {found.map((p) => (
                   <button key={p.id} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => void openWith(p.id)}>
                     <span>{p.name}</span>
-                    <span className="text-xs text-gray-400">{ROLE_LABEL[p.role] ?? p.role}</span>
+                    <span className="text-xs text-gray-500">{ROLE_LABEL[p.role] ?? p.role}</span>
                   </button>
                 ))}
               </div>
             )}
             {search.trim().length >= 2 && found && found.length === 0 && (
-              <div className="absolute z-10 mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-400 shadow-lg">No one found</div>
+              <div className="absolute z-10 mt-1 w-full rounded-lg border bg-card px-3 py-2 text-sm text-gray-500 shadow-lg">No one found</div>
             )}
           </div>
 
@@ -157,41 +157,41 @@ function Messenger() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{t.peer.name}</span>
-                    {t.unread > 0 && <span className="rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white">{t.unread}</span>}
+                    {t.unread > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white">{t.unread}</span>}
                   </div>
                   <p className="truncate text-xs text-gray-500">
-                    <span className="text-gray-400">{ROLE_LABEL[t.peer.role] ?? t.peer.role} · </span>
+                    <span className="text-gray-500">{ROLE_LABEL[t.peer.role] ?? t.peer.role} · </span>
                     {t.last_preview || 'No messages yet'}
                   </p>
                 </button>
               </li>
             ))}
-            {threads?.length === 0 && <li className="px-3 py-2 text-sm text-gray-400">No conversations yet — search for someone above.</li>}
+            {threads?.length === 0 && <li className="px-3 py-2 text-sm text-gray-500">No conversations yet — search for someone above.</li>}
           </ul>
         </div>
 
         {/* conversation */}
-        <div className="flex min-h-[50vh] flex-1 flex-col rounded-xl border bg-white">
-          {!activeId && <p className="m-auto text-sm text-gray-400">Select or start a conversation</p>}
+        <div className="flex min-h-[50vh] flex-1 flex-col rounded-xl border bg-card">
+          {!activeId && <p className="m-auto text-sm text-gray-500">Select or start a conversation</p>}
           {activeId && (
             <>
               <div className="border-b px-4 py-2">
                 <p className="text-sm font-semibold">{conversation?.thread.peer.name ?? '…'}</p>
-                <p className="text-xs text-gray-400">{ROLE_LABEL[conversation?.thread.peer.role ?? ''] ?? conversation?.thread.peer.role}</p>
+                <p className="text-xs text-gray-500">{ROLE_LABEL[conversation?.thread.peer.role ?? ''] ?? conversation?.thread.peer.role}</p>
               </div>
               <div className="flex-1 space-y-2 overflow-y-auto p-4">
                 {conversation?.messages.map((m) => (
                   <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${m.mine ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-900'}`}>
                       <p className="whitespace-pre-wrap">{m.body}</p>
-                      <p className={`mt-0.5 text-right text-[10px] ${m.mine ? 'text-brand-100' : 'text-gray-400'}`}>
+                      <p className={`mt-0.5 text-right text-xs ${m.mine ? 'text-brand-100' : 'text-gray-500'}`}>
                         {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
                   </div>
                 ))}
                 {conversation && conversation.messages.length === 0 && (
-                  <p className="text-center text-xs text-gray-400">Say hello 👋</p>
+                  <p className="text-center text-xs text-gray-500">Say hello 👋</p>
                 )}
                 <div ref={bottomRef} />
               </div>

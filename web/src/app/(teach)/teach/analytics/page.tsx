@@ -58,7 +58,7 @@ function AnalyticsPage() {
                 </span>
               </div>
               <p className="gradient-text-blue mt-2 text-3xl font-extrabold">{s.value}</p>
-              <p className="mt-1 text-xs text-gray-400">{s.hint}</p>
+              <p className="mt-1 text-xs text-gray-500">{s.hint}</p>
             </div>
           ))}
         </section>
@@ -106,7 +106,7 @@ function AnalyticsPage() {
                     <td className="px-5 py-3 font-medium text-foreground">{c.course_title}</td>
                     <td className="px-3 py-3 text-right">{c.enrolled}</td>
                     <td className="px-3 py-3 text-right">
-                      {c.completed} <span className="text-xs text-gray-400">({c.completion_rate}%)</span>
+                      {c.completed} <span className="text-xs text-gray-500">({c.completion_rate}%)</span>
                     </td>
                     <td className="px-3 py-3 text-right">{c.avg_progress_percent}%</td>
                     <td className="px-3 py-3 text-right">{c.active_last_30d}</td>
@@ -118,7 +118,7 @@ function AnalyticsPage() {
               })}
               {!funnel?.length && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-gray-400">
+                  <td colSpan={8} className="px-5 py-8 text-center text-gray-500">
                     Publish a course to see analytics here.
                   </td>
                 </tr>

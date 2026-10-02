@@ -37,8 +37,8 @@ function MockCheckout() {
         Ethiopian banks.
       </div>
       <p className="gradient-text-blue mt-5 text-center text-4xl font-extrabold">{amount} ETB</p>
-      <p className="mt-2 break-all text-center text-xs text-gray-400">tx_ref: {txRef}</p>
-      {error && <p className="mt-3 text-sm font-medium text-red-500">{error}</p>}
+      <p className="mt-2 break-all text-center text-xs text-gray-500">tx_ref: {txRef}</p>
+      {error && <p className="mt-3 text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
         <button className="btn flex-1 !py-3" disabled={busy} onClick={() => complete('success')}>
           <CreditCard className="h-4 w-4" /> Pay (simulate success)

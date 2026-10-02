@@ -77,7 +77,7 @@ export function InstructorManager({ institutionId }: { institutionId: string }) 
               <span className="truncate">
                 {m.user ? (
                   <>
-                    {m.user.name} <span className="text-gray-400">({m.email})</span>
+                    {m.user.name} <span className="text-gray-500">({m.email})</span>
                   </>
                 ) : (
                   m.email
@@ -103,7 +103,7 @@ export function InstructorManager({ institutionId }: { institutionId: string }) 
                 </button>
               )}
               {(m.status === 'active' || m.status === 'suspended') && (
-                <button className={`${linkButton} text-red-500`} onClick={() => setStatus(m, 'removed')}>
+                <button className={`${linkButton} text-red-600 dark:text-red-400`} onClick={() => setStatus(m, 'removed')}>
                   Remove
                 </button>
               )}

@@ -88,7 +88,7 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
             >
               <PlayCircle className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
               <span className="min-w-0 flex-1 truncate">{l.title}</span>
-              <span className="max-w-[40%] shrink-0 truncate text-xs text-gray-400">({l.section})</span>
+              <span className="max-w-[40%] shrink-0 truncate text-xs text-gray-500">({l.section})</span>
             </button>
           </li>
         ))}

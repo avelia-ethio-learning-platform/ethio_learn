@@ -26,7 +26,7 @@ export function AnalyticsTab() {
           <div key={t.label} className="card">
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{t.label}</p>
             <p className="gradient-text-blue mt-2 text-2xl font-extrabold">{t.value}</p>
-            <p className="mt-1 text-xs text-gray-400">{t.hint}</p>
+            <p className="mt-1 text-xs text-gray-500">{t.hint}</p>
           </div>
         ))}
       </div>
@@ -111,7 +111,7 @@ export function BroadcastTab() {
         <button className="btn">Send announcement</button>
         {status && <span className="text-sm font-medium text-brand-600">{status}</span>}
       </div>
-      <p className="text-xs text-gray-400">Delivered to the in-app notification bell. Marketing email blasts are deliberately not automated (see FEATURES_ADDED.md).</p>
+      <p className="text-xs text-gray-500">Delivered to the in-app notification bell. Marketing email blasts are deliberately not automated (see FEATURES_ADDED.md).</p>
     </form>
   );
 }
@@ -148,7 +148,7 @@ export function WalletTab() {
         <button className="btn">Apply</button>
         {status && <span className="text-sm font-medium text-brand-600">{status}</span>}
       </div>
-      <p className="text-xs text-gray-400">Positive credits, negative debits (fails if the balance can&apos;t cover it). Every movement is logged in the learner&apos;s wallet history.</p>
+      <p className="text-xs text-gray-500">Positive credits, negative debits (fails if the balance can&apos;t cover it). Every movement is logged in the learner&apos;s wallet history.</p>
     </form>
   );
 }

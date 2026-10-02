@@ -100,10 +100,10 @@ export default function PayRequestPage() {
                 <Wallet className="h-4 w-4" /> Pay from my wallet ({wallet?.balance_etb} ETB)
               </button>
             )}
-            <p className="text-center text-xs text-gray-400">Telebirr, CBE Birr and 18+ Ethiopian banks via Chapa. You&apos;ll be able to follow their progress from your dashboard.</p>
+            <p className="text-center text-xs text-gray-500">Telebirr, CBE Birr and 18+ Ethiopian banks via Chapa. You&apos;ll be able to follow their progress from your dashboard.</p>
           </>
         )}
-        {error && <p className="text-sm font-medium text-red-500">{error}</p>}
+        {error && <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
       </div>
     </AuthShell>
   );

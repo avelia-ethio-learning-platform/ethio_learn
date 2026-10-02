@@ -78,19 +78,19 @@ export function TutorPanel({ courseId }: { courseId: string }) {
             )}
             {messages.map((m) => (
               <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${m.role === 'user' ? 'bg-brand-600 text-white' : 'bg-white text-gray-800 shadow-sm dark:bg-slate-900 dark:text-gray-100'}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${m.role === 'user' ? 'bg-brand-600 text-white' : 'bg-card text-foreground shadow-sm'}`}>
                   <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
                   {m.role === 'assistant' && m.sources.length > 0 && (
-                    <p className="mt-2 flex flex-wrap items-center gap-1 text-[11px] text-gray-500">
+                    <p className="mt-2 flex flex-wrap items-center gap-1 text-xs text-gray-500">
                       <BookOpenCheck className="h-3 w-3" /> {m.sources.join(' · ')}
                     </p>
                   )}
-                  {m.role === 'assistant' && m.not_covered && <p className="mt-1 text-[11px] text-amber-600">Not covered in the course material — try asking your instructor.</p>}
+                  {m.role === 'assistant' && m.not_covered && <p className="mt-1 text-xs text-amber-600">Not covered in the course material — try asking your instructor.</p>}
                 </div>
               </div>
             ))}
             {busy && (
-              <p className="flex items-center gap-2 text-xs text-gray-400">
+              <p className="flex items-center gap-2 text-xs text-gray-500">
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Reading the course material…
               </p>
             )}
@@ -102,7 +102,7 @@ export function TutorPanel({ courseId }: { courseId: string }) {
               <Send className="h-4 w-4" />
             </button>
           </form>
-          {error && <p className="mt-2 text-xs font-medium text-red-500">{error}</p>}
+          {error && <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
         </div>
       )}
     </div>

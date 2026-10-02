@@ -151,7 +151,7 @@ export function HomeClient({
                 {/* Search */}
                 <motion.form
                   action="/courses"
-                  className="mx-auto mt-7 flex w-full max-w-md items-center gap-2 rounded-2xl border border-white/20 bg-white/10 p-2 backdrop-blur-md lg:mx-0"
+                  className="mx-auto mt-7 flex w-full max-w-md items-center gap-2 rounded-2xl border border-white/20 bg-white/10 p-2 backdrop-blur-md focus-within:ring-2 focus-within:ring-white lg:mx-0"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.7, delay: 0.7 }}

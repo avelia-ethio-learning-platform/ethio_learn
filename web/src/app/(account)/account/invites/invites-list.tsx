@@ -50,7 +50,7 @@ export function InvitesList() {
   if (!invites?.length) {
     return (
       <div className="card flex flex-col items-center gap-3 py-12 text-center">
-        <MailOpen className="h-8 w-8 text-gray-400" />
+        <MailOpen className="h-8 w-8 text-gray-500" />
         <p className="text-sm text-gray-500">No pending invitations.</p>
         <Link href="/dashboard" className="text-sm font-semibold text-brand-600 hover:underline">
           Back to my learning

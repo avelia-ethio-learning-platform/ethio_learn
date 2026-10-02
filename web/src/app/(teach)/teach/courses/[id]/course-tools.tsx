@@ -49,7 +49,7 @@ export function ChangelogTool({ courseId, published }: { courseId: string; publi
           </div>
         </form>
       ) : (
-        <p className="mt-2 text-xs text-gray-400">Available once the course is published.</p>
+        <p className="mt-2 text-xs text-gray-500">Available once the course is published.</p>
       )}
       {entries && entries.length > 0 && (
         <ul className="mt-3 space-y-1 text-xs text-gray-600">
@@ -57,7 +57,7 @@ export function ChangelogTool({ courseId, published }: { courseId: string; publi
             <li key={c.id} className="flex gap-2">
               <span className={c.kind === 'major' ? 'badge-info' : 'badge-neutral'}>{c.kind}</span>
               <span>
-                {c.summary} <span className="text-gray-400">· {new Date(c.created_at).toLocaleDateString()}</span>
+                {c.summary} <span className="text-gray-500">· {new Date(c.created_at).toLocaleDateString()}</span>
               </span>
             </li>
           ))}
@@ -170,7 +170,7 @@ export function TutorKnowledgeTool({ courseId, live, locked }: { courseId: strin
                 </span>
                 {removal && (
                   <button
-                    className="inline-flex items-center gap-1 text-red-500 hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
+                    className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 hover:underline disabled:cursor-not-allowed disabled:text-gray-500 disabled:no-underline"
                     aria-label={`Remove tutor note ${d.title}`}
                     // Locked while in review like every other edit: a pending note is part of the
                     // reviewed change set, and removing one makes the approval apply nothing.

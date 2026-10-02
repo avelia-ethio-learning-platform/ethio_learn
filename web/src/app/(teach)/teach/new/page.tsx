@@ -105,7 +105,7 @@ function NewCourseForm() {
               <FileText className="h-4 w-4" /> {busy === 'generate' ? 'Creating…' : 'Create and generate from a file'}
             </button>
           </div>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-500">
             Next you&apos;ll add sections, lessons and a thumbnail, then submit for quality review (24–48h). &ldquo;Generate from a file&rdquo; opens the AI
             outline tool: upload a PDF, Word file or notes and it drafts the sections and lessons for you to edit.
           </p>

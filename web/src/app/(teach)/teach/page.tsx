@@ -64,7 +64,7 @@ function TeachDashboard() {
                 </span>
               </div>
               <p className="gradient-text-blue mt-2 text-3xl font-extrabold">{s.value}</p>
-              <p className="mt-1 text-xs text-gray-400">{s.hint}</p>
+              <p className="mt-1 text-xs text-gray-500">{s.hint}</p>
             </div>
           ))}
         </section>
@@ -119,7 +119,7 @@ function TeachDashboard() {
               >
                 <span className="text-gray-500">{new Date(p.created_at).toDateString()}</span>
                 <span className="font-medium text-foreground">
-                  net {p.net_amount_etb} ETB <span className="font-normal text-gray-400">(gross {p.gross_amount_etb})</span>
+                  net {p.net_amount_etb} ETB <span className="font-normal text-gray-500">(gross {p.gross_amount_etb})</span>
                 </span>
                 <StatusBadge status={p.status} suffix={p.hold_reason || undefined} />
               </div>

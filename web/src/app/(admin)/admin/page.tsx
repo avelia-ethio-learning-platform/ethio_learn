@@ -63,7 +63,7 @@ function AdminConsole() {
 /** Friendly empty state for admin lists. */
 function EmptyRows({ label, happy = false }: { label: string; happy?: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-2.5 py-10 text-center text-sm text-gray-400">
+    <div className="flex flex-col items-center gap-2.5 py-10 text-center text-sm text-gray-500">
       <span className="glass-secondary flex h-11 w-11 items-center justify-center rounded-2xl">
         {happy ? <PartyPopper className="h-5 w-5 text-brand-400" /> : <Inbox className="h-5 w-5 text-brand-400" />}
       </span>
@@ -97,7 +97,7 @@ function PaymentsTab() {
               <span className="whitespace-nowrap font-medium text-foreground">{p.amount_etb} ETB</span>
               <StatusBadge status={p.status} />
               <ChevronDown
-                className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 ${openId === p.id ? 'rotate-180' : ''}`}
+                className={`h-4 w-4 shrink-0 text-gray-500 transition-transform duration-200 ${openId === p.id ? 'rotate-180' : ''}`}
               />
             </button>
             {openId === p.id && (
@@ -176,11 +176,11 @@ function SearchPicker({
   const { data } = useQuery({ queryKey: ['picker', label, q], queryFn: () => fetcher(q), enabled: q.length >= 2 && !selected });
   return (
     <div className="relative">
-      <label className="mb-0.5 block text-[10px] uppercase text-gray-400">{label}</label>
+      <label className="mb-0.5 block text-xs uppercase text-gray-500">{label}</label>
       {selected ? (
         <div className="flex items-center gap-1">
           <span className="badge-info max-w-[220px] truncate !normal-case">{selected.label}</span>
-          <button className="text-gray-400 hover:text-red-500" onClick={() => { onSelect(null); setQ(''); }}>✕</button>
+          <button className="text-gray-500 hover:text-red-600" onClick={() => { onSelect(null); setQ(''); }}>✕</button>
         </div>
       ) : (
         <>
@@ -264,7 +264,7 @@ function RefundsTab() {
             <span className="truncate pr-2">{r.reason}</span>
             <span className="flex gap-3">
               <button className="font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => decide(r.id, 'approve')}>approve</button>
-              <button className="font-medium text-red-500 hover:underline" onClick={() => decide(r.id, 'deny')}>deny</button>
+              <button className="font-medium text-red-600 dark:text-red-400 hover:underline" onClick={() => decide(r.id, 'deny')}>deny</button>
             </span>
           </div>
         ))}
@@ -329,7 +329,7 @@ function UsersTab() {
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-semibold">Users ({data?.total ?? 0})</h2>
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
           <input className="input w-64 !pl-9" placeholder="Search by name/email…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
@@ -338,7 +338,7 @@ function UsersTab() {
         {data?.items?.map((u: any) => (
           <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
             <span className="min-w-0">
-              <span className="text-foreground">{u.name}</span> <span className="text-gray-400">({u.email})</span>
+              <span className="text-foreground">{u.name}</span> <span className="text-gray-500">({u.email})</span>
               <span className="badge-neutral ml-2">{u.role}</span>
               {!u.email_verified && <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">unverified</span>}
             </span>
@@ -347,7 +347,7 @@ function UsersTab() {
               {u.status === 'active' ? (
                 <>
                   <button className="text-xs font-medium text-amber-600 hover:underline dark:text-amber-400" onClick={() => setStatus(u.id, 'suspended')}>Suspend</button>
-                  <button className="text-xs font-medium text-red-500 hover:underline" onClick={() => confirm(`Ban ${u.email}?`) && setStatus(u.id, 'banned')}>Ban</button>
+                  <button className="text-xs font-medium text-red-600 dark:text-red-400 hover:underline" onClick={() => confirm(`Ban ${u.email}?`) && setStatus(u.id, 'banned')}>Ban</button>
                 </>
               ) : (
                 <button className="text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => setStatus(u.id, 'active')}>Reactivate</button>
@@ -411,7 +411,7 @@ function CoursesTab() {
     <div className="card space-y-3">
       <h2 className="font-semibold">Course lifecycle overrides</h2>
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
         <input className="input !pl-9" placeholder="Search courses by title…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <div className="divide-y text-sm">
@@ -422,7 +422,7 @@ function CoursesTab() {
             <span className="flex shrink-0 gap-3 text-xs">
               {(c.status === 'published' || c.status === 'flagged') && <button className="font-medium text-brand-600 hover:underline" onClick={() => act(c.id, 'unlist')}>Unlist</button>}
               {(c.status === 'unlisted' || c.status === 'flagged') && <button className="font-medium text-brand-600 hover:underline" onClick={() => act(c.id, 'restore')}>Restore</button>}
-              {c.status !== 'archived' && <button className="font-medium text-red-500 hover:underline" onClick={() => confirm(`Archive "${c.title}"? This is terminal.`) && act(c.id, 'archive')}>Archive</button>}
+              {c.status !== 'archived' && <button className="font-medium text-red-600 dark:text-red-400 hover:underline" onClick={() => confirm(`Archive "${c.title}"? This is terminal.`) && act(c.id, 'archive')}>Archive</button>}
             </span>
           </div>
         ))}

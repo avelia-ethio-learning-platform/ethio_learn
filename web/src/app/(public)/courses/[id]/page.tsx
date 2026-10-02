@@ -138,7 +138,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
                         <PlayCircle className="h-4 w-4 shrink-0 text-brand-400" />
                         <span className="truncate">{lesson.title}</span>
                       </span>
-                      <span className="shrink-0 text-xs text-gray-400">{Math.max(1, Math.round(lesson.duration_seconds / 60))} min</span>
+                      <span className="shrink-0 text-xs text-gray-500">{Math.max(1, Math.round(lesson.duration_seconds / 60))} min</span>
                     </li>
                   ))}
                 </ul>
@@ -154,11 +154,11 @@ export default async function CoursePage({ params }: { params: { id: string } })
                   <div key={r.id} className="card">
                     <p className="flex items-center gap-0.5">
                       {[1, 2, 3, 4, 5].map((n) => (
-                        <Star key={n} className={`h-4 w-4 ${n <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`} />
+                        <Star key={n} className={`h-4 w-4 ${n <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-gray-500'}`} />
                       ))}
                     </p>
                     {r.comment && <p className="mt-2 text-sm leading-relaxed text-gray-600">{r.comment}</p>}
-                    <p className="mt-2 text-xs text-gray-400">{new Date(r.created_at).toDateString()}</p>
+                    <p className="mt-2 text-xs text-gray-500">{new Date(r.created_at).toDateString()}</p>
                   </div>
                 ))}
               </div>

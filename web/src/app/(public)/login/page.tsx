@@ -47,7 +47,7 @@ function LoginForm() {
           <Link href="/reset-password" className="font-medium text-brand-600 hover:underline">
             {t('forgot_password')}
           </Link>
-          <span className="mx-2 text-gray-400">·</span>
+          <span className="mx-2 text-gray-500">·</span>
           <Link href="/signup" className="font-medium text-brand-600 hover:underline">
             {t('create_account')}
           </Link>

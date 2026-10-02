@@ -23,7 +23,7 @@ function Badges({ badges }: { badges: RowBadge[] }) {
   return (
     <>
       {badges.map((b) => (
-        <span key={b.label} className={`${BADGE_CLASS[b.tone]} shrink-0 !text-[10px]`}>
+        <span key={b.label} className={`${BADGE_CLASS[b.tone]} shrink-0 `}>
           {b.label}
         </span>
       ))}
@@ -79,7 +79,7 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
           <span className={`min-w-0 break-words ${removing ? 'line-through' : ''}`}>{section.title}</span>
           {section.is_free_preview && <span className="badge-info">free preview</span>}
           <Badges badges={sectionBadges(section)} />
-          <span className="text-xs font-normal text-gray-400">
+          <span className="text-xs font-normal text-gray-500">
             {section.lessons.length} lesson{section.lessons.length === 1 ? '' : 's'}
           </span>
         </p>
@@ -93,7 +93,7 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
               <Pencil className="h-3.5 w-3.5" /> Edit
             </button>
             <button
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!editable}
               onClick={remove}
             >
@@ -112,12 +112,12 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
           onCancel={() => setEditing(false)}
         />
       )}
-      {error && <p className="mt-1 text-xs font-medium text-red-500">{error}</p>}
+      {error && <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
       <ul className="mt-2 space-y-0.5 text-sm text-gray-600">
         {section.lessons.map((lesson) => (
           <LessonRow key={lesson.id} lesson={lesson} sectionState={section.pending_state} edit={edit} refresh={refresh} />
         ))}
-        {!section.lessons.length && <li className="px-2 py-1.5 text-xs text-gray-400">No lessons in this section yet.</li>}
+        {!section.lessons.length && <li className="px-2 py-1.5 text-xs text-gray-500">No lessons in this section yet.</li>}
       </ul>
       {edit.canEdit && !removing && <AddLesson sectionId={section.id} disabled={!editable} onDone={refresh} />}
     </div>
@@ -146,17 +146,17 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
     <li className="rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="flex min-w-[10rem] flex-1 items-center gap-2">
-          <Play className={`h-3.5 w-3.5 shrink-0 ${lesson.has_video ? 'text-brand-400' : 'text-gray-400'}`} />
+          <Play className={`h-3.5 w-3.5 shrink-0 ${lesson.has_video ? 'text-brand-400' : 'text-gray-500'}`} />
           <span className={`min-w-0 truncate ${removing ? 'line-through' : ''}`} title={lesson.title}>
             {lesson.title}
           </span>
           <Badges badges={lessonBadges(lesson, sectionState)} />
           {lesson.has_video ? (
-            <span className="badge-success shrink-0 !text-[10px]">
+            <span className="badge-success shrink-0 ">
               <CheckCircle2 className="h-2.5 w-2.5" /> video
             </span>
           ) : (
-            <span className="badge-warn shrink-0 !text-[10px]">no video</span>
+            <span className="badge-warn shrink-0 ">no video</span>
           )}
         </span>
         {edit.canEdit && !removing && (
@@ -170,7 +170,7 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
               edit
             </button>
             <button
-              className="rounded-lg px-2 py-0.5 text-xs font-medium text-red-500 opacity-70 transition-all hover:bg-red-500/10 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400 opacity-70 transition-all hover:bg-red-500/10 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!editable}
               onClick={remove}
             >
@@ -190,7 +190,7 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
           onCancel={() => setEditing(false)}
         />
       )}
-      {error && <p className="ml-5 mt-1 text-xs font-medium text-red-500">{error}</p>}
+      {error && <p className="ml-5 mt-1 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
       {edit.canEdit && (
         <div className="ml-5">
           <LessonUploadStatus lessonId={lesson.id} />
@@ -259,7 +259,7 @@ function EditLessonForm({ lesson, onDone, onCancel }: { lesson: WorkingLesson; o
         <button type="button" className="text-xs text-gray-500 hover:underline" onClick={onCancel}>
           Cancel
         </button>
-        {error && <span className="text-xs font-medium text-red-500">{error}</span>}
+        {error && <span className="text-xs font-medium text-red-600 dark:text-red-400">{error}</span>}
       </div>
     </form>
   );
@@ -300,7 +300,7 @@ function EditSectionForm({ section, onDone, onCancel }: { section: WorkingSectio
       <button type="button" className="text-xs text-gray-500 hover:underline" onClick={onCancel}>
         Cancel
       </button>
-      {error && <span className="w-full text-xs font-medium text-red-500">{error}</span>}
+      {error && <span className="w-full text-xs font-medium text-red-600 dark:text-red-400">{error}</span>}
     </form>
   );
 }
@@ -331,7 +331,7 @@ function AddSection({ courseId, disabled, onDone }: { courseId: string; disabled
         </label>
         <button className="btn-secondary">Add section</button>
       </fieldset>
-      {error && <p className="w-full text-xs font-medium text-red-500">{error}</p>}
+      {error && <p className="w-full text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
     </form>
   );
 }
@@ -377,12 +377,12 @@ function AddLesson({ sectionId, disabled, onDone }: { sectionId: string; disable
       <fieldset disabled={disabled || busy} className="flex min-w-0 flex-wrap items-center gap-2">
         <input name="title" required minLength={2} maxLength={160} placeholder="Lesson title" className="input min-w-0 flex-1 basis-40" />
         <input name="minutes" type="number" min={0} step="any" placeholder="min" className="input w-20" aria-label="Duration in minutes" />
-        <label className={`btn-secondary max-w-full text-xs ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+        <label className={`btn-secondary max-w-full text-xs focus-within:ring-2 focus-within:ring-brand-500 ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
           <span className="min-w-0 truncate">{file ? `Video: ${file.name}` : 'Choose video (MP4, WebM, MOV)'}</span>
           <input
             type="file"
             accept={VIDEO_ACCEPT}
-            className="hidden"
+            className="sr-only"
             onChange={(e) => {
               const picked = e.target.files?.[0] ?? null;
               e.currentTarget.value = '';
@@ -403,7 +403,7 @@ function AddLesson({ sectionId, disabled, onDone }: { sectionId: string; disable
         <input name="summary" maxLength={500} placeholder="One-line summary (optional)" className="input min-w-0 basis-full text-xs" />
         <button className="btn-secondary">{busy ? 'Adding…' : file ? 'Add lesson & upload' : 'Add lesson'}</button>
       </fieldset>
-      {error && <p className="mt-1 text-xs font-medium text-red-500">{error}</p>}
+      {error && <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
     </form>
   );
 }

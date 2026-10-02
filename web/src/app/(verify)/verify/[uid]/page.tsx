@@ -64,14 +64,14 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
                   </div>
                 )}
               </dl>
-              <p className="mt-8 break-all text-xs text-gray-400">Certificate ID: {params.uid}</p>
+              <p className="mt-8 break-all text-xs text-gray-500">Certificate ID: {params.uid}</p>
             </>
           ) : (
             <>
-              <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/15 text-red-500">
+              <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/15 text-red-600 dark:text-red-400">
                 <ShieldX className="h-8 w-8" />
               </span>
-              <h1 className="text-2xl font-extrabold tracking-tight text-red-500">Not a valid certificate</h1>
+              <h1 className="text-2xl font-extrabold tracking-tight text-red-600 dark:text-red-400">Not a valid certificate</h1>
               <p className="mt-3 text-sm leading-relaxed text-gray-500">
                 This certificate ID does not exist, has been invalidated, or failed the tamper check.
               </p>

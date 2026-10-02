@@ -245,7 +245,7 @@ function Player({ courseId }: { courseId: string }) {
                   <li key={c.id} className="flex gap-3">
                     <span className={c.kind === 'major' ? 'badge-info shrink-0' : 'badge-neutral shrink-0'}>{c.kind}</span>
                     <span className="min-w-0 flex-1 text-gray-600">
-                      {c.summary} <span className="text-xs text-gray-400">· {new Date(c.created_at).toLocaleDateString()}</span>
+                      {c.summary} <span className="text-xs text-gray-500">· {new Date(c.created_at).toLocaleDateString()}</span>
                     </span>
                   </li>
                 ))}
@@ -271,7 +271,7 @@ function Player({ courseId }: { courseId: string }) {
             {watermark && active && (
               // Moving viewer watermark — a screen recording carries the viewer's identity.
               <div className="pointer-events-none absolute inset-0 select-none">
-                <span className="el-watermark absolute text-[11px] font-semibold text-white/40 drop-shadow">{watermark}</span>
+                <span className="el-watermark absolute text-xs font-semibold text-white/40 drop-shadow">{watermark}</span>
               </div>
             )}
             {videoLoading && (
@@ -280,7 +280,7 @@ function Player({ courseId }: { courseId: string }) {
               </div>
             )}
             {!active && !videoLoading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-gray-300">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-white/80">
                 <PlayCircle className="h-10 w-10 opacity-70" />
                 {resumeLesson ? (
                   <button className="btn !px-4 !py-2 !text-xs" onClick={() => playLesson(resumeLesson)}>
@@ -343,7 +343,7 @@ function Player({ courseId }: { courseId: string }) {
             <span className="flex items-center gap-2">
               <ListVideo className="h-4 w-4 text-brand-500" /> Lessons
             </span>
-            <span className="text-xs font-semibold normal-case tracking-normal text-gray-400">
+            <span className="text-xs font-semibold normal-case tracking-normal text-gray-500">
               {completedIds.size}/{flat.length} done
             </span>
           </p>
@@ -354,7 +354,7 @@ function Player({ courseId }: { courseId: string }) {
                 <h3 className="flex items-center justify-between gap-2 text-sm font-bold text-foreground">
                   <span className="min-w-0 truncate">{section.title}</span>
                   <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
                       doneInSection === section.lessons.length && section.lessons.length > 0
                         ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                         : 'bg-brand-500/10 text-brand-600'
@@ -380,18 +380,18 @@ function Player({ courseId }: { courseId: string }) {
                             {done ? (
                               <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
                             ) : (
-                              <Play className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-400'}`} />
+                              <Play className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-500'}`} />
                             )}
                             <span className="min-w-0">
                               <span className="block truncate">{lesson.title}</span>
                               {!done && watched > 0 && (
-                                <span className="mt-1 block h-1 w-24 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                                <span className="mt-1 block h-1 w-24 overflow-hidden rounded-full bg-gray-200">
                                   <span className="block h-full bg-brand-500" style={{ width: `${watched}%` }} />
                                 </span>
                               )}
                             </span>
                           </span>
-                          <span className="shrink-0 text-xs text-gray-400">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
+                          <span className="shrink-0 text-xs text-gray-500">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
                         </button>
                       </li>
                     );
@@ -427,7 +427,7 @@ function ReviewBox({ courseId, progressPercent }: { courseId: string; progressPe
       <div className="mt-3 flex items-center gap-1.5">
         {[1, 2, 3, 4, 5].map((n) => (
           <button key={n} onClick={() => setRating(n)} aria-label={`${n} stars`} className="transition-transform hover:scale-110">
-            <Star className={`h-7 w-7 ${n <= rating ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`} />
+            <Star className={`h-7 w-7 ${n <= rating ? 'fill-amber-400 text-amber-400' : 'text-gray-500'}`} />
           </button>
         ))}
       </div>

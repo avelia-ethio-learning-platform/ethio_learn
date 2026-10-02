@@ -61,7 +61,7 @@ export function CourseCard({ course }: { course: CourseSummary }) {
         <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand-600">
           {course.category}
           {course.language && (
-            <span className="rounded-md bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-bold tracking-normal">
+            <span className="rounded-md bg-brand-500/10 px-1.5 py-0.5 text-xs font-bold tracking-normal">
               {LANG_LABEL[course.language] ?? course.language.toUpperCase()}
             </span>
           )}

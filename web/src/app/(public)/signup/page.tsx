@@ -113,7 +113,7 @@ function SignupForm() {
             <option value="institution_admin">Institution — training center / bootcamp</option>
           </select>
         </div>
-        <p className="text-xs text-gray-400">No phone number required — just email and password.</p>
+        <p className="text-xs text-gray-500">No phone number required — just email and password.</p>
         {error && (
           <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}

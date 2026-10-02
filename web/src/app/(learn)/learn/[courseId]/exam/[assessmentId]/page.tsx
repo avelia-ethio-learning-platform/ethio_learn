@@ -251,7 +251,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
               </div>
             </>
           ) : (
-            <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">This quiz is not proctored. Answer every question, then submit.</p>
+            <p className="rounded-lg bg-background-secondary p-3 text-sm text-gray-700">This quiz is not proctored. Answer every question, then submit.</p>
           )}
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
@@ -337,12 +337,12 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={e.screenshot_url} alt={`Flag ${i + 1} snapshot`} className="h-20 w-28 shrink-0 rounded object-cover" />
                   ) : (
-                    <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded bg-gray-100 text-xs text-gray-400">no image</div>
+                    <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded bg-gray-100 text-xs text-gray-500">no image</div>
                   )}
                   <div className="text-sm">
                     <p className="font-medium">{VIOLATION_LABELS[e.type] ?? e.type}</p>
                     <p className="text-gray-600">{e.description}</p>
-                    <p className="mt-0.5 text-xs text-gray-400">{new Date(e.at).toLocaleString()}</p>
+                    <p className="mt-0.5 text-xs text-gray-500">{new Date(e.at).toLocaleString()}</p>
                   </div>
                 </li>
               ))}
@@ -386,7 +386,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
         {attempt?.questions.map((q) => (
           <div key={q.index} className="card">
             <p className="text-sm font-medium">
-              {q.index + 1}. {q.prompt} <span className="text-xs font-normal text-gray-400">({q.points} pt{q.points !== 1 ? 's' : ''}{q.kind === 'written' ? ' · written, AI-graded' : ''})</span>
+              {q.index + 1}. {q.prompt} <span className="text-xs font-normal text-gray-500">({q.points} pt{q.points !== 1 ? 's' : ''}{q.kind === 'written' ? ' · written, AI-graded' : ''})</span>
             </p>
             {q.kind === 'mcq' ? (
               <div className="mt-2 space-y-1">
@@ -423,7 +423,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
       {proctored && (
         <div className="fixed bottom-4 right-4 z-30 overflow-hidden rounded-xl border-2 border-white shadow-lg">
           <video ref={setVideoEl} muted playsInline className="h-24 w-32 bg-gray-900 object-cover" />
-          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-[10px] font-semibold text-white ${proctorStatus.faces === 1 ? 'bg-green-600' : 'bg-red-600'}`}>
+          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-xs font-semibold text-white ${proctorStatus.faces === 1 ? 'bg-green-600' : 'bg-red-600'}`}>
             {proctorStatus.faceModel !== 'ready' ? 'REC' : proctorStatus.faces === 1 ? '● OK' : proctorStatus.faces === 0 ? '● NO FACE' : `● ${proctorStatus.faces} FACES`}
           </div>
         </div>
@@ -476,13 +476,13 @@ function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean 
       <p className="mt-1 text-sm text-gray-700">{plan.summary}</p>
       <ol className="mt-3 space-y-2">
         {plan.plan.map((item, i) => (
-          <li key={i} className="rounded-lg bg-white p-3 text-sm dark:bg-slate-900">
+          <li key={i} className="rounded-lg bg-card p-3 text-sm">
             <p className="font-semibold text-foreground">{i + 1}. {item.focus}</p>
             <p className="mt-0.5 text-gray-600">{item.reason}</p>
           </li>
         ))}
       </ol>
-      {!plan.ai_live && <p className="mt-2 text-xs text-gray-400">Offline coach — set a valid GROQ_API_KEY for AI-tailored plans.</p>}
+      {!plan.ai_live && <p className="mt-2 text-xs text-gray-500">Offline coach — set a valid GROQ_API_KEY for AI-tailored plans.</p>}
     </div>
   );
 }

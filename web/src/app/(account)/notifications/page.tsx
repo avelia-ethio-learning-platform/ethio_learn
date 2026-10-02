@@ -38,7 +38,7 @@ function NotificationsList() {
         </div>
         <div className="card mt-6 animate-fade-in-up !p-0 overflow-hidden">
           {!data?.length && (
-            <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-gray-400">
+            <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-gray-500">
               <Inbox className="h-7 w-7" />
               No notifications yet.
             </div>
@@ -62,7 +62,7 @@ function NotificationsList() {
                 <span className="min-w-0 flex-1">{n.title}</span>
               </p>
               {n.body && <p className="mt-1 text-xs leading-relaxed text-gray-500">{n.body}</p>}
-              <p className="mt-1 text-[10px] text-gray-400">{new Date(n.created_at).toLocaleString()}</p>
+              <p className="mt-1 text-xs text-gray-500">{new Date(n.created_at).toLocaleString()}</p>
             </button>
           ))}
         </div>

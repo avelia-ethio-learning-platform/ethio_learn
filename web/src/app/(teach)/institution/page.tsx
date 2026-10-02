@@ -119,7 +119,7 @@ function InstitutionCourseRow({ course: c, onAct }: { course: any; onAct: (id: s
     <div className="px-5 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="min-w-0 text-foreground">
-          <span className="font-semibold">{c.title}</span> <span className="text-xs text-gray-400">({c.category})</span>
+          <span className="font-semibold">{c.title}</span> <span className="text-xs text-gray-500">({c.category})</span>
           {c.instructor_name && <span className="ml-1 text-xs text-gray-500">· by {c.instructor_name}</span>}
         </span>
         <span className="flex shrink-0 items-center gap-3">
@@ -148,7 +148,7 @@ function InstitutionCourseRow({ course: c, onAct }: { course: any; onAct: (id: s
       {showFeedback && (
         <div className="glass-secondary mt-3 rounded-xl p-3">
           {!reviews ? (
-            <p className="text-xs text-gray-400">Loading feedback…</p>
+            <p className="text-xs text-gray-500">Loading feedback…</p>
           ) : !reviews.reviews?.length ? (
             <p className="text-xs text-gray-500">No learner reviews yet.</p>
           ) : (

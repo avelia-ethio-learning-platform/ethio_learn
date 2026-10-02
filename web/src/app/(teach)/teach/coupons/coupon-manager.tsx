@@ -73,13 +73,13 @@ export function CouponManager() {
           </button>
           {status && <span className="text-sm font-medium text-brand-600">{status}</span>}
         </div>
-        <p className="text-xs text-gray-400 sm:col-span-2">
+        <p className="text-xs text-gray-500 sm:col-span-2">
           A 100%-off code enrolls the learner without a payment — use it for scholarships. Discounted revenue is what reaches payouts.
         </p>
       </form>
 
       <div className="card !p-0 overflow-hidden text-sm">
-        {!coupons?.length && <p className="px-5 py-6 text-gray-400">No coupons yet.</p>}
+        {!coupons?.length && <p className="px-5 py-6 text-gray-500">No coupons yet.</p>}
         {coupons?.map((c, i) => (
           <div key={c.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3" style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}>
             <div className="min-w-0">
@@ -95,7 +95,7 @@ export function CouponManager() {
               <span className={c.active ? 'badge-success' : 'badge-neutral'}>{c.active ? 'active' : 'inactive'}</span>
               {c.active && (
                 <button
-                  className="text-xs font-medium text-red-500 hover:underline"
+                  className="text-xs font-medium text-red-600 dark:text-red-400 hover:underline"
                   onClick={async () => {
                     await api(`/coupons/${c.id}/deactivate`, { method: 'POST' });
                     queryClient.invalidateQueries({ queryKey: ['coupons'] });

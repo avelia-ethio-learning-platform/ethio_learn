@@ -156,7 +156,7 @@ function DangerZone({ role }: { role: string }) {
 
   return (
     <div className="card animate-fade-in-up !rounded-3xl !border-red-400/30">
-      <h2 className="flex items-center gap-2 font-bold text-red-500">
+      <h2 className="flex items-center gap-2 font-bold text-red-600 dark:text-red-400">
         <ShieldAlert className="h-4 w-4" /> Danger zone
       </h2>
       <p className="mt-1 text-sm leading-relaxed text-gray-500">
@@ -165,7 +165,7 @@ function DangerZone({ role }: { role: string }) {
       </p>
       {!open ? (
         <button
-          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-red-400/40 px-4 py-2 text-sm font-semibold text-red-500 transition-colors hover:bg-red-500/10"
+          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-red-400/40 px-4 py-2 text-sm font-semibold text-red-600 dark:text-red-400 transition-colors hover:bg-red-500/10"
           onClick={() => setOpen(true)}
         >
           Delete my account…
@@ -174,7 +174,7 @@ function DangerZone({ role }: { role: string }) {
         <div className="mt-4 space-y-2">
           <label className="label">Confirm with your password</label>
           <input type="password" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
-          {error && <p className="text-sm font-medium text-red-500">{error}</p>}
+          {error && <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
           <div className="flex gap-2 pt-1">
             <button
               className="inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow transition-all hover:bg-red-700 disabled:opacity-50"

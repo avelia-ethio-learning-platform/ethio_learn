@@ -103,6 +103,7 @@ export function Footer() {
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t pt-6 sm:flex-row" style={{ borderColor: 'var(--border)' }}>
           <p className="flex items-center gap-1.5 text-xs text-gray-500">
             © {new Date().getFullYear()} EthiopiaLearn · {t('footer_rights')}
+            {/* The heart is a decorative icon, so its red-500 is exempt from the text-red sweep. */}
             <span className="hidden items-center gap-1 sm:inline-flex">
               · Made with <Heart className="h-3 w-3 fill-red-500 text-red-500" /> for Ethiopia 🇪🇹
             </span>
