@@ -8,7 +8,8 @@
     "dev": "turbo run dev --parallel",
     "test": "jest",
     "typecheck": "turbo run typecheck",
-    "seed": "pnpm --filter @ethiopialearn/auth-service seed"
+    "seed": "pnpm --filter @ethiopialearn/auth-service seed",
+    "db:check": "turbo run build --output-logs=errors-only && node scripts/db-check.mjs"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
