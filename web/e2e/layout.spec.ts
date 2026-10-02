@@ -54,6 +54,16 @@ test.describe('no sideways overflow at 375 px', () => {
     }
   });
 
+  test.describe('educator', () => {
+    test.use({ storageState: authFile('educator') });
+
+    test('teaching dashboard', async ({ page }) => {
+      await page.goto('/teach');
+      await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+    });
+  });
+
   test.describe('learner', () => {
     test.use({ storageState: authFile('learner') });
 
