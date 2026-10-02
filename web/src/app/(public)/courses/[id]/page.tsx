@@ -100,8 +100,8 @@ export default async function CoursePage({ params }: { params: { id: string } })
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
       <BackButton fallback="/courses" label="Browse courses" />
 
-      <div className="grid gap-8 lg:grid-cols-3">
-        <div className="animate-fade-in-up lg:col-span-2">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <div className="animate-fade-in-up min-w-0 lg:col-span-2">
           <span className="badge-info uppercase tracking-wider">{course.category}</span>
           {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
             <span className="badge-success ml-2">Recently updated</span>
@@ -166,7 +166,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
           )}
         </div>
 
-        <aside className="animate-fade-in-up">
+        <aside className="animate-fade-in-up min-w-0">
           <div className="card sticky top-28 !rounded-3xl !p-6 shadow-elevated">
             <p className="gradient-text-blue text-3xl font-extrabold">{priceLabel(course)}</p>
             <EnrollPanel courseId={course.id} pricingType={course.pricing_type}  price={course.price_etb} />

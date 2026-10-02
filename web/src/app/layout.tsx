@@ -37,7 +37,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <Providers>
           <Header />
-          <main className="min-h-screen">{children}</main>
+          {/* pt-28 clears the fixed header on every page */}
+          <main className="min-h-screen pt-28">{children}</main>
           <Footer />
         </Providers>
       </body>

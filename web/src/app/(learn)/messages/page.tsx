@@ -85,7 +85,7 @@ function Messenger() {
     bottomRef.current?.scrollIntoView({ block: 'end' });
   }, [conversation, queryClient]);
 
-  if (!ready) return <p className="text-gray-500">Loading…</p>;
+  if (!ready) return <p className="page-shell text-gray-500">Loading…</p>;
   if (!user) {
     router.push('/login');
     return null;
@@ -118,7 +118,7 @@ function Messenger() {
   };
 
   return (
-    <div>
+    <div className="page-shell">
       <h1 className="text-xl font-bold">Messages</h1>
       <p className="text-sm text-gray-500">Talk directly with instructors, learners and platform staff.</p>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
@@ -223,7 +223,7 @@ function Messenger() {
 
 export default function MessagesPage() {
   return (
-    <Suspense fallback={<p className="text-gray-500">Loading…</p>}>
+    <Suspense fallback={<p className="page-shell text-gray-500">Loading…</p>}>
       <Messenger />
     </Suspense>
   );

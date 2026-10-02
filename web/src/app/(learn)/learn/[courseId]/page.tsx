@@ -226,8 +226,8 @@ function Player({ courseId }: { courseId: string }) {
           {online ? `Syncing ${pending} saved update${pending === 1 ? '' : 's'}…` : `You're offline — your progress is saved on this device${pending ? ` (${pending} pending)` : ''} and will sync when you reconnect.`}
         </p>
       )}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="animate-fade-in-up lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="animate-fade-in-up min-w-0 lg:col-span-2">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <h1 className="text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{course.title}</h1>
             {changelog && changelog.length > 0 && (
@@ -338,7 +338,7 @@ function Player({ courseId }: { courseId: string }) {
           <ReviewBox courseId={courseId} progressPercent={progress?.progress_percent ?? 0} />
         </div>
 
-        <aside className="animate-fade-in-up space-y-3 lg:sticky lg:top-28 lg:max-h-[calc(100vh-8.5rem)] lg:self-start lg:overflow-y-auto lg:pb-4 lg:pr-1">
+        <aside className="animate-fade-in-up min-w-0 space-y-3 lg:sticky lg:top-28 lg:max-h-[calc(100vh-8.5rem)] lg:self-start lg:overflow-y-auto lg:pb-4 lg:pr-1">
           <p className="flex items-center justify-between gap-2 px-1 text-sm font-bold uppercase tracking-wider text-gray-500">
             <span className="flex items-center gap-2">
               <ListVideo className="h-4 w-4 text-brand-500" /> Lessons

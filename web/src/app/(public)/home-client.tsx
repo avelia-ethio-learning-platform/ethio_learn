@@ -71,7 +71,7 @@ export function HomeClient({
   return (
     <div className="overflow-hidden">
       {/* ================= HERO (contained gradient panel, mirrors the floating nav width) ================= */}
-      <section className="relative px-3 pb-16 pt-24 sm:px-6 md:pt-28">
+      <section className="relative px-3 pb-16 sm:px-6">
         {/* Soft section backdrop behind the panel */}
         <div className="absolute inset-0 -z-10">
           <div className="absolute inset-0 bg-gradient-to-b from-brand-50/60 via-background to-background transition-colors duration-300 dark:from-blue-950/30" />

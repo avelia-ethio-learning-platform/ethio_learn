@@ -30,11 +30,11 @@ const FAQS: { group: string; items: Faq[] }[] = [
       },
       {
         q: 'How do I pay for a course?',
-        a: 'Paid courses check out securely through Chapa (cards, mobile money and bank transfer). After payment you&apos;re returned to EthiopiaLearn and the course unlocks automatically once the payment is confirmed.',
+        a: "Paid courses check out securely through Chapa (cards, mobile money and bank transfer). After payment you're returned to EthiopiaLearn and the course unlocks automatically once the payment is confirmed.",
       },
       {
         q: 'My payment succeeded but the course is still locked.',
-        a: 'Confirmation usually takes a few seconds. If it hasn&apos;t unlocked, open the course and use "Check again" on the return page — our server re-verifies with Chapa. Payments also reconcile automatically within a couple of minutes, so it will unlock on its own.',
+        a: `Confirmation usually takes a few seconds. If it hasn't unlocked, open the course and use "Check again" on the return page — our server re-verifies with Chapa. Payments also reconcile automatically within a couple of minutes, so it will unlock on its own.`,
       },
     ],
   },
@@ -42,7 +42,7 @@ const FAQS: { group: string; items: Faq[] }[] = [
     group: 'Courses & learning',
     items: [
       {
-        q: 'What&apos;s the difference between free, freemium and paid courses?',
+        q: "What's the difference between free, freemium and paid courses?",
         a: 'Free courses open fully once you enroll. Freemium courses let you preview the first section for free and unlock the rest after purchase. Paid courses require payment before any lessons play.',
       },
       {
@@ -55,7 +55,7 @@ const FAQS: { group: string; items: Faq[] }[] = [
         ),
       },
       {
-        q: 'A video won&apos;t play.',
+        q: "A video won't play.",
         a: 'Refresh the lesson — streaming links are short-lived and simply need re-issuing. If it keeps happening, check your connection, or contact us below with the course and lesson name.',
       },
       {
@@ -83,7 +83,7 @@ const FAQS: { group: string; items: Faq[] }[] = [
       },
       {
         q: 'I signed up with Google — how do I set a password?',
-        a: 'Google accounts sign in with one tap and don&apos;t need a password. If you&apos;d like one (for example to also log in with email), use "Forgot password?" on the login page to set it.',
+        a: `Google accounts sign in with one tap and don't need a password. If you'd like one (for example to also log in with email), use "Forgot password?" on the login page to set it.`,
       },
     ],
   },
@@ -178,7 +178,7 @@ function ContactForm() {
 
 export default function HelpPage() {
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="page-shell max-w-3xl">
       <div className="animate-in rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 px-6 py-10 text-white">
         <h1 className="text-3xl font-bold">Help &amp; Support</h1>
         <p className="mt-2 max-w-xl text-brand-100">

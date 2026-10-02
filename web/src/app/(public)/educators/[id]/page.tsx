@@ -44,7 +44,7 @@ export default async function EducatorProfilePage({ params }: { params: { id: st
   const profile = result.data;
 
   return (
-    <div>
+    <div className="page-shell">
       <BackButton fallback="/educators" label="Top educators" />
       <div className="card flex flex-wrap items-center gap-5">
         <span className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-100 text-3xl font-bold text-brand-800">

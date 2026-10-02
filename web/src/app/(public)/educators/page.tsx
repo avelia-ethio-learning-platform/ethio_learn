@@ -25,7 +25,7 @@ export default async function EducatorsPage() {
   const { data: educators, unavailable } = staticFallback(await serverApi<TopEducator[]>('/educators/top?limit=24', 120), []);
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="page-shell max-w-3xl">
       <BackButton fallback="/" label="Browse courses" />
       <h1 className="text-3xl font-bold">🏆 Top educators</h1>
       <p className="mt-2 text-gray-600">
