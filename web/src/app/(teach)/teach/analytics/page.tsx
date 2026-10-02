@@ -9,10 +9,12 @@ import { RoleHomeBackButton } from '@/components/BackButton';
 import { PageHeader, PageShell } from '@/components/PageChrome';
 import { Bars } from '@/components/Bars';
 
+// Matches the API's cap on `course_ids` for the enrollment funnel.
+const MAX_ANALYTICS_COURSES = 25;
 
 function AnalyticsPage() {
   const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
-  const ids = useMemo(() => (courses ?? []).map((c) => c.id), [courses]);
+  const ids = useMemo(() => (courses ?? []).map((c) => c.id).slice(0, MAX_ANALYTICS_COURSES), [courses]);
   const { data: revenue } = useQuery({ queryKey: ['payee-analytics'], queryFn: () => api<any>('/payouts/analytics') });
   const { data: funnel } = useQuery({
     queryKey: ['enrollment-analytics', ids.join(',')],
