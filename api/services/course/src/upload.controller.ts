@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { Body, Controller, Delete, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { UploadService } from './upload.service';
 import { CompleteMultipartUploadDto, CreateMultipartUploadDto, CreateUploadDto, SignPartsDto } from './upload.dto';
@@ -38,24 +38,24 @@ export class UploadController {
   }
 
   @Get('multipart/:id')
-  status(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  status(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.uploads.status(ctx, id);
   }
 
   /** Presigned part URLs, up to 100 per call. */
   @Post('multipart/:id/parts')
-  signParts(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: SignPartsDto) {
+  signParts(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: SignPartsDto) {
     return this.uploads.signParts(ctx, id, dto);
   }
 
   /** Verifies every part server-side, completes the upload and attaches it to the lesson. Idempotent. */
   @Post('multipart/:id/complete')
-  complete(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: CompleteMultipartUploadDto) {
+  complete(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: CompleteMultipartUploadDto) {
     return this.uploads.complete(ctx, id, dto);
   }
 
   @Delete('multipart/:id')
-  abort(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  abort(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.uploads.abort(ctx, id);
   }
 }
