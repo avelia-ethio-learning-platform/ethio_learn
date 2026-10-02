@@ -9,30 +9,33 @@ jobs:
   # ---- secret scan: block a leaked key / .env before it reaches main ----
   # This repo has had live credentials pasted into it during development, so a
   # dedicated gate is worth the 20 seconds. Fails the build on any finding.
+  # Free gitleaks CLI (gitleaks-action needs a paid license for org repos), full
+  # history, pinned version. The log must say "N commits scanned" with N > 0.
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # gitleaks scans history on push
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # gitleaks scans the whole history
+      - name: gitleaks
+        run: >
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1
+          git /repo --config /repo/.gitleaks.toml --redact --no-banner --verbose
 
   # ---- backend: build (tsc = typecheck) + unit tests ----
   api:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: api
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 9.4.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: api/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
@@ -41,18 +44,18 @@ jobs:
 
   # ---- frontend: typecheck + unit/component tests + production build ----
   web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 9.4.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
@@ -62,22 +65,23 @@ jobs:
 
   # ---- e2e: real infra (compose) + all 8 services + API-level smoke ----
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: api
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 9.4.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: api/pnpm-lock.yaml
       - name: Start infrastructure
         run: |
           docker compose up -d --wait postgres redis rabbitmq minio
-          docker compose up -d minio-init
+          # Blocks and returns the init script's exit code (`up -d` ignores it).
+          docker compose run --rm minio-init
       - name: Build and start services
         run: |
           cp api/.env.example api/.env
@@ -85,7 +89,7 @@ jobs:
           pnpm -C api build
           pnpm -C api seed
           bash scripts/start-backend.sh
-          for i in $(seq 1 30); do curl -sf http://localhost:4000/health && break; sleep 2; done
+          for _ in $(seq 1 30); do curl -sf http://localhost:4000/health && break; sleep 2; done
       - name: End-to-end flow (educator → QO → learner → certificate)
         run: node scripts/demo-seed.mjs
       # Before the smoke step: that one hammers the login limiter on purpose.
@@ -93,13 +97,15 @@ jobs:
         run: node scripts/e2e-revisions.mjs
       - name: Smoke assertions (security envelope + video progress + 429)
         run: E2E_CHECK_RATE_LIMIT=1 node scripts/e2e-smoke.mjs
-      - name: Dump service logs on failure
+      - name: Dump logs on failure
         if: failure()
-        run: tail -n 80 .devlogs/*.log
+        run: |
+          docker compose logs --no-color --tail 50 || true
+          tail -n 80 .devlogs/*.log || true
 
   # ---- CD: images to GHCR on main (deploy hooks can pull :latest or :sha) ----
   docker-api:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [api, e2e]
     if: github.ref == 'refs/heads/main'
     permissions:
@@ -117,7 +123,7 @@ jobs:
           - { pkg: '@ethiopialearn/quality-service', name: quality }
           - { pkg: '@ethiopialearn/notification-service', name: notification }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -135,14 +141,14 @@ jobs:
             ghcr.io/${{ github.repository }}/${{ matrix.name }}:${{ github.sha }}
 
   docker-web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [web, e2e]
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:

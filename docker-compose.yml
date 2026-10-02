@@ -61,7 +61,13 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    # minio/minio was removed from Docker Hub; Chainguard maintains a build of
+    # the same server. Chainguard's free tier only publishes :latest, so pin the
+    # digest for reproducible CI (re-pin to the current :latest digest if this
+    # one is ever garbage-collected). It runs as uid 65532: a volume created by
+    # the old root image needs a one-time
+    #   docker run --rm -v ethiopialearn_miniodata:/data alpine chown -R 65532:65532 /data
+    image: cgr.dev/chainguard/minio@sha256:0f95aa412a12351a95bb43c3b54b66440eb0aa022bb3f3458942678a489e915b
     # 9000 = S3 API (signed URLs); console for browsing files manually is on
     # host port 9091 (login: minioadmin / minioadmin) — 9001 is squatted by
     # Intel Graphics Command Center on Windows.
@@ -74,15 +80,26 @@ services:
       - miniodata:/data
 
   # One-shot: create the bucket; thumbnails are public-read, videos stay private.
+  # Uses the AWS CLI (minio/mc is gone from Docker Hub and Chainguard's mc image
+  # has no shell for the wait loop). Fails visibly: CI runs it with
+  # `docker compose run --rm minio-init` so a broken init stops the build.
   minio-init:
-    image: minio/mc:latest
+    image: amazon/aws-cli:2.37.8
     depends_on: [minio]
-    entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
-      mc mb -p local/ethiopialearn || true;
-      mc anonymous set download local/ethiopialearn/thumbnails || true;
-      exit 0"
+    environment:
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        s3() { aws --endpoint-url http://minio:9000 s3api "$$@"; }
+        for i in $$(seq 1 60); do s3 list-buckets > /dev/null 2>&1 && break; sleep 1; done
+        set -e
+        s3 list-buckets > /dev/null # still down after 60 s: fail with the real error
+        s3 head-bucket --bucket ethiopialearn 2> /dev/null || s3 create-bucket --bucket ethiopialearn
+        s3 put-bucket-policy --bucket ethiopialearn --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::ethiopialearn/thumbnails/*"]}]}'
+        echo "bucket ethiopialearn ready (thumbnails/* public-read)"
 
   # ---- application (profile: full) ----
   gateway:
