@@ -48,6 +48,9 @@ const SUPPORT = /^\/api\/v1\/support\/contact$/;
 const PAYMENT_INITIATE = /^\/api\/v1\/(payments\/initiate|wallet\/topup|gifts|bulk-purchases|pay-requests\/[^/]+\/pay)$/;
 // Invitations by email are a spam vector — same bucket as comments/DMs.
 const INVITES = /^\/api\/v1\/(referrals\/invite|pay-requests|bulk-purchases\/[^/]+\/assign|institutions\/[^/]+\/instructors)$/;
+// Routes that verify the current password: a guessing target for anyone at an
+// unlocked session, so they share the login bucket (keyed by IP).
+const PASSWORD_CHECK = /^(PUT \/api\/v1\/profiles\/password|DELETE \/api\/v1\/profiles\/me)$/;
 // Chapa calls the webhook — throttling it could drop legitimate payment
 // confirmations, so it stays on the general bucket only.
 const WEBHOOK = /^\/api\/v1\/payments\/webhook\//;
@@ -68,6 +71,7 @@ export function classifyRequest(method: string, rawPath: string): RatePolicy {
   if (AI_GET.test(path)) return 'ai';
   if (!MUTATING.has(m)) return 'general';
   if (WEBHOOK.test(path)) return 'general';
+  if (PASSWORD_CHECK.test(`${m} ${path}`)) return 'auth-strict';
   if (AI_ENDPOINTS.test(path)) return 'ai';
   if (COMMUNITY_WRITE.test(path) || SUPPORT.test(path) || INVITES.test(path)) return 'community-write';
   if (PAYMENT_INITIATE.test(path)) return 'payment-initiate';
