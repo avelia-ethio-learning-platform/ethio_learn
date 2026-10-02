@@ -1,8 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
-import { env, envInt, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { env, envInt, EventBusService, InternalHttpClient, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, ReferralInviteSentPayload, Role, WalletCreditedPayload } from '@ethiopialearn/contracts';
 import { Coupon, CouponKind, Payment, Referral, ReferralCode, Wallet, WalletTransaction, WalletTxKind } from './entities';
 
@@ -14,6 +14,18 @@ export function randomCode(length: number): string {
   for (let i = 0; i < length; i++) out += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
   return out;
 }
+
+/** A wallet credit that landed; announced as WalletCredited once its transaction has committed. */
+export interface WalletCredit {
+  user_id: string;
+  amount_etb: number;
+  balance_etb: number;
+  kind: WalletTxKind;
+  note: string;
+}
+
+/** Credit kinds the owner is told about (an in-app ping). */
+const ANNOUNCED_KINDS: ReadonlySet<WalletTxKind> = new Set(['referral_reward', 'cashback', 'topup', 'admin_adjust']);
 
 export interface CouponQuote {
   coupon: Coupon | null;
@@ -132,10 +144,13 @@ export class GrowthService {
     };
   }
 
-  /** Called once per CONFIRMED payment — usage is never counted at checkout start. */
-  async recordCouponUse(code: string | null) {
+  /**
+   * Called once per CONFIRMED payment, inside its confirmation — usage is never
+   * counted at checkout start.
+   */
+  async recordCouponUse(code: string | null, manager?: EntityManager) {
     if (!code) return;
-    await this.coupons.increment({ code }, 'uses', 1);
+    await (manager ? manager.getRepository(Coupon) : this.coupons).increment({ code }, 'uses', 1);
   }
 
   private couponView(c: Coupon) {
@@ -173,39 +188,100 @@ export class GrowthService {
     return Number(w?.balance_etb ?? 0);
   }
 
-  /** Credit under a row lock; publishes WalletCredited for reward-type credits. */
+  /**
+   * Credit a wallet in its own transaction and announce it. Replaying the same
+   * (kind, reference) changes nothing (except admin adjustments, which reuse
+   * their reference). Returns the balance.
+   */
   async credit(userId: string, amount: number, kind: WalletTxKind, reference: string, note: string): Promise<number> {
-    if (amount <= 0) return this.balance(userId);
-    const balance = await this.dataSource.transaction(async (m) => {
-      let w = await m.getRepository(Wallet).findOne({ where: { user_id: userId }, lock: { mode: 'pessimistic_write' } });
-      if (!w) w = m.getRepository(Wallet).create({ user_id: userId, balance_etb: '0' });
-      w.balance_etb = (Number(w.balance_etb) + amount).toFixed(2);
-      await m.getRepository(Wallet).save(w);
-      await m.getRepository(WalletTransaction).save(
-        m.getRepository(WalletTransaction).create({ user_id: userId, amount_etb: amount.toFixed(2), kind, reference, note }),
-      );
-      return Number(w.balance_etb);
-    });
-    if (kind === 'referral_reward' || kind === 'cashback' || kind === 'topup' || kind === 'admin_adjust') {
-      await this.bus.publish<WalletCreditedPayload>('WalletCredited', { user_id: userId, amount_etb: amount, balance_etb: balance, kind, note });
-    }
-    return balance;
+    const credited = await this.dataSource.transaction((m) => this.creditWith(m, userId, amount, kind, reference, note));
+    if (!credited) return this.balance(userId);
+    await this.announceCredits([credited]);
+    return credited.balance_etb;
   }
 
-  /** Debit under a row lock; throws when the balance cannot cover it. */
+  /** Debit a wallet in its own transaction; throws when the balance cannot cover it. Returns the balance. */
   async debit(userId: string, amount: number, kind: WalletTxKind, reference: string, note: string): Promise<number> {
-    if (amount <= 0) return this.balance(userId);
-    return this.dataSource.transaction(async (m) => {
-      const w = await m.getRepository(Wallet).findOne({ where: { user_id: userId }, lock: { mode: 'pessimistic_write' } });
-      const current = Number(w?.balance_etb ?? 0);
-      if (!w || current + 1e-9 < amount) throw new BadRequestException(`Wallet balance (${current.toFixed(2)} ETB) is not enough for ${amount.toFixed(2)} ETB`);
-      w.balance_etb = (current - amount).toFixed(2);
-      await m.getRepository(Wallet).save(w);
-      await m.getRepository(WalletTransaction).save(
-        m.getRepository(WalletTransaction).create({ user_id: userId, amount_etb: (-amount).toFixed(2), kind, reference, note }),
-      );
-      return Number(w.balance_etb);
-    });
+    return this.dataSource.transaction((m) => this.debitWith(m, userId, amount, kind, reference, note));
+  }
+
+  /**
+   * Credit inside the caller's transaction. The movement row goes in first,
+   * with ON CONFLICT DO NOTHING against the unique (kind, reference) index, so
+   * a replay inserts nothing and the balance is left alone; catching 23505
+   * instead would abort the caller's transaction. The balance changes in one
+   * atomic UPDATE, so concurrent credits never lose each other. Returns null
+   * when nothing was credited; the caller announces the credit after commit.
+   */
+  async creditWith(
+    m: EntityManager,
+    userId: string,
+    amount: number,
+    kind: WalletTxKind,
+    reference: string,
+    note: string,
+  ): Promise<WalletCredit | null> {
+    if (amount <= 0) return null;
+    const value = amount.toFixed(2);
+    const inserted: { id: string }[] = await m.query(
+      `INSERT INTO ${this.table(m, WalletTransaction)} (user_id, amount_etb, kind, reference, note) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING id`,
+      [userId, value, kind, reference, note],
+    );
+    if (inserted.length === 0) return null;
+    const wallets = this.table(m, Wallet);
+    await m.query(`INSERT INTO ${wallets} (user_id, balance_etb) VALUES ($1, 0) ON CONFLICT (user_id) DO NOTHING`, [userId]);
+    // UPDATE through query() resolves to [rows, rowCount].
+    const [rows]: [{ balance_etb: string }[], number] = await m.query(
+      `UPDATE ${wallets} SET balance_etb = balance_etb + $2, updated_at = now() WHERE user_id = $1 RETURNING balance_etb`,
+      [userId, value],
+    );
+    return { user_id: userId, amount_etb: amount, balance_etb: Number(rows[0].balance_etb), kind, note };
+  }
+
+  /**
+   * Debit inside the caller's transaction, under the same rules as creditWith.
+   * The balance check and the update are one statement; when the balance is
+   * too low this throws, which rolls back the movement row with the caller's
+   * transaction. Returns the balance.
+   */
+  async debitWith(m: EntityManager, userId: string, amount: number, kind: WalletTxKind, reference: string, note: string): Promise<number> {
+    if (amount <= 0) return this.balanceWith(m, userId);
+    const value = amount.toFixed(2);
+    const inserted: { id: string }[] = await m.query(
+      `INSERT INTO ${this.table(m, WalletTransaction)} (user_id, amount_etb, kind, reference, note) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING id`,
+      [userId, (-amount).toFixed(2), kind, reference, note],
+    );
+    if (inserted.length === 0) return this.balanceWith(m, userId); // this purchase was already paid for
+    const [rows]: [{ balance_etb: string }[], number] = await m.query(
+      `UPDATE ${this.table(m, Wallet)} SET balance_etb = balance_etb - $2, updated_at = now() WHERE user_id = $1 AND balance_etb >= $2 RETURNING balance_etb`,
+      [userId, value],
+    );
+    if (rows.length === 0) {
+      const current = await this.balanceWith(m, userId);
+      throw new BadRequestException(`Wallet balance (${current.toFixed(2)} ETB) is not enough for ${value} ETB`);
+    }
+    return Number(rows[0].balance_etb);
+  }
+
+  /** Tell owners about committed credits. Best effort: the money has already moved. */
+  async announceCredits(credits: WalletCredit[]): Promise<void> {
+    for (const credit of credits) {
+      if (!ANNOUNCED_KINDS.has(credit.kind)) continue;
+      try {
+        await this.bus.publish<WalletCreditedPayload>('WalletCredited', { ...credit, kind: credit.kind as WalletCreditedPayload['kind'] });
+      } catch (err) {
+        this.logger.warn(`WalletCredited for ${credit.user_id} (${credit.kind}) not published: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  private async balanceWith(m: EntityManager, userId: string): Promise<number> {
+    const rows: { balance_etb: string }[] = await m.query(`SELECT balance_etb FROM ${this.table(m, Wallet)} WHERE user_id = $1`, [userId]);
+    return Number(rows[0]?.balance_etb ?? 0);
+  }
+
+  private table(m: EntityManager, entity: typeof Wallet | typeof WalletTransaction): string {
+    return m.getRepository(entity).metadata.tablePath;
   }
 
   /** Admin: manual balance adjustment (support credits, corrections). */
@@ -311,36 +387,53 @@ export class GrowthService {
     if (!row) row = this.referrals.create({ referrer_id: owner.user_id, referred_email: email });
     row.referred_user_id = ctx.id;
     row.status = 'signed_up';
-    await this.referrals.save(row);
+    try {
+      await this.referrals.save(row);
+    } catch (err) {
+      // A concurrent claim by the same account won: one referral per account.
+      if (!isUniqueViolation(err)) throw err;
+      const existing = await this.referrals.findOne({ where: { referred_user_id: ctx.id } });
+      if (!existing) throw err;
+      return { claimed: true, referrer_id: existing.referrer_id, status: existing.status };
+    }
     return { claimed: true, referrer_id: owner.user_id, status: row.status };
   }
 
   /**
-   * After a REAL-money course purchase: cashback to the buyer, and — on the
-   * buyer's first ever purchase — the referral reward to whoever referred them.
+   * Cashback and the referral reward follow REAL-money purchases only: not
+   * top-ups, and not purchases settled with wallet credits or a full coupon.
    */
-  async onCoursePurchaseConfirmed(payment: Payment) {
-    const amount = Number(payment.amount_etb);
-    if (amount <= 0) return;
-    if (payment.method !== PaymentMethod.CHAPA && payment.method !== PaymentMethod.BANK_TRANSFER) return; // no cashback on credits
-    if (payment.purpose === PaymentPurpose.WALLET_TOPUP) return;
+  rewardsApply(payment: Payment): boolean {
+    if (Number(payment.amount_etb) <= 0) return false;
+    if (payment.purpose === PaymentPurpose.WALLET_TOPUP) return false;
+    return payment.method === PaymentMethod.CHAPA || payment.method === PaymentMethod.BANK_TRANSFER;
+  }
 
-    const cashback = Number(((amount * this.cashbackPercent()) / 100).toFixed(2));
-    if (cashback > 0) {
-      await this.credit(payment.learner_id, cashback, 'cashback', payment.id, `${this.cashbackPercent()}% cashback on "${payment.course_title}"`);
-    }
+  /** Cashback to the buyer, once per payment, inside the confirmation. */
+  async creditCashback(m: EntityManager, payment: Payment): Promise<WalletCredit | null> {
+    if (!this.rewardsApply(payment)) return null;
+    const cashback = Number(((Number(payment.amount_etb) * this.cashbackPercent()) / 100).toFixed(2));
+    return this.creditWith(m, payment.learner_id, cashback, 'cashback', payment.id, `${this.cashbackPercent()}% cashback on "${payment.course_title}"`);
+  }
 
-    const referral = await this.referrals.findOne({ where: { referred_user_id: payment.learner_id, status: 'signed_up' } });
-    if (referral) {
-      const reward = this.referralReward();
-      referral.status = 'rewarded';
-      referral.reward_etb = reward.toFixed(2);
-      referral.rewarded_at = new Date();
-      await this.referrals.save(referral);
-      const who = await this.userInfo(payment.learner_id);
-      await this.credit(referral.referrer_id, reward, 'referral_reward', referral.id, `Referral reward — ${who.name || 'your invitee'} made their first purchase`);
-      this.logger.log(`referral ${referral.id} rewarded ${reward} ETB to ${referral.referrer_id}`);
-    }
+  /**
+   * On the buyer's first purchase, reward whoever referred them. The status
+   * change is conditional, so two first purchases confirming at once reward
+   * the referrer once.
+   */
+  async rewardReferrer(m: EntityManager, payment: Payment, buyerName: string): Promise<WalletCredit | null> {
+    if (!this.rewardsApply(payment)) return null;
+    const referrals = m.getRepository(Referral);
+    const referral = await referrals.findOne({ where: { referred_user_id: payment.learner_id, status: 'signed_up' } });
+    if (!referral) return null;
+    const reward = this.referralReward();
+    const won = await referrals.update(
+      { id: referral.id, status: 'signed_up' },
+      { status: 'rewarded', reward_etb: reward.toFixed(2), rewarded_at: new Date() },
+    );
+    if (won.affected !== 1) return null;
+    this.logger.log(`referral ${referral.id} rewarded ${reward} ETB to ${referral.referrer_id}`);
+    return this.creditWith(m, referral.referrer_id, reward, 'referral_reward', referral.id, `Referral reward — ${buyerName || 'your invitee'} made their first purchase`);
   }
 
   private async codeFor(userId: string): Promise<string> {

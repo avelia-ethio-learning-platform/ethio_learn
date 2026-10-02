@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, RawBodyRequest, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, RawBodyRequest, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
@@ -78,19 +78,15 @@ export class FinancialController {
   }
 
   /**
-   * [PUBLIC — HMAC verified] Always returns 200: Chapa retries on non-200 and
-   * a forged webhook should not learn anything from the status code.
+   * [PUBLIC — HMAC verified] 401 without a valid `x-chapa-signature`; 200 for
+   * everything signed, duplicates included, so Chapa stops retrying once the
+   * payment is settled.
    */
   @Post('payments/webhook/chapa')
   @HttpCode(200)
-  async webhook(
-    @Req() req: RawBodyRequest<Request>,
-    @Headers('chapa-signature') chapaSignature?: string,
-    @Headers('x-chapa-signature') xChapaSignature?: string,
-  ) {
-    const raw = req.rawBody;
-    if (!raw) return { received: true };
-    await this.paymentService.handleWebhook(raw, chapaSignature ?? xChapaSignature);
+  async webhook(@Req() req: RawBodyRequest<Request>) {
+    const result = await this.paymentService.handleWebhook(req.rawBody ?? Buffer.alloc(0), req.headers);
+    if (result.reason === 'invalid signature') throw new UnauthorizedException('Invalid webhook signature');
     return { received: true };
   }
 

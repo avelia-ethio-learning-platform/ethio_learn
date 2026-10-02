@@ -122,6 +122,13 @@ export class LiveChapaProvider implements ChapaProvider {
  */
 @Injectable()
 export class MockChapaProvider implements ChapaProvider {
+  /** What the mock checkout page chose per tx_ref, so verify() can report it. */
+  private readonly outcomes = new Map<string, 'success' | 'failed'>();
+
+  settle(txRef: string, outcome: 'success' | 'failed'): void {
+    this.outcomes.set(txRef, outcome);
+  }
+
   async generateTxRef(): Promise<string> {
     return generateTransactionReference({ prefix: 'TX-MOCK' });
   }
@@ -137,11 +144,11 @@ export class MockChapaProvider implements ChapaProvider {
     return { checkout_url: `${webUrl}/dev/checkout?${params.toString()}` };
   }
 
-  async verify(): Promise<ChapaVerification> {
-    // The mock webhook is only emitted for terminal states, so echo success —
-    // the HMAC gate has already run before verify() is consulted. No amount is
-    // reported, which skips the amount cross-check (live mode enforces it).
-    return { status: 'success', amount: null, currency: null };
+  async verify(txRef: string): Promise<ChapaVerification> {
+    // The mock webhook is only emitted for terminal states: report the outcome
+    // the checkout chose (success when unknown). No amount is reported, which
+    // skips the amount cross-check (live mode requires one).
+    return { status: this.outcomes.get(txRef) ?? 'success', amount: null, currency: null };
   }
 }
 
