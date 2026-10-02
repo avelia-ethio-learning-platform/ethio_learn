@@ -3,8 +3,11 @@
  * E2E for exactly-once payments (P0-04, P0-05, P1-12, P1-14) against a RUNNING
  * stack in CHAPA_MODE=mock, after demo-seed (it needs published paid courses).
  *
- *   • a wallet top-up confirmed by many concurrent mock webhooks and reconcile
- *     calls is credited once, with one notification
+ *   • a wallet top-up confirmed by many concurrent mock webhooks is credited
+ *     once, with one notification. Reconcile only verifies in live mode, so on
+ *     a mock stack the race is webhook against webhook; every path goes through
+ *     the same conditional UPDATE, and the cross-path races (webhook against
+ *     reconcile, sweep or settlement) are unit tests (payment.service.spec.ts)
  *   • a paid course confirmed concurrently: enrollment active, one receipt in the
  *     inbox, one cashback, and the access event acknowledged (effects_completed_at)
  *   • a wallet purchase debits once; a mock "failed" checkout fails the payment
@@ -145,12 +148,12 @@ async function main() {
 
   // ---- wallet top-up: many concurrent confirmations, one credit ----
   const topup = must(await call('/wallet/topup', { method: 'POST', token: learner.token, body: { amount_etb: 100 } }), 'top-up');
-  const confirms = await race(RACERS, (i) =>
-    i % 2 ? call('/payments/reconcile', { method: 'POST', token: learner.token, body: { tx_ref: topup.tx_ref } }) : mockComplete(topup.tx_ref),
-  );
-  check('every concurrent confirmation answered', confirms.every(ok), confirms.filter((r) => !ok(r)).map(brief).join('; '));
-  const mockReasons = confirms.filter((_, i) => i % 2 === 0).map((r) => r.json?.reason);
+  const confirms = await race(RACERS, () => mockComplete(topup.tx_ref));
+  check('every concurrent webhook answered', confirms.every(ok), confirms.filter((r) => !ok(r)).map(brief).join('; '));
+  const mockReasons = confirms.map((r) => r.json?.reason);
   check('exactly one mock webhook confirmed the top-up', mockReasons.filter((r) => r === 'confirmed').length === 1, mockReasons.join(', '));
+  const view = must(await call('/payments/reconcile', { method: 'POST', token: learner.token, body: { tx_ref: topup.tx_ref } }), 'reconcile');
+  check('reconcile reports the top-up as confirmed', view.status === 'confirmed', view.status);
   let wallet = must(await call('/wallet', { token: learner.token }), 'wallet');
   check('the top-up was credited once', wallet.balance_etb === 100, `balance ${wallet.balance_etb}`);
   check('one top-up movement for the payment', wallet.transactions.filter((t) => t.kind === 'topup' && t.reference === topup.payment_id).length === 1);
