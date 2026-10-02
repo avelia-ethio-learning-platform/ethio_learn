@@ -1,5 +1,4 @@
 import { PHASE_PRODUCTION_BUILD } from 'next/constants';
-import { isHibernation } from './hibernation';
 
 /** Server-side fetch helper for SSR/ISR pages (public endpoints only). */
 const SERVER_API_URL = process.env.GATEWAY_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -36,9 +35,10 @@ export async function serverApi<T = any>(path: string, revalidateSeconds = 60): 
       return UNAVAILABLE; // the timeout can fire mid-body
     }
   }
-  if (res.status >= 500) return UNAVAILABLE;
-  if (res.status === 429 && isHibernation(res.status, res.headers, await res.text().catch(() => ''))) return UNAVAILABLE;
-  // 404, a malformed id (400), or the gateway's own JSON 429: the page treats it as not found, as before.
+  // Every 429 too: a sleeping Render service's, and the gateway limiter's, which
+  // SSR trips on the server's shared IP bucket. Neither means "doesn't exist".
+  if (res.status >= 500 || res.status === 429) return UNAVAILABLE;
+  // 404, or a malformed id (400): the page treats it as not found, as before.
   return NOT_FOUND;
 }
 

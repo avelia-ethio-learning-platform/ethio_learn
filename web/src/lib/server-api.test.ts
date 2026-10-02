@@ -66,9 +66,11 @@ describe('serverApi', () => {
     expect(await serverApi('/courses/c1')).toEqual({ ok: false, status: 'unavailable' });
   });
 
-  it("the gateway limiter's JSON 429 is not treated as a cold start", async () => {
+  // SSR calls share the server's IP bucket at the gateway, so a crawler can
+  // trip it: never a false 404, and an ISR revalidation keeps the last good page.
+  it("the gateway limiter's JSON 429 is unavailable, not a 404", async () => {
     fetchMock.mockResolvedValueOnce(json(429, { statusCode: 429, message: 'Too many requests' }));
-    expect(await serverApi('/courses/c1')).toEqual({ ok: false, status: 404 });
+    expect(await serverApi('/courses/c1')).toEqual({ ok: false, status: 'unavailable' });
   });
 });
 
