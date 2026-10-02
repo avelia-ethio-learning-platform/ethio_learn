@@ -15,7 +15,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, PayRequestTokenPipe, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
@@ -195,7 +195,7 @@ export class GrowthController {
 
   @Post('coupons/:id/deactivate')
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  deactivate(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  deactivate(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.growth.deactivateCoupon(ctx, id);
   }
 
@@ -262,13 +262,13 @@ export class GrowthController {
 
   /** [PUBLIC] landing data for the "someone asked you to pay" page. */
   @Get('pay-requests/:token')
-  payRequestPublic(@Param('token') token: string) {
+  payRequestPublic(@Param('token', new PayRequestTokenPipe()) token: string) {
     return this.sponsorships.payRequestPublic(token);
   }
 
   @Post('pay-requests/:token/pay')
   @Roles()
-  pay(@CurrentUser() ctx: UserContext, @Param('token') token: string, @Body() dto: PayDto) {
+  pay(@CurrentUser() ctx: UserContext, @Param('token', new PayRequestTokenPipe()) token: string, @Body() dto: PayDto) {
     return this.sponsorships.payRequest(ctx, token, dto);
   }
 
@@ -306,7 +306,7 @@ export class GrowthController {
 
   @Post('bulk-purchases/:id/assign')
   @Roles()
-  assign(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: AssignDto) {
+  assign(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: AssignDto) {
     return this.sponsorships.assignSeats(ctx, id, dto.emails);
   }
 
