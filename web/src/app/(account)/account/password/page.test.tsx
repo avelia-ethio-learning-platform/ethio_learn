@@ -118,4 +118,21 @@ describe('Change password page', () => {
     expect(await screen.findByText('Current password is incorrect.')).toBeTruthy();
     expect(push).not.toHaveBeenCalled();
   });
+  it.each([
+    ['/profiles/me fails', ''],
+    ['the first-login flag is set by hand', 'first=1'],
+  ])('reveals the current-password field when the server asks for it (%s)', async (_label, search) => {
+    state.search = search;
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/profiles/me') throw new Error('Service waking up');
+      throw new Error('Current password is required.');
+    });
+    render(<ChangePasswordPage />);
+    fireEvent.change(await screen.findByLabelText('New password'), { target: { value: NEW } });
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: NEW } });
+    expect(screen.queryByLabelText('Current password')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /save password/i }));
+    expect(await screen.findByText('Current password is required.')).toBeTruthy();
+    expect(await screen.findByLabelText('Current password')).toBeTruthy();
+  });
 });

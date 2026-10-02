@@ -18,12 +18,15 @@ function ChangePassword() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [hasPassword, setHasPassword] = useState(false);
+  // Set when the server itself says the current password is needed (the
+  // profile lookup failed, or the first-login flag does not apply).
+  const [serverWantsCurrent, setServerWantsCurrent] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   // Google-only accounts have no password to confirm; the first-login path
   // uses a one-time password the user just typed, so it asks for nothing more.
-  const needsCurrent = hasPassword && !first && !user?.must_change_password;
+  const needsCurrent = serverWantsCurrent || (hasPassword && !first && !user?.must_change_password);
 
   useEffect(() => {
     api<{ has_password: boolean }>('/profiles/me')
@@ -54,7 +57,9 @@ function ChangePassword() {
         user?.role === 'quality_officer' ? '/qa' : user?.role === 'platform_admin' ? '/admin' : user?.role === 'learner' ? '/dashboard' : '/teach';
       router.push(dest);
     } catch (err) {
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      if (message === 'Current password is required.') setServerWantsCurrent(true);
+      setError(message);
       setBusy(false);
     }
   };
