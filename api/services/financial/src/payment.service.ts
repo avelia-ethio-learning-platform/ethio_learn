@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -8,10 +9,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { Between, DataSource, EntityManager, In, IsNull, LessThan, Not, Repository } from 'typeorm';
+import { Between, DataSource, EntityManager, In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { BrokerPublishError, env, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import {
   OwnerType,
   PaymentAbandonedPayload,
@@ -24,7 +25,7 @@ import {
 } from '@ethiopialearn/contracts';
 import { CHAPA_PROVIDER, ChapaProvider, ChapaVerification, chapaMode, MockChapaProvider } from './chapa.provider';
 import { Payment, PLATFORM_PAYEE_ID } from './entities';
-import { GrowthService, WalletCredit } from './growth.service';
+import { CouponQuote, couponUnavailable, GrowthService, WalletCredit } from './growth.service';
 
 export interface CourseInfo {
   id: string;
@@ -70,8 +71,49 @@ export interface SessionResult {
  */
 type PurposeHandler = (payment: Payment) => Promise<void>;
 
-/** Every path that can confirm a payment; it goes in the log line. */
-export type ConfirmSource = 'webhook' | 'reconcile' | 'sweep' | 'wallet' | 'coupon' | 'bank_transfer';
+/** Every path that can confirm or fail a payment; it goes in the log line. */
+export type ConfirmSource = 'webhook' | 'reconcile' | 'sweep' | 'wallet' | 'coupon' | 'bank_transfer' | 'checkout';
+
+/** Settlements without a gateway: they claim only a pending row (see confirmPayment). */
+const INSTANT_SOURCES: ReadonlySet<ConfirmSource> = new Set(['wallet', 'coupon']);
+
+/**
+ * Why a checkout failed its own payment row. A superseded row belongs to a
+ * payer who is retrying, and the other two to a payer who has just seen the
+ * error in the response, so these send no PaymentFailed notice. `error` (any
+ * other throw) and the gateway's own reasons do.
+ */
+type CheckoutFailReason = 'superseded' | 'wallet_insufficient' | 'checkout_open_failed' | 'error';
+const SILENT_FAIL_REASONS: ReadonlySet<string> = new Set<CheckoutFailReason>(['superseded', 'wallet_insufficient', 'checkout_open_failed']);
+
+/** HH:MM in Addis Ababa, for "try again after" in a coupon refusal. */
+const HOLD_ENDS_AT = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Addis_Ababa', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
+/** How long an open checkout holds its coupon (COUPON_HOLD_MINUTES, default 60). */
+function couponHoldMs(): number {
+  return envInt('COUPON_HOLD_MINUTES', 60) * 60_000;
+}
+
+/**
+ * Whether an open payment is for the same purchase as this checkout: the same
+ * course bought for oneself (the payer is the learner), or the same gift, pay
+ * request or bulk order row (`meta`).
+ */
+function isSamePurchase(p: Payment, input: SessionInput): boolean {
+  if ((p.purpose ?? PaymentPurpose.COURSE) !== input.purpose) return false;
+  const sameMeta = (key: 'sponsorship_id' | 'bulk_purchase_id') => input.meta?.[key] != null && p.meta?.[key] === input.meta[key];
+  switch (input.purpose) {
+    case PaymentPurpose.COURSE:
+      return p.course_id === input.courseId;
+    case PaymentPurpose.GIFT:
+    case PaymentPurpose.PAY_REQUEST:
+      return sameMeta('sponsorship_id');
+    case PaymentPurpose.BULK:
+      return sameMeta('bulk_purchase_id');
+    default:
+      return false;
+  }
+}
 
 export interface WebhookOutcome {
   processed: boolean;
@@ -162,9 +204,15 @@ export class PaymentService {
   /**
    * The single checkout path. Applies the coupon, then settles instantly
    * (100% coupon or wallet) or opens a Chapa hosted checkout. The ledger row
-   * is created FIRST either way — every attempt is recorded.
+   * is created FIRST either way — every attempt is recorded. With a coupon,
+   * the row is inserted under the coupon's lock and is that checkout's hold
+   * on a use (openCouponCheckout).
+   *
+   * Every failure after the insert fails the row through the guarded fail
+   * path before the error reaches the caller, which releases a coupon hold.
    */
   async createSession(input: SessionInput): Promise<SessionResult> {
+    if (input.useWallet && input.purpose === PaymentPurpose.WALLET_TOPUP) throw new BadRequestException('Cannot top up a wallet from a wallet');
     const quote = input.courseId
       ? await this.growth.quote(input.courseId, input.listPriceEtb, input.couponCode)
       : { coupon: null, list_price_etb: input.listPriceEtb, discount_etb: 0, amount_due_etb: input.listPriceEtb };
@@ -173,24 +221,25 @@ export class PaymentService {
     // tx_ref is OURS: SDK-style TX-XXXX reference, generated server-side.
     // Clients can never supply one (webhook idempotency hangs off it).
     const txRef = await this.chapa.generateTxRef();
-    const payment = await this.payments.save(
-      this.payments.create({
-        learner_id: input.payer.id,
-        course_id: input.courseId ?? PLATFORM_PAYEE_ID,
-        amount_etb: due.toFixed(2),
-        method: PaymentMethod.CHAPA,
-        status: PaymentStatus.PENDING,
-        chapa_tx_ref: txRef,
-        payee_id: input.payee.id,
-        payee_type: input.payee.type,
-        course_title: input.courseTitle,
-        purpose: input.purpose,
-        meta: input.meta ?? null,
-        list_price_etb: quote.list_price_etb.toFixed(2),
-        discount_etb: quote.discount_etb.toFixed(2),
-        coupon_code: quote.coupon?.code ?? null,
-      }),
-    );
+    const draft = this.payments.create({
+      learner_id: input.payer.id,
+      course_id: input.courseId ?? PLATFORM_PAYEE_ID,
+      amount_etb: due.toFixed(2),
+      method: PaymentMethod.CHAPA,
+      status: PaymentStatus.PENDING,
+      chapa_tx_ref: txRef,
+      payee_id: input.payee.id,
+      payee_type: input.payee.type,
+      course_title: input.courseTitle,
+      purpose: input.purpose,
+      meta: input.meta ?? null,
+      list_price_etb: quote.list_price_etb.toFixed(2),
+      discount_etb: quote.discount_etb.toFixed(2),
+      coupon_code: quote.coupon?.code ?? null,
+    });
+    const opened = quote.coupon ? await this.openCouponCheckout(input, quote, draft) : { payment: await this.payments.save(draft) };
+    if ('reused' in opened) return opened.reused;
+    const { payment } = opened;
 
     const result = (checkoutUrl: string | null, confirmed: boolean): SessionResult => ({
       payment_id: payment.id,
@@ -201,26 +250,140 @@ export class PaymentService {
       discount_etb: quote.discount_etb,
     });
 
-    // 100% off → nothing to charge. Keep the row for the audit trail.
-    if (due <= 0) {
-      payment.method = PaymentMethod.COUPON;
-      await this.confirmPayment(payment, 'coupon');
-      return result(null, true);
-    }
+    let reason: CheckoutFailReason = 'error';
+    try {
+      // 100% off → nothing to charge. Keep the row for the audit trail.
+      if (due <= 0) {
+        payment.method = PaymentMethod.COUPON;
+        await this.settleInstantly(payment, 'coupon');
+        return result(null, true);
+      }
 
-    if (input.useWallet) {
-      if (input.purpose === PaymentPurpose.WALLET_TOPUP) throw new BadRequestException('Cannot top up a wallet from a wallet');
-      // The debit happens inside the confirmation and throws a readable error
-      // when the balance is too low, which leaves the payment unconfirmed.
-      payment.method = PaymentMethod.WALLET;
-      await this.confirmPayment(payment, 'wallet');
-      return result(null, true);
-    }
+      if (input.useWallet) {
+        // The debit happens inside the confirmation and throws a readable
+        // error (a BadRequestException, its only one) when the balance is too
+        // low, which rolls the confirmation back and leaves the row pending.
+        payment.method = PaymentMethod.WALLET;
+        try {
+          await this.settleInstantly(payment, 'wallet');
+        } catch (err) {
+          if (err instanceof BadRequestException) reason = 'wallet_insufficient';
+          throw err;
+        }
+        return result(null, true);
+      }
 
-    const checkoutUrl = await this.openChapaCheckout(payment, input);
-    payment.chapa_checkout_url = checkoutUrl;
-    await this.payments.save(payment);
-    return result(checkoutUrl, false);
+      reason = 'checkout_open_failed';
+      const checkoutUrl = await this.openChapaCheckout(payment, input);
+      reason = 'error';
+      // Only the URL: a save() would write back the status this request read,
+      // undoing a supersede by a retry that ran while Chapa was answering.
+      await this.payments.update({ id: payment.id }, { chapa_checkout_url: checkoutUrl });
+      payment.chapa_checkout_url = checkoutUrl;
+      return result(checkoutUrl, false);
+    } catch (err) {
+      await this.failCheckout(payment, reason);
+      throw err;
+    }
+  }
+
+  /**
+   * Decisions 11-12 (P1-13): a coupon checkout's row is inserted under the
+   * coupon's row lock, so checkouts of one coupon queue and each counts the
+   * others. A hold is a pending payment with the code created within
+   * COUPON_HOLD_MINUTES; it lapses on its own. In one transaction:
+   *  1. lock the coupon and re-check that it is active and unexpired;
+   *  2. the payer's own open checkout for this same purchase: a Chapa retry
+   *     at the same amount gets it back (no new row); otherwise it is
+   *     superseded (failed), and a late payment of it still confirms;
+   *  3. refuse when confirmed uses plus holds reach max_uses. Confirmed uses
+   *     are GREATEST(uses, confirmed payments), since the savepoint around
+   *     uses + 1 can roll back;
+   *  4. refuse when the payer's confirmed uses plus their holds reach
+   *     max_uses_per_user;
+   *  5. insert the row.
+   * The payer's open checkouts for other purchases are holds like anyone
+   * else's. When they are what blocks the payer, the refusal says so.
+   */
+  private async openCouponCheckout(input: SessionInput, quote: CouponQuote, draft: Payment): Promise<{ payment: Payment } | { reused: SessionResult }> {
+    const code = quote.coupon!.code;
+    const due = quote.amount_due_etb;
+    const holdMs = couponHoldMs();
+    return this.dataSource.transaction(async (m) => {
+      const payments = m.getRepository(Payment);
+      const coupon = await this.growth.lockCoupon(m, code);
+      const unavailable = couponUnavailable(coupon);
+      if (unavailable || !coupon) throw new BadRequestException(unavailable);
+
+      const held = { coupon_code: code, status: PaymentStatus.PENDING, created_at: MoreThan(new Date(Date.now() - holdMs)) };
+      const mine = await payments.find({ where: { ...held, learner_id: input.payer.id }, order: { created_at: 'ASC' } });
+      const same = mine.filter((p) => isSamePurchase(p, input));
+      const latest = same[same.length - 1];
+      const reusable =
+        latest && due > 0 && !input.useWallet && latest.chapa_checkout_url && Number(latest.amount_etb).toFixed(2) === due.toFixed(2) ? latest : null;
+      for (const p of same) if (p !== reusable) await this.failPayment(p, 'checkout', 'superseded', m);
+      if (reusable) {
+        this.logger.log(`payment ${reusable.id} (${reusable.chapa_tx_ref}): open checkout returned to a retry of the same purchase`);
+        return {
+          reused: {
+            payment_id: reusable.id,
+            tx_ref: reusable.chapa_tx_ref,
+            checkout_url: reusable.chapa_checkout_url,
+            confirmed: false,
+            amount_etb: due,
+            discount_etb: Number(reusable.discount_etb),
+          },
+        };
+      }
+      // Oldest first: the payer's holds on other purchases.
+      const mineHeld = mine.filter((p) => !same.includes(p));
+
+      if (coupon.max_uses != null) {
+        const confirmed = Math.max(coupon.uses, await payments.count({ where: { coupon_code: code, status: PaymentStatus.CONFIRMED } }));
+        // How many holds would have to lapse for this checkout to fit.
+        const over = confirmed + (await payments.count({ where: held })) - coupon.max_uses + 1;
+        if (over > 0 && over <= mineHeld.length) throw this.heldByYou(mineHeld[over - 1], holdMs);
+        if (over > 0) throw new BadRequestException('This coupon has been fully used.');
+      }
+      if (coupon.max_uses_per_user != null) {
+        const used = await payments.count({ where: { coupon_code: code, status: PaymentStatus.CONFIRMED, learner_id: input.payer.id } });
+        if (used >= coupon.max_uses_per_user) throw new BadRequestException("You've already used this coupon.");
+        const over = used + mineHeld.length - coupon.max_uses_per_user + 1;
+        if (over > 0) throw this.heldByYou(mineHeld[over - 1], holdMs);
+      }
+
+      return { payment: await payments.save(draft) };
+    });
+  }
+
+  /** 400 naming the payer's own open checkout that holds the coupon, with its link when it has one. */
+  private heldByYou(hold: Payment, holdMs: number): BadRequestException {
+    const until = HOLD_ENDS_AT.format(new Date(hold.created_at.getTime() + holdMs));
+    return new BadRequestException({
+      statusCode: 400,
+      message: `This coupon is held by another checkout you started. Finish paying it, or try again after ${until}.`,
+      error: 'Bad Request',
+      ...(hold.chapa_checkout_url ? { checkout_url: hold.chapa_checkout_url } : {}),
+    });
+  }
+
+  /**
+   * Confirms a 100% coupon or wallet payment in the request. Its row can only
+   * have left `pending` because a concurrent retry of the same purchase
+   * superseded it; that retry settles the purchase, so this one is refused.
+   */
+  private async settleInstantly(payment: Payment, source: 'coupon' | 'wallet'): Promise<void> {
+    if (await this.confirmPayment(payment, source)) return;
+    throw new ConflictException('A newer checkout for this purchase replaced this one.');
+  }
+
+  /** Fails a checkout's row after an error, which releases its coupon hold. A failure here is logged; the hold then lapses. */
+  private async failCheckout(payment: Payment, reason: CheckoutFailReason): Promise<void> {
+    try {
+      await this.failPayment(payment, 'checkout', reason);
+    } catch (err) {
+      this.logger.error(`payment ${payment.id} (${payment.chapa_tx_ref}): could not mark the failed checkout failed (${reason}): ${(err as Error).message}`);
+    }
   }
 
   private async openChapaCheckout(payment: Payment, input: SessionInput): Promise<string> {
@@ -428,8 +591,13 @@ export class PaymentService {
    * reconcile, sweep, wallet, coupon, bank transfer). Exactly once (P0-04):
    * a conditional UPDATE decides the winner, so of any number of concurrent
    * callers only one runs the effects. A failed payment can still be
-   * confirmed, since Chapa's verify() is authoritative.
+   * confirmed through the gateway, since Chapa's verify() is authoritative.
+   * An instant settlement (wallet, 100% coupon) claims only a pending row:
+   * one a retry of the same purchase superseded is never settled as well.
    *
+   * - First, a payment with a coupon locks the coupon row, as a checkout
+   *   does: one lock order (coupon, then payment) on both paths, so a
+   *   checkout superseding this payment can't deadlock with it.
    * - In the transaction, with the status change: the effects that ARE the
    *   purchase (wallet debit, top-up credit). They commit or roll back with it.
    * - In a savepoint each: coupon use, cashback, referral reward. A failure
@@ -449,8 +617,10 @@ export class PaymentService {
     const credits: WalletCredit[] = [];
 
     const won = await this.dataSource.transaction(async (m) => {
+      if (payment.coupon_code) await this.inSavepoint(m, payment, 'coupon lock', (sp) => this.growth.lockCoupon(sp, payment.coupon_code!));
+      const claimable = INSTANT_SOURCES.has(source) ? [PaymentStatus.PENDING] : [PaymentStatus.PENDING, PaymentStatus.FAILED];
       const claimed = await m.getRepository(Payment).update(
-        { id: payment.id, status: In([PaymentStatus.PENDING, PaymentStatus.FAILED]) },
+        { id: payment.id, status: In(claimable) },
         {
           status: PaymentStatus.CONFIRMED,
           method: payment.method,
@@ -511,12 +681,20 @@ export class PaymentService {
     }
   }
 
-  /** Guarded like confirmation: only a pending payment fails, and PaymentFailed goes out once. */
-  private async failPayment(payment: Payment, source: ConfirmSource, reason: string): Promise<boolean> {
-    const failed = await this.payments.update({ id: payment.id, status: PaymentStatus.PENDING }, { status: PaymentStatus.FAILED, webhook_received_at: new Date() });
+  /**
+   * Guarded like confirmation: only a pending payment fails, and PaymentFailed
+   * goes out once. Only the notification service consumes PaymentFailed, so
+   * the checkout's own reasons (SILENT_FAIL_REASONS) don't publish it. Runs in
+   * `manager`'s transaction when given (a superseded row, which publishes
+   * nothing before that transaction commits).
+   */
+  private async failPayment(payment: Payment, source: ConfirmSource, reason: string, manager?: EntityManager): Promise<boolean> {
+    const repo = manager ? manager.getRepository(Payment) : this.payments;
+    const failed = await repo.update({ id: payment.id, status: PaymentStatus.PENDING }, { status: PaymentStatus.FAILED, webhook_received_at: new Date() });
     if (failed.affected !== 1) return false;
     payment.status = PaymentStatus.FAILED;
     this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}) marked failed via ${source} (${reason})`);
+    if (SILENT_FAIL_REASONS.has(reason)) return true;
     if ((payment.purpose ?? PaymentPurpose.COURSE) === PaymentPurpose.COURSE) {
       try {
         await this.emitFailed(payment, reason);

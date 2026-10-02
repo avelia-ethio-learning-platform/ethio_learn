@@ -36,6 +36,17 @@ export interface CouponQuote {
 }
 
 /**
+ * Why a coupon can't be applied at all right now (unknown, deactivated or
+ * expired), or null. The quote and the checkout's re-check under the coupon
+ * lock give the same answer.
+ */
+export function couponUnavailable(coupon: Coupon | null): string | null {
+  if (!coupon || !coupon.active) return 'This coupon code is not valid';
+  if (coupon.expires_at && coupon.expires_at.getTime() < Date.now()) return 'This coupon has expired';
+  return null;
+}
+
+/**
  * Coupons, the prepaid wallet, and referrals. All three feed the checkout in
  * PaymentService: a coupon lowers the price, the wallet can settle it, and a
  * confirmed purchase pays cashback + the referrer's reward back into wallets.
@@ -59,7 +70,16 @@ export class GrowthService {
 
   async createCoupon(
     ctx: UserContext,
-    dto: { code?: string; kind: CouponKind; value: number; course_id?: string | null; max_uses?: number | null; expires_at?: string | null; note?: string },
+    dto: {
+      code?: string;
+      kind: CouponKind;
+      value: number;
+      course_id?: string | null;
+      max_uses?: number | null;
+      max_uses_per_user?: number | null;
+      expires_at?: string | null;
+      note?: string;
+    },
   ) {
     const code = (dto.code?.trim().toUpperCase() || randomCode(8)).replace(/[^A-Z0-9-]/g, '');
     if (code.length < 4 || code.length > 32) throw new BadRequestException('Code must be 4–32 letters/digits');
@@ -91,6 +111,7 @@ export class GrowthService {
         created_by: ctx.id,
         creator_role: ctx.role,
         max_uses: dto.max_uses && dto.max_uses > 0 ? Math.floor(dto.max_uses) : null,
+        max_uses_per_user: dto.max_uses_per_user && dto.max_uses_per_user > 0 ? Math.floor(dto.max_uses_per_user) : null,
         expires_at: expires,
         note: (dto.note ?? '').slice(0, 200),
       }),
@@ -120,9 +141,10 @@ export class GrowthService {
     const list = Math.max(0, Number(listPrice.toFixed(2)));
     if (!code?.trim()) return { coupon: null, list_price_etb: list, discount_etb: 0, amount_due_etb: list };
     const coupon = await this.coupons.findOne({ where: { code: code.trim().toUpperCase() } });
-    if (!coupon || !coupon.active) throw new BadRequestException('This coupon code is not valid');
-    if (coupon.expires_at && coupon.expires_at.getTime() < Date.now()) throw new BadRequestException('This coupon has expired');
-    if (coupon.max_uses != null && coupon.uses >= coupon.max_uses) throw new BadRequestException('This coupon has been fully used');
+    const unavailable = couponUnavailable(coupon);
+    if (unavailable || !coupon) throw new BadRequestException(unavailable);
+    // Open checkouts count too, but only under the coupon lock at checkout (PaymentService).
+    if (coupon.max_uses != null && coupon.uses >= coupon.max_uses) throw new BadRequestException('This coupon has been fully used.');
     if (coupon.course_id && coupon.course_id !== courseId) throw new BadRequestException('This coupon is for a different course');
 
     const value = Number(coupon.value);
@@ -146,8 +168,18 @@ export class GrowthService {
   }
 
   /**
-   * Called once per CONFIRMED payment, inside its confirmation — usage is never
-   * counted at checkout start.
+   * Locks the coupon row (SELECT … FOR UPDATE) in the caller's transaction.
+   * Checkouts and confirmations of one coupon take it first, so they queue
+   * here and always lock in the same order (coupon, then payment).
+   */
+  lockCoupon(m: EntityManager, code: string): Promise<Coupon | null> {
+    return m.getRepository(Coupon).findOne({ where: { code }, lock: { mode: 'pessimistic_write' } });
+  }
+
+  /**
+   * Called once per CONFIRMED payment, inside its confirmation. A checkout
+   * holds a use while it is open (PaymentService), but `uses` only counts
+   * confirmations.
    */
   async recordCouponUse(code: string | null, manager?: EntityManager) {
     if (!code) return;
@@ -162,6 +194,7 @@ export class GrowthService {
       value: Number(c.value),
       course_id: c.course_id,
       max_uses: c.max_uses,
+      max_uses_per_user: c.max_uses_per_user,
       uses: c.uses,
       expires_at: c.expires_at,
       active: c.active && !(c.expires_at && c.expires_at.getTime() < Date.now()) && !(c.max_uses != null && c.uses >= c.max_uses),

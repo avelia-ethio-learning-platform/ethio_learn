@@ -81,6 +81,20 @@ describe('GrowthService coupons', () => {
     expect(coupons.save).toHaveBeenCalled();
     await expect(svc.createCoupon(admin, { kind: 'percent', value: 150 })).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('stores an optional per-learner limit; without one a learner may use the code any number of times', async () => {
+    const { svc, coupons } = service();
+    await svc.createCoupon(admin, { code: 'ONCE', kind: 'percent', value: 20, max_uses_per_user: 1 });
+    expect(coupons.create).toHaveBeenLastCalledWith(expect.objectContaining({ code: 'ONCE', max_uses_per_user: 1 }));
+    await svc.createCoupon(admin, { code: 'OPEN', kind: 'percent', value: 20 });
+    expect(coupons.create).toHaveBeenLastCalledWith(expect.objectContaining({ code: 'OPEN', max_uses_per_user: null }));
+  });
+
+  it('lists the per-learner limit with each coupon', async () => {
+    const row = { id: 'cp', code: 'ONCE', kind: 'percent', value: '20', course_id: null, max_uses: 50, max_uses_per_user: 1, uses: 0, expires_at: null, active: true, note: '' };
+    const { svc } = service({ coupons: [row] });
+    expect((await svc.listCoupons(admin))[0]).toMatchObject({ code: 'ONCE', max_uses: 50, max_uses_per_user: 1 });
+  });
 });
 
 describe('bulk volume tiers', () => {
