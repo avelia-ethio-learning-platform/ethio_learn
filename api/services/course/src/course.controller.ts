@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CurrentUser, InternalHttpClient, Roles, RolesGuard, UserContext, userFromRequest } from '@ethiopialearn/common';
+import { CurrentUser, InternalHttpClient, internalPath, Roles, RolesGuard, UserContext, userFromRequest } from '@ethiopialearn/common';
 import { CourseStatus, EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
 import { CourseService, mergedLesson } from './course.service';
@@ -391,7 +391,7 @@ export class CourseController {
       // Server-side entitlement verification with Enrollment & Progress.
       try {
         const res = await this.internal.get<{ entitlement_status: string }>(
-          `/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${course.id}`,
+          internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${course.id}`,
         );
         allowed = res.entitlement_status === EntitlementStatus.ACTIVE;
       } catch {
