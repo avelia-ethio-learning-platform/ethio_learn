@@ -46,6 +46,14 @@ describe('rate-limit policy classification', () => {
     expect(classifyRequest('POST', '/api/v1/support/contact')).toBe('community-write');
   });
 
+  it('puts the coupon check in the spam bucket, so codes cannot be enumerated', () => {
+    expect(classifyRequest('GET', '/api/v1/coupons/validate')).toBe('community-write');
+    expect(classifyRequest('GET', '/api/v1/COUPONS/validate/')).toBe('community-write');
+    // Managing coupons is not the check.
+    expect(classifyRequest('GET', '/api/v1/coupons')).toBe('general');
+    expect(classifyRequest('POST', '/api/v1/coupons')).toBe('write');
+  });
+
   it('limits payment initiation separately', () => {
     expect(classifyRequest('POST', '/api/v1/payments/initiate')).toBe('payment-initiate');
   });
