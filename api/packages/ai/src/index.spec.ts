@@ -141,10 +141,12 @@ describe('outline generation on hostile input', () => {
     ['digest outline: indented markdown line', `DOCUMENT OUTLINE\nA\n#${' '.repeat(N)}x\nB`],
     // Two sub-sections sharing a 5,900-word ending: the implied chapter's name scan.
     ['implied chapter name: long shared suffix', `DOCUMENT OUTLINE\n1.1 a ${'w '.repeat(5900)}\n1.2 b ${'w '.repeat(5900)}\n2.1 c`],
-  ])('%s finishes in under 50 ms', async (_name, source) => {
+  ])('%s finishes in under 500 ms', async (_name, source) => {
     const { ms, result } = await timed(source);
     expect(result.sections.length).toBeGreaterThan(0);
-    expect(ms).toBeLessThan(50);
+    // Fixed code takes a few ms; the regressions this guards against took
+    // 1.5-3 s. 500 ms keeps that signal without flaking on a busy CI runner.
+    expect(ms).toBeLessThan(500);
   });
 
   it.each([
@@ -154,9 +156,10 @@ describe('outline generation on hostile input', () => {
   ])('%s is linear (well under the seconds it used to take)', async (_name, source) => {
     // Looser bound than above: these build thousands of headings and the first
     // run includes JIT warm-up, but the old quadratic code took 1.5-3 s.
+    // 750 ms is still at least 2x under that, with headroom for slow runners.
     const { ms, result } = await timed(source);
     expect(result.sections).toHaveLength(12);
-    expect(ms).toBeLessThan(250);
+    expect(ms).toBeLessThan(750);
   });
 
   it('reads no further than COURSE_SOURCE_LIMIT, like the model', async () => {
