@@ -1,12 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { In, Repository } from 'typeorm';
+import { EventBusService, InternalHttpClient, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import { PaymentStatus, RefundDecisionPayload, RefundRequestedPayload, RefundStatus, Role } from '@ethiopialearn/contracts';
 import { PaymentMethod, PaymentPurpose } from '@ethiopialearn/contracts';
 import { Payment, RefundRequest } from './entities';
 
 const REFUND_WINDOW_DAYS = 7; // spec §10.4
+const ALREADY_OPEN = 'A refund is already open for this payment';
 
 @Injectable()
 export class RefundService {
@@ -32,8 +33,9 @@ export class RefundService {
     if (payment.method === PaymentMethod.WALLET || payment.method === PaymentMethod.COUPON) {
       throw new BadRequestException('Purchases settled with wallet credits or a 100% coupon are refunded by support — contact us from Help');
     }
-    const existing = await this.refunds.findOne({ where: { payment_id: paymentId, status: RefundStatus.PENDING } });
-    if (existing) throw new BadRequestException('Refund already pending for this payment');
+    // A friendly early answer; the unique index on open requests is the guarantee.
+    const existing = await this.refunds.findOne({ where: { payment_id: paymentId, status: In([RefundStatus.PENDING, RefundStatus.APPROVED]) } });
+    if (existing) throw new BadRequestException(ALREADY_OPEN);
 
     const entitlement = await this.internal.get<{
       enrollment_id: string | null;
@@ -82,17 +84,24 @@ export class RefundService {
       }
     }
 
-    const refund = await this.refunds.save(
-      this.refunds.create({
-        payment_id: paymentId,
-        learner_id: ctx.id,
-        reason,
-        status: decision,
-        decision_rule: rule,
-        decided_at: decision === RefundStatus.PENDING ? null : new Date(),
-        decided_by: null, // automated
-      }),
-    );
+    let refund: RefundRequest;
+    try {
+      refund = await this.refunds.save(
+        this.refunds.create({
+          payment_id: paymentId,
+          learner_id: ctx.id,
+          reason,
+          status: decision,
+          decision_rule: rule,
+          decided_at: decision === RefundStatus.PENDING ? null : new Date(),
+          decided_by: null, // automated
+        }),
+      );
+    } catch (err) {
+      // A concurrent request for the same payment got in first.
+      if (isUniqueViolation(err)) throw new BadRequestException(ALREADY_OPEN);
+      throw err;
+    }
 
     if (decision === RefundStatus.APPROVED) await this.finalizeApproval(refund, payment);
     if (decision === RefundStatus.DENIED) await this.emitDecision('RefundDenied', refund, payment);
@@ -101,7 +110,7 @@ export class RefundService {
     return { refund_id: refund.id, status: refund.status, rule };
   }
 
-  /** Admin decision for the 20-50% manual-review band. */
+  /** Admin decision for the 20-50% manual-review band. Decided once: a second or concurrent decision is refused. */
   async decide(adminId: string, refundId: string, approve: boolean) {
     const refund = await this.refunds.findOne({ where: { id: refundId } });
     if (!refund) throw new NotFoundException('Refund request not found');
@@ -109,10 +118,10 @@ export class RefundService {
     const payment = await this.payments.findOne({ where: { id: refund.payment_id } });
     if (!payment) throw new NotFoundException('Payment not found');
 
-    refund.status = approve ? RefundStatus.APPROVED : RefundStatus.DENIED;
-    refund.decided_at = new Date();
-    refund.decided_by = adminId;
-    await this.refunds.save(refund);
+    const decision = { status: approve ? RefundStatus.APPROVED : RefundStatus.DENIED, decided_at: new Date(), decided_by: adminId };
+    const decided = await this.refunds.update({ id: refund.id, status: RefundStatus.PENDING }, decision);
+    if (decided.affected !== 1) throw new BadRequestException('Already decided');
+    Object.assign(refund, decision);
 
     if (approve) await this.finalizeApproval(refund, payment);
     else await this.emitDecision('RefundDenied', refund, payment);
@@ -128,9 +137,14 @@ export class RefundService {
     return this.refunds.find({ where: { status: RefundStatus.PENDING }, order: { created_at: 'ASC' } });
   }
 
+  /** Refunds the payment once: RefundApproved (which revokes access) goes out only for the request that refunded it. */
   private async finalizeApproval(refund: RefundRequest, payment: Payment) {
+    const refunded = await this.payments.update({ id: payment.id, status: PaymentStatus.CONFIRMED }, { status: PaymentStatus.REFUNDED });
+    if (refunded.affected !== 1) {
+      this.logger.warn(`refund ${refund.id} approved, but payment ${payment.id} is no longer confirmed: not refunding it again`);
+      return;
+    }
     payment.status = PaymentStatus.REFUNDED;
-    await this.payments.save(payment);
     // TODO(spec-open-question): initiate the actual Chapa refund API call here
     // when live credentials are configured; ledger + entitlement revocation
     // (via RefundApproved) are the authoritative MVP behavior.

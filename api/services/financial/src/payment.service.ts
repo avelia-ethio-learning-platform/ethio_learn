@@ -8,10 +8,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { Between, In, IsNull, Not, Repository } from 'typeorm';
+import { Between, DataSource, EntityManager, In, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { env, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { BrokerPublishError, env, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
 import {
   OwnerType,
   PaymentAbandonedPayload,
@@ -22,9 +22,9 @@ import {
   PricingType,
   Role,
 } from '@ethiopialearn/contracts';
-import { CHAPA_PROVIDER, ChapaProvider, ChapaVerification, chapaMode } from './chapa.provider';
+import { CHAPA_PROVIDER, ChapaProvider, ChapaVerification, chapaMode, MockChapaProvider } from './chapa.provider';
 import { Payment, PLATFORM_PAYEE_ID } from './entities';
-import { GrowthService } from './growth.service';
+import { GrowthService, WalletCredit } from './growth.service';
 
 export interface CourseInfo {
   id: string;
@@ -62,7 +62,25 @@ export interface SessionResult {
   discount_etb: number;
 }
 
+/**
+ * Completes a confirmed payment of one purpose: publishes the event that
+ * grants access (through `publishConfirmed`) after any state change it needs.
+ * Runs after the confirmation commits and again from the re-publish cron
+ * until it succeeds, so it must be idempotent.
+ */
 type PurposeHandler = (payment: Payment) => Promise<void>;
+
+/** Every path that can confirm a payment; it goes in the log line. */
+export type ConfirmSource = 'webhook' | 'reconcile' | 'sweep' | 'wallet' | 'coupon' | 'bank_transfer';
+
+export interface WebhookOutcome {
+  processed: boolean;
+  reason: string;
+}
+
+/** Re-publish confirmed payments whose access events weren't acknowledged, once they are this old. */
+const EFFECTS_RETRY_AFTER_MS = 60_000;
+const EFFECTS_BATCH = 50;
 
 /** Purpose-based volume tiers for bulk purchases (seats → % off). Env-overridable. */
 export function bulkDiscountPercent(seats: number): number {
@@ -80,6 +98,7 @@ export function bulkDiscountPercent(seats: number): number {
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
   private readonly purposeHandlers = new Map<PaymentPurpose, PurposeHandler[]>();
+  private completingEffects = false;
 
   constructor(
     @InjectRepository(Payment) private readonly payments: Repository<Payment>,
@@ -87,9 +106,10 @@ export class PaymentService {
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
     private readonly growth: GrowthService,
+    private readonly dataSource: DataSource,
   ) {}
 
-  /** Other services register what a CONFIRMED payment of a purpose should trigger. */
+  /** Other services register what a CONFIRMED payment of a purpose must publish to grant access (see PurposeHandler). */
   onPurposeConfirmed(purpose: PaymentPurpose, handler: PurposeHandler) {
     const list = this.purposeHandlers.get(purpose) ?? [];
     list.push(handler);
@@ -184,16 +204,16 @@ export class PaymentService {
     // 100% off → nothing to charge. Keep the row for the audit trail.
     if (due <= 0) {
       payment.method = PaymentMethod.COUPON;
-      await this.settleInstantly(payment, 'coupon');
+      await this.confirmPayment(payment, 'coupon');
       return result(null, true);
     }
 
     if (input.useWallet) {
       if (input.purpose === PaymentPurpose.WALLET_TOPUP) throw new BadRequestException('Cannot top up a wallet from a wallet');
-      // debit() throws a readable error when the balance is too low.
-      await this.growth.debit(input.payer.id, due, 'purchase', payment.id, `Paid for "${input.courseTitle}"`);
+      // The debit happens inside the confirmation and throws a readable error
+      // when the balance is too low, which leaves the payment unconfirmed.
       payment.method = PaymentMethod.WALLET;
-      await this.settleInstantly(payment, 'wallet');
+      await this.confirmPayment(payment, 'wallet');
       return result(null, true);
     }
 
@@ -201,14 +221,6 @@ export class PaymentService {
     payment.chapa_checkout_url = checkoutUrl;
     await this.payments.save(payment);
     return result(checkoutUrl, false);
-  }
-
-  private async settleInstantly(payment: Payment, via: string) {
-    payment.status = PaymentStatus.CONFIRMED;
-    payment.webhook_received_at = new Date();
-    await this.payments.save(payment);
-    await this.onConfirmed(payment);
-    this.logger.log(`payment ${payment.id} (${payment.purpose}) settled instantly via ${via}`);
   }
 
   private async openChapaCheckout(payment: Payment, input: SessionInput): Promise<string> {
@@ -253,14 +265,15 @@ export class PaymentService {
   }
 
   /**
-   * Spec §6 steps 4-7. NEVER trust an unverified webhook: HMAC-SHA256 over the
-   * raw body must match before anything is processed. Always returns 200 to
-   * the caller (Chapa retries on non-200) — the return value here only tells
-   * the controller what to log.
+   * Spec §6 steps 4-7. NEVER trust an unverified webhook: the HMAC in
+   * `x-chapa-signature` must match before anything is processed, and even a
+   * signed webhook only prompts a verify() call, whose answer decides. The
+   * controller answers 401 for 'invalid signature' and 200 otherwise (Chapa
+   * retries on non-200).
    */
-  async handleWebhook(rawBody: Buffer, signatureHeader: string | undefined): Promise<{ processed: boolean; reason: string }> {
-    if (!this.verifyHmac(rawBody, signatureHeader)) {
-      this.logger.warn('webhook rejected: HMAC verification failed');
+  async handleWebhook(rawBody: Buffer, headers: Record<string, string | string[] | undefined>): Promise<WebhookOutcome> {
+    if (!this.verifySignature(rawBody, headers['x-chapa-signature'])) {
+      this.logger.warn('webhook rejected: x-chapa-signature verification failed');
       return { processed: false, reason: 'invalid signature' };
     }
 
@@ -275,18 +288,14 @@ export class PaymentService {
     const payment = await this.payments.findOne({ where: { chapa_tx_ref: body.tx_ref } });
     if (!payment) return { processed: false, reason: 'unknown tx_ref' };
 
-    // Step 7: duplicate guard — idempotent no-op on already-confirmed tx_ref.
-    if (payment.status === PaymentStatus.CONFIRMED) {
-      return { processed: true, reason: 'duplicate — already confirmed' };
-    }
+    // Step 7: duplicate guard — a settled payment needs no verify() call. The
+    // confirmation itself is guarded too, for webhooks that race each other.
+    if (payment.status === PaymentStatus.CONFIRMED) return { processed: true, reason: 'duplicate — already confirmed' };
+    if (payment.status === PaymentStatus.REFUNDED) return { processed: true, reason: 'no change — payment was refunded' };
 
-    if (body.status === 'success') {
-      // Step 5: the webhook's claim grants nothing — ask Chapa directly.
-      const verification = await this.chapa.verify(payment.chapa_tx_ref);
-      return this.applyVerification(payment, verification, 'webhook');
-    }
-    // A signed webhook reporting failure marks the attempt failed (grants nothing).
-    return this.applyVerification(payment, { status: 'failed', amount: null, currency: null }, 'webhook');
+    // Step 5: the webhook's claim grants nothing, success or failure — ask Chapa directly.
+    const verification = await this.chapa.verify(payment.chapa_tx_ref);
+    return this.applyVerification(payment, verification, 'webhook');
   }
 
   /**
@@ -300,6 +309,8 @@ export class PaymentService {
     if (payment.status === PaymentStatus.PENDING && chapaMode() === 'live') {
       const verification = await this.chapa.verify(payment.chapa_tx_ref);
       await this.applyVerification(payment, verification, 'reconcile');
+      // Report the row as it is now, whichever path (webhook, sweep, this call) settled it.
+      return this.publicView((await this.payments.findOne({ where: { id: payment.id } })) ?? payment);
     }
     return this.publicView(payment);
   }
@@ -375,90 +386,222 @@ export class PaymentService {
   }
 
   /**
-   * The single place a payment becomes confirmed/failed. Idempotent; cross-
-   * checks the gateway-verified amount and currency against our ledger row
-   * before anything downstream happens.
+   * Turns a gateway verification into a confirmation or a failure. Cross-
+   * checks the verified amount and currency against our ledger row first: in
+   * live mode Chapa must report both, and a mismatch fails the payment.
    */
-  private async applyVerification(
-    payment: Payment,
-    verification: ChapaVerification,
-    source: 'webhook' | 'reconcile' | 'sweep',
-  ): Promise<{ processed: boolean; reason: string }> {
-    if (payment.status === PaymentStatus.CONFIRMED) {
-      return { processed: true, reason: 'duplicate — already confirmed' };
-    }
-
+  private async applyVerification(payment: Payment, verification: ChapaVerification, source: ConfirmSource): Promise<WebhookOutcome> {
     if (verification.status === 'success') {
+      const live = chapaMode() === 'live';
+      if (live && (verification.amount == null || verification.currency == null)) {
+        this.logger.warn(`verify reported ${payment.chapa_tx_ref} paid without an amount or currency (${source}); NOT confirming yet`);
+        return { processed: false, reason: 'amount not verified' };
+      }
       // Tamper guard: the verified amount must match what we quoted.
+      let mismatch: string | null = null;
       if (verification.amount != null && Math.abs(verification.amount - Number(payment.amount_etb)) > 0.009) {
-        this.logger.error(
-          `amount mismatch on ${payment.chapa_tx_ref}: gateway verified ${verification.amount}, ledger says ${payment.amount_etb} — NOT confirming`,
-        );
-        return { processed: false, reason: 'amount mismatch' };
-      }
-      if (verification.currency && verification.currency !== 'ETB') {
+        mismatch = 'amount mismatch';
+        this.logger.error(`amount mismatch on ${payment.chapa_tx_ref}: gateway verified ${verification.amount}, ledger says ${payment.amount_etb} — NOT confirming`);
+      } else if (verification.currency && verification.currency !== 'ETB') {
+        mismatch = 'currency mismatch';
         this.logger.error(`currency mismatch on ${payment.chapa_tx_ref}: ${verification.currency} — NOT confirming`);
-        return { processed: false, reason: 'currency mismatch' };
       }
-      payment.status = PaymentStatus.CONFIRMED;
-      payment.webhook_received_at = new Date();
-      await this.payments.save(payment);
-      await this.onConfirmed(payment);
-      this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}, ${payment.purpose}) confirmed via ${source}`);
-      return { processed: true, reason: 'confirmed' };
+      if (mismatch) {
+        await this.failPayment(payment, source, mismatch);
+        return { processed: false, reason: mismatch };
+      }
+      const won = await this.confirmPayment(payment, source);
+      return won ? { processed: true, reason: 'confirmed' } : { processed: true, reason: 'duplicate — already confirmed' };
     }
 
     if (verification.status === 'failed') {
-      payment.status = PaymentStatus.FAILED;
-      payment.webhook_received_at = new Date();
-      await this.payments.save(payment);
-      if ((payment.purpose ?? PaymentPurpose.COURSE) === PaymentPurpose.COURSE) await this.emitFailed(payment, 'failed');
-      this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}) marked failed via ${source}`);
-      return { processed: true, reason: 'failed' };
+      const failed = await this.failPayment(payment, source, 'failed');
+      return failed ? { processed: true, reason: 'failed' } : { processed: true, reason: 'no change — payment was not pending' };
     }
 
     this.logger.warn(`verify says ${payment.chapa_tx_ref} is still pending at the gateway (${source})`);
     return { processed: false, reason: 'still pending at gateway' };
   }
 
-  /** What a confirmed payment triggers, by purpose. Each step is best-effort so one failure never blocks the rest. */
-  private async onConfirmed(payment: Payment) {
-    // Rows written before the purpose column existed are course purchases.
+  /**
+   * The single place a payment becomes confirmed, for every source (webhook,
+   * reconcile, sweep, wallet, coupon, bank transfer). Exactly once (P0-04):
+   * a conditional UPDATE decides the winner, so of any number of concurrent
+   * callers only one runs the effects. A failed payment can still be
+   * confirmed, since Chapa's verify() is authoritative.
+   *
+   * - In the transaction, with the status change: the effects that ARE the
+   *   purchase (wallet debit, top-up credit). They commit or roll back with it.
+   * - In a savepoint each: coupon use, cashback, referral reward. A failure
+   *   there rolls back only that savepoint and never blocks access.
+   * - After commit, winner only: WalletCredited, then the access events
+   *   (completeEffects), which the re-publish cron retries if they fail.
+   *
+   * Returns false for the losers. Throws only when the purchase itself fails
+   * (a wallet that can't cover it), leaving the payment as it was.
+   */
+  private async confirmPayment(payment: Payment, source: ConfirmSource): Promise<boolean> {
     const purpose = payment.purpose ?? PaymentPurpose.COURSE;
-    await this.safe('coupon use', () => this.growth.recordCouponUse(payment.coupon_code ?? null));
+    const amount = Number(payment.amount_etb);
+    // HTTP before the transaction keeps its row lock short. learnerInfo never throws.
+    const buyerName = this.growth.rewardsApply(payment) ? (await this.learnerInfo(payment.learner_id)).name : '';
+    const now = new Date();
+    const credits: WalletCredit[] = [];
 
-    if (purpose === PaymentPurpose.COURSE) {
-      await this.emitConfirmed(payment); // THE event that grants entitlement
-    } else if (purpose === PaymentPurpose.WALLET_TOPUP) {
-      await this.safe('wallet top-up credit', () =>
-        this.growth.credit(payment.learner_id, Number(payment.amount_etb), 'topup', payment.id, 'Wallet top-up via Chapa').then(() => undefined),
+    const won = await this.dataSource.transaction(async (m) => {
+      const claimed = await m.getRepository(Payment).update(
+        { id: payment.id, status: In([PaymentStatus.PENDING, PaymentStatus.FAILED]) },
+        {
+          status: PaymentStatus.CONFIRMED,
+          method: payment.method,
+          webhook_received_at: now,
+          // A top-up grants no access, so it has no event to wait for.
+          ...(purpose === PaymentPurpose.WALLET_TOPUP ? { effects_completed_at: now } : {}),
+        },
       );
+      if (claimed.affected !== 1) return false;
+
+      if (payment.method === PaymentMethod.WALLET) {
+        await this.growth.debitWith(m, payment.learner_id, amount, 'purchase', payment.id, `Paid for "${payment.course_title}"`);
+      }
+      if (purpose === PaymentPurpose.WALLET_TOPUP) {
+        const topup = await this.growth.creditWith(m, payment.learner_id, amount, 'topup', payment.id, 'Wallet top-up via Chapa');
+        if (topup) credits.push(topup);
+      }
+
+      await this.inSavepoint(m, payment, 'coupon use', (sp) => this.growth.recordCouponUse(payment.coupon_code ?? null, sp));
+      if (purpose !== PaymentPurpose.WALLET_TOPUP) {
+        const cashback = await this.inSavepoint(m, payment, 'cashback', (sp) => this.growth.creditCashback(sp, payment));
+        if (cashback) credits.push(cashback);
+        const reward = await this.inSavepoint(m, payment, 'referral reward', (sp) => this.growth.rewardReferrer(sp, payment, buyerName));
+        if (reward) credits.push(reward);
+      }
+      return true;
+    });
+
+    if (!won) {
+      this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}): duplicate confirmation via ${source} ignored`);
+      return false;
     }
-    for (const handler of this.purposeHandlers.get(purpose) ?? []) {
-      await this.safe(`${purpose} handler`, () => handler(payment));
+    payment.status = PaymentStatus.CONFIRMED;
+    payment.webhook_received_at = now;
+    if (purpose === PaymentPurpose.WALLET_TOPUP) payment.effects_completed_at = now;
+    this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}, ${purpose}) confirmed via ${source}`);
+
+    await this.growth.announceCredits(credits);
+    if (!payment.effects_completed_at) {
+      try {
+        await this.completeEffects(payment);
+      } catch (err) {
+        // The payment is confirmed and the caller (a webhook among them) must
+        // succeed; the re-publish cron finishes the job.
+        this.logger.warn(`payment ${payment.id}: access events not completed yet, the re-publish cron will retry: ${(err as Error).message}`);
+      }
     }
-    if (purpose !== PaymentPurpose.WALLET_TOPUP) {
-      await this.safe('cashback / referral reward', () => this.growth.onCoursePurchaseConfirmed(payment));
+    return true;
+  }
+
+  /** Runs fn in a savepoint of `m`; a failure rolls back only that savepoint and is logged. */
+  private async inSavepoint<T>(m: EntityManager, payment: Payment, label: string, fn: (sp: EntityManager) => Promise<T>): Promise<T | null> {
+    try {
+      return await m.transaction(fn);
+    } catch (err) {
+      this.logger.error(`payment ${payment.id}: ${label} failed and was rolled back; the confirmation stands: ${(err as Error).message}`);
+      return null;
     }
   }
 
-  private async safe(label: string, fn: () => Promise<void>) {
+  /** Guarded like confirmation: only a pending payment fails, and PaymentFailed goes out once. */
+  private async failPayment(payment: Payment, source: ConfirmSource, reason: string): Promise<boolean> {
+    const failed = await this.payments.update({ id: payment.id, status: PaymentStatus.PENDING }, { status: PaymentStatus.FAILED, webhook_received_at: new Date() });
+    if (failed.affected !== 1) return false;
+    payment.status = PaymentStatus.FAILED;
+    this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}) marked failed via ${source} (${reason})`);
+    if ((payment.purpose ?? PaymentPurpose.COURSE) === PaymentPurpose.COURSE) {
+      try {
+        await this.emitFailed(payment, reason);
+      } catch (err) {
+        this.logger.warn(`payment ${payment.id}: PaymentFailed not published: ${(err as Error).message}`);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Publishes the events that grant access for a confirmed payment and, once
+   * the broker has acknowledged them all, marks the payment done (P0-05).
+   * Course → PaymentConfirmed; other purposes → their registered handler.
+   * Throws BrokerPublishError when the broker didn't acknowledge, any other
+   * error when this payment can't be completed.
+   */
+  private async completeEffects(payment: Payment): Promise<void> {
+    const purpose = payment.purpose ?? PaymentPurpose.COURSE;
+    if (purpose === PaymentPurpose.COURSE) await this.emitConfirmed(payment);
+    for (const handler of this.purposeHandlers.get(purpose) ?? []) await handler(payment);
+    await this.payments.update({ id: payment.id, effects_completed_at: IsNull() }, { effects_completed_at: new Date() });
+    payment.effects_completed_at ??= new Date();
+  }
+
+  /**
+   * Re-publishes the access events of confirmed payments that aren't marked
+   * done, oldest first (P0-05). Runs in every CHAPA_MODE. Skips a tick while
+   * the previous run is still going (with the broker down a run can outlast
+   * the interval), stops at the first broker failure, and logs and skips a
+   * payment that fails for its own reason so it can't block the rest.
+   * Returns null when the tick was skipped.
+   */
+  @Cron('*/2 * * * *')
+  async completePendingEffects(): Promise<{ completed: number; failed: number } | null> {
+    if (this.completingEffects) {
+      this.logger.warn('re-publish run still in progress; skipping this tick');
+      return null;
+    }
+    this.completingEffects = true;
+    let completed = 0;
+    let failed = 0;
     try {
-      await fn();
-    } catch (err) {
-      this.logger.error(`post-confirmation step failed (${label}): ${(err as Error).message}`);
+      const cutoff = new Date(Date.now() - EFFECTS_RETRY_AFTER_MS);
+      const pending = { status: PaymentStatus.CONFIRMED, effects_completed_at: IsNull() };
+      const rows = await this.payments.find({
+        where: [
+          { ...pending, webhook_received_at: LessThan(cutoff) },
+          { ...pending, webhook_received_at: IsNull(), created_at: LessThan(cutoff) },
+        ],
+        order: { webhook_received_at: 'ASC' },
+        take: EFFECTS_BATCH,
+      });
+      for (const payment of rows) {
+        try {
+          await this.completeEffects(payment);
+          completed += 1;
+        } catch (err) {
+          if (err instanceof BrokerPublishError) {
+            this.logger.warn(`re-publish run stopped at payment ${payment.id}: ${err.message}`);
+            break;
+          }
+          failed += 1;
+          this.logger.error(`payment ${payment.id}: could not complete its access events, skipped this run: ${(err as Error).message}`);
+        }
+      }
+      if (rows.length) this.logger.log(`re-publish run: ${completed} of ${rows.length} confirmed payment(s) completed, ${failed} failed`);
+      return { completed, failed };
+    } finally {
+      this.completingEffects = false;
     }
   }
 
   /**
-   * DEV-ONLY (CHAPA_MODE=mock): the mock checkout page calls this; we deliver
-   * a properly HMAC-signed webhook to ourselves so the real path runs.
+   * DEV-ONLY (CHAPA_MODE=mock, never in production): the mock checkout page
+   * calls this; we deliver a properly HMAC-signed webhook to ourselves so the
+   * real path runs. The mock gateway's verify() then reports the outcome the
+   * checkout chose.
    */
   async mockComplete(txRef: string, outcome: 'success' | 'failed') {
-    if (chapaMode() !== 'mock') throw new ForbiddenException('Mock checkout disabled');
+    if (process.env.NODE_ENV === 'production' || chapaMode() !== 'mock') throw new ForbiddenException('Mock checkout disabled');
+    if (this.chapa instanceof MockChapaProvider) this.chapa.settle(txRef, outcome);
     const raw = Buffer.from(JSON.stringify({ tx_ref: txRef, status: outcome, event: 'charge.complete' }));
-    const signature = createHmac('sha256', env('CHAPA_WEBHOOK_SECRET', 'dev-webhook-secret')).update(raw).digest('hex');
-    return this.handleWebhook(raw, signature);
+    const signature = createHmac('sha256', env('CHAPA_WEBHOOK_SECRET', '')).update(raw).digest('hex');
+    return this.handleWebhook(raw, { 'x-chapa-signature': signature });
   }
 
   /** Manual bank-transfer fallback — platform admin marks it settled (spec §0.4). */
@@ -472,9 +615,8 @@ export class PaymentService {
         amount_etb: course.price_etb.toFixed(2),
         list_price_etb: course.price_etb.toFixed(2),
         method: PaymentMethod.BANK_TRANSFER,
-        status: PaymentStatus.CONFIRMED,
+        status: PaymentStatus.PENDING,
         chapa_tx_ref: `bank-${uuidv4()}`,
-        webhook_received_at: new Date(),
         payee_id: course.owner_id,
         payee_type: course.owner_type,
         course_title: course.title,
@@ -482,7 +624,7 @@ export class PaymentService {
       }),
     );
     this.logger.log(`bank transfer recorded by admin ${adminId} for ${dto.course_id}`);
-    await this.onConfirmed(payment);
+    await this.confirmPayment(payment, 'bank_transfer');
     return payment;
   }
 
@@ -623,29 +765,50 @@ export class PaymentService {
     };
   }
 
-  private verifyHmac(rawBody: Buffer, signatureHeader: string | undefined): boolean {
-    if (!signatureHeader) return false;
-    const secret = env('CHAPA_WEBHOOK_SECRET', 'dev-webhook-secret');
-    const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
-    const presented = Buffer.from(signatureHeader.trim());
-    const computed = Buffer.from(expected);
-    return presented.length === computed.length && timingSafeEqual(presented, computed);
+  /**
+   * Chapa's `x-chapa-signature` is HMAC-SHA256 of the payload, keyed by the
+   * webhook secret. Which bytes it signs in practice (the raw body, or JSON
+   * re-serialized as in Chapa's sample code) is unverified, so both are
+   * accepted. `chapa-signature` is ignored: it is HMAC(secret, secret), the
+   * same on every webhook, so anyone who saw one could replay it with any body.
+   */
+  private verifySignature(rawBody: Buffer, header: string | string[] | undefined): boolean {
+    const presented = (Array.isArray(header) ? header[0] : header)?.trim().toLowerCase();
+    if (!presented || !/^[0-9a-f]{64}$/.test(presented)) return false;
+    const secret = env('CHAPA_WEBHOOK_SECRET', '');
+    if (!secret) {
+      this.logger.error('CHAPA_WEBHOOK_SECRET is not set: every webhook is rejected');
+      return false;
+    }
+    const signature = Buffer.from(presented, 'hex');
+    const bodies = [rawBody];
+    try {
+      bodies.push(Buffer.from(JSON.stringify(JSON.parse(rawBody.toString('utf8')))));
+    } catch {
+      /* not JSON: only the raw body can match */
+    }
+    return bodies.some((body) => timingSafeEqual(signature, createHmac('sha256', secret).update(body).digest()));
   }
 
+  /** THE event that grants entitlement for a course purchase, acknowledged by the broker. */
   private async emitConfirmed(payment: Payment) {
     const learner = await this.learnerInfo(payment.learner_id);
-    await this.bus.publish<PaymentConfirmedPayload>('PaymentConfirmed', {
-      payment_id: payment.id,
-      tx_ref: payment.chapa_tx_ref,
-      learner_id: payment.learner_id,
-      learner_email: learner.email,
-      learner_name: learner.name,
-      course_id: payment.course_id,
-      course_title: payment.course_title,
-      amount_etb: Number(payment.amount_etb),
-      payee_id: payment.payee_id,
-      payee_type: payment.payee_type,
-    });
+    await this.bus.publishConfirmed<PaymentConfirmedPayload>(
+      'PaymentConfirmed',
+      {
+        payment_id: payment.id,
+        tx_ref: payment.chapa_tx_ref,
+        learner_id: payment.learner_id,
+        learner_email: learner.email,
+        learner_name: learner.name,
+        course_id: payment.course_id,
+        course_title: payment.course_title,
+        amount_etb: Number(payment.amount_etb),
+        payee_id: payment.payee_id,
+        payee_type: payment.payee_type,
+      },
+      { correlationId: payment.id },
+    );
   }
 
   private async emitFailed(payment: Payment, reason: string) {

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { env, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
 import {
   BulkPurchaseActivatedPayload,
@@ -353,40 +353,61 @@ export class SponsorshipService implements OnModuleInit {
 
   // ---- Event / payment reactions ----------------------------------------
 
+  /**
+   * A confirmed gift or pay request (PaymentService purpose handler; re-run by
+   * its cron until it succeeds). The state change is conditional, so it
+   * happens once; the event that must be acknowledged follows the
+   * sponsorship's status as it is now, on every run:
+   *  - granted → SponsorshipGranted (enrollment grants access);
+   *  - pending_claim (the recipient has no account yet) → SponsorshipInvited,
+   *    once; the grant at their signup is a separate flow (claimForEmail).
+   */
   private async onSponsoredPaymentConfirmed(payment: Payment) {
     const id = payment.meta?.sponsorship_id as string | undefined;
-    if (!id) return;
-    const s = await this.sponsorships.findOne({ where: { id } });
-    if (!s) return;
-    if (s.status === 'granted') return;
-    s.payment_id = payment.id;
-    if (!s.recipient_user_id) {
-      const recipient = await this.userByEmail(s.recipient_email);
-      if (recipient) s.recipient_user_id = recipient.id;
+    if (!id) return this.logger.warn(`payment ${payment.id}: no sponsorship_id, nothing to grant`);
+    let s = await this.sponsorships.findOne({ where: { id } });
+    if (!s) return this.logger.warn(`payment ${payment.id}: sponsorship ${id} not found, nothing to grant`);
+
+    if (s.status !== 'granted' && s.status !== 'pending_claim') {
+      const recipientId = s.recipient_user_id ?? (await this.userByEmail(s.recipient_email))?.id ?? null;
+      await this.sponsorships.update(
+        { id, status: Not(In(['granted', 'pending_claim'])) },
+        recipientId
+          ? { status: 'granted', granted_at: new Date(), payment_id: payment.id, recipient_user_id: recipientId }
+          : { status: 'pending_claim', payment_id: payment.id },
+      );
+      s = (await this.sponsorships.findOne({ where: { id } }))!;
     }
-    if (s.recipient_user_id) await this.grant(s);
-    else await this.invite(s);
+
+    if (s.status === 'granted') {
+      await this.bus.publishConfirmed<SponsorshipGrantedPayload>('SponsorshipGranted', this.grantedPayload(s), { correlationId: payment.id });
+    } else if (s.status === 'pending_claim') {
+      await this.bus.publishConfirmed<SponsorshipInvitedPayload>('SponsorshipInvited', this.invitedPayload(s), { correlationId: payment.id });
+    }
   }
 
+  /** A confirmed bulk order: activated once, then BulkPurchaseActivated until the broker acknowledges it. */
   private async onBulkPaid(payment: Payment) {
     const id = payment.meta?.bulk_purchase_id as string | undefined;
-    if (!id) return;
+    if (!id) return this.logger.warn(`payment ${payment.id}: no bulk_purchase_id, nothing to activate`);
+    await this.bulk.update({ id, status: Not('active') }, { status: 'active', payment_id: payment.id });
     const order = await this.bulk.findOne({ where: { id } });
-    if (!order || order.status === 'active') return;
-    order.status = 'active';
-    order.payment_id = payment.id;
-    await this.bulk.save(order);
+    if (!order) return this.logger.warn(`payment ${payment.id}: bulk purchase ${id} not found, nothing to activate`);
     const buyer = await this.user(order.buyer_id);
-    await this.bus.publish<BulkPurchaseActivatedPayload>('BulkPurchaseActivated', {
-      bulk_purchase_id: order.id,
-      buyer_id: order.buyer_id,
-      buyer_email: buyer.email,
-      organization_name: order.organization_name,
-      course_id: order.course_id,
-      course_title: order.course_title,
-      seats: order.seats,
-      total_etb: Number(order.total_etb),
-    });
+    await this.bus.publishConfirmed<BulkPurchaseActivatedPayload>(
+      'BulkPurchaseActivated',
+      {
+        bulk_purchase_id: order.id,
+        buyer_id: order.buyer_id,
+        buyer_email: buyer.email,
+        organization_name: order.organization_name,
+        course_id: order.course_id,
+        course_title: order.course_title,
+        seats: order.seats,
+        total_etb: Number(order.total_etb),
+      },
+      { correlationId: payment.id },
+    );
   }
 
   private async claimForEmail(userId: string, email: string): Promise<number> {
@@ -405,7 +426,17 @@ export class SponsorshipService implements OnModuleInit {
     s.status = 'granted';
     s.granted_at = new Date();
     await this.sponsorships.save(s);
-    await this.bus.publish<SponsorshipGrantedPayload>('SponsorshipGranted', {
+    await this.bus.publish<SponsorshipGrantedPayload>('SponsorshipGranted', this.grantedPayload(s));
+  }
+
+  private async invite(s: Sponsorship) {
+    s.status = 'pending_claim';
+    await this.sponsorships.save(s);
+    await this.bus.publish<SponsorshipInvitedPayload>('SponsorshipInvited', this.invitedPayload(s));
+  }
+
+  private grantedPayload(s: Sponsorship): SponsorshipGrantedPayload {
+    return {
       sponsorship_id: s.id,
       source: s.source,
       sponsor_id: s.sponsor_id,
@@ -416,13 +447,11 @@ export class SponsorshipService implements OnModuleInit {
       course_title: s.course_title,
       message: s.message,
       organization_name: s.organization_name,
-    });
+    };
   }
 
-  private async invite(s: Sponsorship) {
-    s.status = 'pending_claim';
-    await this.sponsorships.save(s);
-    await this.bus.publish<SponsorshipInvitedPayload>('SponsorshipInvited', {
+  private invitedPayload(s: Sponsorship): SponsorshipInvitedPayload {
+    return {
       sponsorship_id: s.id,
       source: s.source,
       sponsor_name: s.sponsor_name,
@@ -432,7 +461,7 @@ export class SponsorshipService implements OnModuleInit {
       message: s.message,
       organization_name: s.organization_name,
       signup_url: `${env('WEB_URL', 'http://localhost:3000')}/signup?gift=${s.token}`,
-    });
+    };
   }
 
   // ---- helpers -----------------------------------------------------------

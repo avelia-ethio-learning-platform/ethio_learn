@@ -12,6 +12,8 @@ export const PLATFORM_PAYEE_ID = '00000000-0000-0000-0000-000000000000';
 // nudges, and the payout run / payee balance over confirmed, unpaid payments.
 @Index('IDX_payments_pending_chapa_created_at', ['created_at'], { where: `status = 'pending' AND method = 'chapa'` })
 @Index('IDX_payments_confirmed_unpaid_payee_id', ['payee_id'], { where: `status = 'confirmed' AND payout_id IS NULL` })
+// The re-publish cron: confirmed payments whose access events aren't acknowledged yet.
+@Index('IDX_payments_effects_pending_webhook_received_at', ['webhook_received_at'], { where: `status = 'confirmed' AND effects_completed_at IS NULL` })
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -84,6 +86,14 @@ export class Payment {
   @Column({ type: 'timestamptz', nullable: true })
   nudged_at: Date | null;
 
+  /**
+   * When the broker acknowledged every event this confirmed payment must
+   * publish to grant access (PaymentConfirmed, SponsorshipGranted, …). Null
+   * on a confirmed row means the re-publish cron still has work to do.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  effects_completed_at: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 }
@@ -127,6 +137,8 @@ export class Payout {
 }
 
 @Entity({ name: 'refund_requests' })
+// At most one open refund request per payment.
+@Index('IDX_refund_requests_open_payment_id', ['payment_id'], { unique: true, where: `status IN ('pending', 'approved')` })
 export class RefundRequest {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -250,6 +262,11 @@ export class Wallet {
 export type WalletTxKind = 'topup' | 'purchase' | 'referral_reward' | 'cashback' | 'gift_sent' | 'admin_adjust';
 
 @Entity({ name: 'wallet_transactions' })
+// One credit or purchase debit per event; admin adjustments reuse their reference.
+@Index('IDX_wallet_transactions_kind_reference', ['kind', 'reference'], {
+  unique: true,
+  where: `kind IN ('topup', 'cashback', 'referral_reward', 'purchase')`,
+})
 export class WalletTransaction {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -402,6 +419,8 @@ export class ReferralCode {
 export type ReferralStatus = 'invited' | 'signed_up' | 'rewarded';
 
 @Entity({ name: 'referrals' })
+// One referral per referred account.
+@Index('IDX_referrals_referred_user_id_unique', ['referred_user_id'], { unique: true, where: 'referred_user_id IS NOT NULL' })
 export class Referral {
   @PrimaryGeneratedColumn('uuid')
   id: string;

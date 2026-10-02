@@ -130,6 +130,24 @@ describe('productionConfigProblems', () => {
   });
 });
 
+describe('productionConfigProblems: service rules', () => {
+  const rules = jest.fn((environment: NodeJS.ProcessEnv) => (environment.CHAPA_MODE === 'live' ? [] : ['CHAPA_MODE must be live']));
+
+  it("adds a service's own rules to the shared ones in production", () => {
+    expect(productionConfigProblems({ service: 'financial', rules }, prodEnv({ INTERNAL_API_TOKEN: undefined }))).toEqual([
+      'INTERNAL_API_TOKEN is not set',
+      'CHAPA_MODE must be live',
+    ]);
+    expect(productionConfigProblems({ service: 'financial', rules }, prodEnv({ CHAPA_MODE: 'live' }))).toEqual([]);
+  });
+
+  it('never runs them outside production', () => {
+    rules.mockClear();
+    expect(productionConfigProblems({ service: 'financial', rules }, { NODE_ENV: 'development' })).toEqual([]);
+    expect(rules).not.toHaveBeenCalled();
+  });
+});
+
 describe('assertProductionConfig', () => {
   it('does nothing when the configuration is fine', () => {
     expect(() => assertProductionConfig(auth, prodEnv())).not.toThrow();

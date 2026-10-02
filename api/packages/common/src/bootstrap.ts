@@ -14,12 +14,19 @@ export interface BootstrapOptions {
   requiredSecrets?: readonly string[];
   /** Uses S3 storage, so production must not run on the local MinIO keys. */
   storage?: boolean;
+  /** The service's own production rules (see ProductionConfigSpec.rules). */
+  productionRules?: (environment: NodeJS.ProcessEnv) => string[];
 }
 
 export async function bootstrapService(appModule: unknown, options: BootstrapOptions): Promise<INestApplication> {
   // Before the app module is built, so nothing (migrations included) runs on
   // an unsafe production configuration.
-  assertProductionConfig({ service: options.serviceName, secrets: options.requiredSecrets, storage: options.storage });
+  assertProductionConfig({
+    service: options.serviceName,
+    secrets: options.requiredSecrets,
+    storage: options.storage,
+    rules: options.productionRules,
+  });
   const app = await NestFactory.create(appModule as any, { rawBody: options.rawBody ?? false });
 
   // RolesGuard trusts the gateway's x-user-* headers, which is only safe while
