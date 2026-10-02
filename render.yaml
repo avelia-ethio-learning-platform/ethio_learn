@@ -122,10 +122,12 @@ envVarGroups:
       - key: COOKIE_SAMESITE
         value: none
 
-      # Matches the code default, pinned here so a model deprecation is a
-      # dashboard edit rather than a redeploy.
+      # Matches the code default (DEFAULT_GROQ_MODEL), pinned here so a model
+      # change is a dashboard edit rather than a redeploy. If Groq retires the
+      # model named here, the services fall back to the code default and log a
+      # warning (Groq retired llama-3.3-70b-versatile in 2026).
       - key: GROQ_MODEL
-        value: llama-3.3-70b-versatile
+        value: openai/gpt-oss-120b
 
       # Services are reachable on public *.onrender.com URLs (free plan has no
       # private inbound), so they must reject anything not carrying the shared

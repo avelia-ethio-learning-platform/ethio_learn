@@ -1,4 +1,4 @@
-import { aiFallbackNote, clampCourseStructure, COURSE_SOURCE_LIMIT, CourseStructureInput, GroqAiAssessor, MockAiAssessor, outlineHeadings } from './index';
+import { aiFallbackNote, clampCourseStructure, COURSE_SOURCE_LIMIT, CourseStructureInput, DEFAULT_GROQ_MODEL, GROQ_OVERFLOW_MODEL, GroqAiAssessor, MockAiAssessor, outlineHeadings } from './index';
 
 // Same shape web/src/lib/outline-source.ts builds (see its "digest format" test).
 const DIGEST = [
@@ -324,6 +324,11 @@ describe('aiFallbackNote', () => {
   it('explains a timeout', () => {
     expect(aiFallbackNote(timeout, 'outline')).toBe('The AI service took too long to answer — showing a starter outline you can edit. Try again, or send a shorter source text.');
   });
+
+  it('points at GROQ_MODEL when the model is gone', () => {
+    expect(aiFallbackNote({ reason: 'model' })).toBe('The AI model is no longer offered by Groq — an admin needs to set GROQ_MODEL to a current model. Showing placeholder questions you can edit.');
+    expect(aiFallbackNote({ reason: 'model' }, 'outline')).toMatch(/set GROQ_MODEL.*showing a starter outline you can edit/i);
+  });
 });
 
 describe('GroqAiAssessor', () => {
@@ -355,6 +360,103 @@ describe('GroqAiAssessor', () => {
   it('still classifies an expired key as "auth"', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 401, text: async () => 'Invalid API Key', json: async () => ({}) });
     await expect(new GroqAiAssessor().generateQuiz('Soil', 1)).rejects.toMatchObject({ reason: 'auth', status: 401 });
+  });
+
+  describe('model choice', () => {
+    const quiz = reply({ questions: [{ prompt: 'Q?', options: ['a', 'b'], correct_index: 1 }] });
+    // Groq's answer for a retired model, whatever the key.
+    const gone = (model: string) => ({
+      ok: false,
+      status: 404,
+      text: async () => `{"error":{"message":"The model \`${model}\` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}`,
+      json: async () => ({}),
+    });
+    const modelOf = (call: number) => JSON.parse(fetchMock.mock.calls[call][1].body).model as string;
+    const savedModel = process.env.GROQ_MODEL;
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => {
+      warn.mockRestore();
+      if (savedModel === undefined) delete process.env.GROQ_MODEL;
+      else process.env.GROQ_MODEL = savedModel;
+    });
+
+    it.each([
+      ['unset', undefined],
+      ['blank', '  '],
+    ])('uses the default model when GROQ_MODEL is %s', async (_label, value) => {
+      if (value === undefined) delete process.env.GROQ_MODEL;
+      else process.env.GROQ_MODEL = value;
+      fetchMock.mockResolvedValue(quiz);
+      await new GroqAiAssessor().generateQuiz('Soil', 1);
+      expect(modelOf(0)).toBe('openai/gpt-oss-120b');
+    });
+
+    it('sends GROQ_MODEL when set', async () => {
+      process.env.GROQ_MODEL = 'openai/gpt-oss-20b';
+      fetchMock.mockResolvedValue(quiz);
+      await new GroqAiAssessor().generateQuiz('Soil', 1);
+      expect(modelOf(0)).toBe('openai/gpt-oss-20b');
+    });
+
+    it('falls back to the default once when GROQ_MODEL is retired, then stays on it', async () => {
+      process.env.GROQ_MODEL = 'llama-3.3-70b-versatile';
+      fetchMock.mockResolvedValueOnce(gone('llama-3.3-70b-versatile')).mockResolvedValue(quiz);
+      const ai = new GroqAiAssessor();
+      await expect(ai.generateQuiz('Soil', 1)).resolves.toHaveLength(1);
+      await ai.generateQuiz('Water', 1);
+      expect(fetchMock.mock.calls.map((_c, i) => modelOf(i))).toEqual(['llama-3.3-70b-versatile', DEFAULT_GROQ_MODEL, DEFAULT_GROQ_MODEL]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('GROQ_MODEL "llama-3.3-70b-versatile" is not available');
+    });
+
+    it('classifies a retired default model as "model" without retrying', async () => {
+      delete process.env.GROQ_MODEL;
+      fetchMock.mockResolvedValue(gone(DEFAULT_GROQ_MODEL));
+      await expect(new GroqAiAssessor().generateQuiz('Soil', 1)).rejects.toMatchObject({ reason: 'model', status: 404 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('recognises a decommissioned model reported as a 400', async () => {
+      delete process.env.GROQ_MODEL;
+      fetchMock.mockResolvedValue({ ok: false, status: 400, text: async () => '{"error":{"code":"model_decommissioned"}}', json: async () => ({}) });
+      await expect(new GroqAiAssessor().generateQuiz('Soil', 1)).rejects.toMatchObject({ reason: 'model', status: 400 });
+    });
+
+    const limited = { ok: false, status: 429, text: async () => 'Rate limit reached for model on tokens per minute (TPM)', json: async () => ({}) };
+
+    it('sends a rate-limited request to the overflow model, for that request only', async () => {
+      delete process.env.GROQ_MODEL;
+      fetchMock.mockResolvedValueOnce(limited).mockResolvedValue(quiz);
+      const ai = new GroqAiAssessor();
+      await expect(ai.generateQuiz('Soil', 1)).resolves.toHaveLength(1);
+      await ai.generateQuiz('Water', 1);
+      expect(fetchMock.mock.calls.map((_c, i) => modelOf(i))).toEqual([DEFAULT_GROQ_MODEL, GROQ_OVERFLOW_MODEL, DEFAULT_GROQ_MODEL]);
+    });
+
+    it('reports the rate limit when the overflow model is limited too', async () => {
+      delete process.env.GROQ_MODEL;
+      fetchMock.mockResolvedValue(limited);
+      await expect(new GroqAiAssessor().generateQuiz('Soil', 1)).rejects.toMatchObject({ reason: 'rate_limit', status: 429 });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('a retired GROQ_MODEL that is then rate-limited still reaches the overflow model', async () => {
+      process.env.GROQ_MODEL = 'llama-3.3-70b-versatile';
+      fetchMock.mockResolvedValueOnce(gone('llama-3.3-70b-versatile')).mockResolvedValueOnce(limited).mockResolvedValue(quiz);
+      await expect(new GroqAiAssessor().generateQuiz('Soil', 1)).resolves.toHaveLength(1);
+      expect(fetchMock.mock.calls.map((_c, i) => modelOf(i))).toEqual(['llama-3.3-70b-versatile', DEFAULT_GROQ_MODEL, GROQ_OVERFLOW_MODEL]);
+    });
+
+    it('does not retry other failures', async () => {
+      delete process.env.GROQ_MODEL;
+      fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => 'Internal Server Error', json: async () => ({}) });
+      await expect(new GroqAiAssessor().generateQuiz('Soil', 1)).rejects.toMatchObject({ status: 500 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('sends up to 24,000 chars of source with the outline-first instructions, and clamps the reply', async () => {
