@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, LogIn } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
+import { roleHome, safeNext } from '@/lib/safe-next';
 import { useT } from '@/lib/i18n';
 import { AuthShell } from '@/components/PageChrome';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
@@ -28,13 +29,8 @@ function LoginForm() {
         body: { email: form.get('email'), password: form.get('password') },
       });
       setAuth({ access_token: res.access_token, user: res.user });
-      const next = params.get('next');
       if (res.user.must_change_password) router.push('/account/password?first=1');
-      else if (next) router.push(next);
-      else if (res.user.role === 'learner') router.push('/dashboard');
-      else if (res.user.role === 'quality_officer') router.push('/qa');
-      else if (res.user.role === 'platform_admin') router.push('/admin');
-      else router.push('/teach');
+      else router.push(safeNext(params.get('next'), roleHome(res.user.role)));
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);

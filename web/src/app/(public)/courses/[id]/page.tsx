@@ -8,6 +8,7 @@ import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { EnrollPanel } from './enroll-panel';
+import { jsonLdScript } from '@/lib/json-ld';
 
 interface CourseDetail {
   last_major_update_at?: string | null;
@@ -86,7 +87,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
 
   return (
     <PageShell>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
       <BackButton fallback="/courses" label="Browse courses" />
 
       <div className="grid gap-8 lg:grid-cols-3">
