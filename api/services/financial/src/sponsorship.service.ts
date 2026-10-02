@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
-import { env, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { In, MoreThan, Not, Repository } from 'typeorm';
+import { dailyCapExceeded, env, envInt, EventBusService, InternalHttpClient, internalPath, recipientCapExceeded, UserContext } from '@ethiopialearn/common';
 import {
   BulkPurchaseActivatedPayload,
   PayRequestCreatedPayload,
@@ -15,6 +15,9 @@ import {
 import { BulkPurchase, Payment, Sponsorship } from './entities';
 import { randomCode } from './growth.service';
 import { bulkDiscountPercent, CourseInfo, PaymentService, SessionResult } from './payment.service';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PAY_REQUESTS_PER_EMAIL_PER_DAY = 3;
 
 interface UserInfo {
   id: string;
@@ -65,6 +68,12 @@ export class SponsorshipService implements OnModuleInit {
     const recipient = await this.userByEmail(email);
     if (recipient && (await this.entitled(recipient.id, course.id))) throw new BadRequestException('That person already has this course');
 
+    const giftsToday = await this.sponsorships.count({ where: { source: 'gift', sponsor_id: ctx.id, created_at: MoreThan(new Date(Date.now() - DAY_MS)) } });
+    if (giftsToday >= envInt('GIFTS_PER_DAY', 10)) {
+      this.logger.warn(`Gift cap hit: user ${ctx.id} POST /gifts`);
+      throw dailyCapExceeded('gifts');
+    }
+
     const me = await this.user(ctx.id);
     const s = await this.sponsorships.save(
       this.sponsorships.create({
@@ -106,6 +115,25 @@ export class SponsorshipService implements OnModuleInit {
     if (await this.entitled(ctx.id, course.id)) throw new BadRequestException('You already own this course');
     const payerEmail = dto.payer_email.trim().toLowerCase();
     if (payerEmail === (ctx.email ?? '').toLowerCase()) throw new BadRequestException('Enter the email of the person who will pay');
+    const payUrlFor = (token: string) => `${env('WEB_URL', 'http://localhost:3000')}/pay/${token}`;
+
+    // The same open request (requester, course, payer) is returned again: no new row, no email, no cap.
+    const open = await this.sponsorships.findOne({
+      where: { source: 'pay_request', recipient_user_id: ctx.id, course_id: course.id, organization_name: payerEmail, status: In(['requested', 'pending_payment']) },
+    });
+    if (open) return { sponsorship_id: open.id, pay_url: payUrlFor(open.token), status: open.status };
+
+    const since = MoreThan(new Date(Date.now() - DAY_MS));
+    const mine = await this.sponsorships.count({ where: { source: 'pay_request', recipient_user_id: ctx.id, created_at: since } });
+    if (mine >= envInt('PAY_REQUESTS_PER_DAY', 5)) {
+      this.logger.warn(`Pay request cap hit: user ${ctx.id} POST /pay-requests`);
+      throw dailyCapExceeded('pay requests');
+    }
+    const toThisEmail = await this.sponsorships.count({ where: { source: 'pay_request', organization_name: payerEmail, created_at: since } });
+    if (toThisEmail >= PAY_REQUESTS_PER_EMAIL_PER_DAY) {
+      this.logger.warn(`Pay request recipient cap hit: user ${ctx.id} POST /pay-requests`);
+      throw recipientCapExceeded('pay requests');
+    }
     const me = await this.user(ctx.id);
 
     const s = await this.sponsorships.save(
@@ -123,7 +151,7 @@ export class SponsorshipService implements OnModuleInit {
         token: randomCode(24),
       }),
     );
-    const payUrl = `${env('WEB_URL', 'http://localhost:3000')}/pay/${s.token}`;
+    const payUrl = payUrlFor(s.token);
     await this.bus.publish<PayRequestCreatedPayload>('PayRequestCreated', {
       sponsorship_id: s.id,
       requester_id: ctx.id,
