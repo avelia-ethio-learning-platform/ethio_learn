@@ -185,6 +185,7 @@ export function StructureGenerator({
           level,
           learning_style: learningStyle,
         },
+        slow: true,
       });
       setDraft(toDraft(res.sections ?? []));
       const banner = offlineOutlineBanner(res, !!text.trim());

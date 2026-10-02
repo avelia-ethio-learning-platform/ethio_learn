@@ -452,7 +452,7 @@ function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean 
     setBusy(true);
     setError('');
     try {
-      setPlan(await api<StudyPlan>(`/attempts/${attemptId}/study-plan`));
+      setPlan(await api<StudyPlan>(`/attempts/${attemptId}/study-plan`, { slow: true }));
     } catch (err) {
       setError((err as Error).message);
     }

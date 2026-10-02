@@ -367,7 +367,7 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
   const generate = async () => {
     setBusy(true); setNote('');
     try {
-      const res = await api<{ questions: QDraft[]; ai_live: boolean }>(`/assessments/generate`, { method: 'POST', body: { course_id: courseId, topic, count } });
+      const res = await api<{ questions: QDraft[]; ai_live: boolean }>(`/assessments/generate`, { method: 'POST', body: { course_id: courseId, topic, count }, slow: true });
       setQuestions((q) => [...q, ...res.questions]);
       if (!res.ai_live) setNote('Using the offline placeholder generator (set GROQ_API_KEY for real AI questions).');
     } catch (err) { setNote((err as Error).message); }

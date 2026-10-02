@@ -268,7 +268,7 @@ function removeRecord(storageKey: string): void {
 
 function deleteSession(sessionId: string): Promise<void> {
   // Best effort: R2 aborts unfinished uploads after 7 days and the API expires the row lazily.
-  return api(`/uploads/multipart/${sessionId}`, { method: 'DELETE' }).then(
+  return api(`/uploads/multipart/${sessionId}`, { method: 'DELETE', slow: true }).then(
     () => undefined,
     () => undefined,
   );
@@ -716,6 +716,7 @@ export class ResumableUpload {
         const res = await this.withRetry(token, () =>
           api<{ url?: string; upload_url?: string; key: string }>('/uploads', {
             method: 'POST',
+            slow: true,
             body: {
               kind: this.kind,
               filename: serverFileName(this.file.name),
@@ -867,6 +868,7 @@ export class ResumableUpload {
     const created = await this.withRetry(token, () =>
       api<Session>('/uploads/multipart', {
         method: 'POST',
+        slow: true,
         body: {
           kind: 'video',
           filename: serverFileName(this.file.name),
@@ -906,7 +908,7 @@ export class ResumableUpload {
   /** Server view of the session, or null when it no longer exists (expired, aborted, 404). */
   private async fetchStatus(session: Session, token: RunToken): Promise<ServerStatus | null> {
     try {
-      const status = await this.withRetry(token, () => api<ServerStatus>(`/uploads/multipart/${session.session_id}`));
+      const status = await this.withRetry(token, () => api<ServerStatus>(`/uploads/multipart/${session.session_id}`, { slow: true }));
       ensureAlive(token);
       return status.status === 'uploading' || status.status === 'completed' ? status : null;
     } catch (err) {
@@ -924,6 +926,7 @@ export class ResumableUpload {
       try {
         return await api<Partial<UploadResult>>(`/uploads/multipart/${session.session_id}/complete`, {
           method: 'POST',
+          slow: true,
           body: this.lessonId ? { lesson_id: this.lessonId } : {},
         });
       } finally {
@@ -1077,7 +1080,7 @@ export class ResumableUpload {
         sentAt = Date.now();
         return api<{ urls: Array<{ part_number: number; url: string }>; expires_at?: unknown; expires_in?: unknown }>(
           `/uploads/multipart/${session.session_id}/parts`,
-          { method: 'POST', body: { part_numbers: partNumbers } },
+          { method: 'POST', body: { part_numbers: partNumbers }, slow: true },
         );
       });
       if (this.session !== session) return;
