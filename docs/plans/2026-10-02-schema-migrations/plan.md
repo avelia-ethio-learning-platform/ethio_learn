@@ -1,6 +1,6 @@
 # Phase 2: Schema migrations, `synchronize` off
 
-Status: approved (round 2)
+Status: implemented, in code review (round 1)
 Size: L (sessions: 4 — ethio-impl implements, ethio-reviewer reviews code)
 Base branch: `origin/main` after Phase 1 (`fix/ci-green`) merges; if it hasn't merged when work starts, branch from `fix/ci-green` and rebase. · Feature branch: `feat/schema-migrations`
 Roadmap: [../2026-10-02-refinement-audit/roadmap.md](../2026-10-02-refinement-audit/roadmap.md) · Finding: P0-06 (and P2-14 as the first real migration)
@@ -56,16 +56,16 @@ Acceptance criteria:
 - Rollback of the whole phase: revert the merge commit and redeploy. The old code defaults to `synchronize` on when `DB_SYNC` is unset, and syncs against entities that match the schema, so it only reverses the P2-14 index swap (drops the new indexes, recreates the redundant ones). `synchronize` never drops unknown tables, so the `migrations` tables stay and are simply unused. Data rollback point: the Neon branch from rollout step 2.
 
 ## Steps
-- [ ] 1. Branch from the base above. Back up nothing in the DB yet; all generation happens in a throwaway database.
-- [ ] 2. `baselineState` helper in `api/packages/common/src/typeorm/`, exported from the package, with unit tests (all present / none / partial, with a fake query runner). · `pnpm -C api test`.
-- [ ] 3. `buildTypeOrmOptions(schema, entities, migrations)`: `synchronize: false`, `migrationsRun: true`, `migrationsTransactionMode: 'each'`, DB_SYNC warning. Unit test for the options and the warning. Per-service `src/data-source.ts` and package scripts (`migration:generate`, `migration:run`, `migration:show`, `migration:revert` with `-t none`).
-- [ ] 4. Create `ethiopialearn_gen` in the local Postgres container, apply `docker/postgres-init.sql`, generate one baseline per service, hand-fix the three duplicate enum types, wrap each `up()` with the guard, register via `src/migrations/index.ts`. Drop `ethiopialearn_gen` afterwards.
-- [ ] 5. `seed.ts` on migrations (decision 6).
-- [ ] 6. `api/scripts/db-check.ts` and `pnpm -C api db:check` (with the decision 7 overrides).
-- [ ] 7. Verify the three database states locally: (a) a second empty database: seed + boot every service → full schema, `db:check` 0; (b) the existing local database (built by `synchronize`): boot → each `migrations` table has the baseline row, no DDL ran (compare table and index lists before/after), `db:check` 0; (c) a schema with one table dropped → boot fails with the missing-table list; (d) `db:check` against a fresh empty database creates no `migrations` table and changes nothing (proves it is read-only); (e) `migration:revert` on a baselined schema without `ALLOW_BASELINE_REVERT=1` throws.
-- [ ] 8. P2-14 index migration plus entity `@Index` changes; verify on database (a) and (b): indexes and their partial `WHERE` predicates present per `pg_indexes`, no INVALID indexes, `db:check` 0, `migration:revert` (with `-t none`) then `migration:run` round-trips.
-- [ ] 9. CI: e2e job runs `pnpm -C api db:check` after the services boot. `render.yaml`: `DB_SYNC` removed (and its comment). `.env.example`, README (quick start unchanged, new "Changing the schema" section), DEPLOYMENT.md (migration rollout replaces "turn DB_SYNC off later").
-- [ ] 10. Full gate: api build + tests, the three e2e scripts on a fresh stack, `db:check`, both Docker images build and a service image boots and migrates against a scratch database (proves the compiled `dist/migrations` ship in the `pnpm deploy` bundle).
+- [x] 1. Branch from the base above. Back up nothing in the DB yet; all generation happens in a throwaway database.
+- [x] 2. `baselineState` helper in `api/packages/common/src/typeorm/`, exported from the package, with unit tests (all present / none / partial, with a fake query runner). · `pnpm -C api test`.
+- [x] 3. `buildTypeOrmOptions(schema, entities, migrations)`: `synchronize: false`, `migrationsRun: true`, `migrationsTransactionMode: 'each'`, DB_SYNC warning. Unit test for the options and the warning. Per-service `src/data-source.ts` and package scripts (`migration:generate`, `migration:run`, `migration:show`, `migration:revert` with `-t none`).
+- [x] 4. Create `ethiopialearn_gen` in the local Postgres container, apply `docker/postgres-init.sql`, generate one baseline per service, hand-fix the three duplicate enum types, wrap each `up()` with the guard, register via `src/migrations/index.ts`. Drop `ethiopialearn_gen` afterwards.
+- [x] 5. `seed.ts` on migrations (decision 6).
+- [x] 6. `api/scripts/db-check.ts` and `pnpm -C api db:check` (with the decision 7 overrides).
+- [x] 7. Verify the three database states locally: (a) a second empty database: seed + boot every service → full schema, `db:check` 0; (b) the existing local database (built by `synchronize`): boot → each `migrations` table has the baseline row, no DDL ran (compare table and index lists before/after), `db:check` 0; (c) a schema with one table dropped → boot fails with the missing-table list; (d) `db:check` against a fresh empty database creates no `migrations` table and changes nothing (proves it is read-only); (e) `migration:revert` on a baselined schema without `ALLOW_BASELINE_REVERT=1` throws.
+- [x] 8. P2-14 index migration plus entity `@Index` changes; verify on database (a) and (b): indexes and their partial `WHERE` predicates present per `pg_indexes`, no INVALID indexes, `db:check` 0, `migration:revert` (with `-t none`) then `migration:run` round-trips.
+- [x] 9. CI: e2e job runs `pnpm -C api db:check` after the services boot. `render.yaml`: `DB_SYNC` removed (and its comment). `.env.example`, README (quick start unchanged, new "Changing the schema" section), DEPLOYMENT.md (migration rollout replaces "turn DB_SYNC off later").
+- [x] 10. Full gate: api build + tests, the three e2e scripts on a fresh stack, `db:check`, both Docker images build and a service image boots and migrates against a scratch database (proves the compiled `dist/migrations` ship in the `pnpm deploy` bundle).
 - [ ] 11. Code review by ethio-reviewer, then the user approves the push and PR, then the production rollout below.
 
 ## Test plan
@@ -93,3 +93,26 @@ Order matters. Every step that touches production is done by the user, or by a s
 - **Neon pooled URL and CONCURRENTLY:** concurrent index builds run outside a transaction, which works through PgBouncer in transaction mode as long as each statement is its own query. If a build fails halfway (connection drop, restart during boot), the INVALID index is dropped and rebuilt on the retry (decision 8), and rollout step 4 checks for invalid indexes.
 
 ## Progress and deviations (implementer)
+
+Branch `feat/schema-migrations`, cut from `fix/ci-green` (Phase 1, not merged yet): review with `git diff fix/ci-green...feat/schema-migrations`.
+
+### How to rerun the checks
+- Build, unit tests, types: `pnpm -C api build && pnpm -C api test && pnpm -C api typecheck` → 12/12 built, 35 suites / 658 tests pass (new: `baseline.spec.ts`, `typeorm.spec.ts` in `api/packages/common/src/typeorm/`).
+- Steps 7 (a)–(e) and 8: `bash docs/plans/2026-10-02-schema-migrations/verify.sh` → `ALL PASSED`, 31 checks in about 90 s. It uses only throwaway `el_verify_*` databases in the local container, boots services from `dist/` on ports 5101–5107 with RabbitMQ pointed at a closed port, and prints its log directory. It covers: (a) seed + boot on an empty DB, 47 tables, 2 migration rows per schema, `db:check` 0; (b) a synchronize-built DB (copy of (a) with `IndexTuning` reverted and the `migrations` tables dropped, pg_dump-identical to what `synchronize` built): the before/after catalog diff is exactly the 13 P2-14 index lines; (c) `outcomes.certificates` dropped: boot fails with `Schema "outcomes" is partially built: 3 of 4 baseline tables exist, missing: certificates`, nothing recorded; (d) `db:check` on an empty DB without pgcrypto exits 1 and creates no table (no `migrations` table) and no extension; (e) the second auth revert (the baseline) is refused and the tables stay; step 8 predicates in `pg_indexes`, no INVALID index, revert/run round trip, `db:check` 0; `db:check` exits 1 on a drifted column and 0 once fixed.
+- Step 7(b) on the real local dev DB (synchronize-built, with data), run once: catalog snapshot (tables, columns, indexes, constraints) before and after restarting the stack on the new `dist/` was identical, and each schema recorded its baseline row. The next boot after step 8 applied `IndexTuning`; the local DB now has 2 rows per schema, 0 invalid indexes, `pnpm -C api db:check` → no drift.
+- Fresh-stack e2e (same order as CI, against a new `el_e2e` database rather than wiping the dev volume): `export DATABASE_URL=postgres://ethiopialearn:ethiopialearn@localhost:55432/el_e2e` after creating it with `docker/postgres-init.sql`, then `pnpm -C api seed && bash scripts/start-backend.sh`, wait for every service's `/health`, `pnpm -C api db:check` → no drift, `node scripts/demo-seed.mjs` → exit 0, `node scripts/e2e-revisions.mjs` → exit 0, `E2E_CHECK_RATE_LIMIT=1 node scripts/e2e-smoke.mjs` → exit 0.
+- Docker: `docker build --build-arg PKG=@ethiopialearn/financial-service -t el-financial:phase2 api/` and `docker build -t el-web:phase2 web/` both build. `docker run --network host --env-file api/.env.example -e NODE_ENV=production -e DATABASE_URL=<scratch db> -e RABBITMQ_URL=amqp://guest:guest@127.0.0.1:1 -e PORT=5205 el-financial:phase2` logged both migrations as executed and listened; `dist/migrations/` ships in the `pnpm deploy` bundle and the scratch DB had 11 financial tables and 2 migration rows.
+
+### Deviations
+- **`db:check` is `api/scripts/db-check.mjs`, not `.ts`.** It matches the repo's `.mjs` scripts and needs no new root dependency (ts-node and `@ethiopialearn/common` are not root deps). It reads each service's compiled `dist/`, i.e. what deploys, and the `db:check` script runs `turbo run build` first (cached when nothing changed) so it can never check a stale `dist/`. The check itself is `buildSchemaCheckOptions` + `pendingSchemaChanges` in `@ethiopialearn/common` (`src/typeorm/schema-check.ts`), so the overrides have the planned unit test.
+- **Per-service `src/database.ts`** exports `SCHEMA`, `entities` and `migrations`; the app module, `src/data-source.ts`, the seed and `db:check` all import it. The entity list used to live in `app.module.ts`; a second copy would let `db:check` compare a different list than the service runs.
+- **`buildTypeOrmOptions` returns `PostgresConnectionOptions`** (was `TypeOrmModuleOptions`), so one object feeds both `TypeOrmModule.forRoot` and `new DataSource()`.
+- **Every statement in the `IndexTuning` migrations is idempotent,** not only the new-index builds: the redundant-index drops and all of `down()` use `IF EXISTS` too. With `transaction = false`, a failure part-way keeps the earlier statements and the whole migration runs again, so a bare `DROP INDEX` would fail on the retry and wedge the boot.
+- **The CI drift step waits for each service's `/health` (ports 4101–4107) first.** The gateway's health check doesn't mean every service has finished migrating, and a service listens only after its migrations ran.
+- **`migration:generate` passes `-p`** (formatted SQL), so generated migrations are reviewable.
+
+### Notes for review
+- `notification.dm_messages (thread_id)` is now redundant with the new `(thread_id, created_at)` composite. Kept, because decision 8's drop list doesn't include it; it's a candidate for a later migration.
+- TypeORM 0.3.30 on pg 8.22 prints a `DeprecationWarning: Calling client.query() when the client is already executing a query` from its parallel catalog reads (CLI, `db:check`). That's library behavior, not ours, and it's harmless.
+- `HANDOFF.md`, `FEATURES_ADDED.md` and `UPDATES_2026-09-24.md` still mention `DB_SYNC=true` as history. Left alone; P2-16 moves those notes to `docs/history/`.
+- The baselines' guard only checks table presence, as planned. Production's columns and indexes are checked by the rollout's pre-merge `db:check` (step 1).
