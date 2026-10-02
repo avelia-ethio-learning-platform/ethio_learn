@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatDate, formatETB } from './format';
 
-const D = '2026-03-05T14:30:00Z';
+const D = '2026-03-05T12:00:00Z';
 
 describe('formatDate', () => {
   it('uses day-month order in en', () => {
@@ -14,11 +14,17 @@ describe('formatDate', () => {
   });
 
   it('formats am through am-ET', () => {
-    const expected = new Intl.DateTimeFormat('am-ET', { day: 'numeric', month: 'short', year: 'numeric' }).format(
+    const expected = new Intl.DateTimeFormat('am-ET', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Addis_Ababa' }).format(
       new Date(D),
     );
     expect(formatDate(D, 'am')).toBe(expected);
     expect(formatDate(D, 'am')).not.toBe(formatDate(D, 'en'));
+  });
+
+  it('uses the Addis Ababa day (UTC+3) whatever the host zone', () => {
+    // 22:30 UTC on the 5th is 01:30 on the 6th in Addis
+    expect(formatDate('2026-03-05T22:30:00Z', 'en')).toBe('6 Mar 2026');
+    expect(formatDate('2026-03-05T22:30:00Z', 'en', 'datetime')).toMatch(/6 Mar 2026.*01:30/);
   });
 
   it('accepts Date and returns an empty string for an invalid date', () => {
