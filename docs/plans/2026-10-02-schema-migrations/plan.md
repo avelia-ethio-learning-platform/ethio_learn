@@ -1,6 +1,6 @@
 # Phase 2: Schema migrations, `synchronize` off
 
-Status: implemented, in code review (round 1)
+Status: implemented, code review APPROVED (round 2); not pushed yet
 Size: L (sessions: 4 — ethio-impl implements, ethio-reviewer reviews code)
 Base branch: `origin/main` after Phase 1 (`fix/ci-green`) merges; if it hasn't merged when work starts, branch from `fix/ci-green` and rebase. · Feature branch: `feat/schema-migrations`
 Roadmap: [../2026-10-02-refinement-audit/roadmap.md](../2026-10-02-refinement-audit/roadmap.md) · Finding: P0-06 (and P2-14 as the first real migration)
@@ -117,8 +117,7 @@ Branch `feat/schema-migrations`, cut from `fix/ci-green` (Phase 1, not merged ye
 - `HANDOFF.md`, `FEATURES_ADDED.md` and `UPDATES_2026-09-24.md` still mention `DB_SYNC=true` as history. Left alone; P2-16 moves those notes to `docs/history/`.
 - The baselines' guard only checks table presence, as planned. Production's columns and indexes are checked by the rollout's pre-merge `db:check` (step 1).
 
-### In flight / next step (checkpoint 2026-10-02)
-- State: steps 1–10 are done and committed on `feat/schema-migrations` (HEAD `49683fb`; base `fix/ci-green`, Phase 1 not merged yet). Nothing is pushed.
-- Code review: round 1 (`code-review.md`) was CHANGES REQUESTED, with one docs-only blocker (B1, the pre-merge drift check), S1, N1 and N2. All are fixed and answered inline in `49683fb`, and ethio-reviewer has been told "Round 1 addressed". **Waiting for the round 2 verdict.**
-- Next: if round 2 has findings, fix them, answer inline, rerun `pnpm -C api build && pnpm -C api test` and `verify.sh` (38 checks), commit, then message ethio-reviewer "Round 2 addressed". On APPROVED, give the user the summary, branch, test results and any deferred items, then ask whether to push and open a PR. If Phase 1 has merged by then, rebase onto `origin/main` first and tell the reviewer the new base.
-- Environment: the local dev stack runs from this tree on the local DB, which is already migrated (2 rows per schema). Node needs `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths only: other sessions keep untracked folders in `docs/plans/`. Production and the production `DATABASE_URL` are off-limits.
+### Close-out (2026-10-02)
+- Code review APPROVED in round 2 (`code-review.md`), no open findings and nothing deferred. Round 1's B1, S1, N1 and N2 were fixed in `49683fb`.
+- Branch `feat/schema-migrations`, base `fix/ci-green` (Phase 1, not merged yet). Nothing is pushed. When Phase 1 merges, rebase onto `origin/main` before opening the PR.
+- Production rollout (DEPLOYMENT.md "First rollout", steps 1, 2, 4 and 5) belongs to the user.

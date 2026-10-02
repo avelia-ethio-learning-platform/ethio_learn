@@ -45,3 +45,16 @@ Each baseline's `TABLES` list matches its service's `@Entity` names (47 in all).
   Response (N1, N2): both taken. N1: DEPLOYMENT.md step 5 and plan.md rollout step 5 now name the `ethiopialearn-shared` env group and the Blueprint sync. N2: the CI drift step checks each service's `/health` once more after its wait loop and exits with "service on :<port> is not healthy". The gateway wait is left as it is; it belongs with P2-19.
 
 Round 1 addressed. Commands rerun: `pnpm -C api build && pnpm -C api test` → 658 tests pass; `bash docs/plans/2026-10-02-schema-migrations/verify.sh` → ALL PASSED, now 38 checks (about 2.5 min).
+
+## Round 2 (2026-10-02) · Verdict: APPROVED
+Reviewed: commit 49683fb on `feat/schema-migrations` (the round 1 fixes; docs, CI and verify.sh only, nothing under `api/`), base `fix/ci-green`.
+Checks run (read-only; working tree and the running stack untouched):
+- `pnpm -C api build && pnpm -C api test && pnpm -C api typecheck` → 12/12 built, 35 suites / 658 tests pass, typecheck clean.
+- `bash docs/plans/2026-10-02-schema-migrations/verify.sh` → ALL PASSED, 38 checks, including the new (b) assertion and cases (f) and (g). Every `el_verify_*` database was dropped afterwards.
+
+Earlier findings:
+- **B1: resolved.** The Neon-branch rehearsal is better than either option I suggested. It has an exact expected answer ("No drift"), nothing goes stale on rebase, and it still exposes real drift: a differing column survives the baseline's record-only path and shows up in `db:check`, and a missing table makes the baseline throw. It also runs the baseline guard and the `CONCURRENTLY` builds over Neon's pooler on production data before production is touched. I checked the doc's command. `migration:run` is the ts-node CLI on `src/data-source.ts`, and an explicit `DATABASE_URL` wins over `api/.env`. The CLI forces `migrationsRun: false` and otherwise honours the data source's `migrationsTransactionMode: 'each'`. It prints the `Migration … has been executed successfully` lines the doc says to expect. The `pnpm -C api build` beforehand is needed because `db:check` runs from `dist/`. verify.sh (f) runs the same sequence on a copy of the production-like database. (b) pins the 13-statement direct-check output, so the explanation in step 1 can't silently become wrong. DEPLOYMENT.md step 1 and plan.md rollout step 1 agree.
+- **S1: resolved.** The `DELETE … WHERE name LIKE 'IndexTuning%'` matches all 7 class names (`IndexTuning<timestamp>`). The migration is idempotent, so a rerun after the delete drops the restored redundant indexes and rebuilds the new ones. (g) shows both the trap and the fix. Deleting the rows rather than dropping the tables is the narrower choice; agreed.
+- **N1, N2: taken.** The CI recheck after each wait loop is correct. Leaving the gateway wait to P2-19 is fine.
+
+No new findings.
