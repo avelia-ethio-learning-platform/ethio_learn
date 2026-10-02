@@ -80,3 +80,25 @@ Nit responses:
 
 ### Out of scope (not findings)
 The security pass also found pre-existing money gaps that this phase doesn't touch and its non-goals exclude. They are not described here because the repo is public. I've sent them to ethio-planner for the local audit backlog.
+
+## Round 2 (2026-10-02) · Verdict: APPROVED
+Reviewed: `fix/payment-integrity` @ `39cf472` (round 1 fixes `0808f10` B1, `11cc031` S1, `39cf472` responses), base `fix/access-control` (`fcbb94a`). Only the changes since `b99f802`.
+
+Checks run (read-only): `pnpm -C api build && pnpm -C api test && pnpm -C api typecheck && pnpm -C api db:check`:
+- 12/12 built;
+- 43 suites / 835 tests pass, the 4 new ones included;
+- typecheck clean;
+- no drift.
+
+The e2e wasn't rerun, for the same reason as round 1. I rely on the implementer's fresh `el_e2e` run (20 checks), and CI runs it on the PR.
+
+- **B1: resolved.**
+  - `releaseFraudHolds` (`payout.service.ts:179-195`) touches only fraud holds: `fraud_flag_open` from a run, and `fraud:<signal>` from the existing `FraudFlagRaised` handler (`:55`).
+  - It re-applies the KYC threshold on the payout's net amount, and never touches `kyc_required` payouts.
+  - Each update is conditional on the status and reason it read, so a concurrent admin `release()` can't be overwritten.
+  - The four tests cover the three cases I asked for plus the `fraud:<signal>` hold. The under-threshold test runs two concurrent payout runs and expects one `PayoutCompleted`.
+  - Rollout step 1 now lists `scheduled` payouts for review before merge, and says why.
+- **S1: resolved.** The top-up race is 8 concurrent webhooks, then one reconcile that must report `confirmed`. The header, plan step 10 and the deviations describe exactly that.
+- **N1 and N2: deferred to Phase 9** with reasons. I accept both.
+
+No open blockers or should-fix items. For the user before push: rollout step 1 (read-only production checks, now including the scheduled-payouts list) and the same-day merge-and-deploy rule. This branch also waits on Phase 2 (#19) and Phase 3, then rebases onto main.

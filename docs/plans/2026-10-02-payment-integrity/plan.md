@@ -1,6 +1,6 @@
 # Phase 4: Payment integrity
 
-Status: implemented (steps 1–11 done); code review round 1 requested from ethio-reviewer
+Status: implemented, code review APPROVED (round 2); waiting for the user to approve push and PR (after #19 and Phase 3 merge)
 Size: L (sessions: 4 — ethio-impl implements, ethio-reviewer reviews code)
 Base branch: `origin/main` once Phase 3 (`fix/access-control`) has merged; until then branch from it and rebase. · Feature branch: `fix/payment-integrity`
 Roadmap: phase 4 (see the change log in the roadmap) · Findings: P0-04, P0-05, P1-03, P1-12, P1-14
@@ -101,7 +101,7 @@ No new endpoints. Behavior changes:
 - [x] 9. Financial production rules and `mockComplete` guard (decision 10) + tests.
 - [x] 10. Local race check, scripted (`scripts/e2e-payments.mjs`, mock mode, added to CI e2e): top up the wallet and fire `mockComplete` concurrently N times (reconcile only verifies in live mode, so it is checked once afterwards; see the deviations) → one credit, one `PaymentConfirmed` (count receipts in the notification inbox); paid course checkout → enrollment active; backdate a few confirmed payments' `webhook_received_at` by 15 days through the compose Postgres (`docker compose exec -T postgres psql …`; hold windows are 7/14 days, `payout.service.ts:20-21`), then trigger `POST /payouts/run` twice concurrently as admin → **at least one payout is created**, its payments carry exactly that `payout_id`, no payment has two, and each payout has one PAID transition (plan-review S5).
 - [x] 11. Full gate: api build + tests + `db:check`, all e2e scripts, both images build.
-- [ ] 12. Code review by ethio-reviewer; user approves push/PR (same-day merge and deploy); rollout below.
+- [x] 12. Code review by ethio-reviewer (APPROVED, round 2); user approves push/PR (same-day merge and deploy); rollout below.
 
 ## Test plan
 - **Unit (codebase mock style, memRepo + transaction fake; QueryBuilder/`manager.query` stubs where `RETURNING` is needed):**
@@ -163,5 +163,5 @@ Branch `fix/payment-integrity`, cut from `fix/access-control` at `fcbb94a` (Phas
 ### In flight / next step
 - Steps 1–11 done on `fix/payment-integrity` (base `fix/access-control` @ `fcbb94a`). Nothing pushed.
 - Images: `docker build -f api/Dockerfile --build-arg PKG=<pkg> api` (the CI `docker-api` command) succeeds for `@ethiopialearn/financial-service` and `@ethiopialearn/auth-service`, the two services whose code changed (`common` is in both); the financial image ships both new migrations in `dist/migrations`. Web is untouched on this branch.
-- Next: ethio-reviewer's round 1. Phase 3 (`fix/access-control`) is APPROVED and waits on Phase 2 (#19); this branch rebases onto main after both merge.
+- Code review APPROVED in round 2. Next: the user approves push/PR, and runs rollout step 1 (read-only) first. Phase 3 (`fix/access-control`) is APPROVED and waits on Phase 2 (#19); this branch rebases onto main after both merge.
 - Environment: `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Untracked `.playwright-mcp/` and other plan folders belong to other sessions: stage explicit paths. Production is off-limits; rollout step 1 is the user's.
