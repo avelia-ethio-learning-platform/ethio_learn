@@ -216,14 +216,14 @@ Phase 2 pattern; entities updated so `db:check` stays at 0.
   - rejected prefixes and dot segments.
 
   Then migrate all 74 call sites; the compiler lists them.
-- [ ] 3. `UuidParam` plus the token and uid pipes on every controller, and the DTOs for `course_ids` and `course_id`. Add a gateway or controller spec per service with a non-uuid param → 400. Re-run the P1-01 probe (`/progress/lessons/..%2Fusers%2F<uuid>/complete` → 400, no internal call in the logs).
-- [ ] 3a. (A1) `PayRequestPublicController`, decision 15, with its token pipe from step 3. Add a financial spec that reads Nest's guard metadata:
+- [x] 3. `UuidParam` plus the token and uid pipes on every controller, and the DTOs for `course_ids` and `course_id`. Add a gateway or controller spec per service with a non-uuid param → 400. Re-run the P1-01 probe (`/progress/lessons/..%2Fusers%2F<uuid>/complete` → 400, no internal call in the logs).
+- [x] 3a. (A1) `PayRequestPublicController`, decision 15, with its token pipe from step 3. Add a financial spec that reads Nest's guard metadata:
   - `PayRequestPublicController` has no guards on the class or on its handler;
   - `GrowthController` still has `RolesGuard` at class level;
   - `GrowthController` no longer has a `GET pay-requests/:token` handler.
-- [ ] 4. Password change, decisions 4–8, with auth unit tests and web vitest.
-- [ ] 5. Email caps, decisions 9–10, with unit tests per path.
-- [ ] 6. Financial and auth migrations. `db:check` at 0 on a fresh and an existing local DB. Revert round-trips with `-t none`.
+- [x] 4. Password change, decisions 4–8, with auth unit tests and web vitest.
+- [x] 5. Email caps, decisions 9–10, with unit tests per path.
+- [x] 6. Financial and auth migrations. `db:check` at 0 on a fresh and an existing local DB. Revert round-trips with `-t none`.
 - [ ] 7. Coupon hold and per-user limit, decisions 11–14, with unit tests and a coupon-manager field.
 - [ ] 8. `scripts/e2e-security.mjs` (added to CI e2e before the smoke step):
   - the P1-01 probe → 400;
@@ -290,22 +290,48 @@ Production steps belong to the user, or to a session only on the user's explicit
 ## Progress and deviations (implementer)
 Branch `fix/security-platform`, created from `fix/web-p0` @ `63d942d` (Phase 5 code review APPROVED in round 2). Not pushed.
 
-Commits so far (step 2): `931a9a1` the `internalPath` helper, `InternalPath` brand, `get()` checks and `internal-client.spec.ts` (14 tests); then one commit per service: `34d2d2b` auth, `acb49af` course, `de0ce4d` enrollment, `196e29e` financial, `9db67d2` notification, `bf99fd5` outcomes, `239304e` quality. All 74 call sites use `internalPath`, and the two existing `encodeURIComponent` calls were dropped. `pnpm -C api build` and typecheck are clean; `pnpm -C api test` 44 suites, 849 tests.
+Commits (step 2): `931a9a1` the `internalPath` helper, `InternalPath` brand, `get()` checks and `internal-client.spec.ts` (14 tests); then one commit per service: `34d2d2b` auth, `acb49af` course, `de0ce4d` enrollment, `196e29e` financial, `9db67d2` notification, `bf99fd5` outcomes, `239304e` quality. All 74 call sites use `internalPath`, and the two existing `encodeURIComponent` calls were dropped. `pnpm -C api build` and typecheck are clean; `pnpm -C api test` 44 suites, 849 tests.
 
 Deviations:
 - **Step 1:** the folder is committed with `git add -f` (the user approved it on 2026-10-03), so `.git/info/exclude` is unchanged. Phase 5's `docs/plans/2026-10-02-web-p0-fixes/code-review.md` is in the same docs commit.
 - **Order:** step 6 (entities and migrations) runs before step 5, because step 5's institution cap reads `invited_at` and both 5 and 7 use the new indexes. Order only.
 - **Step 2:** `931a9a1` on its own doesn't compile the services, because `get()` requires `InternalPath` from that commit on. The per-service commits follow, as the handoff asked, and the build is green from `239304e`.
 - **Step 2:** the rejection log has the reason and the path's length, not a caller name. `InternalHttpClient` has no service name, and each service logs to its own stream.
+- **Step 3 (`239304e..1ebe9bc`):** the common `UuidParam` and the token and uid pipes are in `4cf67ed`, and the guard helper in `2e73b56`. Then there is one commit per service, from `ec347e3` to `2f986de`, followed by the DTOs in `d707200` (`course_ids`) and `1ebe9bc` (coupon preview `course_id`). Of the 112 `@Param`s, 105 use `UuidParam`, 5 use token or uid pipes, and 2 are free text (`by-email/:email` and `knowledge/:title`).
+- **Step 3's tests (ruling R7):** the api has no HTTP harness. Instead there are common pipe specs, and one `route-params.spec.ts` per service that reads Nest's route-arg metadata for every controller in the module and fails on any unpiped `@Param`. The gateway-level P1-01 probe runs in step 8's e2e.
+- **Step 3, other uuid query params (ruling R8):** enrollment `status`, internal `entitlement`, and outcomes `list` and `myAttempts` take `course_id`/`learner_id` query params, which stay unvalidated. The plan names only the two DTOs. `internalPath` already stops any query value from steering an internal call.
+- **Step 3, `GET /coupons/validate` without `course_id`:** this now returns 400 at the edge, where it used to be a downstream 404. The only web caller always sends it.
+- **Step 3a (`48da8e5`):** the guard-less `PayRequestPublicController` is in. A guard-metadata spec checks it.
+- **Step 4 (`9ff4f29`, `39ed343`, `4addd8f`):** the `PASSWORD_CHECK` rule, then the api, then the web form. `startSession(user)` is extracted from `login`, and `refresh-cookie.ts` is shared by the auth and profiles controllers, so the cookie options are identical. Other sessions' access tokens stay valid until they expire (15 min); only refresh tokens are revoked, as the plan says.
+- **Step 6 (`dfe8079`, `7de9b90`):** `db:check` is 0 on a fresh DB and on a copy of the dev DB. The `-t none` revert round-trips. The check constraint is named `CHK_coupons_max_uses_per_user` and declared with `@Check`, so there's no drift.
+- **Step 5 (`27b7b39`, `b9e7921`, `ff56ebe`):**
+  - Ruling R9: a referral invite fills up to the remaining daily allowance and returns 429 only when the allowance is already 0.
+  - Ruling R10: a pay request goes dedupe, then the per-account cap, then the per-recipient cap. The per-recipient 429 says "You've reached today's limit for pay requests to this email. Try again tomorrow."
+  - Ruling R11: every institution invite and re-invite is checked against the cap and stamps `invited_at`.
+  - The web dashboard reads `{ invited }`. The 4 cap env vars are added to `api/.env.example`, commented out. The per-recipient limits are constants.
+- **Step 7, ruling R12:** in the "held by another checkout you started" message, `<time>` is `HH:MM` in Africa/Addis_Ababa.
+- **Briefs:** the controller corrected the step 5 and step 7 briefs, whose test-plan, logging and risk lines had been quoted off by one.
 
-### In flight / next step (checkpoint 2026-10-03)
-- **Method:** subagent-driven development, one implementer per step, then a task review (spec and quality), with ethio-reviewer as the final review. The workspace is `.superpowers/sdd/plan/` (git-ignored). `progress.md` is the ledger, with the pre-flight scan and rulings R3–R6. Briefs are written for steps 2, 3, 3a, 4, 5, 6 and 7 (`task-N-brief.md`), plus `global-constraints.md`.
-- **Next action:** dispatch the step 2 task reviewer on `.superpowers/sdd/plan/review-63d942d..239304e.diff`, with the brief `task-2-brief.md` and the report `task-2-report.md`. Then step 3 (`task-3-brief.md`), then 3a (A1 is approved in plan-review round 4), 4, 6, 5, 7, then step 8 (`e2e-security.mjs`; its brief isn't written yet) and the step 9 gate.
-- **Dispatch notes for the coming steps:**
-  - step 3: run P1-01 probe in step 8 and the gate, not in the task (it needs a rebuilt, restarted stack);
-  - step 4: the `coupons/validate` rate rule is step 7's, not step 4's;
-  - step 6: test migrations on throwaway DBs (`createdb el_m6`, and `createdb -T <dev db> …` for an existing-DB copy while the dev stack is stopped), never by restarting the shared stack.
-- **Waiting on the user:** OK for `git add -f` on the 6a plan folder and Phase 5's `code-review.md` (step 1).
-- **Local stack:** the backend runs on the throwaway `el_e2e` DB with `api/.env.example` values, from Phase 5's gate, at pre-6a API code. Nothing serves `:3000`. Restore the dev stack (`scripts/stop-backend.sh`; drop `el_e2e`; start the backend on `api/.env` in a clean env; rebuild web; `next start` on :3000) once 6a no longer needs it.
-- **Runners:** scratchpad `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/82f6e474-1ed8-4c98-8fc5-a4d888a964e6/scratchpad/` (`e2e-up.sh`, `e2e-run.sh`, `e2e-env.sh`, `payreq.cjs`).
+### In flight / next step (checkpoint 2, 2026-10-03)
+- **Method:** subagent-driven development. The workspace is `.superpowers/sdd/plan/` (git-ignored), and `progress.md` is the ledger, with rulings R3–R12, the deferred minors and the agent ids. Steps 2, 3, 3a, 4, 6 and 5 are complete and have passed task review.
+- **In flight:** step 7 is implemented on opus from base `ff56ebe` (`f8800bc`, `9de4954`, `23d5bdc`, `a1fb767`); its report is `.superpowers/sdd/plan/task-7-report.md`. Its task review hasn't run yet. Next action: `review-package <plan> ff56ebe a1fb767`, then dispatch the task reviewer on opus (money, concurrency, lock order). The reviewer must judge the implementer's decisions beyond the brief, which are listed in the ledger:
+  - a settlement confirms only a still-pending row, and returns 409 to the losing double-submit;
+  - a confirmation takes the coupon lock first;
+  - a post-insert failure marks every checkout failed.
+- **Pre-existing issues step 7 found (outside 6a; tell the user and the planner):**
+  - the abandoned-checkout reminder job saves the whole payment row after its HTTP calls, so a webhook confirmation in that gap can be reverted to `pending`;
+  - reconcile and the sweep skip failed rows;
+  - a refused gift or pay request leaves its sponsorship row behind.
+- **Then:**
+  - Step 8: the brief `task-8-brief.md` is ready. It needs the stack rebuilt on branch code, using the scratchpad runners `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/6ddd59df-625a-442a-b5ba-23a48a35d507/scratchpad/{e2e-up.sh,e2e-run.sh}`.
+  - Step 9: the gate.
+  - The final whole-branch review. The ledger lists the deferred minors for it to triage. Two are flagged "FINAL REVIEW SHOULD TRIAGE": the password page hides the current-password field when the `/profiles/me` fetch fails, and a referral invite treats any auth error as "not an account".
+  - Code review by ethio-reviewer (base `origin/main` after the merge).
+- **Merge, now due:** Phase 4 is in main as #21, and Phase 5 merged as #22 (`4b4a64c`, per ethio-reviewer). Do the one `git fetch && git merge origin/main` into this branch at the next step boundary, which is after step 7's task review, before step 8. `merge-tree` says it's clean. Then rerun the api and web tests. It brings in `.gitleaks.toml` `9274e9f`. Code review base becomes `origin/main`, not `fix/web-p0`.
+- **Local stack:** the backend still runs on `el_e2e` at pre-6a API code, and nothing serves `:3000`. Restore the dev stack after 6a's e2e.
+- **Sharing with ethio-planner, who is running Phase 7a web in parallel** (worktree `/home/kal/Documents/code/ethi0-web`, `feat/ui-foundations`; their web is on `:3200`, with the cold twin on `:3300`):
+  - We still own docker and the API stack on `:4000`.
+  - To restart our web server, kill only the PID on `:3000` (`lsof -ti :3000`), never every `next-server`.
+  - Message the planner before restarting the stack or running e2e (we share the per-IP login limiter), and again when done. If they've asked for a Playwright window, hold restarts and e2e until they say done.
+  - 7a also edits `account/password/page.tsx`. Whichever branch merges second resolves that conflict, probably 6a.
 - **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths. Production is off-limits.
