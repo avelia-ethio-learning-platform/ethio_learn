@@ -147,7 +147,8 @@ function setup(opts: { institution?: boolean; status?: string; pendingAssessment
         if (pendingAssessments instanceof Error) throw pendingAssessments;
         return pendingAssessments ?? [];
       }
-      if (path.endsWith('/institution')) return { institution_id: 'inst1', institution_admin_user_id: 'inst-admin-1' };
+      // The instructor's membership no longer counts: notifications follow the course.
+      if (path.endsWith('/institution')) return { institution_id: null, institution_admin_user_id: null };
       return { name: 'Edu', email: 'e@x.et' };
     }),
   };
@@ -166,6 +167,7 @@ function setup(opts: { institution?: boolean; status?: string; pendingAssessment
     isStaffFor: jest.fn(async (ctx: any, c: any) => c.created_by === ctx.id || ['quality_officer', 'platform_admin'].includes(ctx.role)),
     clearSearchCache: jest.fn(),
     ownerContact: jest.fn(async () => ({ email: 'e@x.et', name: 'Edu' })),
+    institutionAdminId: jest.fn(async (id: string) => (id === 'inst1' ? 'inst-admin-1' : null)),
     myInstitutionId: jest.fn(async () => 'inst1'),
     publicSummary: jest.fn((c: any) => ({ id: c.id, title: c.title })),
   };
@@ -347,6 +349,8 @@ describe('RevisionService.submit', () => {
       { course_id: 'c1', course_title: 'Approved title', institution_admin_user_id: 'inst-admin-1', instructor_name: 'Edu', revision_id: 'rev1' },
     ]);
     expect(t.published('CourseRevisionSubmitted')).toHaveLength(0);
+    // The owner of the course's institution, even though the instructor has left it.
+    expect(t.courseService.institutionAdminId).toHaveBeenCalledWith('inst1');
   });
 
   it('creates a revision when the only change is a pending assessment', async () => {

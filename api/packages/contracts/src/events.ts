@@ -39,7 +39,8 @@ export const EVENT_TYPES = [
   'CourseSubmittedToInstitution', // instructor submitted → institution internal review
   'CourseInstitutionReviewed', // institution approved/rejected an instructor's course
   'RefundRequested', // a refund needs a platform admin decision (manual-review band)
-  'InstructorLinked', // an existing account was added as an institution instructor
+  'InstructorLinked', // a user accepted an institution's invitation and is now its instructor
+  'InstructorInvited', // an institution invited an existing account to teach (they accept or decline)
   'CourseRated', // learner review saved → course service caches rating aggregates for ranking
   // Growth & commerce (financial service):
   'SponsorshipGranted', // a gift / paid request / bulk seat is paid → enrollment grants access
@@ -170,6 +171,8 @@ export interface StaffInvitedPayload {
   role: string;
   /** One-time link where the invitee sets their own password (no password is ever emailed). */
   invite_url: string;
+  /** Set for an institution's instructor invite: the email names who invited them. */
+  institution_name?: string;
 }
 
 export interface CourseSubmittedToInstitutionPayload {
@@ -300,8 +303,8 @@ export interface RefundRequestedPayload {
   reason: string; // the rule that routed it to manual review
 }
 
-/** Emitted when an EXISTING account is added as an institution instructor
- *  (learner upgraded to educator, or an independent educator affiliated). */
+/** Emitted when a user accepts an institution's invitation in their own
+ *  session (a learner is upgraded to educator; an educator is affiliated). */
 export interface InstructorLinkedPayload {
   user_id: string;
   email: string;
@@ -310,6 +313,16 @@ export interface InstructorLinkedPayload {
   institution_name: string;
   /** true when the account was a learner and has just been upgraded to educator. */
   upgraded_from_learner: boolean;
+}
+
+/** An institution invited an existing account to teach. Nothing changes on the
+ *  account until the user accepts on /account/invites. */
+export interface InstructorInvitedPayload {
+  user_id: string;
+  email: string;
+  name: string;
+  institution_id: string;
+  institution_name: string;
 }
 
 export interface FraudFlagPayload {

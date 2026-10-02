@@ -68,4 +68,16 @@ describe('CertificateService.verify (public tamper check, spec §9.4)', () => {
     expect(await setup(null).verify(uid)).toEqual({ valid: false });
     expect(await setup(certRow(uid, goodSignature(), true)).verify(uid)).toEqual({ valid: false });
   });
+
+  it('refuses to sign without CERT_SIGNING_SECRET rather than falling back to another value', async () => {
+    const jwtSecret = process.env.JWT_SECRET;
+    delete process.env.CERT_SIGNING_SECRET;
+    process.env.JWT_SECRET = 'some-jwt-secret';
+    try {
+      await expect(setup(certRow(uid, goodSignature())).verify(uid)).rejects.toThrow('Missing required environment variable: CERT_SIGNING_SECRET');
+    } finally {
+      if (jwtSecret === undefined) delete process.env.JWT_SECRET;
+      else process.env.JWT_SECRET = jwtSecret;
+    }
+  });
 });

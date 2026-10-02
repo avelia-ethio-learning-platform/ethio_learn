@@ -400,6 +400,7 @@ describe('NotificationService: user text is escaped in every email', () => {
     CourseRevisionReviewed: [{ action: 'coach' }],
     CourseRevisionClosed: [{ outcome: 'applied' }, { outcome: 'rejected' }],
     InstructorLinked: [{ upgraded_from_learner: true }, { upgraded_from_learner: false }],
+    StaffInvited: [{}, { institution_name: undefined }],
     SponsorshipGranted: [{ source: 'bulk' }, { source: 'gift' }],
     SponsorshipInvited: [{ source: 'bulk' }],
     ReferralInviteSent: [{ existing_user: true }, { existing_user: false }],
@@ -432,7 +433,7 @@ describe('NotificationService: user text is escaped in every email', () => {
     // Guard against the sweep silently testing nothing.
     expect(new Set(covered)).toEqual(
       new Set([
-        'UserRegistered', 'PasswordResetRequested', 'StaffInvited', 'InstructorLinked', 'CourseReviewed', 'CourseRevisionReviewed',
+        'UserRegistered', 'PasswordResetRequested', 'StaffInvited', 'InstructorInvited', 'InstructorLinked', 'CourseReviewed', 'CourseRevisionReviewed',
         'CourseRevisionClosed', 'CoursePublished', 'PaymentConfirmed', 'PaymentFailed', 'EnrollmentCreated', 'CertificateIssued',
         'PayoutCompleted', 'FraudFlagRaised', 'FraudFlagResolved', 'RefundRequested', 'RefundApproved', 'RefundDenied',
         'CourseCompleted', 'AssessmentFailed', 'SponsorshipGranted', 'SponsorshipInvited', 'PayRequestCreated', 'ReferralInviteSent',
@@ -455,5 +456,30 @@ describe('NotificationService: user text is escaped in every email', () => {
     expect(mail.html).toContain('&lt;a href=&quot;https://evil.example/claim&quot;&gt;Claim your certificate&lt;/a&gt;');
     // The platform's own button is still a real link.
     expect(mail.html).toMatch(/<a href="http:\/\/localhost:3000\/learn\/c1\?changelog=1"/);
+  });
+});
+
+describe('NotificationService: institution invitations', () => {
+  it('tells an invited account where to accept, without claiming anything changed', async () => {
+    const t = setup();
+    await t.emit('InstructorInvited', { user_id: 'u1', email: 'u1@e.et', name: 'Abebe', institution_id: 'i1', institution_name: 'Addis Academy' });
+    expect(t.inboxRows).toEqual([
+      expect.objectContaining({ user_id: 'u1', title: 'Addis Academy invited you to teach', link: '/account/invites' }),
+    ]);
+    const [mail] = t.emails();
+    expect(mail.subject).toBe('Addis Academy invited you to teach with them');
+    expect(mail.html).toContain('http://localhost:3000/account/invites');
+    expect(mail.html).toContain('Nothing changes on your account until you accept');
+  });
+
+  it('names the institution in a new account’s setup email', async () => {
+    const t = setup();
+    await t.emit('StaffInvited', {
+      user_id: 'u2', email: 'u2@e.et', name: 'Sara', role: 'instructor',
+      invite_url: 'http://localhost:3000/accept-invite?token=t', institution_name: 'Addis Academy',
+    });
+    const [mail] = t.emails();
+    expect(mail.subject).toBe('Addis Academy invited you to teach on EthiopiaLearn');
+    expect(mail.html).toContain('Set a password first, then accept the invitation');
   });
 });

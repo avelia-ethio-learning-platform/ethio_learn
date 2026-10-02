@@ -3,11 +3,12 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Building2, Eye, MessageSquareText, Star, UserRound, Users } from 'lucide-react';
+import { ArrowRight, Building2, Eye, MessageSquareText, Star } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { BulkPurchases } from './bulk-purchases';
+import { InstructorManager } from './instructor-manager';
 
 function InstitutionDashboard() {
   const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
@@ -77,104 +78,6 @@ function InstitutionSetup() {
         </form>
       </div>
     </PageShell>
-  );
-}
-
-function InstructorManager({ institutionId }: { institutionId: string }) {
-  const queryClient = useQueryClient();
-  const [msg, setMsg] = useState('');
-  const { data: instructors } = useQuery({
-    queryKey: ['instructors', institutionId],
-    queryFn: () => api<any[]>(`/institutions/${institutionId}/instructors`),
-  });
-
-  const moderate = async (userId: string, status: string) => {
-    let reason: string | undefined;
-    if (status !== 'active') reason = prompt(`Reason for ${status} (optional):`) || undefined;
-    try {
-      await api(`/institutions/${institutionId}/instructors/${userId}/status`, { method: 'POST', body: { status, reason } });
-      queryClient.invalidateQueries({ queryKey: ['instructors', institutionId] });
-    } catch (err) {
-      alert((err as Error).message);
-    }
-  };
-
-  return (
-    <section className="card animate-fade-in-up !rounded-3xl">
-      <h2 className="flex items-center gap-2 font-bold text-foreground">
-        <span className="glass-secondary flex h-9 w-9 items-center justify-center rounded-xl">
-          <Users className="h-4 w-4 text-brand-600" />
-        </span>
-        Instructors
-      </h2>
-      <div className="mt-3 text-sm">
-        {!instructors?.length && <p className="py-2 text-gray-500">No instructors yet — invite your first below.</p>}
-        {instructors?.map((i, idx) => (
-          <div
-            key={i.id}
-            className="flex flex-wrap items-center justify-between gap-2 py-2.5"
-            style={idx > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
-          >
-            <span className="flex min-w-0 items-center gap-2 text-foreground">
-              <UserRound className="h-4 w-4 shrink-0 text-brand-400" />
-              <span className="truncate">
-                {i.name} <span className="text-gray-400">({i.email})</span> · {i.role_in_org}
-              </span>
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              <StatusBadge status={i.status} />
-              {i.status === 'active' ? (
-                <>
-                  <button className="text-xs font-medium text-amber-600 hover:underline dark:text-amber-400" onClick={() => moderate(i.user_id, 'suspended')}>
-                    Suspend
-                  </button>
-                  <button
-                    className="text-xs font-medium text-red-500 hover:underline"
-                    onClick={() => confirm(`Ban ${i.email}?`) && moderate(i.user_id, 'banned')}
-                  >
-                    Ban
-                  </button>
-                </>
-              ) : (
-                <button className="text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => moderate(i.user_id, 'active')}>
-                  Reactivate
-                </button>
-              )}
-            </span>
-          </div>
-        ))}
-      </div>
-      <form
-        className="mt-4 flex flex-wrap gap-2 pt-4"
-        style={{ borderTop: '1px solid var(--border)' }}
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const form = new FormData(e.currentTarget);
-          try {
-            const res = await api<{ invited: boolean; upgraded: boolean }>(`/institutions/${institutionId}/instructors`, {
-              method: 'POST',
-              body: { name: form.get('name'), email: form.get('email') },
-            });
-            setMsg(
-              res.invited
-                ? 'Instructor invited — they’ll get a secure link to set their own password.'
-                : res.upgraded
-                  ? 'That learner was upgraded to an instructor — they’ll be notified to sign in again.'
-                  : 'Existing educator added as an instructor — their independent courses are unchanged.',
-            );
-            (e.target as HTMLFormElement).reset();
-            queryClient.invalidateQueries({ queryKey: ['instructors', institutionId] });
-          } catch (err) {
-            setMsg((err as Error).message);
-          }
-        }}
-      >
-        <input name="name" required placeholder="Instructor name" className="input flex-1" />
-        <input name="email" type="email" required placeholder="Instructor email" className="input flex-1" />
-        <button className="btn-secondary">Invite instructor</button>
-        {msg && <p className="w-full text-xs font-medium text-brand-600">{msg}</p>}
-      </form>
-    </section>
   );
 }
 

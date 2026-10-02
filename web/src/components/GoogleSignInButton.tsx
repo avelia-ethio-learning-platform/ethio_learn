@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, setAuth } from '@/lib/api';
+import { roleHome, safeNext } from '@/lib/safe-next';
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 const GSI_SRC = 'https://accounts.google.com/gsi/client';
@@ -63,11 +64,7 @@ export function GoogleSignInButton({ next }: { next?: string | null }) {
         });
         setAuth({ access_token: res.access_token, user: res.user });
         if (res.user.must_change_password) router.push('/account/password?first=1');
-        else if (next) router.push(next);
-        else if (res.user.role === 'learner') router.push('/dashboard');
-        else if (res.user.role === 'quality_officer') router.push('/qa');
-        else if (res.user.role === 'platform_admin') router.push('/admin');
-        else router.push('/teach');
+        else router.push(safeNext(next, roleHome(res.user.role)));
       } catch (err) {
         setError((err as Error).message || 'Google sign-in failed');
       }

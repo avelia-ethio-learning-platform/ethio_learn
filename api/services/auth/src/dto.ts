@@ -135,7 +135,7 @@ export class AddInstructorDto {
   @IsEmail()
   email: string;
 
-  /** Required when inviting a brand-new instructor (an account is created for them). */
+  /** Used for a brand-new account (the invitee can change it); ignored for existing accounts. */
   @IsOptional()
   @IsString()
   @MinLength(2)
@@ -146,6 +146,17 @@ export class AddInstructorDto {
   @IsString()
   @MaxLength(80)
   role_in_org?: string;
+}
+
+/** An institution admin changes a membership; the user's account is never touched. */
+export class MembershipStatusDto {
+  @IsIn(['active', 'suspended', 'removed'])
+  status: 'active' | 'suspended' | 'removed';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }
 
 export class ChangePasswordDto {

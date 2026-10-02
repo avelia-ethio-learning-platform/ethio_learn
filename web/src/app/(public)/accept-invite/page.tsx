@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, PartyPopper, TriangleAlert } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
+import { roleHome } from '@/lib/safe-next';
 import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
 import { AuthShell } from '@/components/PageChrome';
 
@@ -37,14 +38,14 @@ function AcceptInvite() {
     setBusy(true);
     setError('');
     try {
-      const res = await api<{ access_token: string; user: any }>('/auth/accept-invite', {
+      const res = await api<{ access_token: string; user: any; pending_institution_invites?: number }>('/auth/accept-invite', {
         method: 'POST',
         auth: false,
         body: { token, new_password: password },
       });
       setAuth({ access_token: res.access_token, user: res.user });
-      const role = res.user.role;
-      router.push(role === 'quality_officer' ? '/qa' : role === 'platform_admin' ? '/admin' : role === 'learner' ? '/dashboard' : '/teach');
+      // An institution's invitation is accepted next, by name, on its own page.
+      router.push(res.pending_institution_invites ? '/account/invites' : roleHome(res.user.role));
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -83,16 +84,26 @@ function AcceptInvite() {
       icon={<PartyPopper className="h-6 w-6" />}
       title={`Welcome, ${info.name.split(' ')[0]}!`}
       subtitle={
-        <>
-          You&apos;ve been invited as <strong className="text-foreground">{info.role.replace('_', ' ')}</strong>. Choose a password for{' '}
-          <strong className="text-foreground">{info.email}</strong> to activate your account.
-        </>
+        info.role === 'learner' ? (
+          // An institution's invitee: the account is a learner until they accept.
+          <>
+            Choose a password for <strong className="text-foreground">{info.email}</strong>. Then you can accept your invitation to teach.
+          </>
+        ) : (
+          <>
+            You&apos;ve been invited as <strong className="text-foreground">{info.role.replace('_', ' ')}</strong>. Choose a password for{' '}
+            <strong className="text-foreground">{info.email}</strong> to activate your account.
+          </>
+        )
       }
     >
       <form onSubmit={submit} className="space-y-4">
         <div>
-          <label className="label">Choose a password</label>
+          <label className="label" htmlFor="invite-password">
+            Choose a password
+          </label>
           <input
+            id="invite-password"
             type="password"
             minLength={8}
             required

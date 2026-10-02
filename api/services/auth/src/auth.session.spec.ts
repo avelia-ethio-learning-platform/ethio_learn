@@ -50,7 +50,7 @@ class FakeRedis {
 
 function makeService() {
   const redis = new FakeRedis();
-  const svc = new AuthService({} as never, {} as never, {} as never, {} as never);
+  const svc = new AuthService({} as never, {} as never, {} as never, {} as never, {} as never);
   // Replace the real ioredis connection (opened at field init) with the fake,
   // and stop the real one so no socket lingers during the test run.
   const real = (svc as unknown as { redis: { disconnect?: () => void } }).redis;

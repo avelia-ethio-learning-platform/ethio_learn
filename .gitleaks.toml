@@ -22,6 +22,7 @@ regexes = [
   '''your-app-password''',
   '''re_xxxx''',
   '''Password123!''', # documented demo seed password
+  '''Strong-passw0rd''', # made-up password in web unit tests
   '''dev-webhook-secret''',
   '''minioadmin''',
   '''ethiopialearn:ethiopialearn''', # local dev postgres dsn

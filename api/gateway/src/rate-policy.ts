@@ -47,7 +47,7 @@ const SUPPORT = /^\/api\/v1\/support\/contact$/;
 // Every endpoint that opens a checkout / moves money.
 const PAYMENT_INITIATE = /^\/api\/v1\/(payments\/initiate|wallet\/topup|gifts|bulk-purchases|pay-requests\/[^/]+\/pay)$/;
 // Invitations by email are a spam vector — same bucket as comments/DMs.
-const INVITES = /^\/api\/v1\/(referrals\/invite|pay-requests|bulk-purchases\/[^/]+\/assign)$/;
+const INVITES = /^\/api\/v1\/(referrals\/invite|pay-requests|bulk-purchases\/[^/]+\/assign|institutions\/[^/]+\/instructors)$/;
 // Chapa calls the webhook — throttling it could drop legitimate payment
 // confirmations, so it stays on the general bucket only.
 const WEBHOOK = /^\/api\/v1\/payments\/webhook\//;

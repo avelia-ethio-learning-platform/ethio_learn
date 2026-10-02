@@ -34,10 +34,14 @@ export class InternalController {
     return { id: user.id, name: user.name, email: user.email, role: user.role };
   }
 
-  /** Is this educator an instructor of an institution? Used to route the review workflow. */
+  /**
+   * The institution this educator's NEW courses route to: their active
+   * membership only (an invitation, or a suspended or removed membership,
+   * routes nothing). Submit notifications use the course's own institution.
+   */
   @Get('users/:id/institution')
   async userInstitution(@Param('id') id: string) {
-    const membership = await this.instructors.findOne({ where: { user_id: id } });
+    const membership = await this.instructors.findOne({ where: { user_id: id, status: 'active' } });
     if (!membership) return { institution_id: null, institution_admin_user_id: null, institution_name: null };
     const institution = await this.institutions.findOne({ where: { id: membership.institution_id } });
     return {

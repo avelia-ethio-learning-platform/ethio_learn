@@ -136,6 +136,7 @@ function setup(fx: Fixture = {}) {
     get: jest.fn(async (path: string) => {
       if (path.includes('/entitlements')) return { entitlement_status: fx.entitlement ?? 'none' };
       if (path.includes('/institutions/by-owner/')) return { id: 'inst1' };
+      if (path.endsWith('/internal/institutions/inst1')) return { id: 'inst1', name: 'Inst', email: 'i@x.et', owner_user_id: 'ia1' };
       if (path.endsWith('/pending-assessments')) return fx.pendingAssessments ?? [];
       return { name: 'Edu', email: 'e@x.et' };
     }),
@@ -989,6 +990,20 @@ function staleNextLoad(h: ReturnType<typeof setup>, concurrent: Row) {
     return snapshot;
   });
 }
+
+describe('Submitting an institution course', () => {
+  it('notifies the owner of the course’s institution, even after the instructor left it', async () => {
+    // The instructor's membership lookup finds nothing (the default internal answer).
+    const h = setup({ course: { status: 'draft', published_at: null, institution_id: 'inst1' } });
+    await h.service.submit(OWNER, 'c1');
+    expect(h.course.status).toBe('institution_review');
+    expect(h.bus.publish).toHaveBeenCalledWith(
+      'CourseSubmittedToInstitution',
+      expect.objectContaining({ course_id: 'c1', institution_admin_user_id: 'ia1', revision_id: null }),
+    );
+    expect(h.internal.get).not.toHaveBeenCalledWith(expect.stringMatching(/\/users\/[^/]+\/institution$/));
+  });
+});
 
 describe('Lifecycle transitions write only the columns they change', () => {
   const decision = (action: string) => ({ course_id: 'c1', action, notes: 'n', qo_id: 'qo1', owner_user_id: 'edu1', owner_email: 'e@x.et', course_title: 'x' });

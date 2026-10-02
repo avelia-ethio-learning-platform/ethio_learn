@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, OneToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Check, Column, CreateDateColumn, Entity, Index, JoinColumn, OneToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Role, TrustTier, UserStatus } from '@ethiopialearn/contracts';
 
 @Entity({ name: 'users' })
@@ -137,12 +137,23 @@ export class Institution {
   created_at: Date;
 }
 
+/**
+ * A membership is an invitation until the user accepts it in their own
+ * session; only an accepted (active) membership routes courses to the
+ * institution. Admins suspend or remove the membership, never the account.
+ */
+export const MEMBERSHIP_STATUSES = ['invited', 'active', 'suspended', 'removed', 'declined'] as const;
+export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
+
 @Entity({ name: 'institution_instructors' })
+@Check('CHK_institution_instructors_status', `status IN ('invited', 'active', 'suspended', 'removed', 'declined')`)
+@Index('IDX_institution_instructors_institution_id_user_id', ['institution_id', 'user_id'], { unique: true })
+// One routing institution per instructor; also serves the internal lookup.
+@Index('IDX_institution_instructors_active_user_id', ['user_id'], { unique: true, where: `status = 'active'` })
 export class InstitutionInstructor {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index()
   @Column('uuid')
   institution_id: string;
 
@@ -151,4 +162,20 @@ export class InstitutionInstructor {
 
   @Column({ default: 'instructor' })
   role_in_org: string;
+
+  @Column({ type: 'varchar', length: 16, default: 'invited' })
+  status: MembershipStatus;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  status_reason: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  invited_by: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  created_at: Date;
+
+  /** Set when the user accepts; null for an invitation never accepted. */
+  @Column({ type: 'timestamptz', nullable: true })
+  accepted_at: Date | null;
 }

@@ -181,9 +181,12 @@ export class CertificateService implements OnModuleInit {
     return types;
   }
 
+  // No fallback: a missing secret must fail loudly rather than sign with a
+  // guessable value (production boot also checks it, assertProductionConfig).
   private sign(uid: string): string {
-    return createHmac('sha256', env('CERT_SIGNING_SECRET', env('JWT_SECRET', 'dev-jwt-secret-change-me'))).update(uid).digest('hex');
+    return createHmac('sha256', env('CERT_SIGNING_SECRET')).update(uid).digest('hex');
   }
+
 
   private renderPdf(
     p: CourseCompletedPayload,

@@ -310,12 +310,14 @@ function UsersTab() {
   const { data } = useQuery({ queryKey: ['admin-users', q], queryFn: () => api<any>(`/admin/users?q=${encodeURIComponent(q)}`) });
 
   const setStatus = async (id: string, status: string) => {
-    let reason: string | null = '';
+    let reason: string | undefined;
     if (status !== 'active') {
-      reason = prompt(`Reason for ${status} (optional):`) ?? '';
+      const answer = prompt(`Reason for ${status} (optional):`);
+      if (answer === null) return; // Cancel means cancel: nothing is sent
+      reason = answer.trim() || undefined;
     }
     try {
-      await api(`/admin/users/${id}/status`, { method: 'POST', body: { status, reason: reason || undefined } });
+      await api(`/admin/users/${id}/status`, { method: 'POST', body: { status, reason } });
       queryClient.invalidateQueries({ queryKey: ['admin-users', q] });
     } catch (err) {
       alert((err as Error).message);
