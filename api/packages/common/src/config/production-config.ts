@@ -9,6 +9,8 @@ export interface ProductionConfigSpec {
   secrets?: readonly string[];
   /** Talks to S3 storage: with S3_ENDPOINT set, the keys must be real ones. */
   storage?: boolean;
+  /** The service's own rules (financial: Chapa live mode and keys), one problem per line, never values. */
+  rules?: (environment: NodeJS.ProcessEnv) => string[];
 }
 
 export const MIN_SECRET_LENGTH = 32;
@@ -82,6 +84,7 @@ export function productionConfigProblems(spec: ProductionConfigSpec, environment
       else if (isKnownDevValue(v)) problems.push(`${name} is a development default from the repo`);
     }
   }
+  if (spec.rules) problems.push(...spec.rules(environment));
   return problems;
 }
 
