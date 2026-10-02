@@ -244,6 +244,8 @@ export class AuthService {
   async changePassword(userId: string, dto: ChangePasswordDto) {
     const user = await this.users.findOne({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('Invalid session');
+    // A suspended or banned account must not mint a fresh session from a still-valid token.
+    this.assertActive(user);
     if (user.password_hash && !user.must_change_password) {
       if (!dto.current_password) throw new BadRequestException('Current password is required.');
       if (!(await bcrypt.compare(dto.current_password, user.password_hash))) {

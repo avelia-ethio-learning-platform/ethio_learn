@@ -69,6 +69,19 @@ describe('AuthService.changePassword', () => {
     expect(revoke).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['suspended', 'This account is suspended. Contact support for help.'],
+    ['banned', 'This account has been banned. Contact support if you believe this is a mistake.'],
+  ])('refuses a %s account before any check, update, revoke or session', async (status, message) => {
+    const { svc, users, revoke, calls } = makeService(await userRow({ status }));
+    await expect(svc.changePassword('u1', { new_password: NEW, current_password: OLD })).rejects.toEqual(
+      new UnauthorizedException(message),
+    );
+    expect(users.update).not.toHaveBeenCalled();
+    expect(revoke).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
   it('accepts the correct current password, saves a new hash and returns a login-shaped session', async () => {
     const row = await userRow();
     const { svc } = makeService(row);
