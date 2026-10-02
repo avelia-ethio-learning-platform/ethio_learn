@@ -4,6 +4,7 @@ import { buildTypeOrmOptions, EventBusModule, HealthController, InternalHttpClie
 import { entities, migrations, SCHEMA } from './database';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { MembershipService } from './membership.service';
 import { ProfilesController } from './profiles.controller';
 import { AdminUsersController } from './admin.controller';
 import { InternalController } from './internal.controller';
@@ -15,6 +16,6 @@ import { InternalController } from './internal.controller';
     EventBusModule.forRoot({ serviceName: 'auth' }),
   ],
   controllers: [AuthController, ProfilesController, AdminUsersController, InternalController, HealthController],
-  providers: [AuthService, InternalHttpClient],
+  providers: [AuthService, MembershipService, InternalHttpClient],
 })
 export class AppModule {}

@@ -26,6 +26,13 @@ describe('rate-limit policy classification', () => {
     expect(classifyRequest('POST', '/api/v1/comments/c1/replies')).toBe('community-write');
   });
 
+  it('puts institution instructor invitations in the spam bucket (they send email)', () => {
+    expect(classifyRequest('POST', '/api/v1/institutions/i1/instructors')).toBe('community-write');
+    // Status changes and the list are not invitations.
+    expect(classifyRequest('POST', '/api/v1/institutions/i1/instructors/m1/status')).toBe('write');
+    expect(classifyRequest('GET', '/api/v1/institutions/i1/instructors')).toBe('general');
+  });
+
   it('puts the public support form in the spam bucket', () => {
     expect(classifyRequest('POST', '/api/v1/support/contact')).toBe('community-write');
   });

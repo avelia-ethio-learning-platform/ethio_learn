@@ -207,18 +207,18 @@ export class RevisionService implements OnModuleInit {
     if (!res.affected) throw new ConflictException('Your changes changed state while submitting. Reload the page and try again.');
 
     if (status === 'institution_review') {
-      const inst = await this.resolveInstitution(course.created_by);
+      const adminId = await this.courseService.institutionAdminId(course.institution_id!);
       const owner = await this.courseService.ownerContact(course);
-      if (inst?.institution_admin_user_id) {
+      if (adminId) {
         await this.bus.publish<CourseSubmittedToInstitutionPayload>('CourseSubmittedToInstitution', {
           course_id: course.id,
           course_title: course.title,
-          institution_admin_user_id: inst.institution_admin_user_id,
+          institution_admin_user_id: adminId,
           instructor_name: owner.name,
           revision_id: revision.id,
         });
       } else {
-        this.logger.warn(`revision ${revision.id}: no institution admin found for ${course.created_by}; it waits in the institution queue unannounced`);
+        this.logger.warn(`revision ${revision.id}: no owner found for institution ${course.institution_id}; it waits in the institution queue unannounced`);
       }
     } else {
       await this.publishSubmitted(course, revision.id, diff, summary, major, hash);
@@ -709,16 +709,6 @@ export class RevisionService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(`pending assessments for course ${courseId} unavailable: ${(err as Error).message}`);
       return { ok: false, items: [] };
-    }
-  }
-
-  private async resolveInstitution(userId: string) {
-    try {
-      return await this.internal.get<{ institution_id: string | null; institution_admin_user_id: string | null }>(
-        `/api/v1/internal/users/${userId}/institution`,
-      );
-    } catch {
-      return null;
     }
   }
 

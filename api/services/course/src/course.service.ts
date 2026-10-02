@@ -713,13 +713,13 @@ export class CourseService implements OnModuleInit {
     const { course } = outcome;
 
     if (next === CourseStatus.INSTITUTION_REVIEW) {
-      const inst = await this.resolveInstitution(course.created_by);
+      const adminId = await this.institutionAdminId(course.institution_id!);
       const owner = await this.ownerContact(course);
-      if (inst?.institution_admin_user_id) {
+      if (adminId) {
         await this.bus.publish('CourseSubmittedToInstitution', {
           course_id: course.id,
           course_title: course.title,
-          institution_admin_user_id: inst.institution_admin_user_id,
+          institution_admin_user_id: adminId,
           instructor_name: owner.name,
           revision_id: null,
         });
@@ -743,6 +743,20 @@ export class CourseService implements OnModuleInit {
   }
 
   // ---- Institution internal review workflow ----
+
+  /**
+   * Who reviews an institution course: the owner of the course's own
+   * institution, which is also whose queue lists it. Not the instructor's
+   * current membership, which may be suspended, removed or elsewhere by now.
+   */
+  async institutionAdminId(institutionId: string): Promise<string | null> {
+    try {
+      const inst = await this.internal.get<{ owner_user_id?: string }>(`/api/v1/internal/institutions/${institutionId}`);
+      return inst.owner_user_id ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   private async resolveInstitution(userId: string) {
     try {

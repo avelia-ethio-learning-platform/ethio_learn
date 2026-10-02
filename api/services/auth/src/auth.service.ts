@@ -7,7 +7,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import Redis from 'ioredis';
 import { env, EventBusService } from '@ethiopialearn/common';
 import { PasswordResetRequestedPayload, Role, UserRegisteredPayload, UserStatus } from '@ethiopialearn/contracts';
-import { EmailVerification, PasswordReset, User } from './entities';
+import { EmailVerification, InstitutionInstructor, PasswordReset, User } from './entities';
 import { LoginDto, SignupDto } from './dto';
 
 /** Generate a strong one-time password for invited staff / instructors. */
@@ -43,6 +43,7 @@ export class AuthService {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(EmailVerification) private readonly verifications: Repository<EmailVerification>,
     @InjectRepository(PasswordReset) private readonly resets: Repository<PasswordReset>,
+    @InjectRepository(InstitutionInstructor) private readonly memberships: Repository<InstitutionInstructor>,
     private readonly bus: EventBusService,
   ) {}
 
@@ -280,16 +281,23 @@ export class AuthService {
   }
 
   /**
-   * Accept an invite: the invitee sets their own password. Marks the account
-   * verified + active, clears must_change_password, and logs them straight in.
+   * Accept an invite: the invitee sets their own password, the account is
+   * marked verified, and they're logged straight in. Only the password: it is
+   * the same link for staff onboarding and institution instructors, and an
+   * institution invitation is accepted separately, by name, on
+   * /account/invites (`pending_institution_invites` tells the page to go there).
    */
-  async acceptInvite(token: string, newPassword: string): Promise<{ access_token: string; expires_in: number; refresh_token: string; user: object }> {
+  async acceptInvite(
+    token: string,
+    newPassword: string,
+  ): Promise<{ access_token: string; expires_in: number; refresh_token: string; user: object; pending_institution_invites: number }> {
     const record = await this.resets.findOne({ where: { token } });
     if (!record || record.used_at || record.expires_at < new Date()) {
       throw new BadRequestException('This invite link is invalid or has expired. Ask your administrator to re-send it.');
     }
     const user = await this.users.findOne({ where: { id: record.user_id } });
     if (!user) throw new BadRequestException('Invite is no longer valid');
+    this.assertActive(user); // a suspended or banned account can't log in through its setup link
     record.used_at = new Date();
     await this.resets.save(record);
     user.password_hash = await bcrypt.hash(newPassword, 10);
@@ -302,6 +310,7 @@ export class AuthService {
       expires_in: ACCESS_TOKEN_TTL_SECONDS,
       refresh_token: refreshToken,
       user: this.publicUser(user),
+      pending_institution_invites: await this.memberships.count({ where: { user_id: user.id, status: 'invited' } }),
     };
   }
 
