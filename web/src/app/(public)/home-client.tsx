@@ -35,7 +35,16 @@ const stagger: Variants = {
   visible: { opacity: 1, transition: { staggerChildren: 0.12 } },
 };
 
-export function HomeClient({ courses, total }: { courses: CourseSummary[]; total: number }) {
+export function HomeClient({
+  courses,
+  total,
+  coursesUnavailable = false,
+}: {
+  courses: CourseSummary[];
+  total: number;
+  /** The build couldn't reach the API, so the list is empty until the first revalidation fills it. */
+  coursesUnavailable?: boolean;
+}) {
   const { t } = useT();
 
   const stats = [
@@ -62,7 +71,7 @@ export function HomeClient({ courses, total }: { courses: CourseSummary[]; total
   return (
     <div className="overflow-hidden">
       {/* ================= HERO (contained gradient panel, mirrors the floating nav width) ================= */}
-      <section className="relative px-3 pb-16 pt-24 sm:px-6 md:pt-28">
+      <section className="relative px-3 pb-16 sm:px-6">
         {/* Soft section backdrop behind the panel */}
         <div className="absolute inset-0 -z-10">
           <div className="absolute inset-0 bg-gradient-to-b from-brand-50/60 via-background to-background transition-colors duration-300 dark:from-blue-950/30" />
@@ -288,7 +297,16 @@ export function HomeClient({ courses, total }: { courses: CourseSummary[]; total
           </motion.div>
 
           {/* Grid */}
-          {courses.length === 0 ? (
+          {courses.length === 0 && coursesUnavailable ? (
+            <div className="card mx-auto mt-10 max-w-lg py-12 text-center">
+              <p className="text-lg font-medium text-foreground">{t('courses_loading')}</p>
+              <p className="mt-3 text-sm">
+                <Link className="font-semibold text-brand-600 hover:underline" href="/courses">
+                  {t('browse_catalog')} →
+                </Link>
+              </p>
+            </div>
+          ) : courses.length === 0 ? (
             <motion.div
               className="card mx-auto mt-10 max-w-lg py-12 text-center"
               initial={{ opacity: 0, y: 16 }}

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { serverApi } from '@/lib/server-api';
+import { serverApi, staticFallback } from '@/lib/server-api';
 import { BackButton } from '@/components/BackButton';
 
 export const metadata: Metadata = {
@@ -22,10 +22,10 @@ interface TopEducator {
 export const revalidate = 120;
 
 export default async function EducatorsPage() {
-  const educators = (await serverApi<TopEducator[]>('/educators/top?limit=24', 120)) ?? [];
+  const { data: educators, unavailable } = staticFallback(await serverApi<TopEducator[]>('/educators/top?limit=24', 120), []);
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="page-shell max-w-3xl">
       <BackButton fallback="/" label="Browse courses" />
       <h1 className="text-3xl font-bold">🏆 Top educators</h1>
       <p className="mt-2 text-gray-600">
@@ -71,7 +71,9 @@ export default async function EducatorsPage() {
           </li>
         ))}
         {educators.length === 0 && (
-          <li className="card text-center text-gray-500">No published educators yet.</li>
+          <li className="card text-center text-gray-500">
+            {unavailable ? 'The ranking is loading. Check back in a minute.' : 'No published educators yet.'}
+          </li>
         )}
       </ol>
     </div>

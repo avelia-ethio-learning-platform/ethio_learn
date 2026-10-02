@@ -187,6 +187,7 @@ services:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
         NEXT_PUBLIC_S3_PUBLIC_URL: ${NEXT_PUBLIC_S3_PUBLIC_URL:-http://localhost:9000/ethiopialearn}
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+        NEXT_PUBLIC_WAKE_URLS: ${NEXT_PUBLIC_WAKE_URLS:-}
     environment:
       GATEWAY_INTERNAL_URL: http://gateway:4000
     ports: ["3000:3000"]

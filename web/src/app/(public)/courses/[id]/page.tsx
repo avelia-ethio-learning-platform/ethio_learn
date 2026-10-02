@@ -7,6 +7,7 @@ import { priceLabel } from '@/components/CourseCard';
 import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
+import { WakingUp } from '@/components/WakingUp';
 import { EnrollPanel } from './enroll-panel';
 import { jsonLdScript } from '@/lib/json-ld';
 
@@ -35,8 +36,11 @@ interface Reviews {
 }
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const course = await serverApi<CourseDetail>(`/courses/${params.id}`, 300);
-  if (!course) return { title: 'Course not found' };
+  const result = await serverApi<CourseDetail>(`/courses/${params.id}`, 300);
+  if (!result.ok) {
+    return result.status === 404 ? { title: 'Course not found' } : { title: 'Waking up the server', robots: { index: false } };
+  }
+  const course = result.data;
   return {
     title: course.title,
     description: course.description.slice(0, 160),
@@ -51,9 +55,15 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 }
 
 export default async function CoursePage({ params }: { params: { id: string } }) {
-  const course = await serverApi<CourseDetail>(`/courses/${params.id}`, 60);
-  if (!course) notFound();
-  const reviews = await serverApi<Reviews>(`/courses/${params.id}/reviews`, 60);
+  const result = await serverApi<CourseDetail>(`/courses/${params.id}`, 60);
+  if (!result.ok) {
+    if (result.status === 404) notFound();
+    return <WakingUp />;
+  }
+  const course = result.data;
+  // Reviews are optional: without them the page still renders.
+  const reviewsResult = await serverApi<Reviews>(`/courses/${params.id}/reviews`, 60);
+  const reviews = reviewsResult.ok ? reviewsResult.data : null;
 
   const totalLessons = course.sections.reduce((n, s) => n + s.lessons.length, 0);
   const totalMinutes = Math.round(
@@ -90,8 +100,8 @@ export default async function CoursePage({ params }: { params: { id: string } })
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
       <BackButton fallback="/courses" label="Browse courses" />
 
-      <div className="grid gap-8 lg:grid-cols-3">
-        <div className="animate-fade-in-up lg:col-span-2">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <div className="animate-fade-in-up min-w-0 lg:col-span-2">
           <span className="badge-info uppercase tracking-wider">{course.category}</span>
           {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
             <span className="badge-success ml-2">Recently updated</span>
@@ -156,7 +166,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
           )}
         </div>
 
-        <aside className="animate-fade-in-up">
+        <aside className="animate-fade-in-up min-w-0">
           <div className="card sticky top-28 !rounded-3xl !p-6 shadow-elevated">
             <p className="gradient-text-blue text-3xl font-extrabold">{priceLabel(course)}</p>
             <EnrollPanel courseId={course.id} pricingType={course.pricing_type}  price={course.price_etb} />

@@ -50,7 +50,7 @@ Render exposes a service's env vars to the image build as Docker build args.
 The frontend is deliberately **not** in that blueprint — `web/` goes to Vercel
 with **Root Directory = `web`**.
 
-Three things about this split are easy to miss:
+Four things about this split are easy to miss:
 
 - **The refresh cookie is cross-site.** `*.vercel.app` and `*.onrender.com` are
   different registrable domains, so the default `SameSite=Lax` cookie is never
@@ -64,6 +64,19 @@ Three things about this split are easy to miss:
   connection string carries `sslmode=require`; `DB_SSL` overrides either way.
   Use the **pooled** (`…-pooler.…`) host and keep `DB_POOL_MAX` small — 7
   services each holding a pool adds up fast on the free tier.
+- **Free-tier services sleep, and only outside traffic wakes them.** After 15
+  idle minutes a sleeping service answers the gateway with an immediate
+  `429` (`x-render-routing: hibernate-rate-limited`) and stays asleep; a
+  request to its own public `/health` from outside Render wakes it in about
+  25 s. The web app does that from the browser when it meets a sleeping
+  service: set `NEXT_PUBLIC_WAKE_URLS` on Vercel (Production) to the eight
+  public `/health` URLs, comma-separated:
+  `https://ethiopialearn-gateway.onrender.com/health`, and the same for `auth`,
+  `course`, `enrollment`, `outcomes`, `financial`, `quality` and
+  `notification`. It is inlined at build time, so redeploy after setting it.
+  Up to eight `ERR_BLOCKED_BY_RESPONSE` console errors per wake are expected
+  (Helmet's `Cross-Origin-Resource-Policy` blocks the opaque responses); the
+  requests still reach Render.
 
 Before the first boot, run `docker/postgres-init.sql` against the Neon database
 once to create the 7 schemas and `pgcrypto`; the services' migrations create

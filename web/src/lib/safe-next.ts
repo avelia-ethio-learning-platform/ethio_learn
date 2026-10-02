@@ -1,9 +1,19 @@
-/** Where each role lands after signing in when there is no (safe) `next`. */
+const HOMES: Record<string, { href: string; label: string }> = {
+  learner: { href: '/dashboard', label: 'My learning' },
+  educator: { href: '/teach', label: 'Educator dashboard' },
+  institution_admin: { href: '/institution', label: 'Institution dashboard' },
+  quality_officer: { href: '/qa', label: 'Review queue' },
+  platform_admin: { href: '/admin', label: 'Admin' },
+};
+
+/** Where each role lands after signing in when there is no (safe) `next`: a page that role can use. */
 export function roleHome(role: string | undefined): string {
-  if (role === 'learner') return '/dashboard';
-  if (role === 'quality_officer') return '/qa';
-  if (role === 'platform_admin') return '/admin';
-  return '/teach';
+  return (role && HOMES[role]?.href) || '/';
+}
+
+/** The name of `roleHome(role)`, for back links on pages several roles share. */
+export function roleHomeLabel(role: string | undefined): string {
+  return (role && HOMES[role]?.label) || 'Home';
 }
 
 const BASE = 'http://same-origin.invalid';

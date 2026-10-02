@@ -46,6 +46,7 @@ export function TutorPanel({ courseId }: { courseId: string }) {
       const res = await api<{ answer: string; sources: string[]; not_covered: boolean; ai_live: boolean }>(`/courses/${courseId}/chat`, {
         method: 'POST',
         body: { question: q },
+        slow: true,
       });
       setMessages((m) => [...m, { id: `a-${Date.now()}`, role: 'assistant', content: res.answer, sources: res.sources, not_covered: res.not_covered }]);
     } catch (err) {

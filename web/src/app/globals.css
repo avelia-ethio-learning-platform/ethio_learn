@@ -111,14 +111,16 @@
 }
 
 @layer base {
+  /* clip, not hidden: hidden makes html/body scroll containers, which breaks
+     position: sticky everywhere and hides real overflow in QA. */
   html {
     scroll-behavior: smooth;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   body {
     @apply bg-background font-sans text-foreground antialiased;
-    overflow-x: hidden;
+    overflow-x: clip;
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 
@@ -145,8 +147,9 @@
 
 @layer components {
   /* -------- Layout shell for inner pages (below fixed nav) -------- */
+  /* The fixed header's offset lives on the layout's <main> (pt-28), so no page can render under it. */
   .page-shell {
-    @apply mx-auto w-full max-w-6xl px-4 pb-20 pt-28 sm:px-6;
+    @apply mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6;
   }
 
   /* -------- Glass surfaces (template) -------- */

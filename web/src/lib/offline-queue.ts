@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from './api';
+import { api, WakingError } from './api';
 
 /**
  * Offline outbox for learning-progress writes.
@@ -46,6 +46,7 @@ export function outboxSize(): number {
 
 function isNetworkError(err: unknown): boolean {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  if (err instanceof WakingError) return true; // unreachable or asleep: keep the write for later
   const msg = (err as Error)?.message ?? '';
   return /failed to fetch|networkerror|load failed|network request failed/i.test(msg);
 }

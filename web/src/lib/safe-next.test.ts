@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { roleHome, safeNext } from './safe-next';
+import { roleHome, roleHomeLabel, safeNext } from './safe-next';
 
 describe('safeNext', () => {
   it.each(['/teach', '/courses/c1?tab=reviews', '/pay/abc#top', '/'])('follows the same-origin path %s', (next) => {
@@ -45,8 +45,19 @@ describe('roleHome', () => {
     ['quality_officer', '/qa'],
     ['platform_admin', '/admin'],
     ['educator', '/teach'],
-    ['institution_admin', '/teach'],
+    ['institution_admin', '/institution'],
   ])('%s → %s', (role, home) => {
     expect(roleHome(role)).toBe(home);
+  });
+
+  it('an unknown or missing role goes home', () => {
+    expect(roleHome(undefined)).toBe('/');
+    expect(roleHome('superuser')).toBe('/');
+    expect(roleHomeLabel(undefined)).toBe('Home');
+  });
+
+  it('names each role home', () => {
+    expect(roleHomeLabel('institution_admin')).toBe('Institution dashboard');
+    expect(roleHomeLabel('educator')).toBe('Educator dashboard');
   });
 });

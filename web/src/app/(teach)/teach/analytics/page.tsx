@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { BarChart3, Star, TrendingUp, Users } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
-import { BackButton } from '@/components/BackButton';
+import { RoleHomeBackButton } from '@/components/BackButton';
 import { PageHeader, PageShell } from '@/components/PageChrome';
 import { Bars } from '@/components/Bars';
 
@@ -37,7 +37,7 @@ function AnalyticsPage() {
 
   return (
     <PageShell>
-      <BackButton fallback="/teach" label="Educator dashboard" />
+      <RoleHomeBackButton />
       <PageHeader
         badge={
           <span className="section-badge">

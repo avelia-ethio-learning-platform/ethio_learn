@@ -219,7 +219,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
     const cameraReady = !proctored || proctorStatus.camera === 'on';
     const modelState = proctorStatus.faceModel;
     return (
-      <div className="mx-auto max-w-2xl space-y-4">
+      <div className="page-shell max-w-2xl space-y-4">
         <h1 className="text-xl font-bold">{meta?.type === 'quiz' ? 'Exam' : 'Assessment'}: ready to begin?</h1>
         <div className="card space-y-3">
           <p className="text-sm text-gray-700">
@@ -273,7 +273,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
   if (phase === 'done') {
     const terminated = result?.terminated;
     return (
-      <div className="mx-auto max-w-2xl space-y-4">
+      <div className="page-shell max-w-2xl space-y-4">
         {result ? (
           <div className={`card border-2 ${terminated ? 'border-red-300 bg-red-50' : result.passed ? 'border-green-300 bg-green-50' : 'border-amber-300'}`}>
             {terminated ? (
@@ -362,9 +362,9 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
 
   // ---------- EXAM ----------
   return (
-    <div className="mx-auto max-w-3xl select-none">
-      {/* sticky exam header */}
-      <div className="sticky top-0 z-20 -mx-2 mb-4 flex items-center justify-between gap-3 rounded-b-xl border-b bg-white/95 px-4 py-2 shadow-sm backdrop-blur">
+    <div className="page-shell max-w-3xl select-none">
+      {/* sticky exam header, below the fixed site header */}
+      <div className="sticky top-24 z-20 -mx-2 mb-4 flex items-center justify-between gap-3 rounded-b-xl border-b bg-white/95 px-4 py-2 shadow-sm backdrop-blur">
         <div className="text-sm font-semibold">{answered}/{attempt?.questions.length} answered</div>
         <div className="flex items-center gap-2 text-xs">
           {Object.entries(warnings).map(([t, n]) => (
@@ -452,7 +452,7 @@ function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean 
     setBusy(true);
     setError('');
     try {
-      setPlan(await api<StudyPlan>(`/attempts/${attemptId}/study-plan`));
+      setPlan(await api<StudyPlan>(`/attempts/${attemptId}/study-plan`, { slow: true }));
     } catch (err) {
       setError((err as Error).message);
     }

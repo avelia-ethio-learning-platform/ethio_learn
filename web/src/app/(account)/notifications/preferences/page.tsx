@@ -94,7 +94,7 @@ function PreferencesForm() {
   const followCount = data?.new_course_instructor_ids?.length ?? 0;
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="page-shell max-w-2xl">
       <BackButton fallback="/notifications" label="Notifications" />
       <h1 className="text-2xl font-bold">Notification preferences</h1>
       <p className="mt-1 text-sm text-gray-600">

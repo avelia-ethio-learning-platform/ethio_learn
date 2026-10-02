@@ -1,9 +1,11 @@
 'use client';
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { I18nProvider } from '@/lib/i18n';
+import { makeQueryClient } from '@/lib/query-client';
 import { ThemeProvider } from './ThemeProvider';
+import { WakingUpNotice } from './WakingUpNotice';
 
 /** Registers the offline service worker (production only) and clears its personal cache on logout. */
 function useServiceWorker() {
@@ -21,12 +23,15 @@ function useServiceWorker() {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 15_000 } } }));
+  const [client] = useState(makeQueryClient);
   useServiceWorker();
   return (
     <QueryClientProvider client={client}>
       <ThemeProvider>
-        <I18nProvider>{children}</I18nProvider>
+        <I18nProvider>
+          {children}
+          <WakingUpNotice />
+        </I18nProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

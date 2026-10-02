@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { serverApi } from '@/lib/server-api';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
 import { BackButton } from '@/components/BackButton';
+import { WakingUp } from '@/components/WakingUp';
 import { MessageEducatorButton } from './message-button';
 import { FollowInstructorButton } from './follow-button';
 
@@ -20,8 +21,11 @@ interface EducatorProfile {
 }
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const profile = await serverApi<EducatorProfile>(`/educators/${params.id}/profile`, 120);
-  if (!profile) return { title: 'Educator not found' };
+  const result = await serverApi<EducatorProfile>(`/educators/${params.id}/profile`, 120);
+  if (!result.ok) {
+    return result.status === 404 ? { title: 'Educator not found' } : { title: 'Waking up the server', robots: { index: false } };
+  }
+  const profile = result.data;
   return {
     title: `${profile.name} — educator profile`,
     description: `${profile.course_count} courses on EthiopiaLearn${profile.average_rating ? ` · rated ★ ${profile.average_rating}` : ''}`,
@@ -32,11 +36,15 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 export const revalidate = 120;
 
 export default async function EducatorProfilePage({ params }: { params: { id: string } }) {
-  const profile = await serverApi<EducatorProfile>(`/educators/${params.id}/profile`, 120);
-  if (!profile) notFound();
+  const result = await serverApi<EducatorProfile>(`/educators/${params.id}/profile`, 120);
+  if (!result.ok) {
+    if (result.status === 404) notFound();
+    return <WakingUp />;
+  }
+  const profile = result.data;
 
   return (
-    <div>
+    <div className="page-shell">
       <BackButton fallback="/educators" label="Top educators" />
       <div className="card flex flex-wrap items-center gap-5">
         <span className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-100 text-3xl font-bold text-brand-800">
