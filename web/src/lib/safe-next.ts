@@ -13,7 +13,8 @@ const BASE = 'http://same-origin.invalid';
  * (`/teach`, `/courses/x?tab=1`); otherwise `fallback`. Rejects `//evil.com`,
  * `/\evil.com`, absolute and `javascript:` URLs, and control characters (the
  * URL parser drops tabs and newlines, so `/\t/evil.com` would become
- * `//evil.com`). An open redirect after login is a phishing tool (P0-02).
+ * `//evil.com`), and paths whose dot segments resolve to `//…` (`/.//evil.com`).
+ * An open redirect after login is a phishing tool (P0-02).
  */
 export function safeNext(next: string | null | undefined, fallback: string): string {
   if (typeof next !== 'string' || !next.startsWith('/') || next.startsWith('//')) return fallback;
@@ -26,5 +27,7 @@ export function safeNext(next: string | null | undefined, fallback: string): str
     return fallback;
   }
   if (url.origin !== BASE) return fallback;
-  return `${url.pathname}${url.search}${url.hash}`;
+  const path = `${url.pathname}${url.search}${url.hash}`;
+  // The parser resolves dot segments, so "/.//evil.com" comes out as "//evil.com".
+  return path.startsWith('//') ? fallback : path;
 }

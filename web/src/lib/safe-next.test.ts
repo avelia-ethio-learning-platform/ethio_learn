@@ -17,6 +17,12 @@ describe('safeNext', () => {
     ['null byte', '/teach\u0000'],
     ['relative without slash', 'teach'],
     ['empty', ''],
+    // The parser resolves dot segments, so each of these normalises to //evil.com.
+    ['dot segment', '/.//evil.com'],
+    ['dot-dot after a segment', '/a/..//evil.com'],
+    ['leading dot-dot', '/..//evil.com'],
+    ['encoded dot', '/%2e//evil.com'],
+    ['encoded dot-dot', '/%2e%2e//evil.com'],
   ])('falls back on %s', (_case, next) => {
     expect(safeNext(next, '/dashboard')).toBe('/dashboard');
   });
