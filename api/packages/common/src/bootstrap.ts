@@ -2,6 +2,7 @@ import { INestApplication, Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { timingSafeEqual } from 'crypto';
 import { envBool } from './config/env';
+import { assertProductionConfig } from './config/production-config';
 import { DbErrorFilter } from './http/db-error.filter';
 
 export interface BootstrapOptions {
@@ -9,9 +10,16 @@ export interface BootstrapOptions {
   port: number;
   /** Keep the raw request body available (needed for Chapa HMAC verification). */
   rawBody?: boolean;
+  /** Secrets this service reads besides INTERNAL_API_TOKEN; checked at boot in production. */
+  requiredSecrets?: readonly string[];
+  /** Uses S3 storage, so production must not run on the local MinIO keys. */
+  storage?: boolean;
 }
 
 export async function bootstrapService(appModule: unknown, options: BootstrapOptions): Promise<INestApplication> {
+  // Before the app module is built, so nothing (migrations included) runs on
+  // an unsafe production configuration.
+  assertProductionConfig({ service: options.serviceName, secrets: options.requiredSecrets, storage: options.storage });
   const app = await NestFactory.create(appModule as any, { rawBody: options.rawBody ?? false });
 
   // RolesGuard trusts the gateway's x-user-* headers, which is only safe while
@@ -19,9 +27,10 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
   // get a public URL and cannot be made private, so there the gateway is not
   // the only possible caller and those headers would otherwise be forgeable by
   // anyone. Requiring the shared token on EVERY route (not just /internal)
-  // restores "the gateway is the only entry point". Opt-in so local dev and
-  // tests, where services are not exposed, keep working unchanged.
-  if (envBool('REQUIRE_INTERNAL_TOKEN', false)) {
+  // restores "the gateway is the only entry point". On by default in
+  // production (and assertProductionConfig refuses `false` there); off by
+  // default in local dev and tests, where services are not exposed.
+  if (envBool('REQUIRE_INTERNAL_TOKEN', process.env.NODE_ENV === 'production')) {
     const expected = Buffer.from(process.env.INTERNAL_API_TOKEN ?? '');
     if (expected.length === 0) {
       throw new Error('REQUIRE_INTERNAL_TOKEN is set but INTERNAL_API_TOKEN is empty — every request would be rejected.');

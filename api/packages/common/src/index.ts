@@ -1,5 +1,6 @@
 import './config/load-env'; // must run before anything reads process.env
 export * from './config/env';
+export * from './config/production-config';
 export * from './events/event-bus.service';
 export * from './events/event-bus.module';
 export * from './auth/user-context';

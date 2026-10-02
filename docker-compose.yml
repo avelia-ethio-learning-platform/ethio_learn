@@ -5,6 +5,9 @@
 name: ethiopialearn
 
 x-service-env: &service-env
+  # The images set NODE_ENV=production, but these are dev values: run them as
+  # development, or the production config check refuses to boot.
+  NODE_ENV: development
   DATABASE_URL: postgres://ethiopialearn:ethiopialearn@postgres:5432/ethiopialearn
   REDIS_URL: redis://redis:6379
   RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
