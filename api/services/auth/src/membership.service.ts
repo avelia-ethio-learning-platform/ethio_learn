@@ -1,8 +1,8 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, MoreThan, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
-import { env, EventBusService, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { dailyCapExceeded, env, envInt, EventBusService, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import { InstructorInvitedPayload, InstructorLinkedPayload, Role, StaffInvitedPayload } from '@ethiopialearn/contracts';
 import { AuditLog, appendAudit } from './audit';
 import { AuthService, generateTempPassword } from './auth.service';
@@ -19,6 +19,8 @@ const ALLOWED_FROM: Record<MembershipStatusDto['status'], MembershipStatus[]> = 
   removed: ['invited', 'active', 'suspended', 'declined'],
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 const ACTIVE_ELSEWHERE = "You're already an active instructor with another institution.";
 
 /**
@@ -29,6 +31,8 @@ const ACTIVE_ELSEWHERE = "You're already an active instructor with another insti
  */
 @Injectable()
 export class MembershipService {
+  private readonly logger = new Logger(MembershipService.name);
+
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(Institution) private readonly institutions: Repository<Institution>,
@@ -46,6 +50,13 @@ export class MembershipService {
    */
   async invite(ctx: UserContext, institutionId: string, dto: AddInstructorDto) {
     const institution = await this.ownedInstitution(ctx, institutionId);
+    // Daily cap per institution, counted on invited_at (set on every invite and re-invite).
+    const cap = envInt('INSTITUTION_INVITES_PER_DAY', 50);
+    const sentToday = await this.memberships.count({ where: { institution_id: institutionId, invited_at: MoreThan(new Date(Date.now() - DAY_MS)) } });
+    if (sentToday >= cap) {
+      this.logger.warn(`Instructor invite cap hit: user ${ctx.id} POST /institutions/:id/instructors`);
+      throw dailyCapExceeded('instructor invites');
+    }
     const email = dto.email.toLowerCase().trim();
     let user = await this.users.findOne({ where: { email } });
     if (!user) {
@@ -66,12 +77,16 @@ export class MembershipService {
     let membership = await this.memberships.findOne({ where: { institution_id: institutionId, user_id: user.id } });
     if (membership?.status === 'active') throw new ConflictException('Already an instructor of this institution.');
     if (membership?.status === 'suspended') throw new ConflictException('This instructor is suspended here. Reactivate them instead.');
+    // A re-invite within 24 h of the last one updates the row but sends no second email.
+    const emailedRecently = !!membership?.invited_at && membership.invited_at.getTime() > Date.now() - DAY_MS;
+    const invitedAt = new Date();
     if (membership) {
       // invited (re-send), declined or removed (re-invite): back to a fresh invitation.
       membership.status = 'invited';
       membership.status_reason = null;
       membership.accepted_at = null;
       membership.invited_by = ctx.id;
+      membership.invited_at = invitedAt;
       membership = await this.memberships.save(membership);
     } else {
       try {
@@ -81,6 +96,7 @@ export class MembershipService {
             user_id: user.id,
             status: 'invited',
             invited_by: ctx.id,
+            invited_at: invitedAt,
             role_in_org: dto.role_in_org ?? 'instructor',
           }),
         );
@@ -92,8 +108,8 @@ export class MembershipService {
     }
     await appendAudit(this.audit, ctx.id, 'institution.member_invited', membership.id, { institution_id: institutionId, user_id: user.id });
 
-    if (CANNOT_JOIN.has(user.role)) {
-      // Same response as anyone else, but no email they couldn't act on.
+    if (CANNOT_JOIN.has(user.role) || emailedRecently) {
+      // Same response as anyone else, but no email they couldn't act on, and none twice in a day.
     } else if (user.must_change_password) {
       // Never set their own password (a placeholder from an earlier invite):
       // a fresh setup link, naming the institution.
