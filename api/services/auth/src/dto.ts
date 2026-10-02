@@ -162,6 +162,12 @@ export class MembershipStatusDto {
 export class ChangePasswordDto {
   @IsStrongPassword()
   new_password: string;
+
+  /** Required unless the account has no password yet or is on the first-login path. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  current_password?: string;
 }
 
 export class DeleteAccountDto {

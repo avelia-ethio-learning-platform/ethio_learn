@@ -1,11 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from '@nestjs/common';
 import { InviteTokenPipe } from '@ethiopialearn/common';
 import { Request, Response } from 'express';
-import { parse, serialize } from 'cookie';
+import { parse } from 'cookie';
 import { AuthService } from './auth.service';
+import { clearRefreshCookie, REFRESH_COOKIE, setRefreshCookie } from './refresh-cookie';
 import { AcceptInviteDto, GoogleSignInDto, LoginDto, ResetPasswordConfirmDto, ResetPasswordDto, SignupDto } from './dto';
-
-const REFRESH_COOKIE = 'el_refresh';
 
 /** All endpoints here are [PUBLIC] — the gateway allowlists them. */
 @Controller('auth')
@@ -59,7 +58,7 @@ export class AuthController {
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const cookies = parse(req.headers.cookie ?? '');
     await this.auth.logout(cookies[REFRESH_COOKIE]);
-    this.clearRefreshCookie(res);
+    clearRefreshCookie(res);
     return { ok: true };
   }
 
@@ -91,36 +90,6 @@ export class AuthController {
   }
 
   private setRefreshCookie(res: Response, token: string) {
-    // When the web app and the API sit on different registrable domains — the
-    // Vercel + Render split, say — the refresh call is cross-site and a Lax
-    // cookie is never sent, silently logging everyone out at the 15-minute
-    // access-token expiry. Set COOKIE_SAMESITE=none there; browsers only honour
-    // SameSite=None over HTTPS, so it forces Secure regardless of NODE_ENV.
-    const sameSite = (process.env.COOKIE_SAMESITE ?? 'lax').toLowerCase() as 'lax' | 'none' | 'strict';
-    res.setHeader(
-      'Set-Cookie',
-      serialize(REFRESH_COOKIE, token, {
-        httpOnly: true, // spec §0.3: refresh token lives in an httpOnly cookie
-        sameSite,
-        secure: sameSite === 'none' || process.env.NODE_ENV === 'production',
-        path: '/api/v1/auth',
-        maxAge: this.auth.refreshCookieMaxAge(),
-      }),
-    );
-  }
-
-  /** Expire the refresh cookie with the same attributes it was set with. */
-  private clearRefreshCookie(res: Response) {
-    const sameSite = (process.env.COOKIE_SAMESITE ?? 'lax').toLowerCase() as 'lax' | 'none' | 'strict';
-    res.setHeader(
-      'Set-Cookie',
-      serialize(REFRESH_COOKIE, '', {
-        httpOnly: true,
-        sameSite,
-        secure: sameSite === 'none' || process.env.NODE_ENV === 'production',
-        path: '/api/v1/auth',
-        maxAge: 0,
-      }),
-    );
+    setRefreshCookie(res, token, this.auth.refreshCookieMaxAge());
   }
 }

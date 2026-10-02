@@ -8,11 +8,13 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Response } from 'express';
 import * as bcrypt from 'bcryptjs';
 import { CurrentUser, EventBusService, InternalHttpClient, internalPath, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role, UserStatus } from '@ethiopialearn/contracts';
@@ -21,6 +23,7 @@ import { AuthService, generateTempPassword } from './auth.service';
 import { EducatorProfile, Institution, User } from './entities';
 import { AddInstructorDto, ChangePasswordDto, CreateEducatorProfileDto, CreateInstitutionDto, DeleteAccountDto, MembershipStatusDto, UpdateProfileDto } from './dto';
 import { MembershipService } from './membership.service';
+import { setRefreshCookie } from './refresh-cookie';
 
 @Controller()
 @UseGuards(RolesGuard)
@@ -39,8 +42,14 @@ export class ProfilesController {
   /** First-login / self-service password change. */
   @Put('profiles/password')
   @Roles()
-  changePassword(@CurrentUser() ctx: UserContext, @Body() dto: ChangePasswordDto) {
-    return this.auth.changePassword(ctx.id, dto.new_password);
+  async changePassword(
+    @CurrentUser() ctx: UserContext,
+    @Body() dto: ChangePasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { refresh_token, ...body } = await this.auth.changePassword(ctx.id, dto);
+    setRefreshCookie(res, refresh_token, this.auth.refreshCookieMaxAge());
+    return body;
   }
 
   /**
@@ -127,6 +136,7 @@ export class ProfilesController {
       role: user.role,
       phone: user.phone,
       email_verified: !!user.email_verified_at,
+      has_password: !!user.password_hash,
       created_at: user.created_at,
       educator_profile: educatorProfile,
       institution,
