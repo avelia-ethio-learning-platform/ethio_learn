@@ -1,9 +1,9 @@
-import { Body, Controller, ConflictException, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, ConflictException, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { CurrentUser, env, EventBusService, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, env, EventBusService, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role, StaffInvitedPayload, UserStatus } from '@ethiopialearn/contracts';
 import { AuditLog, appendAudit } from './audit';
 import { AuthService, generateTempPassword } from './auth.service';
@@ -48,7 +48,7 @@ export class AdminUsersController {
 
   /** Ban / suspend / reactivate any account (platform admin, spec §10.9 admin console). */
   @Post(':id/status')
-  async setStatus(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: UserStatusActionDto) {
+  async setStatus(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: UserStatusActionDto) {
     if (id === ctx.id) throw new BadRequestException('You cannot change your own account status.');
     const user = await this.users.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
@@ -97,7 +97,7 @@ export class AdminUsersController {
   }
 
   @Post(':id/verify-email')
-  async forceVerify(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  async forceVerify(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     await this.users.update(id, { email_verified_at: new Date() });
     await appendAudit(this.audit, ctx.id, 'user.email_force_verified', id, {});
     return { message: 'verified' };

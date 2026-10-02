@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from '@nestjs/common';
+import { InviteTokenPipe } from '@ethiopialearn/common';
 import { Request, Response } from 'express';
 import { parse, serialize } from 'cookie';
 import { AuthService } from './auth.service';
@@ -64,7 +65,7 @@ export class AuthController {
 
   /** Invitee opens their link → we show whom it belongs to. */
   @Get('invite/:token')
-  inviteInfo(@Param('token') token: string) {
+  inviteInfo(@Param('token', new InviteTokenPipe()) token: string) {
     return this.auth.inviteInfo(token);
   }
 
