@@ -16,7 +16,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
-import { CurrentUser, EventBusService, InternalHttpClient, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, EventBusService, InternalHttpClient, internalPath, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
 import { Role, UserStatus } from '@ethiopialearn/contracts';
 import { AuditLog, appendAudit } from './audit';
 import { AuthService, generateTempPassword } from './auth.service';
@@ -75,7 +75,7 @@ export class ProfilesController {
     }
     if (publishedOwnerId) {
       try {
-        const res = await this.internal.get<{ published_count: number }>(`/api/v1/internal/owners/${publishedOwnerId}/published-count`);
+        const res = await this.internal.get<{ published_count: number }>(internalPath`/api/v1/internal/owners/${publishedOwnerId}/published-count`);
         if (res.published_count > 0) {
           throw new BadRequestException(
             `You still have ${res.published_count} published course(s). Unpublish or archive them before deleting your account.`,
