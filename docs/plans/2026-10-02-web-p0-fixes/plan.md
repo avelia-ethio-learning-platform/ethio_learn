@@ -197,7 +197,7 @@ Acceptance criteria:
 - **Playwright in CI flakiness:** specs wait on network idle and specific elements, never fixed sleeps; traces are kept on failure.
 
 ## Progress and deviations (implementer)
-Branch `fix/web-p0`, stacked on `fix/payment-integrity` @ `2cdccf9` (handoff → Branch). Commits: `ca0d9fd` plan folder, `f802460` step 2, `3d4c4cd` steps 3/3a/5, `31e1d65` step 4, `3e84bdd` step 6, `62e29a1` step 7, `fe8ce18` the /teach overflow found in step 8, `0aed708` the refresh spec race found in step 9.
+Branch `fix/web-p0`, stacked on `fix/payment-integrity` @ `2cdccf9` (handoff → Branch). Commits: `ca0d9fd` plan folder, `f802460` step 2, `3d4c4cd` steps 3/3a/5, `31e1d65` step 4, `3e84bdd` step 6, `62e29a1` step 7, `fe8ce18` the /teach overflow found in step 8, `0aed708` the refresh spec race found in step 9. Code review round 1 (APPROVED): `d9caa7c` S2, `ea31a78` S1, `42e3963` N1–N3.
 
 Deviations (none changes a decision):
 - **Step 1:** branched from `fix/payment-integrity`, not `origin/main`, as the handoff says (merge `origin/main` in once #19, Phase 3 and Phase 4 land).
@@ -221,8 +221,7 @@ Verified in the step 9 gate (2026-10-03, a fresh `el_e2e` stack on `api/.env.exa
 Not run yet: the CI `web` and `e2e` jobs, which need the PR (handoff → Branch: no push until #19, Phase 3 and Phase 4 merge).
 
 ### In flight / next step (2026-10-03)
-- Steps 1–9 are done and committed. Not pushed.
-- **Local stack:** the dev stack is back on `api/.env`, and `el_e2e` was dropped. `:3000` is `next start` from this tree, built against the dev stack.
-- **Next:** code review by ethio-plan-review (branch `fix/web-p0`, base `fix/payment-integrity`).
+- Steps 1–9 are done. Step 10: code review was APPROVED in round 1, and both should-fixes and all three nits are fixed (see `code-review.md`). Push and PR wait for the user. Not pushed. The PR waits for Phase 4 to merge, then `git merge origin/main` (Phase 3 is already on main as `04590af`).
+- **Found while fixing S1, outside this phase:** `GET /pay-requests/:token` answers 401 to everyone (financial `RolesGuard` at class level), so pay links have never worked. Reported to ethio-planner.
 - **Runners** (session scratchpad `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/82f6e474-1ed8-4c98-8fc5-a4d888a964e6/scratchpad/`): `e2e-up.sh` (fresh `el_e2e` stack), `e2e-run.sh <script.mjs>…` (API scripts with the same env), `e2e-env.sh` (source it only for API scripts, never for Playwright), `shots.cjs` (after screenshots), `sweep.cjs` (375 px overflow sweep).
 - **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths; other plan folders in the tree belong to other sessions. Never `pkill -f` a pattern that's also in your own command line (it kills your shell). Production is off-limits.
