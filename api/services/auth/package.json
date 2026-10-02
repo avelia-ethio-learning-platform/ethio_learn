@@ -7,7 +7,11 @@
     "dev": "ts-node src/main.ts",
     "start": "node dist/main.js",
     "seed": "node dist/seed.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migration:generate": "typeorm-ts-node-commonjs migration:generate -p -d src/data-source.ts",
+    "migration:run": "typeorm-ts-node-commonjs migration:run -d src/data-source.ts",
+    "migration:show": "typeorm-ts-node-commonjs migration:show -d src/data-source.ts",
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -t none -d src/data-source.ts"
   },
   "dependencies": {
     "@ethiopialearn/common": "workspace:*",

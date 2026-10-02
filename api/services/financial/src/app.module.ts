@@ -3,19 +3,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ChapaModule } from 'chapa-nestjs';
 import { buildTypeOrmOptions, EventBusModule, HealthController, InternalHttpClient } from '@ethiopialearn/common';
-import {
-  BulkPurchase,
-  Coupon,
-  Payment,
-  Payout,
-  PayoutHold,
-  Referral,
-  ReferralCode,
-  RefundRequest,
-  Sponsorship,
-  Wallet,
-  WalletTransaction,
-} from './entities';
+import { entities, migrations, SCHEMA } from './database';
 import { CHAPA_PROVIDER, chapaMode, LiveChapaProvider, MockChapaProvider } from './chapa.provider';
 import { PaymentService } from './payment.service';
 import { RefundService } from './refund.service';
@@ -25,11 +13,9 @@ import { SponsorshipService } from './sponsorship.service';
 import { FinancialController } from './controllers';
 import { GrowthController } from './growth.controller';
 
-const entities = [Payment, Payout, RefundRequest, PayoutHold, Coupon, Wallet, WalletTransaction, Sponsorship, BulkPurchase, ReferralCode, Referral];
-
 @Module({
   imports: [
-    TypeOrmModule.forRoot(buildTypeOrmOptions('financial', entities)),
+    TypeOrmModule.forRoot(buildTypeOrmOptions(SCHEMA, entities, migrations)),
     TypeOrmModule.forFeature(entities),
     EventBusModule.forRoot({ serviceName: 'financial' }),
     ScheduleModule.forRoot(),
