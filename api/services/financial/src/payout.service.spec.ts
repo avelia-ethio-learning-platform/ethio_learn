@@ -1,48 +1,16 @@
-import { OwnerType, PaymentStatus, PayoutStatus, RefundStatus, TrustTier } from '@ethiopialearn/contracts';
+import { OwnerType, PaymentMethod, PaymentPurpose, PaymentStatus, PayoutStatus, RefundStatus, TrustTier } from '@ethiopialearn/contracts';
+import { Payment, Payout, PayoutHold, RefundRequest } from './entities';
 import { PayoutService } from './payout.service';
+import { fakeDb, Row } from './testing/fake-db';
 
 const DAY = 86_400_000;
 
 interface Options {
-  amount?: string;
-  settledDaysAgo?: number;
   tier?: TrustTier;
-  pendingRefund?: boolean;
-  openFraudHolds?: number;
 }
 
 function setup(opts: Options = {}) {
-  const payment = {
-    id: 'pay-1',
-    learner_id: 'u1',
-    course_id: 'c1',
-    amount_etb: opts.amount ?? '500.00',
-    status: PaymentStatus.CONFIRMED,
-    payee_id: 'edu-1',
-    payee_type: OwnerType.EDUCATOR,
-    payout_id: null,
-    webhook_received_at: new Date(Date.now() - (opts.settledDaysAgo ?? 10) * DAY),
-    created_at: new Date(Date.now() - (opts.settledDaysAgo ?? 10) * DAY),
-  };
-  const payments = {
-    find: jest.fn().mockResolvedValue([payment]),
-    save: jest.fn(async (p: unknown) => p),
-  };
-  const savedPayouts: Record<string, unknown>[] = [];
-  const payouts = {
-    save: jest.fn(async (p: Record<string, unknown>) => {
-      const row = { id: 'po-1', ...p };
-      savedPayouts.push(row);
-      return row;
-    }),
-    create: jest.fn((p: object) => p),
-    findOne: jest.fn(),
-    update: jest.fn(),
-  };
-  const holds = { count: jest.fn().mockResolvedValue(opts.openFraudHolds ?? 0), findOne: jest.fn(), save: jest.fn(), create: jest.fn(), delete: jest.fn() };
-  const refunds = {
-    findOne: jest.fn().mockResolvedValue(opts.pendingRefund ? { status: RefundStatus.PENDING } : null),
-  };
+  const db = fakeDb();
   const bus = { publish: jest.fn().mockResolvedValue(undefined), subscribe: jest.fn(), subscribeCommands: jest.fn() };
   const internal = {
     get: jest.fn(async (path: string) => {
@@ -51,63 +19,224 @@ function setup(opts: Options = {}) {
     }),
   };
   const service = new PayoutService(
-    payments as never,
-    payouts as never,
-    holds as never,
-    refunds as never,
+    db.repo(Payment) as never,
+    db.repo(Payout) as never,
+    db.repo(PayoutHold) as never,
+    db.repo(RefundRequest) as never,
     bus as never,
     internal as never,
+    db.dataSource as never,
   );
-  return { service, payments, payouts, savedPayouts, bus };
+  let seq = 0;
+  const payment = (over: Row & { settledDaysAgo?: number } = {}) => {
+    const { settledDaysAgo = 10, ...rest } = over;
+    const settled = new Date(Date.now() - settledDaysAgo * DAY);
+    const p = {
+      id: `pay-${++seq}`,
+      learner_id: 'u1',
+      course_id: 'c1',
+      amount_etb: '500.00',
+      method: PaymentMethod.CHAPA,
+      status: PaymentStatus.CONFIRMED,
+      chapa_tx_ref: `TX-${seq}`,
+      payee_id: 'edu-1',
+      payee_type: OwnerType.EDUCATOR,
+      purpose: PaymentPurpose.COURSE,
+      payout_id: null,
+      webhook_received_at: settled,
+      created_at: settled,
+      ...rest,
+    };
+    db.repo(Payment).rows.push(p);
+    return p;
+  };
+  const payouts = () => db.repo(Payout).rows;
+  const published = (type: string) => bus.publish.mock.calls.filter(([t]) => t === type);
+  const payoutOf = (paymentId: string) => db.repo(Payment).rows.find((p) => p.id === paymentId)!.payout_id;
+  return { db, bus, internal, service, payment, payouts, published, payoutOf };
 }
 
 describe('PayoutService.runPayouts (spec §10.3 / 80-20 split)', () => {
   it('computes the 80/20 split and disburses a cleared payment', async () => {
-    const { service, savedPayouts, bus } = setup({ amount: '500.00', settledDaysAgo: 10 });
-    const result = await service.runPayouts();
+    const t = setup();
+    const p = t.payment();
+    expect(await t.service.runPayouts()).toEqual({ created: 1, held: 0 });
 
-    expect(result).toEqual({ created: 1, held: 0 });
-    const payout = savedPayouts[0];
-    expect(payout).toMatchObject({
+    expect(t.payouts()[0]).toMatchObject({
       payee_id: 'edu-1',
       gross_amount_etb: '500.00',
       platform_fee_etb: '100.00',
       net_amount_etb: '400.00',
+      status: PayoutStatus.PAID,
     });
-    expect(bus.publish).toHaveBeenCalledWith('PayoutScheduled', expect.objectContaining({ net_amount_etb: 400 }));
-    expect(bus.publish).toHaveBeenCalledWith('PayoutCompleted', expect.objectContaining({ platform_fee_etb: 100 }));
+    expect(t.payoutOf(p.id)).toBe(t.payouts()[0].id);
+    expect(t.bus.publish).toHaveBeenCalledWith('PayoutScheduled', expect.objectContaining({ net_amount_etb: 400 }));
+    expect(t.bus.publish).toHaveBeenCalledWith('PayoutCompleted', expect.objectContaining({ platform_fee_etb: 100 }));
   });
 
   it('holds back payments inside the 7-day settlement window', async () => {
-    const { service, savedPayouts } = setup({ settledDaysAgo: 2 });
-    expect(await service.runPayouts()).toEqual({ created: 0, held: 0 });
-    expect(savedPayouts).toHaveLength(0);
+    const t = setup();
+    t.payment({ settledDaysAgo: 2 });
+    expect(await t.service.runPayouts()).toEqual({ created: 0, held: 0 });
+    expect(t.payouts()).toHaveLength(0);
   });
 
   it('applies the 14-day hold to new-tier educators', async () => {
-    const heldCase = setup({ settledDaysAgo: 10, tier: TrustTier.NEW });
+    const heldCase = setup({ tier: TrustTier.NEW });
+    heldCase.payment({ settledDaysAgo: 10 });
     expect(await heldCase.service.runPayouts()).toEqual({ created: 0, held: 0 });
 
-    const clearedCase = setup({ settledDaysAgo: 15, tier: TrustTier.NEW });
+    const clearedCase = setup({ tier: TrustTier.NEW });
+    clearedCase.payment({ settledDaysAgo: 15 });
     expect(await clearedCase.service.runPayouts()).toEqual({ created: 1, held: 0 });
   });
 
-  it('skips payments with a pending refund', async () => {
-    const { service, savedPayouts } = setup({ pendingRefund: true });
-    expect(await service.runPayouts()).toEqual({ created: 0, held: 0 });
-    expect(savedPayouts).toHaveLength(0);
+  it('skips payments with a pending refund, and pays the rest', async () => {
+    const t = setup();
+    const refunded = t.payment();
+    const clean = t.payment({ amount_etb: '300.00' });
+    t.db.repo(RefundRequest).rows.push({ id: 'ref-1', payment_id: refunded.id, status: RefundStatus.PENDING });
+
+    expect(await t.service.runPayouts()).toEqual({ created: 1, held: 0 });
+    expect(t.payouts()[0].gross_amount_etb).toBe('300.00');
+    expect(t.payoutOf(refunded.id)).toBeNull();
+    expect(t.payoutOf(clean.id)).toBe(t.payouts()[0].id);
   });
 
   it('holds large payouts behind the KYC threshold instead of paying', async () => {
-    const { service, savedPayouts, bus } = setup({ amount: '20000.00' }); // net 16000 > default 10000
-    expect(await service.runPayouts()).toEqual({ created: 0, held: 1 });
-    expect(savedPayouts[0]).toMatchObject({ status: PayoutStatus.HELD, hold_reason: 'kyc_required' });
-    expect(bus.publish).not.toHaveBeenCalled();
+    const t = setup();
+    t.payment({ amount_etb: '20000.00' }); // net 16000 > default 10000
+    expect(await t.service.runPayouts()).toEqual({ created: 0, held: 1 });
+    expect(t.payouts()[0]).toMatchObject({ status: PayoutStatus.HELD, hold_reason: 'kyc_required' });
+    expect(t.bus.publish).not.toHaveBeenCalled();
   });
 
   it('holds payouts for payees with open fraud flags', async () => {
-    const { service, savedPayouts } = setup({ openFraudHolds: 1 });
-    expect(await service.runPayouts()).toEqual({ created: 0, held: 1 });
-    expect(savedPayouts[0]).toMatchObject({ status: PayoutStatus.HELD, hold_reason: 'fraud_flag_open' });
+    const t = setup();
+    t.payment();
+    t.db.repo(PayoutHold).rows.push({ id: 'h1', payee_id: 'edu-1', flag_id: 'f1' });
+    expect(await t.service.runPayouts()).toEqual({ created: 0, held: 1 });
+    expect(t.payouts()[0]).toMatchObject({ status: PayoutStatus.HELD, hold_reason: 'fraud_flag_open' });
+  });
+
+  it('never pays out wallet top-ups, the platform payee or zero-amount payments', async () => {
+    const t = setup();
+    t.payment({ purpose: PaymentPurpose.WALLET_TOPUP });
+    t.payment({ payee_id: '00000000-0000-0000-0000-000000000000' });
+    t.payment({ amount_etb: '0.00', payee_id: 'edu-2' });
+    expect(await t.service.runPayouts()).toEqual({ created: 0, held: 0 });
+  });
+});
+
+describe('PayoutService: one payout per payment (P1-14)', () => {
+  it('a second run claims nothing and publishes nothing', async () => {
+    const t = setup();
+    t.payment();
+    await t.service.runPayouts();
+    t.bus.publish.mockClear();
+
+    expect(await t.service.runPayouts()).toEqual({ created: 0, held: 0 });
+    expect(t.payouts()).toHaveLength(1);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('two concurrent runs attach each payment to exactly one payout, paid once', async () => {
+    const t = setup();
+    const mine = [t.payment(), t.payment(), t.payment({ payee_id: 'edu-2' })];
+
+    await Promise.all([t.service.runPayouts(), t.service.runPayouts()]);
+
+    expect(t.payouts().length).toBeGreaterThanOrEqual(1);
+    for (const payout of t.payouts()) {
+      const attached = t.db.repo(Payment).rows.filter((p) => p.payout_id === payout.id);
+      expect(Number(payout.gross_amount_etb)).toBe(attached.reduce((sum, p) => sum + Number(p.amount_etb), 0));
+    }
+    expect(mine.every((p) => t.payoutOf(p.id) !== null)).toBe(true);
+    expect(t.payouts()).toHaveLength(2); // one per payee
+    expect(t.published('PayoutCompleted')).toHaveLength(2);
+  });
+
+  it('a run that read the payments before another run claimed them claims nothing (the claim UPDATE is the guarantee)', async () => {
+    const t = setup();
+    const p = t.payment();
+    // Pause the late run after its reads, just before its transaction.
+    let resume!: () => void;
+    const gate = new Promise<void>((r) => (resume = r));
+    jest.spyOn(t.db.repo(PayoutHold), 'count').mockImplementationOnce(async () => {
+      await gate;
+      return 0;
+    });
+    const late = t.service.runPayouts();
+    await new Promise((r) => setImmediate(r));
+
+    await t.service.runPayouts(); // claims, commits and releases its lock
+    resume();
+    expect(await late).toEqual({ created: 0, held: 0 });
+
+    expect(t.payouts()).toHaveLength(1);
+    expect(t.payoutOf(p.id)).toBe(t.payouts()[0].id);
+    expect(t.published('PayoutCompleted')).toHaveLength(1);
+  });
+
+  it('skips a payee whose payout another run is creating right now (advisory lock)', async () => {
+    const t = setup();
+    const p = t.payment();
+    t.db.heldLocks.add('payout:edu-1');
+    expect(await t.service.runPayouts()).toEqual({ created: 0, held: 0 });
+    expect(t.payoutOf(p.id)).toBeNull();
+  });
+
+  it('asks for the trust tier once per payee, not once per payment', async () => {
+    const t = setup();
+    t.payment();
+    t.payment();
+    t.payment();
+    await t.service.runPayouts();
+    expect(t.internal.get.mock.calls.filter(([path]) => path.includes('/trust-tier'))).toHaveLength(1);
+  });
+
+  it('pages through payees with a keyset cursor', async () => {
+    const t = setup();
+    for (let i = 0; i < 150; i++) t.payment({ payee_id: `edu-${String(i).padStart(3, '0')}` });
+    expect(await t.service.runPayouts()).toEqual({ created: 150, held: 0 });
+  });
+
+  it('disburses a payout a crashed run left scheduled, once', async () => {
+    const t = setup();
+    t.db.repo(Payout).rows.push({
+      id: 'po-left',
+      payee_id: 'edu-1',
+      payee_type: OwnerType.EDUCATOR,
+      gross_amount_etb: '500.00',
+      platform_fee_etb: '100.00',
+      net_amount_etb: '400.00',
+      status: PayoutStatus.SCHEDULED,
+      hold_reason: null,
+    });
+    await Promise.all([t.service.runPayouts(), t.service.runPayouts()]);
+    expect(t.payouts()[0].status).toBe(PayoutStatus.PAID);
+    expect(t.published('PayoutCompleted')).toHaveLength(1);
+  });
+});
+
+describe('PayoutService.release', () => {
+  it('releasing a held payout twice disburses it once', async () => {
+    const t = setup();
+    t.payment({ amount_etb: '20000.00' });
+    await t.service.runPayouts();
+    const held = t.payouts()[0];
+
+    const results = await Promise.all([t.service.release(held.id), t.service.release(held.id)]);
+
+    expect(results.filter((r) => r.released)).toHaveLength(1);
+    expect(t.payouts()[0].status).toBe(PayoutStatus.PAID);
+    expect(t.published('PayoutCompleted')).toHaveLength(1);
+  });
+
+  it('does nothing for a payout that is not held', async () => {
+    const t = setup();
+    t.payment();
+    await t.service.runPayouts();
+    expect(await t.service.release(t.payouts()[0].id)).toEqual({ released: false });
   });
 });

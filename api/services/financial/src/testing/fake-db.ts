@@ -219,6 +219,16 @@ export function fakeDb() {
       const w = wallets.rows.find((r) => r.user_id === params[0]);
       return w ? [{ balance_etb: w.balance_etb }] : [];
     }
+    m = /^SELECT payee_id FROM financial\.payments WHERE status = 'confirmed' AND payout_id IS NULL AND purpose <> 'wallet_topup' AND payee_id <> \$1 AND amount_etb > 0 AND payee_id > \$2 GROUP BY payee_id ORDER BY payee_id LIMIT (\d+)$/.exec(s);
+    if (m) {
+      const payees = repo(Payment)
+        .rows.filter(
+          (p) =>
+            p.status === 'confirmed' && p.payout_id == null && p.purpose !== 'wallet_topup' && p.payee_id !== params[0] && Number(p.amount_etb) > 0 && p.payee_id > params[1],
+        )
+        .map((p) => p.payee_id as string);
+      return [...new Set(payees)].sort().slice(0, Number(m[1])).map((payee_id) => ({ payee_id }));
+    }
     m = /^SELECT pg_try_advisory_xact_lock\(hashtextextended\(\$1, 0\)\) AS locked$/.exec(s);
     if (m) {
       if (!txLocks) throw new Error('fake db: advisory xact lock outside a transaction');
