@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { BadgeCheck, ShieldX } from 'lucide-react';
 import { serverApi } from '@/lib/server-api';
+import { WakingUp } from '@/components/WakingUp';
 
 interface Verification {
   valid: boolean;
@@ -20,7 +21,10 @@ export const metadata: Metadata = {
 
 /** Public, unauthenticated verification page (spec §11.7) — QR codes land here. */
 export default async function VerifyPage({ params }: { params: { uid: string } }) {
-  const result = (await serverApi<Verification>(`/verify/${params.uid}`, 0)) ?? { valid: false };
+  const response = await serverApi<Verification>(`/verify/${params.uid}`, 0);
+  // An unreachable API must never read as "not a valid certificate".
+  if (!response.ok && response.status === 'unavailable') return <WakingUp />;
+  const result: Verification = response.ok ? response.data : { valid: false };
 
   return (
     <div className="page-shell flex min-h-[70vh] items-center justify-center">

@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-import { redirect } from 'next/navigation';
-import { serverApi } from '@/lib/server-api';
+import { serverApi, staticFallback } from '@/lib/server-api';
 import { CourseSummary } from '@/components/CourseCard';
 import { HomeClient } from './home-client';
 
@@ -11,20 +10,14 @@ export const metadata: Metadata = {
   alternates: { canonical: '/' },
 };
 
-export default async function HomePage({
-  searchParams,
-}: {
-  searchParams: { q?: string; category?: string; pricing_type?: string; page?: string };
-}) {
-  // The catalog moved to /courses — forward legacy landing-page filter URLs there.
-  if (searchParams.q || searchParams.category || searchParams.pricing_type) {
-    const params = new URLSearchParams();
-    if (searchParams.q) params.set('q', searchParams.q);
-    if (searchParams.category) params.set('category', searchParams.category);
-    if (searchParams.pricing_type) params.set('pricing_type', searchParams.pricing_type);
-    redirect(`/courses?${params.toString()}`);
-  }
+// Static and revalidated (ISR), so the landing page never waits on a sleeping
+// API. Legacy `/?q=…` filter URLs are forwarded to /courses in next.config.mjs.
+export const revalidate = 60;
 
-  const result = await serverApi<{ total: number; items: CourseSummary[] }>('/search?page=1&limit=6', 60);
-  return <HomeClient courses={result?.items ?? []} total={result?.total ?? 0} />;
+export default async function HomePage() {
+  const { data, unavailable } = staticFallback(
+    await serverApi<{ total: number; items: CourseSummary[] }>('/search?page=1&limit=6', 60),
+    { total: 0, items: [] },
+  );
+  return <HomeClient courses={data.items} total={data.total} coursesUnavailable={unavailable} />;
 }

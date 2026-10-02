@@ -35,7 +35,16 @@ const stagger: Variants = {
   visible: { opacity: 1, transition: { staggerChildren: 0.12 } },
 };
 
-export function HomeClient({ courses, total }: { courses: CourseSummary[]; total: number }) {
+export function HomeClient({
+  courses,
+  total,
+  coursesUnavailable = false,
+}: {
+  courses: CourseSummary[];
+  total: number;
+  /** The build couldn't reach the API, so the list is empty until the first revalidation fills it. */
+  coursesUnavailable?: boolean;
+}) {
   const { t } = useT();
 
   const stats = [
@@ -288,7 +297,16 @@ export function HomeClient({ courses, total }: { courses: CourseSummary[]; total
           </motion.div>
 
           {/* Grid */}
-          {courses.length === 0 ? (
+          {courses.length === 0 && coursesUnavailable ? (
+            <div className="card mx-auto mt-10 max-w-lg py-12 text-center">
+              <p className="text-lg font-medium text-foreground">{t('courses_loading')}</p>
+              <p className="mt-3 text-sm">
+                <Link className="font-semibold text-brand-600 hover:underline" href="/courses">
+                  {t('browse_catalog')} →
+                </Link>
+              </p>
+            </div>
+          ) : courses.length === 0 ? (
             <motion.div
               className="card mx-auto mt-10 max-w-lg py-12 text-center"
               initial={{ opacity: 0, y: 16 }}

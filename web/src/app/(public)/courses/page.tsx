@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { serverApi } from '@/lib/server-api';
 import { CourseSummary } from '@/components/CourseCard';
+import { WakingUp } from '@/components/WakingUp';
 import { ExploreClient } from './explore-client';
 
 export const metadata: Metadata = {
@@ -29,11 +30,13 @@ export default async function CoursesPage({
   params.set('limit', String(limit));
 
   const result = await serverApi<{ total: number; items: CourseSummary[] }>(`/search?${params.toString()}`, 30);
+  if (!result.ok && result.status === 'unavailable') return <WakingUp />;
+  const data = result.ok ? result.data : { total: 0, items: [] };
 
   return (
     <ExploreClient
-      courses={result?.items ?? []}
-      total={result?.total ?? 0}
+      courses={data.items}
+      total={data.total}
       page={page}
       limit={limit}
       filters={{ q: searchParams.q, category: searchParams.category, pricing_type: searchParams.pricing_type }}
