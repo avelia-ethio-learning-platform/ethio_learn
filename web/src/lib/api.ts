@@ -84,7 +84,12 @@ async function runRefresh(): Promise<RefreshOutcome> {
     return 'waking';
   }
   if (res.ok) {
-    const body = await res.json();
+    const body = await res.json().catch(() => null);
+    if (!body) {
+      // Not auth's answer (a proxy or error page in front of it): try again later.
+      wakeServices();
+      return 'waking';
+    }
     setAuth({ access_token: body.access_token, user: body.user });
     return 'ok';
   }

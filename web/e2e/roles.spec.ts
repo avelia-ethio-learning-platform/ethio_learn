@@ -12,8 +12,12 @@ test.describe('institution admin', () => {
   });
 
   test('back links on shared teach pages lead to the institution dashboard', async ({ page }) => {
-    await page.goto('/teach/analytics');
-    await expect(page.getByRole('button', { name: 'Institution dashboard' })).toBeVisible();
+    // In a new tab there's no history, so Back goes to the role's home instead of
+    // history.back(). (page.goto would leave about:blank behind it.)
+    await page.goto('/institution');
+    const [tab] = await Promise.all([page.waitForEvent('popup'), page.evaluate(() => void window.open('/teach/analytics'))]);
+    await tab.getByRole('button', { name: 'Institution dashboard' }).click();
+    await expect(tab).toHaveURL(/\/institution$/);
   });
 });
 

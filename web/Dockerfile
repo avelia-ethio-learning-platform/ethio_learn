@@ -10,6 +10,8 @@ ARG NEXT_PUBLIC_API_URL=http://localhost:4000
 ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ARG NEXT_PUBLIC_S3_PUBLIC_URL=http://localhost:9000/ethiopialearn
 ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID=
+# Comma-separated public /health URLs the browser pings to wake free-tier services (see .env.example).
+ARG NEXT_PUBLIC_WAKE_URLS=
 # Selects `output: 'standalone'` in next.config.mjs; the runtime stage below
 # copies .next/standalone, so this build MUST produce it.
 ENV BUILD_STANDALONE=1 \
@@ -17,6 +19,7 @@ ENV BUILD_STANDALONE=1 \
     NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
     NEXT_PUBLIC_S3_PUBLIC_URL=$NEXT_PUBLIC_S3_PUBLIC_URL \
     NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID \
+    NEXT_PUBLIC_WAKE_URLS=$NEXT_PUBLIC_WAKE_URLS \
     NEXT_TELEMETRY_DISABLED=1
 COPY . .
 RUN pnpm install --frozen-lockfile

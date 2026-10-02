@@ -220,6 +220,16 @@ describe('waking up (A1)', () => {
     expect(getAuth()?.access_token).toBe('expired');
   });
 
+  it('a 200 refresh whose body is not JSON (a proxy page) is waking too, not a raw parse error', async () => {
+    setAuth({ access_token: 'expired', user: learner });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401, { message: 'jwt expired' }))
+      .mockResolvedValueOnce(new Response('<html>Service waking up</html>', { status: 200, headers: { 'Content-Type': 'text/html' } }));
+
+    await expect(api('/enrollments')).rejects.toBeInstanceOf(WakingError);
+    expect(getAuth()?.access_token).toBe('expired');
+  });
+
   it("the limiter's JSON 429 on the refresh keeps the session", async () => {
     setAuth({ access_token: 'expired', user: learner });
     fetchMock
