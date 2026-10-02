@@ -138,6 +138,18 @@ export interface AiAssessor {
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const CHAT_TIMEOUT_MS = 25_000;
+/**
+ * Used when GROQ_MODEL is unset, and as the fallback when GROQ_MODEL names a
+ * model Groq no longer serves. Groq retires models outright (it dropped
+ * llama-3.3-70b-versatile, after which every call 404'd whatever the key).
+ */
+export const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
+/**
+ * Takes a request when the configured model is rate-limited. Groq budgets
+ * tokens per model, and the free tier allows 8,000 a minute: one outline from
+ * a long document uses most of that, so the next request would otherwise fail.
+ */
+export const GROQ_OVERFLOW_MODEL = 'openai/gpt-oss-20b';
 
 function groqConfigured(): boolean {
   const key = process.env.GROQ_API_KEY;
@@ -157,6 +169,11 @@ export function aiFallbackNote(err: unknown, subject: 'questions' | 'outline' = 
     return subject === 'outline'
       ? 'The AI service rejected the API key (expired or invalid) — an admin needs to rotate GROQ_API_KEY. Showing a starter outline you can edit.'
       : 'The AI service rejected the API key (expired or invalid) — an admin needs to rotate GROQ_API_KEY. Showing placeholder questions you can edit.';
+  }
+  if (reason === 'model') {
+    return subject === 'outline'
+      ? 'The AI model is no longer offered by Groq — an admin needs to set GROQ_MODEL to a current model. Showing a starter outline you can edit.'
+      : 'The AI model is no longer offered by Groq — an admin needs to set GROQ_MODEL to a current model. Showing placeholder questions you can edit.';
   }
   if (reason === 'rate_limit') return `The AI service is rate-limited right now — ${fallback}. Try again in a minute.`;
   if (reason === 'timeout') return `The AI service took too long to answer — ${fallback}. Try again, or send a shorter source text.`;
@@ -562,15 +579,34 @@ export class MockAiAssessor implements AiAssessor {
 
 export class GroqAiAssessor implements AiAssessor {
   readonly isLive = true;
-  private readonly model = process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile';
+  private model = process.env.GROQ_MODEL?.trim() || DEFAULT_GROQ_MODEL;
 
   private async chat(system: string, user: string, json = true): Promise<string> {
+    try {
+      return await this.complete(this.model, system, user, json);
+    } catch (err) {
+      const reason = (err as { reason?: string })?.reason;
+      // A retired GROQ_MODEL must not take every AI feature down with it:
+      // switch to the default for the rest of the process, and say so once.
+      if (reason === 'model' && this.model !== DEFAULT_GROQ_MODEL) {
+        console.warn(`GROQ_MODEL "${this.model}" is not available on Groq; using ${DEFAULT_GROQ_MODEL} instead. Set GROQ_MODEL to a current model.`);
+        this.model = DEFAULT_GROQ_MODEL;
+        return this.chat(system, user, json);
+      }
+      // Out of this minute's tokens on the configured model: this one request
+      // goes to a model with its own budget.
+      if (reason === 'rate_limit' && this.model !== GROQ_OVERFLOW_MODEL) return this.complete(GROQ_OVERFLOW_MODEL, system, user, json);
+      throw err;
+    }
+  }
+
+  private async complete(model: string, system: string, user: string, json: boolean): Promise<string> {
     try {
       const res = await fetch(GROQ_URL, {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: this.model,
+          model,
           temperature: 0.4,
           ...(json ? { response_format: { type: 'json_object' } } : {}),
           messages: [
@@ -585,10 +621,12 @@ export class GroqAiAssessor implements AiAssessor {
       if (!res.ok) {
         const text = await res.text();
         // Classify so callers can tell the operator to rotate the key (401 =
-        // expired/invalid) or back off (429) rather than showing a generic error.
+        // expired/invalid), change the model (404 = retired) or back off (429)
+        // rather than showing a generic error.
         const err = new Error(`Groq request failed (${res.status}): ${text.slice(0, 300)}`) as Error & { status?: number; reason?: string };
         err.status = res.status;
         if (res.status === 401 || /invalid[_ ]api[_ ]key|expired/i.test(text)) err.reason = 'auth';
+        else if (res.status === 404 || /model_not_found|model_decommissioned/.test(text)) err.reason = 'model';
         else if (res.status === 429) err.reason = 'rate_limit';
         throw err;
       }

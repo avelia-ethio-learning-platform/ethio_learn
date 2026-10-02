@@ -27,7 +27,7 @@ x-service-env: &service-env
   PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@ethiopialearn.et}
   SUPPORT_EMAIL: ${SUPPORT_EMAIL:-aisubyazew@gmail.com}
   GROQ_API_KEY: ${GROQ_API_KEY:-}
-  GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+  GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   KYC_PAYOUT_THRESHOLD_ETB: ${KYC_PAYOUT_THRESHOLD_ETB:-10000}
 
