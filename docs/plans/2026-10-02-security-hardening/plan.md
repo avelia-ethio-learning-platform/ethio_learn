@@ -322,6 +322,11 @@ Deviations:
   - the abandoned-checkout reminder job saves the whole payment row after its HTTP calls, so a webhook confirmation in that gap can be reverted to `pending`;
   - reconcile and the sweep skip failed rows;
   - a refused gift or pay request leaves its sponsorship row behind.
+- **ethio-reviewer's early read of steps 2–6** (at `ff56ebe`, no verdict yet; see `code-review.md` in this folder, which is local and excluded). Fold these in before asking for round 1, and fix them through a fix dispatch, not in the controller:
+  - **B1 (blocker):** `changePassword` issues a fresh session without `assertActive`, so a suspended or banned user can keep renewing access tokens. Fix: run the same active check login uses before `startSession`, and add a test.
+  - **S1:** `/teach/analytics` returns 400 past 25 courses, because step 3's `course_ids` max is 25. Fix it on the page (slice, or batch in chunks of 25).
+  - **S2:** the password page hides the required current-password field when `/profiles/me` fails. This is the same item as the ledger's deferred Task 4 minor.
+  - **S3:** the referral invite's by-email lookup treats any error as "not an account". The reviewer proposes deferring it to 9c and is asking the planner. Same as the ledger's deferred Task 5 minor.
 - **Then:**
   - Step 8: the brief `task-8-brief.md` is ready. It needs the stack rebuilt on branch code, using the scratchpad runners `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/6ddd59df-625a-442a-b5ba-23a48a35d507/scratchpad/{e2e-up.sh,e2e-run.sh}`.
   - Step 9: the gate.
