@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { I18nProvider } from '@/lib/i18n';
 import { makeQueryClient } from '@/lib/query-client';
 import { ThemeProvider } from './ThemeProvider';
+import { SkipLink } from './SkipLink';
 import { WakingUpNotice } from './WakingUpNotice';
 
 /** Registers the offline service worker (production only) and clears its personal cache on logout. */
@@ -29,6 +30,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={client}>
       <ThemeProvider>
         <I18nProvider>
+          <SkipLink />
           {children}
           <WakingUpNotice />
         </I18nProvider>

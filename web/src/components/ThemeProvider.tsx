@@ -26,6 +26,21 @@ function systemPrefersDark(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
+export const THEME_COLOR_LIGHT = '#2563eb';
+export const THEME_COLOR_DARK = '#0f172a';
+
+/**
+ * The viewport export renders one theme-color meta per colour scheme, chosen by the
+ * OS media query. An explicit theme overrides both; `system` restores each to its own scheme.
+ */
+export function syncThemeColorMeta(theme: Theme) {
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+    if (theme === 'light') meta.content = THEME_COLOR_LIGHT;
+    else if (theme === 'dark') meta.content = THEME_COLOR_DARK;
+    else meta.content = meta.media.includes('dark') ? THEME_COLOR_DARK : THEME_COLOR_LIGHT;
+  });
+}
+
 function resolveIsDark(theme: Theme): boolean {
   return theme === 'dark' || (theme === 'system' && systemPrefersDark());
 }
@@ -55,6 +70,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
+
+  useEffect(() => {
+    syncThemeColorMeta(theme);
+  }, [theme]);
 
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);

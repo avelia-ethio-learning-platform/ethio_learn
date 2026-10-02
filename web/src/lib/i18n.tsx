@@ -12,6 +12,7 @@ export type Locale = 'en' | 'am';
 /** Exported for tests (key-parity check) and future locale tooling. */
 export const dictionaries = {
   en: {
+    skip_to_content: 'Skip to main content',
     courses: 'Courses',
     help: 'Help',
     my_learning: 'My Learning',
@@ -139,6 +140,7 @@ export const dictionaries = {
     lang_name: 'አማርኛ',
   },
   am: {
+    skip_to_content: 'ወደ ዋናው ይዘት ዝለል',
     courses: 'ኮርሶች',
     help: 'እገዛ',
     my_learning: 'ትምህርቴ',

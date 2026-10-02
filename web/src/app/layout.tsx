@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Providers } from '@/components/Providers';
 import { Header } from '@/components/Header';
@@ -26,19 +26,25 @@ export const metadata: Metadata = {
   icons: { icon: '/icon.svg' },
 };
 
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#2563eb' },
+    { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
+  ],
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         {/* Apply saved theme before paint to avoid a flash of the wrong mode */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <meta name="theme-color" content="#0f766e" />
       </head>
       <body>
         <Providers>
           <Header />
           {/* pt-28 clears the fixed header on every page */}
-          <main className="min-h-screen pt-28">{children}</main>
+          <main id="main" tabIndex={-1} className="min-h-screen pt-28 focus:outline-none">{children}</main>
           <Footer />
         </Providers>
       </body>
