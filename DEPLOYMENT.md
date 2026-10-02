@@ -66,8 +66,8 @@ Three things about this split are easy to miss:
   services each holding a pool adds up fast on the free tier.
 
 Before the first boot, run `docker/postgres-init.sql` against the Neon database
-once to create the 7 schemas and `pgcrypto`; TypeORM creates tables but never
-schemas.
+once to create the 7 schemas and `pgcrypto`; the services' migrations create
+the tables (and each schema's `migrations` table) but never the schemas.
 
 ## Required infrastructure (managed services in prod)
 
@@ -98,7 +98,31 @@ All config is via env vars (see `api/.env.example`). The services read `api/.env
 
 ## Database migrations
 
-For dev, TypeORM `synchronize` is on (auto-creates/updates tables). **Turn it off in production** (`DB_SYNC=false`) and use generated migrations instead — `synchronize` can drop/alter columns unexpectedly. Generating and committing migrations is the one remaining task before a production launch.
+Each service runs its pending TypeORM migrations on boot, inside `DataSource.initialize()` and before it listens, so a health check only passes once the schema is current. `synchronize` is off and can't be switched back on: `DB_SYNC` is ignored with a warning. Migrations live in `api/services/<svc>/src/migrations/`; the README's "Changing the schema" section has the developer workflow.
+
+- **Baselines.** The first migration of each service is the schema `synchronize` used to build. On a database that already has those tables (production) it records itself and runs no DDL. On an empty one it creates everything. On a half-built schema it fails the boot and lists the missing tables.
+- **One migrator per service.** There is no migration lock, because each free-plan service runs one instance. Add one (`pg_advisory_xact_lock`; session locks don't survive Neon's pooler) before running a service on more than one instance.
+- **Logs.** Each executed migration prints `Migration <Name> has been executed successfully`.
+- **Drift check.** `pnpm -C api db:check` compares a database with the compiled entities and exits 1 on any difference. It is read-only (no migrations, no `synchronize`, no extension installs), so it's safe against production: `DATABASE_URL='<url>' pnpm -C api db:check`.
+
+### First rollout: from `synchronize` to migrations
+
+In this order. Steps 1, 2 and 4 touch production and are for the owner to run.
+
+1. **Before merging, check production for drift** (read-only):
+   ```bash
+   DATABASE_URL='<production url>' pnpm -C api db:check
+   ```
+   Expect "No drift" for all 7 services. Anything else means production differs from the entities. Stop and add a corrective migration first: the baseline would otherwise record a schema that doesn't match it.
+2. **Branch the Neon database** right before merging (Neon console → Branches → new branch from the production branch at the current point in time). That branch is the rollback point for data.
+3. **Merge.** Render redeploys every service. On boot each one records its baseline (no DDL) and runs its `IndexTuning` migration (`CREATE`/`DROP INDEX CONCURRENTLY`, which blocks no writes). Each service log shows `Migration Baseline… has been executed successfully` and `Migration IndexTuning… has been executed successfully`.
+4. **After the deploy:**
+   - `DATABASE_URL='<production url>' pnpm -C api db:check` → "No drift".
+   - `SELECT name FROM "<schema>"."migrations"` → a `Baseline…` and an `IndexTuning…` row in each of the 7 schemas.
+   - `SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid` → no rows.
+5. If `DB_SYNC` was ever set by hand in a service's Render environment, delete it. It's ignored, with a warning at boot.
+
+**Rolling back:** revert the merge and redeploy. The previous code synchronizes again, which only undoes the index changes; the `migrations` tables stay behind, unused. Restore from the Neon branch only if data itself went wrong.
 
 ## Scaling & operations
 

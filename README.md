@@ -96,9 +96,10 @@ node scripts/demo-seed.mjs
 | Frontend unit/component (vitest) | i18n en/am key parity, `api()` error/refresh handling, `<PasswordStrength />` | `pnpm -C web test` |
 | End-to-end (against a running stack) | full business flow: educator → QO approval → publish → enroll → complete → certificate | `node scripts/demo-seed.mjs` |
 | E2E smoke assertions | security envelope (401/403/404, header spoofing, internal token), video watch-progress flow, optional brute-force 429 | `node scripts/e2e-smoke.mjs` (add `E2E_CHECK_RATE_LIMIT=1` to include the 429 check — throttles your IP for ~1 min) |
+| Schema drift | every entity matches the database, i.e. no entity change shipped without its migration (read-only) | `pnpm -C api db:check` |
 
 Watch mode while developing: `pnpm -C api test -- --watch` / `pnpm -C web exec vitest`.
-CI runs all four layers on every push/PR (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
+CI runs all of these on every push/PR (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 ### Fully containerized
 
@@ -119,6 +120,24 @@ Images are slim by design: `node:22-alpine` multi-stage builds; backend images c
 | Institution admin | institution@ethiopialearn.et |
 
 Password for all: `Password123!` (override with `SEED_PASSWORD`).
+
+## Changing the schema
+
+Each service owns its tables through versioned TypeORM migrations in `api/services/<svc>/src/migrations/`, and runs any pending ones on boot, before it starts listening. `synchronize` is off everywhere; `DB_SYNC` is ignored. The seed runs the auth migrations too, so a fresh database needs nothing extra.
+
+1. Change the entity.
+2. With your local database up to date (boot the services once, or `pnpm -C api/services/<svc> migration:run`) and `pnpm -C api build` done, generate the migration:
+   ```bash
+   pnpm -C api/services/<svc> migration:generate src/migrations/<Name>
+   ```
+3. Read the SQL. Write these by hand instead:
+   - **Enum values:** TypeORM renames the type and recreates it, which breaks the enum types two tables share (`financial.owner_type`, `quality.owner_type`, `outcomes.trust_tier`). Use `ALTER TYPE "<schema>"."<type>" ADD VALUE '<value>'`. The contracts enums are mirrored in several schemas (`owner_type`, `trust_tier`, `pricing_type`), so a new value needs a migration in each service that uses it.
+   - **Renames:** generated as drop + add, which loses the data. Use `ALTER TABLE … RENAME COLUMN`.
+   - **Indexes on tables with data:** `CREATE INDEX CONCURRENTLY` with `transaction = false`, one statement per `queryRunner.query()`, each preceded by `DROP INDEX CONCURRENTLY IF EXISTS` (see the `IndexTuning` migrations).
+4. Add the class to the service's `src/migrations/index.ts`. The list is explicit, not a glob, so dev (ts-node) and production (`dist/`) load the same classes.
+5. `pnpm -C api db:check` must say "No drift". CI runs it after the services boot.
+
+Other commands, from `api/services/<svc>`: `pnpm migration:show`, `pnpm migration:run` and `pnpm migration:revert`. Revert undoes the latest migration and runs with `-t none`, because a `CONCURRENTLY` statement can't run inside the transaction TypeORM otherwise wraps it in. The baselines (the first migration of each service) refuse to revert unless `ALLOW_BASELINE_REVERT=1` is set: reverting one drops every table in the schema, so only do that against a disposable local database.
 
 ## Amharic (አማርኛ) support
 
@@ -153,7 +172,6 @@ Everything runs with **zero external credentials**; real providers switch on aut
 - Quality & Trust also subscribes to `RefundApproved`: refund-rate trust math (§10.5) and refund-abuse detection (§10.6) are unimplementable without it.
 - `course_categories` is an enum column (the §7.2 payload fixes the category set), not a lookup table.
 - Video transcoding is stubbed behind the `StorageProvider` interface (spec §14 open question): educators upload MP4/HLS directly via signed PUT URLs; swap in Mux/Bunny/ffmpeg later without touching services.
-- TypeORM `synchronize` is on for dev; generate migrations before production.
 - Disbursement marks payouts paid and emits events; wire the Chapa split-payout call when sub-merchant availability is confirmed (§14).
 
 ## Repository layout
