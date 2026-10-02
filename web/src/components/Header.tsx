@@ -88,6 +88,7 @@ export function Header() {
         )}
       </AnimatePresence>
       <motion.nav
+        aria-label="Main"
         className="fixed left-1/2 top-0 z-50 w-full max-w-6xl -translate-x-1/2 px-3 pt-4 sm:px-6"
         initial={{ y: -80, x: '-50%', opacity: 0 }}
         animate={{ y: 0, x: '-50%', opacity: 1 }}

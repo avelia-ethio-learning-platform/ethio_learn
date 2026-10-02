@@ -60,7 +60,9 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
+      # Unit tests with a coverage summary (no threshold yet).
+      - run: pnpm test:coverage
+      # No backend here: the build must pass without one (prerendered pages fall back to empty).
       - run: pnpm build
 
   # ---- e2e: real infra (compose) + all 8 services + API-level smoke ----
@@ -76,7 +78,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: api/pnpm-lock.yaml
+          cache-dependency-path: |
+            api/pnpm-lock.yaml
+            web/pnpm-lock.yaml
       - name: Start infrastructure
         run: |
           docker compose up -d --wait postgres redis rabbitmq minio
@@ -108,8 +112,36 @@ jobs:
         run: node scripts/e2e-institution.mjs
       - name: Exactly-once payments (concurrent confirmations, payouts)
         run: node scripts/e2e-payments.mjs
+      # Built with the stack up, so the prerendered home page has the seeded
+      # courses. Takes over a minute, which also lets the login limiter refill.
+      - name: Build web
+        run: |
+          pnpm -C web install --frozen-lockfile
+          pnpm -C web build
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Install Chromium
+        run: pnpm -C web exec playwright install --with-deps chromium
+      # Starts `next start` on :3000 and an "API asleep" twin on :3100 itself.
+      # Before the smoke step, which exhausts the login limiter on purpose.
+      - name: Browser smoke (Playwright)
+        run: pnpm -C web exec playwright test
       - name: Smoke assertions (security envelope + video progress + 429)
         run: E2E_CHECK_RATE_LIMIT=1 node scripts/e2e-smoke.mjs
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7
       - name: Dump logs on failure
         if: failure()
         run: |
