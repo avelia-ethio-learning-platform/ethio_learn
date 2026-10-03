@@ -17,7 +17,7 @@ import { PayRequestPublicController } from './pay-request-public.controller';
   imports: [
     TypeOrmModule.forRoot(buildTypeOrmOptions(SCHEMA, entities, migrations)),
     TypeOrmModule.forFeature(entities),
-    EventBusModule.forRoot({ serviceName: 'financial' }),
+    EventBusModule.forRoot({ serviceName: 'financial', outbox: true }),
     ScheduleModule.forRoot(),
   ],
   controllers: [FinancialController, GrowthController, PayRequestPublicController, HealthController],
