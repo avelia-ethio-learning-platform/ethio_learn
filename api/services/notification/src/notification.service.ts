@@ -330,6 +330,13 @@ export class NotificationService implements OnModuleInit {
     });
 
     this.bus.subscribe<WalletCreditedPayload>('WalletCredited', (p) => {
+      if (p.available_at) {
+        // Held until the refund window closes: say when, and don't call it spendable or part of the balance.
+        const date = new Date(p.available_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Addis_Ababa' });
+        const what = p.kind === 'referral_reward' ? 'referral reward' : 'cashback';
+        this.inbox({ user_id: p.user_id, type: 'wallet', title: `${p.amount_etb} ETB ${what}, available on ${date}`, body: `${p.note}. It moves to your wallet balance on ${date}, once the 7-day refund window closes.`, link: '/dashboard' });
+        return;
+      }
       const title = p.kind === 'referral_reward' ? `You earned ${p.amount_etb} ETB 🎉` : p.kind === 'cashback' ? `${p.amount_etb} ETB cashback added` : `${p.amount_etb} ETB added to your wallet`;
       this.inbox({ user_id: p.user_id, type: 'wallet', title, body: `${p.note}. Balance: ${p.balance_etb} ETB — spend it on any course.`, link: '/dashboard' });
     });

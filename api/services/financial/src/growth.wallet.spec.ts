@@ -126,7 +126,14 @@ describe('GrowthService purchase rewards', () => {
     const credit = await db.dataSource.transaction((m) => svc.creditCashback(m as never, purchase(), confirmedAt));
     const again = await db.dataSource.transaction((m) => svc.creditCashback(m as never, purchase(), confirmedAt));
 
-    expect(credit).toEqual({ user_id: 'buyer', amount_etb: 25, balance_etb: 0, kind: 'cashback', note: '5% cashback on "Course"' });
+    expect(credit).toEqual({
+      user_id: 'buyer',
+      amount_etb: 25,
+      balance_etb: 0,
+      kind: 'cashback',
+      note: '5% cashback on "Course"',
+      available_at: new Date(confirmedAt.getTime() + HOLD_MS).toISOString(),
+    });
     expect(again).toBeNull();
     expect(movements('buyer')).toEqual([
       expect.objectContaining({
@@ -194,7 +201,19 @@ describe('GrowthService pending purchase credits: lazy release', () => {
     expect(first).toEqual({
       user_id: 'buyer',
       balance_etb: 25,
-      transactions: [{ id: expect.any(String), amount_etb: 25, kind: 'cashback', note: '5% cashback on "Course"', reference: 'pay-1', created_at: expect.any(Date) }],
+      pending_etb: 0,
+      transactions: [
+        {
+          id: expect.any(String),
+          amount_etb: 25,
+          kind: 'cashback',
+          note: '5% cashback on "Course"',
+          reference: 'pay-1',
+          state: 'available',
+          available_at: expect.any(Date),
+          created_at: expect.any(Date),
+        },
+      ],
       referral_reward_etb: 50,
       cashback_percent: 5,
     });
@@ -294,6 +313,31 @@ describe('GrowthService pending purchase credits: lazy release', () => {
     expect(states(t, 'referrer')).toEqual([['referral_reward', 'available']]);
   });
 
+  it('reports pending_etb over all pending rows, with per-row state and available_at; void rows are not pending', async () => {
+    const t = ledger();
+    t.purchaseRow('pay-1', { refund_requested_at: ago(DAY_MS) }); // an open refund request still counts as pending
+    t.purchaseRow('pay-2');
+    t.purchaseRow('pay-3');
+    await t.svc.credit('buyer', 10, 'topup', 'pay-0', 'Wallet top-up');
+    await t.db.dataSource.transaction(async (m) => {
+      await t.svc.creditCashback(m as never, purchase({ id: 'pay-1' }), new Date()); // 25
+      await t.svc.creditCashback(m as never, purchase({ id: 'pay-2', amount_etb: '100.00' }), new Date()); // 5
+      await t.svc.creditCashback(m as never, purchase({ id: 'pay-3', amount_etb: '200.00' }), new Date()); // 10
+    });
+    await t.db.dataSource.transaction((m) => t.svc.voidPurchaseCredits(m as never, 'pay-3'));
+
+    const wallet = await t.svc.wallet('buyer');
+
+    expect(wallet.balance_etb).toBe(10);
+    expect(wallet.pending_etb).toBe(30);
+    expect(wallet.transactions.map((x) => [x.reference, x.state, x.available_at === null]).sort()).toEqual([
+      ['pay-0', 'available', true],
+      ['pay-1', 'pending', false],
+      ['pay-2', 'pending', false],
+      ['pay-3', 'void', false],
+    ]);
+  });
+
   it('top-ups and admin adjustments land in the balance at once, as before', async () => {
     const t = ledger();
     await t.svc.credit('u1', 100, 'topup', 'pay-0', 'Wallet top-up');
@@ -306,6 +350,35 @@ describe('GrowthService pending purchase credits: lazy release', () => {
       ['admin_adjust', '20.00', 'available', null, null],
       ['admin_adjust', '-5.00', 'available', null, null],
     ]);
+  });
+});
+
+describe('GrowthService.adminWalletStats', () => {
+  it('adds the pending rewards total and leaves void rows out of the by-kind sums', async () => {
+    const calls: string[] = [];
+    const qb = (raw: unknown) => {
+      const b: Record<string, jest.Mock> = {};
+      for (const k of ['select', 'addSelect', 'groupBy']) b[k] = jest.fn(() => b);
+      b.where = jest.fn((w: string) => (calls.push(w), b));
+      b.getRawOne = jest.fn(async () => raw);
+      b.getRawMany = jest.fn(async () => raw);
+      return b;
+    };
+    const wallets = { createQueryBuilder: () => qb({ sum: '120.00' }) };
+    const walletTx = {
+      createQueryBuilder: jest
+        .fn()
+        .mockReturnValueOnce(qb([{ kind: 'topup', sum: '100.00', count: '2' }]))
+        .mockReturnValueOnce(qb({ sum: '30.5' })),
+    };
+    const svc = new GrowthService(null as never, wallets as never, walletTx as never, null as never, null as never, null as never, null as never, null as never);
+
+    await expect(svc.adminWalletStats()).resolves.toEqual({
+      outstanding_balance_etb: 120,
+      pending_rewards_etb: 30.5,
+      by_kind: [{ kind: 'topup', total_etb: 100, count: 2 }],
+    });
+    expect(calls).toEqual(["t.state <> 'void'", "t.state = 'pending'"]);
   });
 });
 

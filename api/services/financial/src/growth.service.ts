@@ -29,6 +29,8 @@ export interface WalletCredit {
   balance_etb: number;
   kind: WalletTxKind;
   note: string;
+  /** ISO time a pending credit becomes spendable; absent for a credit that is available at once. */
+  available_at?: string;
 }
 
 /** A credit held out of the balance until available_at (see releaseMatured), for the purchase that earned it. */
@@ -224,10 +226,25 @@ export class GrowthService {
       await this.releaseMatured(m, userId);
       const w = await m.getRepository(Wallet).findOne({ where: { user_id: userId } });
       const tx = await m.getRepository(WalletTransaction).find({ where: { user_id: userId }, order: { created_at: 'DESC' }, take: 50 });
+      // Over every pending row, not just the 50 listed; a pending row whose purchase has a refund request still counts.
+      const [pending]: { sum: string }[] = await m.query(
+        `SELECT COALESCE(SUM(amount_etb), 0) AS sum FROM ${this.table(m, WalletTransaction)} WHERE user_id = $1 AND state = 'pending'`,
+        [userId],
+      );
       return {
         user_id: userId,
         balance_etb: Number(w?.balance_etb ?? 0),
-        transactions: tx.map((t) => ({ id: t.id, amount_etb: Number(t.amount_etb), kind: t.kind, note: t.note, reference: t.reference, created_at: t.created_at })),
+        pending_etb: Number(Number(pending?.sum ?? 0).toFixed(2)),
+        transactions: tx.map((t) => ({
+          id: t.id,
+          amount_etb: Number(t.amount_etb),
+          kind: t.kind,
+          note: t.note,
+          reference: t.reference,
+          state: t.state,
+          available_at: t.available_at ?? null,
+          created_at: t.created_at,
+        })),
         referral_reward_etb: this.referralReward(),
         cashback_percent: this.cashbackPercent(),
       };
@@ -283,7 +300,7 @@ export class GrowthService {
     );
     if (inserted.length === 0) return null;
     const balance = pending ? await this.balanceWith(m, userId) : await this.addToBalance(m, userId, value);
-    return { user_id: userId, amount_etb: amount, balance_etb: balance, kind, note };
+    return { user_id: userId, amount_etb: amount, balance_etb: balance, kind, note, ...(pending ? { available_at: pending.available_at.toISOString() } : {}) };
   }
 
   /**
@@ -400,10 +417,17 @@ export class GrowthService {
       .select('t.kind', 'kind')
       .addSelect('COALESCE(SUM(t.amount_etb), 0)', 'sum')
       .addSelect('COUNT(*)', 'count')
+      .where("t.state <> 'void'")
       .groupBy('t.kind')
       .getRawMany<{ kind: string; sum: string; count: string }>();
+    const pending = await this.walletTx
+      .createQueryBuilder('t')
+      .select('COALESCE(SUM(t.amount_etb), 0)', 'sum')
+      .where("t.state = 'pending'")
+      .getRawOne<{ sum: string }>();
     return {
       outstanding_balance_etb: Number(liability?.sum ?? 0),
+      pending_rewards_etb: Number(Number(pending?.sum ?? 0).toFixed(2)),
       by_kind: byKind.map((r) => ({ kind: r.kind, total_etb: Number(r.sum), count: Number(r.count) })),
     };
   }

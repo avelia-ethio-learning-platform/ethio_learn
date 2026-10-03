@@ -224,6 +224,11 @@ export function fakeDb() {
       released.forEach((t) => (t.state = 'available'));
       return [released.map((t) => ({ amount_etb: t.amount_etb })), released.length];
     }
+    // The owner's pending total (all pending rows, whatever their purchase's refund state).
+    if (s === "SELECT COALESCE(SUM(amount_etb), 0) AS sum FROM financial.wallet_transactions WHERE user_id = $1 AND state = 'pending'") {
+      const sum = walletTx.rows.filter((t) => t.user_id === params[0] && t.state === 'pending').reduce((acc, t) => acc + Number(t.amount_etb), 0);
+      return [{ sum: sum.toFixed(2) }];
+    }
     // An approved refund voids its purchase's pending cashback and referral reward.
     if (s === "UPDATE financial.wallet_transactions SET state = 'void' WHERE payment_id = $1 AND state = 'pending' AND kind IN ('cashback', 'referral_reward')") {
       const voidable = (t: Row) => t.payment_id === params[0] && t.state === 'pending' && ['cashback', 'referral_reward'].includes(t.kind);

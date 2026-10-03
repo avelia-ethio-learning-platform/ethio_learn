@@ -414,6 +414,8 @@ export interface WalletCreditedPayload {
   balance_etb: number;
   kind: 'referral_reward' | 'cashback' | 'topup' | 'admin_adjust';
   note: string;
+  /** ISO time a pending credit becomes spendable; absent when the credit is available at once. */
+  available_at?: string;
 }
 
 export interface BulkPurchaseActivatedPayload {
