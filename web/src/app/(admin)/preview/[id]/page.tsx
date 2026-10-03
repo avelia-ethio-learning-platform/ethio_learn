@@ -144,7 +144,7 @@ function Preview({ courseId }: { courseId: string }) {
           <div className="relative mt-5 overflow-hidden rounded-2xl bg-black shadow-floating">
             <video ref={videoRef} controls playsInline poster={course.thumbnail_url || undefined} className="aspect-video w-full" />
             {!playing && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-black/60 p-4 text-center text-sm font-medium text-white/80">
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-black/70 p-4 text-center text-sm font-medium text-white/80">
                 <Play className="h-5 w-5 shrink-0" aria-hidden /> Choose a lesson to start the preview
               </div>
             )}
@@ -697,7 +697,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
         </div>
         <h1 className="mt-3 break-words text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{diff.course.title}</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Live course ({diff.course.status.replace(/_/g, ' ')}){revision?.submitted_at ? ` · submitted ${formatDate(revision.submitted_at, locale, 'datetime')}` : ''}. Learners keep
+          Live course ({statusLabel(diff.course.status).label}){revision?.submitted_at ? ` · submitted ${formatDate(revision.submitted_at, locale, 'datetime')}` : ''}. Learners keep
           seeing the live version until these changes are approved.
         </p>
       </div>

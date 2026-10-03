@@ -240,7 +240,7 @@ function EditLessonForm({ lesson, onDone, onCancel }: { lesson: WorkingLesson; o
   return (
     <form onSubmit={save} className="glass-secondary ml-5 mt-2 space-y-2 rounded-xl p-3">
       <div className="flex flex-wrap gap-2">
-        <input className="input min-w-0 flex-1 text-sm" required minLength={2} maxLength={160} value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Lesson title" />
+        <input className="input min-w-0 flex-1 basis-full text-sm sm:basis-auto" required minLength={2} maxLength={160} value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Lesson title" />
         <input
           className="input w-24 text-sm"
           type="number"
@@ -299,7 +299,7 @@ function EditSectionForm({ section, onDone, onCancel }: { section: WorkingSectio
 
   return (
     <form onSubmit={save} className="glass-secondary mt-2 flex flex-wrap items-center gap-2 rounded-xl p-3">
-      <input className="input min-w-0 flex-1 text-sm" required minLength={2} maxLength={160} value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Section title" />
+      <input className="input min-w-0 flex-1 basis-full text-sm sm:basis-auto" required minLength={2} maxLength={160} value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Section title" />
       <label className="flex items-center gap-1 text-sm text-gray-600">
         <input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} /> free preview
       </label>
@@ -336,7 +336,7 @@ function AddSection({ courseId, disabled, onDone }: { courseId: string; disabled
       }}
     >
       <fieldset disabled={disabled} className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-        <input name="title" required minLength={2} maxLength={160} placeholder="New section title" className="input min-w-0 flex-1" />
+        <input name="title" required minLength={2} maxLength={160} placeholder="New section title" className="input min-w-0 flex-1 basis-full sm:basis-auto" />
         <label className="flex items-center gap-1 text-sm text-gray-600">
           <input type="checkbox" name="preview" /> free preview
         </label>

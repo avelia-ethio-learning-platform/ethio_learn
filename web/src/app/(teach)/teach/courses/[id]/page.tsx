@@ -506,14 +506,14 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
             {questions.map((q, qi) => (
               <div key={qi} className="glass-secondary rounded-xl p-3">
                 <div className="flex items-center gap-2">
-                  <input className="input flex-1 text-sm" value={q.prompt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, prompt: e.target.value } : x)))} placeholder="Question prompt" aria-label={`Question ${qi + 1} prompt`} />
+                  <input className="input min-w-0 flex-1 text-sm" value={q.prompt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, prompt: e.target.value } : x)))} placeholder="Question prompt" aria-label={`Question ${qi + 1} prompt`} />
                   <button aria-label={`Remove question ${qi + 1}`} className="btn-ghost btn-sm !text-red-600 dark:!text-red-400" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}><X className="h-4 w-4" aria-hidden /></button>
                 </div>
                 <div className="mt-1 space-y-1">
                   {q.options.map((opt, oi) => (
                     <div key={oi} className="flex items-center gap-2">
                       <input type="radio" name={`correct-${qi}`} aria-label={`Correct answer for question ${qi + 1}: option ${oi + 1}`} value={oi} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
-                      <input className="input flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} aria-label={`Option ${oi + 1} of question ${qi + 1}`} />
+                      <input className="input min-w-0 flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} aria-label={`Option ${oi + 1} of question ${qi + 1}`} />
                       <button aria-label={`Remove option ${oi + 1} of question ${qi + 1}`} className="btn-ghost btn-sm !text-red-600 dark:!text-red-400" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}><X className="h-4 w-4" aria-hidden /></button>
                     </div>
                   ))}

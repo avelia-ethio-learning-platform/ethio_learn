@@ -209,8 +209,8 @@ function BulkOrder({ order: o }: { order: any }) {
       {o.assignments?.length > 0 && (
         <ul className="mt-3 divide-y text-xs" style={{ borderColor: 'var(--border)' }}>
           {o.assignments.map((a: any) => (
-            <li key={a.id} className="flex items-center justify-between gap-3 py-1.5">
-              <span className="min-w-0 truncate text-foreground">{a.recipient_email}</span>
+            <li key={a.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1.5">
+              <span className="min-w-0 max-w-full truncate text-foreground">{a.recipient_email}</span>
               <span className="flex items-center gap-3">
                 {a.progress ? (
                   <span className="flex items-center gap-2">
