@@ -144,8 +144,12 @@ jobs:
         run: pnpm -C web exec playwright install --with-deps chromium
       # Starts `next start` on :3000 and an "API asleep" twin on :3100 itself.
       # Before the smoke step, which exhausts the login limiter on purpose.
+      # The e2e scripts above can leave the login limiter (10/min per IP) full,
+      # and a cached web build reaches here in under a minute, so wait out the window.
       - name: Browser smoke (Playwright)
-        run: pnpm -C web exec playwright test
+        run: |
+          sleep 60
+          pnpm -C web exec playwright test
       - name: Smoke assertions (security envelope + video progress + 429)
         run: E2E_CHECK_RATE_LIMIT=1 node scripts/e2e-smoke.mjs
       - name: Upload Playwright report
