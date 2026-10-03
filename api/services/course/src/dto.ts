@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -38,10 +39,11 @@ export class LessonInputDto {
   @Min(0)
   duration_seconds?: number;
 
-  /** Measured length of the attached video, in seconds (set by the upload probe). */
+  /** Measured length of the attached video, in seconds (set by the upload probe); capped like the heartbeat's duration. */
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(86_400)
   video_duration_seconds?: number;
 }
 
@@ -68,10 +70,11 @@ export class UpdateLessonDto {
   @Min(0)
   duration_seconds?: number;
 
-  /** Measured length of the attached video, in seconds (set by the upload probe). */
+  /** Measured length of the attached video, in seconds (set by the upload probe); capped like the heartbeat's duration. */
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(86_400)
   video_duration_seconds?: number;
 }
 
