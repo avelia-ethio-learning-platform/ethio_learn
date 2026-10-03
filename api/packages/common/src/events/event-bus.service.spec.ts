@@ -173,6 +173,15 @@ describe('EventBusService.publishConfirmed', () => {
     });
   });
 
+  it('keeps a given event id, so a re-sent event is the same event to its consumers', async () => {
+    const broker = new FakeBroker();
+    const eventId = '6f1b2a43-9a0e-4c2d-8f53-2b1f6a9e7c10';
+    await bus.publishConfirmed('PaymentConfirmed', {}, { eventId });
+    await bus.publishConfirmed('PaymentConfirmed', {}, { eventId });
+
+    expect(broker.published.map((p) => JSON.parse(p.body).metadata.event_id)).toEqual([eventId, eventId]);
+  });
+
   it('rejects with a BrokerPublishError when the broker refuses the event', async () => {
     const broker = new FakeBroker();
     broker.confirmReply = 'nack';

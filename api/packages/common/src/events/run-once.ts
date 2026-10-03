@@ -1,5 +1,6 @@
 import { Column, DataSource, Entity, EntityManager, PrimaryColumn } from 'typeorm';
 import { envInt } from '../config/env';
+import { inTransactionScope } from './outbox';
 
 /**
  * One row per (handler, event) that ran its effect: the dedupe marker for
@@ -51,30 +52,32 @@ export async function runOnce<T>(
 ): Promise<RunOnceResult<T>> {
   if (!consumer) throw new Error('runOnce needs the handler’s explicit name (subscribe(…, { name }))');
   if (!eventId) throw new Error(`runOnce (${consumer}) needs the event id`);
-  return dataSource.transaction(async (manager) => {
-    const table = manager.getRepository(ProcessedEvent).metadata.tablePath;
-    const inserted: unknown[] = await manager.query(
-      `INSERT INTO ${table} (consumer, event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING 1`,
-      [consumer, eventId],
-    );
-    if (inserted.length === 0) {
-      const rows: { result: T | null }[] = await manager.query(`SELECT result FROM ${table} WHERE consumer = $1 AND event_id = $2`, [
-        consumer,
-        eventId,
-      ]);
-      return { ran: false, result: rows[0]?.result ?? null };
-    }
-    const result = await fn(manager);
-    if (result !== undefined && result !== null) {
-      await manager.query(`UPDATE ${table} SET result = $3 WHERE consumer = $1 AND event_id = $2`, [consumer, eventId, JSON.stringify(result)]);
-    }
-    if (Math.random() < 1 / PRUNE_ONE_IN) {
-      const days = envInt('PROCESSED_EVENTS_RETENTION_DAYS', 30);
-      await manager.query(
-        `DELETE FROM ${table} WHERE ctid IN (SELECT ctid FROM ${table} WHERE processed_at < now() - make_interval(days => $1) LIMIT ${PRUNE_BATCH})`,
-        [days],
+  return dataSource.transaction((manager) =>
+    inTransactionScope(async () => {
+      const table = manager.getRepository(ProcessedEvent).metadata.tablePath;
+      const inserted: unknown[] = await manager.query(
+        `INSERT INTO ${table} (consumer, event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING 1`,
+        [consumer, eventId],
       );
-    }
-    return { ran: true, result: result ?? null };
-  });
+      if (inserted.length === 0) {
+        const rows: { result: T | null }[] = await manager.query(`SELECT result FROM ${table} WHERE consumer = $1 AND event_id = $2`, [
+          consumer,
+          eventId,
+        ]);
+        return { ran: false, result: rows[0]?.result ?? null };
+      }
+      const result = await fn(manager);
+      if (result !== undefined && result !== null) {
+        await manager.query(`UPDATE ${table} SET result = $3 WHERE consumer = $1 AND event_id = $2`, [consumer, eventId, JSON.stringify(result)]);
+      }
+      if (Math.random() < 1 / PRUNE_ONE_IN) {
+        const days = envInt('PROCESSED_EVENTS_RETENTION_DAYS', 30);
+        await manager.query(
+          `DELETE FROM ${table} WHERE ctid IN (SELECT ctid FROM ${table} WHERE processed_at < now() - make_interval(days => $1) LIMIT ${PRUNE_BATCH})`,
+          [days],
+        );
+      }
+      return { ran: true, result: result ?? null };
+    }),
+  );
 }

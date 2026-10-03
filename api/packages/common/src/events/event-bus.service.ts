@@ -16,6 +16,8 @@ export interface EventBusOptions {
   serviceName: string;
   /** amqp:// URL. Defaults to env RABBITMQ_URL. */
   url?: string;
+  /** Provides OutboxService (Phase 9b): the service lists OutboxEvent and ships its `outbox` table. */
+  outbox?: boolean;
 }
 
 /**
@@ -121,10 +123,14 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
    * Rejects with BrokerPublishError when the broker can't be reached, refuses
    * the message or doesn't confirm within `timeoutMs` (default 5 s). Without
    * the confirm, a plain publish resolves as soon as the message is buffered
-   * and a dead link loses it silently.
+   * and a dead link loses it silently. `eventId` keeps a re-sent event's id.
    */
-  async publishConfirmed<P>(eventType: EventType, payload: P, opts: { timeoutMs?: number; correlationId?: string } = {}): Promise<void> {
-    const envelope = this.envelope(eventType, payload, opts.correlationId);
+  async publishConfirmed<P>(
+    eventType: EventType,
+    payload: P,
+    opts: { timeoutMs?: number; correlationId?: string; eventId?: string } = {},
+  ): Promise<void> {
+    const envelope = this.envelope(eventType, payload, opts.correlationId, opts.eventId);
     await this.publishWithConfirm(eventType, EVENTS_EXCHANGE, '', Buffer.from(JSON.stringify(envelope)), {}, opts.timeoutMs ?? 5000);
     this.logger.log(`published ${eventType} (${envelope.metadata.event_id}), confirmed by the broker`);
   }
@@ -369,12 +375,13 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
     }
   }
 
-  private envelope<P>(eventType: EventType, payload: P, correlationId?: string): EventEnvelope<P> {
+  /** `eventId` is set by a sender that re-sends (the outbox, Phase 4's cron), so the consumers' dedupe sees one event. */
+  private envelope<P>(eventType: EventType, payload: P, correlationId?: string, eventId?: string): EventEnvelope<P> {
     return {
       event_type: eventType,
       payload,
       metadata: {
-        event_id: randomUUID(),
+        event_id: eventId ?? randomUUID(),
         timestamp: new Date().toISOString(),
         producer_service: this.options.serviceName,
         correlation_id: correlationId ?? randomUUID(),
