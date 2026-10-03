@@ -98,9 +98,16 @@ for (const theme of THEMES) {
     test.beforeEach(async ({ page }) => prefer(page, theme));
 
     test.describe('public pages', () => {
-      test('home, catalog, free and paid course, help, educators', async ({ page, request }) => {
+      // Split in two: the course pages' scans alone take ~10 s, and all six together came within 3 s of the 30 s timeout.
+      test('home, catalog, help, educators', async ({ page }) => {
+        for (const path of ['/', '/courses', '/help', '/educators']) {
+          await scanVisit(page, path, theme);
+        }
+      });
+
+      test('a free and a paid course', async ({ page, request }) => {
         const ids = await pages(request);
-        for (const path of ['/', '/courses', `/courses/${ids.free}`, `/courses/${ids.paid}`, '/help', '/educators']) {
+        for (const path of [`/courses/${ids.free}`, `/courses/${ids.paid}`]) {
           await scanVisit(page, path, theme);
         }
       });
