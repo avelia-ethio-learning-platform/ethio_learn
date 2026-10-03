@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThan, Not, Repository } from 'typeorm';
+import { In, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { dailyCapExceeded, env, envInt, EventBusService, InternalHttpClient, internalPath, recipientCapExceeded, UserContext } from '@ethiopialearn/common';
 import {
   BulkPurchaseActivatedPayload,
@@ -14,7 +14,7 @@ import {
 } from '@ethiopialearn/contracts';
 import { BulkPurchase, Payment, Sponsorship } from './entities';
 import { randomCode } from './growth.service';
-import { bulkDiscountPercent, CourseInfo, PaymentService, SessionResult } from './payment.service';
+import { bulkDiscountPercent, CourseInfo, PaymentService, SessionInput, SessionResult } from './payment.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PAY_REQUESTS_PER_EMAIL_PER_DAY = 3;
@@ -89,18 +89,23 @@ export class SponsorshipService implements OnModuleInit {
         token: randomCode(24),
       }),
     );
-    const session = await this.payments.createSession({
-      payer: ctx,
-      purpose: PaymentPurpose.GIFT,
-      courseId: course.id,
-      courseTitle: course.title,
-      listPriceEtb: course.price_etb!,
-      payee: { id: course.owner_id, type: course.owner_type },
-      couponCode: dto.coupon_code,
-      useWallet: dto.use_wallet,
-      meta: { sponsorship_id: s.id },
-      returnPath: `/dashboard?gift=${s.id}`,
-    });
+    // Refused: no gift. Left behind, it would stay pending_payment and count toward the daily cap.
+    const session = await this.checkoutOrUndo(
+      {
+        payer: ctx,
+        purpose: PaymentPurpose.GIFT,
+        courseId: course.id,
+        courseTitle: course.title,
+        listPriceEtb: course.price_etb!,
+        payee: { id: course.owner_id, type: course.owner_type },
+        couponCode: dto.coupon_code,
+        useWallet: dto.use_wallet,
+        meta: { sponsorship_id: s.id },
+        returnPath: `/dashboard?gift=${s.id}`,
+      },
+      `gift ${s.id}`,
+      () => this.sponsorships.delete({ id: s.id, status: 'pending_payment' }),
+    );
     if (!session.confirmed) {
       s.payment_id = session.payment_id;
       await this.sponsorships.save(s);
@@ -204,18 +209,28 @@ export class SponsorshipService implements OnModuleInit {
     s.status = 'pending_payment';
     await this.sponsorships.save(s);
 
-    const session = await this.payments.createSession({
-      payer: ctx,
-      purpose: PaymentPurpose.PAY_REQUEST,
-      courseId: course.id,
-      courseTitle: course.title,
-      listPriceEtb: course.price_etb!,
-      payee: { id: course.owner_id, type: course.owner_type },
-      couponCode: dto.coupon_code,
-      useWallet: dto.use_wallet,
-      meta: { sponsorship_id: s.id },
-      returnPath: `/pay/${s.token}?paid=1`,
-    });
+    // Refused: back to requested with no sponsor (sponsor_name is NOT NULL; '' as when it was asked).
+    // Only while it is still this payer's and no checkout is attached: another payer's checkout stays.
+    const session = await this.checkoutOrUndo(
+      {
+        payer: ctx,
+        purpose: PaymentPurpose.PAY_REQUEST,
+        courseId: course.id,
+        courseTitle: course.title,
+        listPriceEtb: course.price_etb!,
+        payee: { id: course.owner_id, type: course.owner_type },
+        couponCode: dto.coupon_code,
+        useWallet: dto.use_wallet,
+        meta: { sponsorship_id: s.id },
+        returnPath: `/pay/${s.token}?paid=1`,
+      },
+      `pay request ${s.id}`,
+      () =>
+        this.sponsorships.update(
+          { id: s.id, status: 'pending_payment', sponsor_id: ctx.id, payment_id: IsNull() },
+          { status: 'requested', sponsor_id: null, sponsor_name: '' },
+        ),
+    );
     if (!session.confirmed) {
       s.payment_id = session.payment_id;
       await this.sponsorships.save(s);
@@ -262,17 +277,22 @@ export class SponsorshipService implements OnModuleInit {
       }),
     );
     // Volume discount is baked into the list price; per-code coupons don't stack on bulk.
-    const session = await this.payments.createSession({
-      payer: ctx,
-      purpose: PaymentPurpose.BULK,
-      courseId: course.id,
-      courseTitle: `${course.title} × ${q.seats} seats`,
-      listPriceEtb: q.total_etb,
-      payee: { id: course.owner_id, type: course.owner_type },
-      useWallet: dto.use_wallet,
-      meta: { bulk_purchase_id: order.id, seats: q.seats },
-      returnPath: `/institution?bulk=${order.id}`,
-    });
+    // Refused: no order.
+    const session = await this.checkoutOrUndo(
+      {
+        payer: ctx,
+        purpose: PaymentPurpose.BULK,
+        courseId: course.id,
+        courseTitle: `${course.title} × ${q.seats} seats`,
+        listPriceEtb: q.total_etb,
+        payee: { id: course.owner_id, type: course.owner_type },
+        useWallet: dto.use_wallet,
+        meta: { bulk_purchase_id: order.id, seats: q.seats },
+        returnPath: `/institution?bulk=${order.id}`,
+      },
+      `bulk purchase ${order.id}`,
+      () => this.bulk.delete({ id: order.id, status: 'pending_payment' }),
+    );
     if (!session.confirmed) {
       order.payment_id = session.payment_id;
       await this.bulk.save(order);
@@ -530,6 +550,27 @@ export class SponsorshipService implements OnModuleInit {
       out.push({ ...this.view(s), progress });
     }
     return out;
+  }
+
+  /**
+   * Opens the checkout for a gift, pay request or bulk order whose row was
+   * just written. When createSession refuses it, `undo` takes that row back,
+   * so a refused checkout leaves nothing behind. Each undo is conditional on
+   * the row still waiting for this checkout's payment, so it never touches a
+   * row a confirmation or another payer has moved on. A failing undo is
+   * logged, and the caller still gets the refusal.
+   */
+  private async checkoutOrUndo(input: SessionInput, row: string, undo: () => Promise<unknown>): Promise<SessionResult> {
+    try {
+      return await this.payments.createSession(input);
+    } catch (err) {
+      try {
+        await undo();
+      } catch (undoErr) {
+        this.logger.error(`${row}: could not be undone after its checkout was refused: ${(undoErr as Error).message}`);
+      }
+      throw err;
+    }
   }
 
   private async paidCourse(courseId: string): Promise<CourseInfo> {

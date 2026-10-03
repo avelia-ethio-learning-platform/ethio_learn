@@ -9,6 +9,7 @@ import { fakeDb, Row } from './testing/fake-db';
 const ACCOUNTS: Record<string, { id: string; name: string; email: string; role: string }> = {
   'sister@x.et': { id: 'sister', name: 'Sister', email: 'sister@x.et', role: 'learner' },
 };
+const COURSE = { id: 'c1', title: 'Course', owner_id: 'edu-1', owner_type: 'educator', price_etb: 500, pricing_type: 'paid', status: 'published' };
 
 /** The sponsorship handlers wired into the real PaymentService, on the in-memory schema. */
 function setup() {
@@ -27,10 +28,13 @@ function setup() {
         return account;
       }
       if (path.includes('/internal/users/')) return { email: 'sponsor@x.et', name: 'Sponsor' };
+      if (path.includes('/internal/courses/')) return COURSE;
+      if (path.includes('/entitlements')) return { entitlement_status: 'none' };
       throw new Error(`unexpected internal call ${path}`);
     }),
   };
-  const chapa = { verify: jest.fn(), initialize: jest.fn(), generateTxRef: jest.fn() };
+  let txRefs = 0;
+  const chapa = { verify: jest.fn(), initialize: jest.fn(), generateTxRef: jest.fn(async () => `TX-${++txRefs}`) };
   const growth = new GrowthService(
     db.repo(Coupon) as never,
     db.repo(Wallet) as never,
@@ -89,7 +93,7 @@ function setup() {
   };
   const events = (type: string) => bus.publishConfirmed.mock.calls.filter(([t]) => t === type);
   const payment = (id = 'pay-1') => db.repo(Payment).rows.find((p) => p.id === id)!;
-  return { db, bus, payments, sponsorships, confirmedPayment, sponsorship, events, payment };
+  return { db, bus, chapa, payments, sponsorships, confirmedPayment, sponsorship, events, payment };
 }
 
 describe('Sponsored payments: access events follow the sponsorship (P0-05)', () => {
@@ -196,5 +200,131 @@ describe('Sponsored payments: access events follow the sponsorship (P0-05)', () 
     expect(t.events('BulkPurchaseActivated')).toHaveLength(2);
     expect(t.events('BulkPurchaseActivated')[1][1]).toMatchObject({ bulk_purchase_id: 'bulk-1', seats: 10, buyer_email: 'sponsor@x.et' });
     expect(t.payment().effects_completed_at).toBeInstanceOf(Date);
+  });
+});
+
+describe('A refused checkout undoes its sponsorship side', () => {
+  const SPONSOR = { id: 'sponsor', role: 'learner', email: 'sponsor@x.et' } as never;
+  const PAYER_B = { id: 'payer-b', role: 'learner', email: 'b@x.et' } as never;
+  const gift = { course_id: 'c1', recipient_email: 'sister@x.et' };
+  const bulk = { course_id: 'c1', seats: 10, organization_name: 'Acme' };
+  const chapaRefuses = (t: ReturnType<typeof setup>) => t.chapa.initialize.mockRejectedValue(new Error('Chapa is unavailable'));
+  /** A pay request nobody has paid yet, as createPayRequest leaves it. */
+  const openRequest = (t: ReturnType<typeof setup>) =>
+    t.sponsorship({ source: 'pay_request', status: 'requested', sponsor_id: null, sponsor_name: '', recipient_user_id: 'asker', recipient_email: 'asker@x.et' });
+
+  const giftCap = process.env.GIFTS_PER_DAY;
+  afterEach(() => {
+    if (giftCap === undefined) delete process.env.GIFTS_PER_DAY;
+    else process.env.GIFTS_PER_DAY = giftCap;
+  });
+
+  it.each([
+    ['Chapa cannot open the checkout', {}, 'Chapa is unavailable'],
+    ['the wallet cannot cover it', { use_wallet: true }, 'is not enough for 500.00 ETB'],
+  ])('a refused gift (%s) leaves no gift behind, so it does not count toward the daily cap', async (_, how, message) => {
+    process.env.GIFTS_PER_DAY = '1';
+    const t = setup();
+    chapaRefuses(t);
+
+    await expect(t.sponsorships.createGift(SPONSOR, { ...gift, ...how })).rejects.toThrow(message);
+    expect(t.db.repo(Sponsorship).rows).toEqual([]);
+
+    t.chapa.initialize.mockResolvedValue({ checkout_url: 'https://checkout.example/gift' });
+    await expect(t.sponsorships.createGift(SPONSOR, gift)).resolves.toMatchObject({ checkout_url: 'https://checkout.example/gift' });
+  });
+
+  it('a refused pay-request checkout puts the request back to requested, with no sponsor', async () => {
+    const t = setup();
+    openRequest(t);
+    chapaRefuses(t);
+
+    await expect(t.sponsorships.payRequest(SPONSOR, 'TOKEN', {})).rejects.toThrow('Chapa is unavailable');
+
+    expect(t.db.repo(Sponsorship).rows).toEqual([expect.objectContaining({ status: 'requested', sponsor_id: null, sponsor_name: '', payment_id: null })]);
+  });
+
+  it('does not undo the checkout of a payer who took the request over while the refused one was opening', async () => {
+    const t = setup();
+    openRequest(t);
+    let theirsOpening!: () => void;
+    const theirsAtChapa = new Promise<void>((resolve) => (theirsOpening = resolve));
+    let releaseTheirs!: () => void;
+    const theirsReleased = new Promise<void>((resolve) => (releaseTheirs = resolve));
+    let theirCheckout!: Promise<unknown>;
+    t.chapa.initialize
+      // Ours: payer B takes the request over, and ours is refused while B's checkout is still opening.
+      .mockImplementationOnce(async () => {
+        theirCheckout = t.sponsorships.payRequest(PAYER_B, 'TOKEN', {});
+        await theirsAtChapa;
+        throw new Error('Chapa is unavailable');
+      })
+      .mockImplementationOnce(async () => {
+        theirsOpening();
+        await theirsReleased;
+        return { checkout_url: 'https://checkout.example/b' };
+      });
+
+    await expect(t.sponsorships.payRequest(SPONSOR, 'TOKEN', {})).rejects.toThrow('Chapa is unavailable');
+    expect(t.db.repo(Sponsorship).rows).toEqual([expect.objectContaining({ status: 'pending_payment', sponsor_id: 'payer-b', payment_id: null })]);
+
+    releaseTheirs();
+    await theirCheckout;
+    const theirs = t.db.repo(Payment).rows.find((p) => p.learner_id === 'payer-b')!;
+    expect(theirs).toMatchObject({ status: PaymentStatus.PENDING, chapa_checkout_url: 'https://checkout.example/b' });
+    expect(t.db.repo(Sponsorship).rows).toEqual([expect.objectContaining({ status: 'pending_payment', sponsor_id: 'payer-b', payment_id: theirs.id })]);
+  });
+
+  it('does not undo a request whose earlier payer still has an open checkout', async () => {
+    const t = setup();
+    openRequest(t);
+    t.chapa.initialize.mockResolvedValueOnce({ checkout_url: 'https://checkout.example/b' }).mockRejectedValueOnce(new Error('Chapa is unavailable'));
+    await t.sponsorships.payRequest(PAYER_B, 'TOKEN', {});
+    const theirs = t.db.repo(Payment).rows[0];
+
+    await expect(t.sponsorships.payRequest(SPONSOR, 'TOKEN', {})).rejects.toThrow('Chapa is unavailable');
+
+    expect(t.db.repo(Sponsorship).rows).toEqual([expect.objectContaining({ status: 'pending_payment', payment_id: theirs.id })]);
+  });
+
+  it('a refused bulk checkout leaves no order behind', async () => {
+    const t = setup();
+    chapaRefuses(t);
+
+    await expect(t.sponsorships.createBulk(SPONSOR, bulk)).rejects.toThrow('Chapa is unavailable');
+
+    expect(t.db.repo(BulkPurchase).rows).toEqual([]);
+  });
+
+  it('keeps a gift or bulk order that a confirmation already moved on, whatever the checkout throws afterwards', async () => {
+    const t = setup();
+    const session = jest.spyOn(t.payments, 'createSession');
+    session.mockImplementationOnce(async () => {
+      t.db.repo(Sponsorship).rows[0].status = 'granted';
+      throw new Error('after the confirmation');
+    });
+    session.mockImplementationOnce(async () => {
+      t.db.repo(BulkPurchase).rows[0].status = 'active';
+      throw new Error('after the confirmation');
+    });
+
+    await expect(t.sponsorships.createGift(SPONSOR, gift)).rejects.toThrow('after the confirmation');
+    await expect(t.sponsorships.createBulk(SPONSOR, bulk)).rejects.toThrow('after the confirmation');
+
+    expect(t.db.repo(Sponsorship).rows).toEqual([expect.objectContaining({ status: 'granted' })]);
+    expect(t.db.repo(BulkPurchase).rows).toEqual([expect.objectContaining({ status: 'active' })]);
+  });
+
+  it('when the undo itself fails, logs it with the gift id and still reports the refusal', async () => {
+    const t = setup();
+    chapaRefuses(t);
+    t.db.repo(Sponsorship).delete.mockRejectedValueOnce(new Error('connection lost'));
+    const error = jest.spyOn((t.sponsorships as any).logger, 'error').mockImplementation(() => undefined);
+
+    await expect(t.sponsorships.createGift(SPONSOR, gift)).rejects.toThrow('Chapa is unavailable');
+
+    const left = t.db.repo(Sponsorship).rows[0];
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(`gift ${left.id}`));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('connection lost'));
   });
 });
