@@ -5,6 +5,7 @@ import { MotionConfig } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { I18nProvider } from '@/lib/i18n';
 import { makeQueryClient } from '@/lib/query-client';
+import { ConfirmProvider } from './confirm/ConfirmProvider';
 import { ThemeProvider } from './ThemeProvider';
 import { SkipLink } from './SkipLink';
 import { WakingUpNotice } from './WakingUpNotice';
@@ -33,7 +34,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <I18nProvider>
           <MotionConfig reducedMotion="user">
             <SkipLink />
-            {children}
+            <ConfirmProvider>{children}</ConfirmProvider>
             <WakingUpNotice />
           </MotionConfig>
         </I18nProvider>

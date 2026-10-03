@@ -250,6 +250,21 @@
     background: rgba(59, 130, 246, 0.08);
   }
 
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50;
+    /* red-700: white text is 6.5:1, in both themes. */
+    background: #b91c1c;
+    transition: transform 0.15s var(--ease-out-expo), background 0.15s ease;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: #991b1b;
+  }
+
+  /* Row actions: a 32 px target. Declared after .btn* so its padding wins. */
+  .btn-sm {
+    @apply min-h-8 px-3 py-1 text-xs;
+  }
+
   .input {
     @apply block w-full rounded-xl px-3.5 py-2.5 text-sm text-foreground placeholder:text-gray-500;
     background: var(--input-background);
@@ -448,5 +463,5 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-in { animation: none; }
   .skeleton::after { animation: none; }
-  .btn, .btn-secondary { transition: none; }
+  .btn, .btn-secondary, .btn-danger { transition: none; }
 }
