@@ -96,6 +96,12 @@ export class OutboxService implements OnApplicationBootstrap, OnApplicationShutd
   private timer?: NodeJS.Timeout;
   private relaying = false;
   private lastCleanup = 0;
+  /**
+   * Rows the fast path or the relay is publishing right now. The other one stops at
+   * such a row instead of sending it too: the confirm wait is long enough for a relay
+   * tick to land in it, and two copies at once can both pass notification's dedupe (9b review S1).
+   */
+  private readonly inFlight = new Set<string>();
 
   constructor(
     private readonly dataSource: DataSource,
@@ -157,7 +163,15 @@ export class OutboxService implements OnApplicationBootstrap, OnApplicationShutd
       }
       // While the broker is down, a publish only waits and fails: leave the rows, uncounted.
       if (this.bus.isConnected()) {
-        for (const row of rows) if (!(await this.send(row))) break;
+        for (const row of rows) {
+          if (this.inFlight.has(row.id)) break; // the fast path is sending it; the next tick goes on from there
+          this.inFlight.add(row.id);
+          try {
+            if (!(await this.send(row))) break;
+          } finally {
+            this.inFlight.delete(row.id);
+          }
+        }
       }
       if (Date.now() - this.lastCleanup >= CLEANUP_EVERY_MS) {
         this.lastCleanup = Date.now();
@@ -175,6 +189,8 @@ export class OutboxService implements OnApplicationBootstrap, OnApplicationShutd
 
   /** Publishes a committed transaction's rows, unless the broker is down or an older row waits. Never throws. */
   private async fastPath(rows: OutboxRow[]): Promise<void> {
+    if (rows.some((row) => this.inFlight.has(row.id))) return; // the relay got to them first
+    rows.forEach((row) => this.inFlight.add(row.id));
     try {
       if (!this.bus.isConnected()) return;
       const older: unknown[] = await this.dataSource.query(
@@ -185,6 +201,8 @@ export class OutboxService implements OnApplicationBootstrap, OnApplicationShutd
       for (const row of rows) if (!(await this.send(row))) return;
     } catch (err) {
       this.logger.warn(`outbox fast path failed, the relay will send the rest: ${errorText(err)}`);
+    } finally {
+      rows.forEach((row) => this.inFlight.delete(row.id));
     }
   }
 

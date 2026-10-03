@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import * as amqp from 'amqplib';
+import { AsyncLocalStorage } from 'async_hooks';
 import { randomUUID } from 'crypto';
 import { EventEnvelope, EventType } from '@ethiopialearn/contracts';
 import { envInt, envOrLocalDefault } from '../config/env';
@@ -76,6 +77,13 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
   private readonly commandHandlers: CommandHandler[] = [];
   private readonly channelWaiters = new Set<(channel: amqp.Channel) => void>();
   private supervising: Promise<void> | null = null;
+  /**
+   * The context the bus was built in, outside any request or transaction. A socket's
+   * callbacks run in the context it was opened in, so the supervisor runs here: a
+   * reconnect kicked from inside a runOnce or outbox.transaction body would otherwise
+   * run every later delivery inside that body's scope (9b review S2).
+   */
+  private readonly detached = AsyncLocalStorage.snapshot();
   private wakeSupervisor: (() => void) | null = null;
   private lostAt: number | null = null;
   private shuttingDown = false;
@@ -168,7 +176,7 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
    */
   private kick(): void {
     if (this.shuttingDown || this.supervising || this.connection) return;
-    this.supervising = this.supervise().finally(() => {
+    this.supervising = this.detached(() => this.supervise()).finally(() => {
       this.supervising = null;
     });
   }

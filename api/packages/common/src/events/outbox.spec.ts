@@ -188,6 +188,28 @@ describe('OutboxService.transaction', () => {
     expect(t.sent.map((s) => s.type)).toEqual(['CourseSubmitted', 'CourseReviewWithdrawn']);
   });
 
+  it('a relay tick during the fast path confirm wait leaves the row to it, so the row is sent once (9b review S1)', async () => {
+    const t = setup();
+    let release: () => void = () => undefined;
+    t.bus.publishConfirmed.mockImplementationOnce(async (type: string, payload: unknown, opts: { eventId: string }) => {
+      await new Promise<void>((r) => (release = r));
+      t.sent.push({ type, payload, eventId: opts.eventId });
+    });
+    await t.outbox.transaction(async (_m, emit) => {
+      emit('CourseRated', { course_id: 'c1' });
+      emit('CourseRated', { course_id: 'c2' });
+    });
+    await until(() => t.bus.publishConfirmed.mock.calls.length === 1, 'the fast path to publish');
+
+    await t.outbox.relay(); // the first row is in flight: the relay sends nothing
+    expect(t.bus.publishConfirmed).toHaveBeenCalledTimes(1);
+    release();
+    await until(() => t.rows().every((r) => r.published_at !== null), 'both rows published');
+    await t.outbox.relay();
+
+    expect(t.sent.map((s) => (s.payload as { course_id: string }).course_id)).toEqual(['c1', 'c2']);
+  });
+
   it('refuses to run inside runOnce or another outbox transaction', async () => {
     const t = setup();
     const nested = () => t.outbox.transaction(async (_m, emit) => emit('TrustTierChanged', { educator_id: 'e1' }));
