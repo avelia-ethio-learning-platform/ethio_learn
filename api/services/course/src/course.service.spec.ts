@@ -126,6 +126,28 @@ function setup(fx: Fixture = {}) {
     }),
   };
 
+  // outbox.transaction on that transaction: emitted events "commit" only when it does.
+  // failNextInsert() makes the next outbox insert throw after the writes, so the transaction rolls back.
+  const committed: Array<{ type: string; payload: unknown }> = [];
+  let failInsert = false;
+  const outbox = {
+    transaction: jest.fn((fn: (m: typeof manager, emit: (type: string, payload: unknown) => void) => Promise<unknown>) =>
+      dataSource.transaction(async (m) => {
+        const queued: Array<{ type: string; payload: unknown }> = [];
+        const result = await fn(m, (type, payload) => queued.push({ type, payload }));
+        if (failInsert && queued.length) {
+          failInsert = false;
+          throw new Error('outbox insert failed');
+        }
+        committed.push(...queued);
+        return result;
+      }),
+    ),
+  };
+  const failNextInsert = () => {
+    failInsert = true;
+  };
+
   const handlers: Record<string, (payload: any) => Promise<void>> = {};
   const bus = {
     publish: jest.fn(async () => undefined),
@@ -159,6 +181,7 @@ function setup(fx: Fixture = {}) {
     revisions as never,
     videoKeys as never,
     dataSource as never,
+    outbox as never,
   );
   service.onModuleInit();
 
@@ -170,10 +193,12 @@ function setup(fx: Fixture = {}) {
   const storage = { getSignedStreamUrl: jest.fn(async (key: string) => ({ url: `https://signed/${key}`, expires_in: 900 })) };
   const controller = new CourseController(service, revisionService as never, extras as never, storage as never, internal as never);
 
-  return { service, controller, course, courses, sections, lessons, revisions, knowledge, bus, handlers, internal, extras, videoKeys, dataSource, revisionService, storage };
+  return { service, controller, course, courses, sections, lessons, revisions, knowledge, bus, handlers, internal, extras, videoKeys, dataSource, revisionService, storage, outbox, committed, failNextInsert };
 }
 
 const published = (h: ReturnType<typeof setup>) => h.bus.publish.mock.calls.map((c: unknown[]) => c[0]);
+/** Event types committed through the outbox. */
+const emitted = (h: ReturnType<typeof setup>) => h.committed.map((e) => e.type);
 
 // ---------------------------------------------------------------------------
 
@@ -648,10 +673,10 @@ describe('CourseReviewed subscriber (first-time submissions, appeals, post-publi
   it('ignores a stale approve after the educator withdrew, and withdraw tells quality', async () => {
     const h = setup({ course: { status: 'submitted', published_at: null } });
     await h.service.withdraw(OWNER, 'c1');
-    expect(h.bus.publish).toHaveBeenCalledWith('CourseReviewWithdrawn', { course_id: 'c1', revision_id: null });
+    expect(h.committed).toEqual([{ type: 'CourseReviewWithdrawn', payload: { course_id: 'c1', revision_id: null } }]);
     await h.handlers['CourseReviewed'](decision('approve'));
     expect(h.course).toMatchObject({ status: 'draft', published_at: null });
-    expect(published(h)).not.toContain('CoursePublished');
+    expect(emitted(h)).not.toContain('CoursePublished');
   });
 
   it('first approval publishes and announces the course', async () => {
@@ -659,7 +684,8 @@ describe('CourseReviewed subscriber (first-time submissions, appeals, post-publi
     await h.handlers['CourseReviewed'](decision('approve'));
     expect(h.course.status).toBe('published');
     expect(h.course.published_at).toBeInstanceOf(Date);
-    expect(published(h)).toEqual(['CoursePublished']);
+    expect(emitted(h)).toEqual(['CoursePublished']);
+    expect(h.bus.publish).not.toHaveBeenCalled();
     expect(h.extras.reindexCourse).toHaveBeenCalledWith('c1');
   });
 
@@ -669,6 +695,7 @@ describe('CourseReviewed subscriber (first-time submissions, appeals, post-publi
     await h.handlers['CourseReviewed'](decision('approve', 'All good'));
     expect(h.course).toMatchObject({ status: 'published', published_at: publishedAt, last_review_action: 'approve', last_review_notes: 'All good' });
     expect(h.bus.publish).not.toHaveBeenCalled();
+    expect(h.committed).toEqual([]);
   });
 
   it('an appeal approval keeps the original publish date and does not re-announce', async () => {
@@ -676,7 +703,7 @@ describe('CourseReviewed subscriber (first-time submissions, appeals, post-publi
     const publishedAt = h.course.published_at;
     await h.handlers['CourseReviewed'](decision('approve'));
     expect(h.course).toMatchObject({ status: 'published', published_at: publishedAt });
-    expect(published(h)).not.toContain('CoursePublished');
+    expect(emitted(h)).not.toContain('CoursePublished');
   });
 
   it.each(['published', 'unlisted'])('coaching a %s course records feedback without demoting it', async (status) => {
@@ -1017,7 +1044,7 @@ describe('Staged work left on a course that is no longer live becomes the draft'
     await h.service.withdraw(OWNER, 'c1');
     expect(h.course.status).toBe('draft');
     expectFolded(h);
-    expect(h.bus.publish).toHaveBeenCalledWith('CourseReviewWithdrawn', { course_id: 'c1', revision_id: null });
+    expect(h.committed).toEqual([{ type: 'CourseReviewWithdrawn', payload: { course_id: 'c1', revision_id: null } }]);
   });
 
   it('a QO coaching an appeal back to draft folds it', async () => {
@@ -1082,7 +1109,7 @@ describe('Staged work left on a course that is no longer live becomes the draft'
     expect(detail).toMatchObject({ title: 'Staged title', price_etb: 750 });
     expect(detail.sections.map((s) => s.title)).toEqual(['Renamed section', 'Added section']);
     await expect(h.service.outlineForCourse('c1')).resolves.toEqual(['Renamed section — Staged lesson title', 'Added section — Added lesson']);
-    expect(h.bus.publish).toHaveBeenCalledWith('CourseSubmitted', expect.objectContaining({ title: 'Staged title' }));
+    expect(h.committed).toEqual([{ type: 'CourseSubmitted', payload: expect.objectContaining({ title: 'Staged title' }) }]);
   });
 
   it('submit counts the folded content: a draft whose only lesson was staged for removal cannot be submitted', async () => {
@@ -1288,5 +1315,66 @@ describe('EnrollmentCreated: a redelivered event counts the enrollment once (P1-
 
     await enrolled(payload, delivery('evt-2'));
     expect(h.courses.increment).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Outbox (9b): a status change and its event commit together, or neither does', () => {
+  const approve = { course_id: 'c1', action: 'approve', notes: null, qo_id: 'qo1', owner_user_id: 'edu1', owner_email: 'e@x.et', course_title: 'x' };
+
+  it('QO first approval: published with CoursePublished; a failed insert leaves it submitted and unannounced', async () => {
+    const h = setup({ course: { status: 'submitted', published_at: null } });
+    await h.handlers['CourseReviewed'](approve);
+    expect(h.courses.rows[0]).toMatchObject({ status: 'published' });
+    expect(h.committed).toEqual([{ type: 'CoursePublished', payload: expect.objectContaining({ course_id: 'c1', owner_email: 'e@x.et', price_etb: 500 }) }]);
+
+    const failed = setup({ course: { status: 'submitted', published_at: null } });
+    failed.failNextInsert();
+    await expect(failed.handlers['CourseReviewed'](approve)).rejects.toThrow('outbox insert failed');
+    expect(failed.courses.rows[0]).toMatchObject({ status: 'submitted', published_at: null });
+    expect(failed.committed).toEqual([]);
+    expect(failed.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('submit: submitted with CourseSubmitted; a failed insert leaves it a draft', async () => {
+    const h = setup({ course: { status: 'draft', published_at: null } });
+    await h.service.submit(OWNER, 'c1');
+    expect(h.courses.rows[0]).toMatchObject({ status: 'submitted' });
+    expect(h.committed).toEqual([{ type: 'CourseSubmitted', payload: expect.objectContaining({ course_id: 'c1', owner_email: 'e@x.et', owner_name: 'Edu' }) }]);
+    expect(h.bus.publish).not.toHaveBeenCalled();
+
+    const failed = setup({ course: { status: 'draft', published_at: null } });
+    failed.failNextInsert();
+    await expect(failed.service.submit(OWNER, 'c1')).rejects.toThrow('outbox insert failed');
+    expect(failed.courses.rows[0]).toMatchObject({ status: 'draft' });
+    expect(failed.committed).toEqual([]);
+  });
+
+  it('institution approve: to the QO queue with CourseSubmitted; a failed insert leaves it in institution review', async () => {
+    const fx = { course: { status: 'institution_review', institution_id: 'inst1', published_at: null } };
+    const h = setup(fx);
+    await h.service.institutionDecide(INST_ADMIN, 'c1', 'approve');
+    expect(h.courses.rows[0]).toMatchObject({ status: 'submitted' });
+    expect(emitted(h)).toEqual(['CourseSubmitted']);
+    expect(published(h)).toEqual(['CourseInstitutionReviewed']);
+
+    const failed = setup(fx);
+    failed.failNextInsert();
+    await expect(failed.service.institutionDecide(INST_ADMIN, 'c1', 'approve')).rejects.toThrow('outbox insert failed');
+    expect(failed.courses.rows[0]).toMatchObject({ status: 'institution_review' });
+    expect(failed.committed).toEqual([]);
+    expect(failed.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('withdraw: back to draft with CourseReviewWithdrawn; a failed insert leaves it in review', async () => {
+    const h = setup({ course: { status: 'under_review', published_at: null } });
+    await h.service.withdraw(OWNER, 'c1');
+    expect(h.courses.rows[0]).toMatchObject({ status: 'draft' });
+    expect(h.committed).toEqual([{ type: 'CourseReviewWithdrawn', payload: { course_id: 'c1', revision_id: null } }]);
+
+    const failed = setup({ course: { status: 'under_review', published_at: null } });
+    failed.failNextInsert();
+    await expect(failed.service.withdraw(OWNER, 'c1')).rejects.toThrow('outbox insert failed');
+    expect(failed.courses.rows[0]).toMatchObject({ status: 'under_review' });
+    expect(failed.committed).toEqual([]);
   });
 });
