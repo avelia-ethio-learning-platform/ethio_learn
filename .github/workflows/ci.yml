@@ -5,6 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token for every job; a job that needs more declares it.
+permissions:
+  contents: read
+
+# One run per ref: a new push to a PR cancels its previous run; runs on main finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Required on main by the ruleset (.github/rulesets/main.json): api, web, e2e,
+# secret-scan and lint. Renaming one of these jobs needs the ruleset updated too.
 jobs:
   # ---- secret scan: block a leaked key / .env before it reaches main ----
   # This repo has had live credentials pasted into it during development, so a
@@ -13,6 +24,7 @@ jobs:
   # history, pinned version. The log must say "N commits scanned" with N > 0.
   secret-scan:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -25,6 +37,7 @@ jobs:
   # ---- backend: build (tsc = typecheck) + unit tests ----
   api:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: api
@@ -45,6 +58,7 @@ jobs:
   # ---- frontend: typecheck + unit/component tests + production build ----
   web:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -68,6 +82,7 @@ jobs:
   # ---- e2e: real infra (compose) + all 8 services + API-level smoke ----
   e2e:
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     needs: api
     steps:
       - uses: actions/checkout@v7
@@ -93,7 +108,8 @@ jobs:
           pnpm -C api build
           pnpm -C api seed
           bash scripts/start-backend.sh
-          for _ in $(seq 1 30); do curl -sf http://localhost:4000/health && break; sleep 2; done
+          for _ in $(seq 1 30); do curl -sf http://localhost:4000/health > /dev/null && break; sleep 2; done
+          curl -sf http://localhost:4000/health > /dev/null || { echo "the gateway is not healthy"; exit 1; }
       # Fails if any entity change shipped without its migration. A service
       # only listens once its migrations ran, so wait for each one first.
       - name: Schema drift check
@@ -167,63 +183,56 @@ jobs:
           docker compose logs --no-color --tail 50 || true
           tail -n 80 .devlogs/*.log || true
 
-  # ---- CD: images to GHCR on main (deploy hooks can pull :latest or :sha) ----
-  docker-api:
+  # ---- lint: fails only when a rule's problem count rises above the baseline ----
+  # Existing findings don't block (.github/lint-baseline.json); lower the
+  # baseline with `node scripts/lint-check.mjs --update` when a PR fixes some.
+  lint:
     runs-on: ubuntu-24.04
-    needs: [api, e2e]
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        include:
-          - { pkg: '@ethiopialearn/gateway', name: gateway }
-          - { pkg: '@ethiopialearn/auth-service', name: auth }
-          - { pkg: '@ethiopialearn/course-service', name: course }
-          - { pkg: '@ethiopialearn/enrollment-service', name: enrollment }
-          - { pkg: '@ethiopialearn/outcomes-service', name: outcomes }
-          - { pkg: '@ethiopialearn/financial-service', name: financial }
-          - { pkg: '@ethiopialearn/quality-service', name: quality }
-          - { pkg: '@ethiopialearn/notification-service', name: notification }
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: pnpm/action-setup@v6
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+          version: 9.4.0
+      - uses: actions/setup-node@v7
         with:
-          context: api
-          file: api/Dockerfile
-          build-args: PKG=${{ matrix.pkg }}
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.name }}:latest
-            ghcr.io/${{ github.repository }}/${{ matrix.name }}:${{ github.sha }}
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            api/pnpm-lock.yaml
+            web/pnpm-lock.yaml
+      - run: pnpm -C api install --frozen-lockfile
+      - run: pnpm -C web install --frozen-lockfile
+      - run: node scripts/lint-check.mjs
 
-  docker-web:
+  # ---- audit: known vulnerabilities in production dependencies; never fails ----
+  # A finding is a warning and a job summary, not a red check: the check always
+  # concludes success, so it can't hold up Render's after-checks deploys.
+  # Fixing them is dependency work (Dependabot PRs, Phase 11c).
+  audit:
     runs-on: ubuntu-24.04
-    needs: [web, e2e]
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: pnpm/action-setup@v6
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: web
-          file: web/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/web:latest
-            ghcr.io/${{ github.repository }}/web:${{ github.sha }}
+          version: 9.4.0
+      - name: Audit api
+        id: api
+        continue-on-error: true
+        run: pnpm -C api audit --prod --audit-level high | tee audit-api.txt
+      - name: Audit web
+        id: web
+        continue-on-error: true
+        run: pnpm -C web audit --prod --audit-level high | tee audit-web.txt
+      - name: Summary
+        run: |
+          for pkg in api web; do
+            outcome=$([ "$pkg" = api ] && echo '${{ steps.api.outcome }}' || echo '${{ steps.web.outcome }}')
+            if [ "$outcome" = success ]; then
+              echo "### $pkg: no high or critical advisories" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning title=pnpm audit ($pkg)::high or critical advisories in production dependencies; see the job summary"
+              { echo "### $pkg: advisories"; echo '```'; tail -n 60 "audit-$pkg.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
