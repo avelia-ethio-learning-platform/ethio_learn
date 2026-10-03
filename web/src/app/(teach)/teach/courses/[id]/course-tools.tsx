@@ -90,6 +90,7 @@ export function TutorKnowledgeTool({ courseId, live, locked }: { courseId: strin
   const ask = useConfirm();
   const [status, setOk, setError, clearStatus, setInfo] = useFormStatus();
   const [busy, setBusy] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
   // Pending notes count as staged changes on the course page.
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['knowledge', courseId] });
@@ -162,13 +163,16 @@ export function TutorKnowledgeTool({ courseId, live, locked }: { courseId: strin
           <button
             type="button"
             className="btn-secondary !px-3 !py-1.5 !text-xs"
+            disabled={reindexing}
             onClick={async () => {
+              setReindexing(true);
               try {
                 await api(`/courses/${courseId}/knowledge/reindex`, { method: 'POST' });
                 setOk(live ? 'Re-indexed the approved description and lesson outline.' : 'Re-indexed the description and lesson outline.');
               } catch (err) {
                 setError((err as Error).message);
               }
+              setReindexing(false);
               queryClient.invalidateQueries({ queryKey: ['knowledge', courseId] });
             }}
           >

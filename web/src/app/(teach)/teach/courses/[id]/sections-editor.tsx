@@ -170,6 +170,7 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
             <button
               className="btn-ghost btn-sm disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!editable}
+              aria-label={`Edit lesson ${lesson.title}`}
               onClick={() => setEditing((v) => !v)}
             >
               edit
@@ -177,6 +178,7 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
             <button
               className="btn-ghost btn-sm !text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:!text-red-400"
               disabled={!editable}
+              aria-label={`Remove lesson ${lesson.title}`}
               onClick={remove}
             >
               remove

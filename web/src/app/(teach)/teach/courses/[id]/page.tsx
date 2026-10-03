@@ -34,6 +34,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
   const ask = useConfirm();
   const [status, setOk, setError, clearStatus] = useFormStatus();
   const [acting, setActing] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   // The working copy: live values overlaid with staged edits (what the educator edits).
   const { data: course, error: loadError } = useQuery({
     queryKey: ['manage-course', courseId],
@@ -93,21 +94,26 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
   };
 
   const unpublish = async () => {
+    if (acting) return;
     if (!(await ask({ title: `Unpublish “${course.title}”?`, body: 'It’s hidden from the catalog; enrolled learners keep access.', confirmLabel: 'Unpublish' }))) return;
     void action('unpublish', 'Course unpublished (hidden from catalog).');
   };
 
   const archive = async () => {
+    if (acting) return;
     if (!(await ask({ title: `Archive “${course.title}”?`, body: 'Archiving is permanent and can’t be undone.', confirmLabel: 'Archive course', tone: 'danger' }))) return;
     void action('archive', 'Course archived.');
   };
 
   async function review(attemptId: string, passed: boolean) {
+    if (reviewing) return;
+    setReviewing(true);
     try {
       await api(`/attempts/${attemptId}/review`, { method: 'PUT', body: { passed } });
     } catch (err) {
       setError((err as Error).message);
     }
+    setReviewing(false);
     queryClient.invalidateQueries({ queryKey: ['pending-projects', courseId] });
   }
 
@@ -149,13 +155,13 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
             <button className="btn-secondary" disabled={acting} onClick={() => action('withdraw', 'Withdrawn to draft — you can edit and resubmit.')}>Withdraw &amp; edit</button>
           )}
           {course.status === 'published' && (
-            <button className="btn-secondary" disabled={acting} onClick={unpublish}>Unpublish</button>
+            <button className="btn-secondary" aria-disabled={acting} onClick={unpublish}>Unpublish</button>
           )}
           {course.status === 'unlisted' && (
             <button className="btn" disabled={acting} onClick={() => action('republish', 'Course re-published.')}>Re-publish</button>
           )}
           {(isDraft || course.status === 'unlisted') && (
-            <button className="btn-secondary" disabled={acting} onClick={archive}>Archive</button>
+            <button className="btn-secondary" aria-disabled={acting} onClick={archive}>Archive</button>
           )}
           {course.status === 'archived' && (
             <button className="btn" disabled={acting} onClick={() => action('restore', 'Restored to draft.')}>Restore</button>
@@ -255,8 +261,8 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
                 <span>Submitted {formatDate(p.submitted_at, locale, 'datetime')}</span>
                 <span className="flex gap-2">
                   {p.download_url && <a className="font-medium text-brand-600 hover:underline" href={p.download_url} target="_blank">Download</a>}
-                  <button className="font-medium text-emerald-700 hover:underline dark:text-emerald-400" onClick={() => review(p.attempt_id, true)}>Pass</button>
-                  <button className="font-medium text-red-600 dark:text-red-400 hover:underline" onClick={() => review(p.attempt_id, false)}>Fail</button>
+                  <button className="font-medium text-emerald-700 hover:underline disabled:opacity-50 dark:text-emerald-400" disabled={reviewing} onClick={() => review(p.attempt_id, true)}>Pass</button>
+                  <button className="font-medium text-red-600 hover:underline disabled:opacity-50 dark:text-red-400" disabled={reviewing} onClick={() => review(p.attempt_id, false)}>Fail</button>
                 </span>
               </li>
             ))}
@@ -348,6 +354,7 @@ function LearnerFeedback({ reviews }: { reviews: any }) {
 function AppealBox({ courseId, onDone }: { courseId: string; onDone: (m: string) => void }) {
   const [note, setNote] = useState('');
   const [status, , setError] = useFormStatus();
+  const [sending, setSending] = useState(false);
   return (
     <div className="card !border-red-400/40 bg-gradient-to-br from-red-500/10 to-transparent">
       <h2 className="font-bold text-red-600 dark:text-red-400">This course was flagged</h2>
@@ -359,14 +366,16 @@ function AppealBox({ courseId, onDone }: { courseId: string; onDone: (m: string)
       </div>
       <button
         className="btn mt-2"
-        disabled={note.trim().length < 10}
+        disabled={note.trim().length < 10 || sending}
         onClick={async () => {
+          setSending(true);
           try {
             await api(`/courses/${courseId}/appeal`, { method: 'POST', body: { note } });
             onDone('Appeal submitted — a quality officer will re-review your course.');
           } catch (err) {
             setError((err as Error).message);
           }
+          setSending(false);
         }}
       >
         Submit appeal
@@ -503,7 +512,7 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
                 <div className="mt-1 space-y-1">
                   {q.options.map((opt, oi) => (
                     <div key={oi} className="flex items-center gap-2">
-                      <input type="radio" name={`correct-${qi}`} aria-label={`Correct answer for question ${qi + 1}`} value={oi} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
+                      <input type="radio" name={`correct-${qi}`} aria-label={`Correct answer for question ${qi + 1}: option ${oi + 1}`} value={oi} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
                       <input className="input flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} aria-label={`Option ${oi + 1} of question ${qi + 1}`} />
                       <button aria-label={`Remove option ${oi + 1} of question ${qi + 1}`} className="btn-ghost btn-sm !text-red-600 dark:!text-red-400" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}><X className="h-4 w-4" aria-hidden /></button>
                     </div>

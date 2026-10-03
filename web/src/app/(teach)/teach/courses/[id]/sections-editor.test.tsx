@@ -53,14 +53,14 @@ afterEach(cleanup);
 describe('SectionsAndLessons removal', () => {
   it('Cancel on remove lesson sends nothing; Confirm deletes', async () => {
     const refresh = renderEditor();
-    fireEvent.click(screen.getByRole('button', { name: 'remove' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove lesson What soil is' }));
     await settle();
     expect(dialog().textContent).toContain('Remove the lesson “What soil is”?');
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
     await settle();
     expect(apiMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'remove' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove lesson What soil is' }));
     await settle();
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Remove lesson' }));
     await settle();

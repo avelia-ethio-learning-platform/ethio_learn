@@ -139,7 +139,7 @@ describe('course authoring page', () => {
     expect(screen.getByText('New')).toBeTruthy();
     expect(screen.getByText('Old lesson').className).toContain('line-through');
     // A lesson being removed has no editing tools.
-    expect(screen.getAllByRole('button', { name: 'remove' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /^Remove lesson / })).toHaveLength(2);
     expect(fieldsetDisabled('Add section')).toBe(false);
   });
 
@@ -147,7 +147,7 @@ describe('course authoring page', () => {
     respond(working({ revision: inReview }));
     await renderPage();
     expect(screen.getByText('Your changes are in review')).toBeTruthy();
-    for (const button of screen.getAllByRole('button', { name: 'remove' })) expect((button as HTMLButtonElement).disabled).toBe(true);
+    for (const button of screen.getAllByRole('button', { name: /^Remove lesson / })) expect((button as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: /Edit details/ }) as HTMLButtonElement).disabled).toBe(true);
     expect(fieldsetDisabled('Add section')).toBe(true);
   });
@@ -274,7 +274,7 @@ describe('course authoring page', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ Add question manually' }));
     expect(screen.getByRole('textbox', { name: 'Question 1 prompt' })).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Option 2 of question 1' })).toBeTruthy();
-    expect(screen.getAllByRole('radio', { name: 'Correct answer for question 1' })).toHaveLength(2);
+    expect(screen.getByRole('radio', { name: 'Correct answer for question 1: option 2' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Remove option 1 of question 1' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Remove question 1' })).toBeTruthy();
     expect(screen.getByLabelText('Assessment type')).toBeTruthy();
