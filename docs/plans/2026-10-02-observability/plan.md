@@ -1,6 +1,6 @@
 # Phase 9d: Observability
 
-Status: in progress (ethio-impl [110afc], which took over from [796289]; worktree `../ethi0-9d`); steps 1–7 and 9 done; approved in round 2, drift check vs 9a D1–D3 folded in
+Status: in progress (ethio-impl [110afc], which took over from [796289]; worktree `../ethi0-9d`); steps 1–9 done; approved in round 2, drift check vs 9a D1–D3 folded in
 Size: L (sessions: 4 — ethio-impl implements, ethio-plan-review reviews the plan, ethio-reviewer reviews the code). Cross-cutting: common, the gateway and every service's logs.
 Base branch: `fix/calls-and-jobs` (9c), or `origin/main` once it has merged. This phase builds on 9a's per-event context store, 6a's `internalPath` client and 9c's typed client errors. · Feature branch: `feat/observability`
 Roadmap: phase 9d. 9a's "Roadmap change" planned one 9d for observability and read paths together. It is split again: this plan is observability, and 9e is read paths (P1-22, P2-04), for the same reviewability reason as Phase 8's split. Findings: P1-21; the Phase 2 review note that the slow-query log prints parameter values; the console email provider's lack of a production guard (part of P1-21).
@@ -160,7 +160,7 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
   - built with `logging: ['schema']` (the constructor argument, not `process.env`), a query error (a 23505 and a 22P02 from `SELECT $1::uuid` with an email-shaped value) logs nothing;
   - built with `logging: true` (what `DB_LOGGING=true` sets), the same 22P02 logs the code and the SQL, and not the value.
 - [x] 7. Email provider production guard (decision 6), plus the spec updates.
-- [ ] 8. Local trace drill: with the stack up and `LOG_FORMAT=json`, buy a free course through the gateway with a fixed `x-request-id`, then `grep` that id across `.devlogs/*.log`.
+- [x] 8. Local trace drill: with the stack up and `LOG_FORMAT=json`, buy a free course through the gateway with a fixed `x-request-id`, then `grep` that id across `.devlogs/*.log`.
   - Expect lines from the gateway, enrollment (the enroll), the `EnrollmentCreated` consumers in course and notification, and their internal calls.
   - Run `grep -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}' .devlogs/*.log`: only masked addresses or none.
   - Record the result in Progress.
@@ -209,6 +209,17 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
 - **Step 7** `343516f`: `emailProductionRules` as the notification service's `productionRules`; `ConsoleEmailProvider` throws in production.
 - **Step 9** `27a22dd`: the "Logs" section, appended to `docs/DEPLOYMENT.md`. When 11a's rewrite of that file reaches the branch, it moves into 11a's structure.
 - **Merged head:** `pnpm -C api build`, `typecheck` and `test` all green: 79 suites, 1467 passed, 4 skipped (the opt-in Postgres specs).
+- **Step 8** (drill, 2026-10-03, at `b6ef5ec`): run on a fresh `el_e2e_9d` with `LOG_FORMAT=json`, the `api/.env.example` env and mock Chapa, then `demo-seed.mjs`.
+  - As learner@, `POST /api/v1/enrollments` for a free course not yet enrolled, with `x-request-id: 308f3735-0a2c-4280-852b-7b74dbb903f1`: 201, and the response echoed the id.
+  - `grep` of that id across `.devlogs/*.log` found 7 lines:
+    - gateway (4): the `POST /api/v1/enrollments 201` access line, plus the internal calls it caused (`internal/courses/<id>` from enrollment, and `internal/users/<id>` and `internal/educators/<id>` from notification's consumer);
+    - enrollment (1): `published EnrollmentCreated`;
+    - notification (2): the consumer's dev email (`To: l***@…`) and `published NotificationSent`, with `handler: notification:EnrollmentCreated:0`.
+  - Course's `EnrollmentCreated` consumer logs nothing on success, so it has no line to find. Its internal calls would carry the id, like notification's do.
+  - Email grep over every log line of the run (seed included): 23 addresses, all masked (`e***@…` 17, `l***@…` 6), and 0 unmasked.
+  - Not a finding: a first try re-enrolled the course the seed had enrolled. That returned an idempotent 201 and published nothing, so the drill now skips enrolled courses.
+  - Outbox rows: none yet. 9b step 4 hasn't converted the emit sites, so events still publish directly. Repeat this check after that merge.
+
 
 ### Deviations
 1. **The PII guard skips names ending in `_id`/`Id`(s).** The plan's `/email|^to$|recipient/i` flags `recipient_user_id` (`enrollment.service.ts:550`), which is a user id, not an address.
@@ -226,24 +237,18 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
 10. **A bad `LOG_FORMAT` or `LOG_LEVEL` value fails the boot** and names the allowed values (the `envInt` style).
 11. **A service's `user_id` in the context** comes from the gateway's `x-user-id`. Handlers only run after the internal-token check.
 
-### In flight / next step (2026-10-03, ethio-impl [110afc], which took over from [796289])
-- **Head:** `feat/observability` @ `604aaba` in `../ethi0-9d`, not pushed. It has merged `fix/outbox` `602ef8e` (`stableEventId`) and `fix/calls-and-jobs` `2f31a0d`. On that head: api build and typecheck green, and `pnpm -C api test` passes (80 suites, 1468 passed, 4 skipped).
-- **Waiting for the stack window:** ethio-impl (3) [688c71] (Phase 10) holds the stack. It was asked to message "ethio-impl [110afc]" when its gate run ends and its backend is stopped.
-- **Step 8 drill, prepared:**
-  - scratch DB `el_e2e_9d` (compose Postgres, port 55432) has the schemas from `docker/postgres-init.sql` and `pnpm -C api seed`;
-  - the env: export every `api/.env.example` key (the worktree has no `api/.env`), set `DATABASE_URL` to `…/el_e2e_9d`, and set `LOG_FORMAT=json CHAPA_MODE=mock` with empty `CHAPA_SECRET_KEY SMTP_HOST SMTP_USER SMTP_PASS GROQ_API_KEY BREVO_API_KEY RESEND_API_KEY`. node22 is on PATH;
-  - then `bash scripts/start-backend.sh`, wait for `/ready` on 4101–4107, and run `node scripts/demo-seed.mjs`;
-  - then, as learner@, `POST /api/v1/enrollments` for a free course not yet enrolled (`GET /search?pricing_type=free`), with a fixed `x-request-id` UUID;
-  - `grep -l <id> .devlogs/*.log`: expect the gateway, enrollment, and the `EnrollmentCreated` consumers in course and notification, with their internal calls;
-  - then the email-regex grep from step 8 (only masked addresses or none);
-  - record both in Progress, run `bash scripts/stop-backend.sh`, drop `el_e2e_9d`, and tell the next stack holder.
-- **Early read (ethio-reviewer):** no blockers or should-fixes. N1 is taken: the PII guard also scans `packages/*/src`. Common passes, and a probe file with a raw `email` in `packages/storage` failed the guard as expected.
-- **Waiting on peers:**
-  - 9b step 4 (converted emit sites; the outbox default already covers them);
-  - 9c step 5 (job runners: they must start outside a request, through 9b's snapshot pattern or `requestContext.exit`).
-
-  Merge each when it lands and rerun the guard spec.
+### In flight / next step (checkpoint 2026-10-03 ~23:00, ethio-impl [110afc]; work resumes Monday 2026-10-05 afternoon)
+- **Head:** `feat/observability` in `../ethi0-9d`, local only, not pushed. It has merged `fix/outbox` `602ef8e` and `fix/calls-and-jobs` `2f31a0d`. On `604aaba`: api build and typecheck green, and `pnpm -C api test` passes (80 suites, 1468 passed, 4 skipped).
+- **Done this session:**
+  - the early read's N1 (`ffe1896`: the PII guard also scans `packages/*/src`);
+  - the step 8 drill (see Progress).
+- **Stack:** the drill backend is stopped (ports 4000 and 4101–4107 free) and `el_e2e_9d` is dropped. The docker compose containers (postgres, rabbitmq, redis, minio) are left up; they're shared. [688c71] (Phase 10) said it doesn't need the stack again unless its review asks for a re-run.
+- **Waiting on peers.** Merge each when it lands, rerun the guard spec and the api tests, and check their new log lines against the guard:
+  - 9b step 4 (converted emit sites). Then repeat the drill's outbox check: the row's `correlation_id` equals the request id;
+  - 9c step 5 (job runners must start outside a request, through 9b's snapshot pattern or `requestContext.exit`).
 - **Then:**
-  - step 10, the stack gate, on the final head once 9a, 9b and 9c are on `main` (`git merge origin/main`);
-  - step 11, the code review by ethio-reviewer. Report to "ethio-planner [31d0d2]".
-- **11a:** when it merges, move the "Logs" section into its `docs/DEPLOYMENT.md` structure, resolve `ci.yml` (keep the `safe-typeorm-logger.db.spec.ts` addition) and keep `pnpm -C api lint` under the baseline (the `_parameters` args in `SafeTypeOrmLogger`).
+  - step 10, the full gate, on the final head once 9a, 9b and 9c are on `main` (`git merge origin/main`);
+  - step 11, code review round 1 by ethio-reviewer [93b6fc]. Report to ethio-planner [31d0d2].
+- **11a:** when it merges, move the "Logs" section into its `docs/DEPLOYMENT.md` structure, resolve `ci.yml` (keep the `safe-typeorm-logger.db.spec.ts` addition), and keep `pnpm -C api lint` under the baseline (the `_parameters` args in `SafeTypeOrmLogger`).
+- **Rollout item (from the early read):** the user's Render check that the notification service has `SMTP_HOST` or `BREVO_API_KEY` set isn't in `USER-ACTIONS.md` yet. ethio-planner adds it before the merge.
+- **Drill script:** `node <scratch>/9d-trace.mjs` (session scratchpad, not in the repo). It logs in as learner@, skips enrolled courses, enrols with a fresh UUID `x-request-id`, and prints it.
