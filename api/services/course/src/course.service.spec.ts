@@ -368,6 +368,14 @@ describe('CourseService staged writes on a live course', () => {
       expect(h.lessons.rows[0].pending).toEqual({ video_duration_seconds: 60 });
     });
 
+    it('a second replacement drops the first one duration when the live duration is null', async () => {
+      const h = setup({ lessons: [liveLesson({ pending: { video_s3_key: 'videos/edu1/a.mp4', video_duration_seconds: 45 } })] });
+      await h.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY });
+      const row = h.lessons.rows[0];
+      expect(row.pending).toEqual({ video_s3_key: NEW_KEY });
+      expect(mergedLesson(row as never).video_duration_seconds).toBeNull();
+    });
+
     it('addLesson() stores the duration', async () => {
       const h = setup({ course: { status: 'draft' } });
       const lesson = await h.service.addLesson(OWNER, 's1', { title: 'Measured', video_s3_key: NEW_KEY, video_duration_seconds: 75 });
