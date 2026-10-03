@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessmentTypeLabel, fraudSignalLabel, fraudSubjectLabel, knowledgeSourceLabel, ownerTypeLabel, payeeLabel, paymentMethodLabel, purposeLabel, qaTriggerLabel, categoryLabel, pricingLabel, refundRuleLabel, roleLabel, statusLabel, walletKindLabel } from './labels';
+import { assessmentTypeLabel, fraudSignalLabel, holdReasonLabel, fraudSubjectLabel, knowledgeSourceLabel, ownerTypeLabel, payeeLabel, paymentMethodLabel, purposeLabel, qaTriggerLabel, categoryLabel, pricingLabel, refundRuleLabel, roleLabel, statusLabel, walletKindLabel } from './labels';
 
 describe('labels', () => {
   it('statusLabel gives a sentence-case label and the badge class for known values', () => {
@@ -77,5 +77,12 @@ describe('walletKindLabel', () => {
     for (const fn of [paymentMethodLabel, payeeLabel, ownerTypeLabel, fraudSignalLabel, fraudSubjectLabel, purposeLabel, knowledgeSourceLabel, qaTriggerLabel]) {
       expect(fn('some_new_value')).toBe('Some new value');
     }
+  });
+
+  it('holdReasonLabel names KYC and fraud holds, including the signal', () => {
+    expect(holdReasonLabel('kyc_required')).toBe('KYC required');
+    expect(holdReasonLabel('fraud_flag_open')).toBe('Open fraud flag');
+    expect(holdReasonLabel('fraud:refund_abuse')).toBe('Fraud flag: Repeated refunds');
+    expect(holdReasonLabel('some_new_value')).toBe('Some new value');
   });
 });

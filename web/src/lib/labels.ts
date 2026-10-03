@@ -104,6 +104,17 @@ export function fraudSignalLabel(signal: string): string {
   return FRAUD_SIGNALS[signal] ?? sentenceCase(signal);
 }
 
+const HOLD_REASONS: Record<string, string> = {
+  kyc_required: 'KYC required',
+  fraud_flag_open: 'Open fraud flag',
+};
+
+/** Why a payout is held. A fraud hold may carry its signal (`fraud:refund_abuse`). */
+export function holdReasonLabel(reason: string): string {
+  if (reason.startsWith('fraud:')) return `Fraud flag: ${fraudSignalLabel(reason.slice('fraud:'.length))}`;
+  return HOLD_REASONS[reason] ?? sentenceCase(reason);
+}
+
 const FRAUD_SUBJECTS: Record<string, string> = {
   user: 'User',
   course: 'Course',
