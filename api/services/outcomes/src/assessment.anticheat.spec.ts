@@ -36,6 +36,8 @@ function harness(config: Record<string, unknown>, priorAttempts: Record<string, 
     }),
     create: jest.fn((a: any) => ({ proctor_log: [], flagged: false, terminated: false, ...a })),
     createQueryBuilder: jest.fn(),
+    // startAttempt runs in one transaction (the lock is exercised in assessment.start.spec.ts).
+    manager: { transaction: jest.fn(async (work: (m: unknown) => unknown) => work({ query: jest.fn(async () => []), getRepository: () => attempts })) },
   };
   const assessments = { findOne: jest.fn(async () => assessment), find: jest.fn(async () => [assessment]), save: jest.fn(), create: jest.fn() };
   const bus = { publish: jest.fn() };
