@@ -1,6 +1,8 @@
-import { OwnerType, PaymentMethod, PaymentPurpose, PaymentStatus, PayoutStatus, RefundStatus, TrustTier } from '@ethiopialearn/contracts';
+import { BadRequestException } from '@nestjs/common';
+import { EntitlementStatus, OwnerType, PaymentMethod, PaymentPurpose, PaymentStatus, PayoutStatus, RefundStatus, TrustTier } from '@ethiopialearn/contracts';
 import { Payment, Payout, PayoutHold, RefundRequest } from './entities';
 import { PayoutService } from './payout.service';
+import { RefundService } from './refund.service';
 import { fakeDb, Row } from './testing/fake-db';
 
 const DAY = 86_400_000;
@@ -22,7 +24,6 @@ function setup(opts: Options = {}) {
     db.repo(Payment) as never,
     db.repo(Payout) as never,
     db.repo(PayoutHold) as never,
-    db.repo(RefundRequest) as never,
     bus as never,
     internal as never,
     db.dataSource as never,
@@ -43,6 +44,7 @@ function setup(opts: Options = {}) {
       payee_type: OwnerType.EDUCATOR,
       purpose: PaymentPurpose.COURSE,
       payout_id: null,
+      refund_requested_at: null as Date | null,
       webhook_received_at: settled,
       created_at: settled,
       ...rest,
@@ -91,9 +93,9 @@ describe('PayoutService.runPayouts (spec §10.3 / 80-20 split)', () => {
     expect(await clearedCase.service.runPayouts()).toEqual({ created: 1, held: 0 });
   });
 
-  it('skips payments with a pending refund, and pays the rest', async () => {
+  it('skips a payment whose refund request marked it, and pays the rest', async () => {
     const t = setup();
-    const refunded = t.payment();
+    const refunded = t.payment({ refund_requested_at: new Date() });
     const clean = t.payment({ amount_etb: '300.00' });
     t.db.repo(RefundRequest).rows.push({ id: 'ref-1', payment_id: refunded.id, status: RefundStatus.PENDING });
 
@@ -101,6 +103,63 @@ describe('PayoutService.runPayouts (spec §10.3 / 80-20 split)', () => {
     expect(t.payouts()[0].gross_amount_etb).toBe('300.00');
     expect(t.payoutOf(refunded.id)).toBeNull();
     expect(t.payoutOf(clean.id)).toBe(t.payouts()[0].id);
+  });
+
+  it('claims a marked payment once the mark is cleared (admin denial)', async () => {
+    const t = setup();
+    const p = t.payment({ refund_requested_at: new Date() });
+    expect(await t.service.runPayouts()).toEqual({ created: 0, held: 0 });
+    expect(t.payoutOf(p.id)).toBeNull();
+
+    p.refund_requested_at = null;
+    expect(await t.service.runPayouts()).toEqual({ created: 1, held: 0 });
+    expect(t.payoutOf(p.id)).toBe(t.payouts()[0].id);
+  });
+
+  it('the claim itself skips a payment marked after the candidates were read, and sums only what it claimed', async () => {
+    const t = setup();
+    const raced = t.payment();
+    const clean = t.payment({ amount_etb: '300.00' });
+    // The mark lands between the candidate read and the claim (holdDays asks the trust tier in between).
+    t.internal.get.mockImplementationOnce(async () => {
+      raced.refund_requested_at = new Date();
+      return { tier: TrustTier.TRUSTED };
+    });
+
+    expect(await t.service.runPayouts()).toEqual({ created: 1, held: 0 });
+    expect(t.payouts()[0]).toMatchObject({ gross_amount_etb: '300.00', net_amount_etb: '240.00' });
+    expect(t.payoutOf(raced.id)).toBeNull();
+    expect(t.payoutOf(clean.id)).toBe(t.payouts()[0].id);
+  });
+
+  it('a refund request after the payout claimed the payment is sent to support, and the payout stands', async () => {
+    const t = setup();
+    const p = t.payment({ settledDaysAgo: 8 });
+    expect(await t.service.runPayouts()).toEqual({ created: 1, held: 0 });
+    const payoutId = t.payoutOf(p.id);
+    expect(payoutId).toBe(t.payouts()[0].id);
+
+    // The payout hold is as long as the refund window, so a payment cleared for payout is outside it. Move the clock the rules read.
+    p.webhook_received_at = p.created_at = new Date(Date.now() - 2 * DAY);
+    const refundService = new RefundService(
+      t.db.repo(RefundRequest) as never,
+      t.db.repo(Payment) as never,
+      t.bus as never,
+      {
+        get: jest.fn(async (path: string) =>
+          path.startsWith('/api/v1/internal/entitlements')
+            ? { entitlement_status: EntitlementStatus.ACTIVE, enrollment_id: 'e1', enrolled_at: new Date(Date.now() - 2 * DAY).toISOString(), progress_percent: 35 }
+            : { certificate_issued: false, assessment_passed: false },
+        ),
+      } as never,
+      {} as never, // growth: only an approval reaches it, and this request goes to manual review
+      t.db.dataSource as never,
+    );
+    await expect(refundService.request({ id: 'u1', role: 'learner', email: 'l@e.et' } as never, p.id, 'please')).rejects.toThrow(
+      new BadRequestException('This payment has already been paid out to the educator. Contact support from Help to request a refund.'),
+    );
+    expect(t.db.repo(RefundRequest).rows).toHaveLength(0);
+    expect(p).toMatchObject({ payout_id: payoutId, refund_requested_at: null, status: PaymentStatus.CONFIRMED });
   });
 
   it('holds large payouts behind the KYC threshold instead of paying', async () => {
