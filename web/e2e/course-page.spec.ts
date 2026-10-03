@@ -36,20 +36,18 @@ async function ogImagePath(page: Page, courseId: string): Promise<string> {
 test.describe('course page at 375 px', () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
-  // KNOWN PRODUCT GAP (Phase B finding, reported to the controller): the real first screen at 375x667
-  // does not hold the button. On the 16 seeded courses its bottom edge is at 725-822 px, because the
-  // cover strip, the title (up to three lines), the summary, the byline and the facts come first.
-  // test.fail keeps this honest: it passes while the gap exists and goes red once it is closed, which
-  // is the cue to delete the annotation.
+  // Every seeded course, so a long (three-line) title is covered too.
   test('the buy button is in the first screen', async ({ page, request }) => {
-    test.fail(true, 'at 375x667 the button ends at 725-822 px on every seeded course (see the Phase B report)');
-    const [course] = await seededCourses(request);
-    await page.goto(`/courses/${course.id}`);
-    const button = page.locator('#buy-box [data-primary-action]');
-    await expect(button).toBeVisible();
-    await settle(page);
-    const box = (await button.boundingBox())!;
-    expect(box.y + box.height, 'the primary button ends inside the first viewport').toBeLessThanOrEqual(667);
+    const misses: string[] = [];
+    for (const course of await seededCourses(request)) {
+      await page.goto(`/courses/${course.id}`);
+      const button = page.locator('#buy-box [data-primary-action]');
+      await expect(button).toBeVisible();
+      await settle(page);
+      const box = (await button.boundingBox())!;
+      if (box.y + box.height > 667) misses.push(`${course.title}: ${Math.round(box.y + box.height)} px`);
+    }
+    expect(misses, 'the primary button ends inside the first 375x667 screen').toEqual([]);
   });
 
   test('the bottom bar appears past the buy box and takes you back to it', async ({ page, request }) => {
