@@ -75,6 +75,7 @@ describe('<SearchPicker />', () => {
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(screen.queryByRole('combobox')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Clear learner' }));
     expect(screen.getByText('Abebe Bekele')).toBeTruthy();
   });
 
@@ -100,6 +101,7 @@ describe('<SearchPicker />', () => {
     expect(screen.getByText('Abel Tesfaye')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Clear learner' }));
     expect((screen.getByRole('combobox', { name: 'Learner' }) as HTMLInputElement).value).toBe('');
+    expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Learner' }));
   });
 
   it('two pickers with the same label keep their own results', async () => {

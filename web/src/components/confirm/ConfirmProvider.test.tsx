@@ -71,6 +71,7 @@ describe('useConfirm', () => {
     const confirm = screen.getByRole('button', { name: 'Ban user' }) as HTMLButtonElement;
     expect(document.activeElement).toBe(field);
     expect(confirm.disabled).toBe(true);
+    expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent).toBe('At least 5 characters.');
     fireEvent.change(field, { target: { value: ' abc ' } });
     expect(confirm.disabled).toBe(true);
     fireEvent.change(field, { target: { value: '  spam account ' } });

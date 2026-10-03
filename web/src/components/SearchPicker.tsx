@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Field } from '@/components/form/Field';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
@@ -28,6 +28,9 @@ export function SearchPicker({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const listId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const clearRef = useRef<HTMLButtonElement>(null);
+  const first = useRef(true);
   const term = useDebouncedValue(q.trim());
   const { data } = useQuery({
     // Keyed by this picker, not its label: two "Course" pickers search different lists.
@@ -36,6 +39,16 @@ export function SearchPicker({
     enabled: term.length >= 2 && !selected,
   });
 
+  // Selecting unmounts the input and clearing unmounts the chip button: hand focus to the one that replaces it.
+  const hasSelected = !!selected;
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    (hasSelected ? clearRef.current : inputRef.current)?.focus();
+  }, [hasSelected]);
+
   if (selected) {
     return (
       <div>
@@ -43,6 +56,7 @@ export function SearchPicker({
         <div className="flex items-center gap-1">
           <span className="badge-info max-w-[220px] truncate !normal-case">{selected.label}</span>
           <button
+            ref={clearRef}
             type="button"
             aria-label={`Clear ${label.toLowerCase()}`}
             className="btn-ghost btn-sm text-gray-500 hover:text-red-600"
@@ -73,6 +87,7 @@ export function SearchPicker({
         {(ids) => (
           <input
             {...ids}
+            ref={inputRef}
             role="combobox"
             aria-autocomplete="list"
             aria-expanded={!!options}

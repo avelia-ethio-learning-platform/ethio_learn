@@ -102,7 +102,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               </p>
             )}
             {options.reason && (
-              <Field label={options.reason.label}>
+              <Field label={options.reason.label} hint={minLength > 1 ? `At least ${minLength} characters.` : undefined}>
                 {(ids) => (
                   <textarea
                     {...ids}
