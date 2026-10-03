@@ -287,6 +287,20 @@ describe('EventBusService connection supervisor (P1-15)', () => {
     expect(broker.published.filter((p) => p.exchange === EVENTS_EXCHANGE)).toHaveLength(1);
   });
 
+  it('a publish while a closed channel is being reopened waits for it, and opens no second connection', async () => {
+    const broker = new FakeBroker();
+    bus.subscribe('CourseCompleted', jest.fn());
+    await started();
+
+    broker.channel.die(); // the connection stays up, e.g. consumer_timeout
+    await bus.publish('CourseCompleted', {});
+
+    expect(broker.connections).toHaveLength(1);
+    expect(broker.connection.mainChannels).toHaveLength(2);
+    expect(bus.isConnected()).toBe(true);
+    expect(broker.published.filter((p) => p.exchange === EVENTS_EXCHANGE)).toHaveLength(1);
+  });
+
   it('acks on the channel that delivered the message, even after a new channel opened', async () => {
     const broker = new FakeBroker();
     let release: (() => void) | undefined;
@@ -340,6 +354,20 @@ describe('EventBusService consumers (P1-16)', () => {
     });
     expect(broker.queues['quality.events.parked']).toEqual({ durable: true, arguments: { 'x-max-length': 10000 } });
     expect(broker.channel.prefetch).toHaveBeenCalledWith(4);
+  });
+
+  it('a retry delay that is not whole seconds is rounded, so the queue name and its TTL always agree', async () => {
+    process.env.EVENT_RETRY_DELAY_MS = '60400';
+    try {
+      bus = new EventBusService({ serviceName: 'quality', url: 'amqp://fake' });
+    } finally {
+      delete process.env.EVENT_RETRY_DELAY_MS;
+    }
+    const broker = new FakeBroker();
+    bus.subscribe('CourseCompleted', jest.fn());
+    await started();
+
+    expect(broker.queues['quality.events.retry.60s']).toMatchObject({ arguments: { 'x-message-ttl': 60000 } });
   });
 
   it('a throwing handler: copies the message to the retry queue with x-attempts 1, then acks it', async () => {

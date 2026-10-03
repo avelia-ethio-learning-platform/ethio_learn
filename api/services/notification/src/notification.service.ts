@@ -427,7 +427,7 @@ export class NotificationService implements OnModuleInit {
     const link = `/courses/${p.course_id}`;
     this.logger.log(`CoursePublished "${p.title}" → notifying ${followers.length} follower(s)`);
 
-    for (const f of followers) {
+    await this.forEachRecipient('CoursePublished', followers, async (f) => {
       const followsInstructor = (f.new_course_instructor_ids ?? []).includes(p.owner_user_id);
       const reason = followsInstructor ? `${instructorName} just published a new course` : `New ${categoryLabel} course`;
       if (f.new_course_in_app !== false) {
@@ -435,7 +435,7 @@ export class NotificationService implements OnModuleInit {
       }
       if (f.new_course_email !== false) {
         const user = await this.userInfo(f.user_id);
-        if (!user.email) continue;
+        if (!user.email) return;
         await this.deliver('NewCourseAlert', f.user_id, user.email, `${reason}: ${p.title}`,
           layout(reason, html`<p>Hi ${user.name || 'there'},</p>
           <p>${followsInstructor ? html`<strong>${instructorName}</strong> just published` : html`A new <strong>${categoryLabel}</strong> course just dropped`} on EthiopiaLearn:</p>
@@ -443,6 +443,28 @@ export class NotificationService implements OnModuleInit {
           ${button(`${this.webUrl}${link}`, 'View the course')}
           <p style="color:#6b7280;font-size:12px;margin-top:16px">You're getting this because you follow ${followsInstructor ? 'this instructor' : `the ${categoryLabel} category`}. Manage alerts in your account settings.</p>`));
       }
+    });
+  }
+
+  /**
+   * Runs `notify` for every recipient, so one failure (a rejected address, a spent
+   * sending quota) doesn't cost the rest their notifications. Then rethrows the first
+   * failure: the bus retries the event, and the dedupe skips everyone already notified.
+   */
+  private async forEachRecipient<T>(eventType: string, recipients: T[], notify: (recipient: T) => Promise<void>) {
+    let failed = 0;
+    let firstError: unknown;
+    for (const recipient of recipients) {
+      try {
+        await notify(recipient);
+      } catch (err) {
+        if (failed === 0) firstError = err;
+        failed += 1;
+      }
+    }
+    if (failed > 0) {
+      this.logger.warn(`${eventType} fan-out: ${failed} of ${recipients.length} recipient(s) failed; the event will be retried`);
+      throw firstError;
     }
   }
 
@@ -617,15 +639,15 @@ export class NotificationService implements OnModuleInit {
     learnerIds = learnerIds.filter((id) => id !== p.owner_user_id).slice(0, 5000);
     if (!learnerIds.length) return;
     this.logger.log(`CourseUpdated "${p.course_title}" → ${learnerIds.length} learner(s)`);
-    for (const learnerId of learnerIds) {
+    await this.forEachRecipient('CourseUpdated', learnerIds, async (learnerId) => {
       await this.inbox({ user_id: learnerId, type: 'course_updated', title: `Updated: "${p.course_title}"`, body: p.summary, link: `/learn/${p.course_id}?changelog=1` });
       const pref = await this.prefs.findOne({ where: { user_id: learnerId } });
-      if (pref?.course_updates_email === false) continue;
+      if (pref?.course_updates_email === false) return;
       const user = await this.userInfo(learnerId);
-      if (!user.email) continue;
+      if (!user.email) return;
       await this.deliver('CourseUpdated', learnerId, user.email, `"${p.course_title}" has new content`,
         layout('Your course was updated', html`<p>Hi ${user.name || 'there'},</p><p>The instructor updated <strong>"${p.course_title}"</strong>:</p>${quote(p.summary)}${button(`${this.webUrl}/learn/${p.course_id}?changelog=1`, 'See what changed')}`));
-    }
+    });
   }
 
   /** Current course status, or null when the course service can't be reached. */
@@ -637,11 +659,17 @@ export class NotificationService implements OnModuleInit {
     }
   }
 
+  /**
+   * The user's address and name. A deleted user (404) has none, and their email is
+   * skipped. Any other failure throws, so the bus retries the event instead of
+   * dropping the email while auth is cold-starting.
+   */
   private async userInfo(userId: string): Promise<{ email: string; name: string }> {
     try {
       return await this.internal.get<{ email: string; name: string }>(internalPath`/api/v1/internal/users/${userId}`);
-    } catch {
-      return { email: '', name: '' };
+    } catch (err) {
+      if ((err as Error).message.endsWith('-> 404')) return { email: '', name: '' };
+      throw err;
     }
   }
 

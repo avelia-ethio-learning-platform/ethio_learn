@@ -47,6 +47,15 @@ describe('Readiness (/ready)', () => {
     });
   });
 
+  it('a check that throws instead of rejecting counts as down, and /ready still answers', async () => {
+    const extra = {
+      redis: () => {
+        throw new Error('client not created');
+      },
+    };
+    await expect(new Readiness(deps({ extra })).check()).resolves.toMatchObject({ statusCode: 503, body: { checks: { redis: 'down' } } });
+  });
+
   it('50 concurrent calls run one SELECT 1, and the answer is reused for 5 s', async () => {
     let now = 0;
     const d = deps();

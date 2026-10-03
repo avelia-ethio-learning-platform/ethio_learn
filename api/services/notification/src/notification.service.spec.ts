@@ -641,3 +641,69 @@ describe('NotificationService: a redelivered event (P1-16)', () => {
     expect(t.logRows.map((r) => r.status)).toEqual(['sent']);
   });
 });
+
+describe('NotificationService: a fan-out with one failing recipient (9a review B1, S2)', () => {
+  const recipients = ['u1', 'u2', 'u3'];
+  /** Every user has their own address; `lookup` overrides the auth answer for one of them. */
+  function fanOut(lookup: Record<string, () => never> = {}) {
+    const t = setup({
+      followers: recipients.map((user_id) => ({ user_id, new_course_in_app: true, new_course_email: true, new_course_instructor_ids: [] })),
+    });
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.endsWith('/learners')) return { learner_ids: recipients };
+      const id = path.split('/').pop()!;
+      if (lookup[id]) lookup[id]();
+      return { name: id, email: `${id}@e.et` };
+    });
+    return t;
+  }
+  const updated = { course_id: 'c1', course_title: 'Soil Science', owner_user_id: 'edu-1', summary: 'Two new lessons', changelog_id: 'cl1' };
+  const published = { course_id: 'c1', title: 'Soil Science', owner_user_id: 'edu-1', category: 'agriculture' };
+  const cases: Array<[string, string, object]> = [
+    ['CourseUpdated', 'course_updated', updated],
+    ['CoursePublished', 'new_course', published],
+  ];
+
+  it.each(cases)('%s: the send failing for recipient 2 still notifies recipient 3, then throws; the retry sends only to 2', async (type, inboxType, payload) => {
+    const t = fanOut();
+    t.email.send.mockImplementation(async (m: { to: string }) => {
+      if (m.to === 'u2@e.et') throw new Error('Daily sending quota exceeded');
+      return { message_id: 'm1' };
+    });
+
+    await expect(t.emit(type, payload, 'evt-1')).rejects.toThrow('Daily sending quota exceeded');
+    expect(t.inboxRows.filter((r) => r.type === inboxType).map((r) => r.user_id)).toEqual(recipients);
+    expect(t.logRows.map((r) => [r.recipient, r.status])).toEqual([
+      ['u1@e.et', 'sent'],
+      ['u2@e.et', 'failed'],
+      ['u3@e.et', 'sent'],
+    ]);
+
+    t.email.send.mockResolvedValue({ message_id: 'm2' });
+    await t.emit(type, payload, 'evt-1');
+    expect(t.logRows.filter((r) => r.status === 'sent').map((r) => r.recipient)).toEqual(['u1@e.et', 'u3@e.et', 'u2@e.et']);
+    expect(t.inboxRows.filter((r) => r.type === inboxType)).toHaveLength(3); // the retry wrote no second rows
+  });
+
+  it.each(cases)('%s: a failed user lookup for recipient 2 still notifies recipient 3, then throws so the bus retries', async (type, _inboxType, payload) => {
+    const t = fanOut({ u2: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u2'); } });
+
+    await expect(t.emit(type, payload, 'evt-1')).rejects.toThrow('Internal request failed');
+    expect(t.emails().map((m) => m.to)).toEqual(['u1@e.et', 'u3@e.et']);
+  });
+
+  it('a deleted user (404) is skipped quietly: no email, no retry', async () => {
+    const t = fanOut({ u2: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u2 -> 404'); } });
+
+    await t.emit('CourseUpdated', updated, 'evt-1');
+    expect(t.emails().map((m) => m.to)).toEqual(['u1@e.et', 'u3@e.et']);
+  });
+
+  it('a lookup that fails for a single-recipient email throws instead of skipping the email', async () => {
+    const t = fanOut({ u1: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u1 -> 503'); } });
+
+    await expect(
+      t.emit('LearnerInactive', { learner_id: 'u1', course_id: 'c1', course_title: 'Soil Science', days_inactive: 7, progress_percent: 40, channel: 'email' }, 'evt-1'),
+    ).rejects.toThrow('-> 503');
+  });
+});

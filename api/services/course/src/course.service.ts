@@ -176,9 +176,9 @@ export class CourseService implements OnModuleInit {
     this.bus.subscribe<EnrollmentCreatedPayload>(
       'EnrollmentCreated',
       async (payload, e) => {
-        await runOnce(this.dataSource, ENROLLED_COUNT_HANDLER, e.metadata.event_id, (m) =>
-          m.getRepository(Course).increment({ id: payload.course_id }, 'enrolled_count', 1),
-        );
+        await runOnce(this.dataSource, ENROLLED_COUNT_HANDLER, e.metadata.event_id, async (m) => {
+          await m.getRepository(Course).increment({ id: payload.course_id }, 'enrolled_count', 1);
+        });
         this.searchCache.clear();
       },
       { name: ENROLLED_COUNT_HANDLER },

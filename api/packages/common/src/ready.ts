@@ -20,14 +20,16 @@ const CACHE_MS = 5_000;
 const DB_TIMEOUT_MS = 2_000;
 const EXTRA_TIMEOUT_MS = 1_000;
 
-/** 'ok' when `fn` settles within `ms`, 'down' when it rejects or takes longer. */
+/** 'ok' when `fn` settles within `ms`, 'down' when it throws, rejects or takes longer. */
 async function probe(fn: () => Promise<unknown>, ms: number): Promise<CheckState> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<CheckState>((resolve) => {
     timer = setTimeout(() => resolve('down'), ms);
   });
   try {
-    return await Promise.race([fn().then((): CheckState => 'ok', (): CheckState => 'down'), timeout]);
+    // `.then(fn)` turns a synchronous throw into a rejection, so /ready always answers.
+    const settled = Promise.resolve().then(fn).then((): CheckState => 'ok', (): CheckState => 'down');
+    return await Promise.race([settled, timeout]);
   } finally {
     clearTimeout(timer);
   }

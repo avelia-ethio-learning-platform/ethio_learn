@@ -80,7 +80,9 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
 
   private readonly prefetch = envInt('EVENT_PREFETCH', 4);
   private readonly maxAttempts = envInt('EVENT_MAX_ATTEMPTS', 5);
-  private readonly retryDelayMs = envInt('EVENT_RETRY_DELAY_MS', 60_000);
+  // Whole seconds, because the retry queue's name carries the delay in seconds: two values
+  // that round to one name with different TTLs would fail every connect (PRECONDITION_FAILED).
+  private readonly retryDelayMs = Math.max(1, Math.round(envInt('EVENT_RETRY_DELAY_MS', 60_000) / 1000)) * 1000;
   private readonly publishWaitMs = envInt('EVENT_PUBLISH_WAIT_MS', 5_000);
   private readonly heartbeatS = envInt('EVENT_HEARTBEAT_S', 30);
 
@@ -153,9 +155,13 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
 
   // ---- connection supervisor ----
 
-  /** Starts the supervisor unless it is already running, the bus is connected, or the app is stopping. */
+  /**
+   * Starts the supervisor unless it is already running, a connection is open, or the app
+   * is stopping. An open connection without a channel is reopening that channel; if the
+   * reopen fails, the connection is closed and its close handler kicks the supervisor.
+   */
   private kick(): void {
-    if (this.shuttingDown || this.supervising || this.isConnected()) return;
+    if (this.shuttingDown || this.supervising || this.connection) return;
     this.supervising = this.supervise().finally(() => {
       this.supervising = null;
     });
