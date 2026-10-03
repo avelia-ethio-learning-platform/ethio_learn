@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ChevronDown, ChevronLeft, ChevronRight, Compass, RotateCcw, Search, SearchX, SlidersHorizontal, Tag, X } from 'lucide-react';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
 import { useT } from '@/lib/i18n';
@@ -132,7 +132,7 @@ export function ExploreClient({
 
       <div className="page-shell">
         {/* Heading */}
-        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="text-center">
+        <m.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="text-center">
           <span className="section-badge">
             <Compass className="h-4 w-4 text-brand-500" />
             {total} {t('courses')}
@@ -141,10 +141,10 @@ export function ExploreClient({
             <span className="gradient-text-blue">{t('explore_courses')}</span>
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-gray-500">{t('courses_section_sub')}</p>
-        </motion.div>
+        </m.div>
 
         {/* Search + filter panel */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.15 }}
@@ -243,7 +243,7 @@ export function ExploreClient({
               )}
             </div>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Results meta + active filter chips */}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
@@ -296,7 +296,7 @@ export function ExploreClient({
             )}
           </div>
         ) : (
-          <motion.div
+          <m.div
             key={`${filters.q ?? ''}|${activeCategory ?? ''}|${activePricing ?? ''}|${activeSort}|${page}|${limit}`}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -309,7 +309,7 @@ export function ExploreClient({
             {courses.map((c) => (
               <CourseCard key={c.id} course={c} />
             ))}
-          </motion.div>
+          </m.div>
         )}
 
         {/* Pagination */}

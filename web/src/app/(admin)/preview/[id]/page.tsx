@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import Hls from 'hls.js';
+import type Hls from 'hls.js';
 import {
   BookOpen,
   CheckCircle2,
@@ -45,6 +45,7 @@ import {
 } from '@/lib/qa';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { attachVideo } from '@/lib/video';
 
 function PreviewSkeleton() {
   return (
@@ -66,17 +67,6 @@ function useBackTarget(courseId: string): { fallback: string; label: string } {
   if (user?.role === 'institution_admin') return { fallback: '/institution/review', label: 'Back to review queue' };
   if (user?.role === 'educator') return { fallback: `/teach/courses/${courseId}`, label: 'Back to course' };
   return { fallback: '/qa', label: 'Back to queue' };
-}
-
-function attachStream(video: HTMLVideoElement, url: string): Hls | null {
-  if (url.includes('.m3u8') && Hls.isSupported()) {
-    const hls = new Hls();
-    hls.loadSource(url);
-    hls.attachMedia(video);
-    return hls;
-  }
-  video.src = url;
-  return null;
 }
 
 /**
@@ -106,7 +96,7 @@ function Preview({ courseId }: { courseId: string }) {
       const v = videoRef.current;
       if (!v) return;
       hlsRef.current?.destroy();
-      hlsRef.current = attachStream(v, res.url);
+      hlsRef.current = await attachVideo(v, res.url);
       void v.play().catch(() => undefined);
     } catch (e) {
       setErr((e as Error).message);
@@ -409,9 +399,17 @@ function ReviewPlayer({
   useEffect(() => {
     const v = videoRef.current;
     if (!url || !v) return;
-    const hls = attachStream(v, url);
-    void v.play().catch(() => undefined);
-    return () => hls?.destroy();
+    let hls: Hls | null = null;
+    let cancelled = false;
+    void attachVideo(v, url).then((attached) => {
+      if (cancelled) return attached?.destroy();
+      hls = attached;
+      void v.play().catch(() => undefined);
+    });
+    return () => {
+      cancelled = true;
+      hls?.destroy();
+    };
   }, [url]);
 
   const load = async () => {

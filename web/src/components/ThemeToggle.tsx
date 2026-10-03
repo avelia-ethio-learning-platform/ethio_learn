@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { Check, Monitor, Moon, Sun } from 'lucide-react';
 import { Theme, useTheme } from './ThemeProvider';
 import { useT } from '@/lib/i18n';
@@ -50,7 +50,7 @@ export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' 
 
       <AnimatePresence>
         {open && (
-          <motion.div
+          <m.div
             id={panelId}
             initial={{ opacity: 0, scale: 0.92, y: up ? 8 : -8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -81,7 +81,7 @@ export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' 
                 </button>
               );
             })}
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

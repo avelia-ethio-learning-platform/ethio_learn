@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { GraduationCap, LogOut, Menu, User, X } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
@@ -114,7 +114,7 @@ export function Header() {
           whose transform would otherwise contain a fixed child. */}
       <AnimatePresence>
         {menuOpen && (
-          <motion.div
+          <m.div
             key="menu-backdrop"
             aria-hidden
             data-testid="menu-backdrop"
@@ -135,14 +135,14 @@ export function Header() {
         >
           {/* Logo */}
           <Link href="/" className="group flex items-center gap-2.5">
-            <motion.span
+            <m.span
               whileHover={{ rotate: [0, -6, 6, 0] }}
               transition={{ duration: 0.5 }}
               className="gradient-bg-blue relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl shadow-elevated"
             >
               <GraduationCap className="h-5 w-5 text-white" />
               <span className="gradient-ethiopia absolute bottom-0 left-0 h-[3px] w-full opacity-90" />
-            </motion.span>
+            </m.span>
             <span className="flex flex-col leading-none">
               <span className="text-lg font-extrabold tracking-tight">
                 <span className="gradient-text-blue">Ethiopia</span>
@@ -165,7 +165,7 @@ export function Header() {
                 >
                   {l.label}
                   {active && (
-                    <motion.span
+                    <m.span
                       layoutId="nav-underline"
                       className="gradient-bg-blue absolute inset-x-3 -bottom-0.5 h-0.5 rounded-full"
                     />
@@ -228,7 +228,7 @@ export function Header() {
         {/* Mobile menu */}
         <AnimatePresence>
           {menuOpen && (
-            <motion.div
+            <m.div
               id={menuId}
               initial={{ opacity: 0, height: 0, y: -8 }}
               animate={{ opacity: 1, height: 'auto', y: 0 }}
@@ -285,7 +285,7 @@ export function Header() {
                   )}
                 </div>
               </div>
-            </motion.div>
+            </m.div>
           )}
         </AnimatePresence>
       </nav>

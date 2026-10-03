@@ -3,7 +3,7 @@
 import { useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { Bell, CheckCheck, Inbox } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
@@ -70,19 +70,19 @@ export function NotificationBell() {
         <Bell className="h-4 w-4" />
         {count > 0 && (
           // Exempt from the 12px floor: a numeric count badge, not readable prose.
-          <motion.span
+          <m.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow"
           >
             {count > 9 ? '9+' : count}
-          </motion.span>
+          </m.span>
         )}
       </button>
 
       <AnimatePresence>
         {open && (
-          <motion.div
+          <m.div
             id={panelId}
             initial={{ opacity: 0, scale: 0.95, y: -8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -129,7 +129,7 @@ export function NotificationBell() {
                 </button>
               ))}
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { motion, type Variants } from 'framer-motion';
+import { m, type Variants } from 'framer-motion';
 import {
   ArrowRight,
   BadgeCheck,
@@ -180,7 +180,7 @@ export function HomeClient({
           {/* Stats */}
           <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-3 md:gap-7">
             {stats.map((stat) => (
-              <motion.div
+              <m.div
                 key={stat.label}
                 className="glass-heavy rounded-2xl p-6 text-center"
                 whileHover={{ y: -5 }}
@@ -190,7 +190,7 @@ export function HomeClient({
                 </span>
                 <p className="gradient-text-blue text-3xl font-extrabold md:text-4xl">{stat.value}</p>
                 <p className="mt-1 text-sm font-medium text-gray-500">{stat.label}</p>
-              </motion.div>
+              </m.div>
             ))}
           </div>
         </div>
@@ -200,21 +200,21 @@ export function HomeClient({
       <section id="courses" className="relative scroll-mt-24 py-20">
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-brand-50/40 to-transparent dark:via-blue-950/20" />
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-          <motion.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
-            <motion.span variants={fadeUp} className="section-badge">
+          <m.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
+            <m.span variants={fadeUp} className="section-badge">
               <Sparkles className="h-4 w-4 text-brand-500" />
               {total > 0 ? `${total} ${t('courses')}` : t('courses')}
-            </motion.span>
-            <motion.h2 variants={fadeUp} className="mt-6 text-3xl font-bold text-foreground md:text-5xl">
+            </m.span>
+            <m.h2 variants={fadeUp} className="mt-6 text-3xl font-bold text-foreground md:text-5xl">
               {t('latest_courses')}
-            </motion.h2>
-            <motion.p variants={fadeUp} className="mx-auto mt-3 max-w-xl text-gray-500">
+            </m.h2>
+            <m.p variants={fadeUp} className="mx-auto mt-3 max-w-xl text-gray-500">
               {t('courses_section_sub')}
-            </motion.p>
-          </motion.div>
+            </m.p>
+          </m.div>
 
           {/* Category quick links — full filtering lives on /courses */}
-          <motion.div
+          <m.div
             className="mt-10 flex flex-wrap items-center justify-center gap-2"
             initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -226,7 +226,7 @@ export function HomeClient({
                 {t(`cat_${c}`)}
               </Link>
             ))}
-          </motion.div>
+          </m.div>
 
           {/* Grid */}
           {courses.length === 0 && coursesUnavailable ? (
@@ -239,7 +239,7 @@ export function HomeClient({
               </p>
             </div>
           ) : courses.length === 0 ? (
-            <motion.div
+            <m.div
               className="card mx-auto mt-10 max-w-lg py-12 text-center"
               initial={{ opacity: 0, y: 16 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -252,9 +252,9 @@ export function HomeClient({
                   {t('become_educator')} →
                 </Link>
               </p>
-            </motion.div>
+            </m.div>
           ) : (
-            <motion.div
+            <m.div
               className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
               variants={stagger}
               initial="hidden"
@@ -262,15 +262,15 @@ export function HomeClient({
               viewport={{ once: true, margin: '-60px' }}
             >
               {courses.map((c) => (
-                <motion.div key={c.id} variants={fadeUp}>
+                <m.div key={c.id} variants={fadeUp}>
                   <CourseCard course={c} />
-                </motion.div>
+                </m.div>
               ))}
-            </motion.div>
+            </m.div>
           )}
 
           {courses.length > 0 && (
-            <motion.div
+            <m.div
               className="mt-12 text-center"
               initial={{ opacity: 0, y: 12 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -280,7 +280,7 @@ export function HomeClient({
               <Link href="/courses" className="btn inline-flex !rounded-2xl !px-8 !py-4 !text-base">
                 {t('view_all_courses')} <ArrowRight className="h-5 w-5" />
               </Link>
-            </motion.div>
+            </m.div>
           )}
         </div>
       </section>
@@ -288,17 +288,17 @@ export function HomeClient({
       {/* ================= WHY (template WhyDelibix / Services grid) ================= */}
       <section className="relative py-24">
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-          <motion.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
-            <motion.span variants={fadeUp} className="section-badge">
+          <m.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
+            <m.span variants={fadeUp} className="section-badge">
               <Zap className="h-4 w-4 text-brand-500" />
               {t('why_badge')}
-            </motion.span>
-            <motion.h2 variants={fadeUp} className="mt-6 text-balance text-3xl font-bold leading-tight text-foreground md:text-5xl">
+            </m.span>
+            <m.h2 variants={fadeUp} className="mt-6 text-balance text-3xl font-bold leading-tight text-foreground md:text-5xl">
               {t('why_title_1')} <span className="gradient-text-blue">{t('why_title_2')}</span>
-            </motion.h2>
-          </motion.div>
+            </m.h2>
+          </m.div>
 
-          <motion.div
+          <m.div
             className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
             variants={stagger}
             initial="hidden"
@@ -306,16 +306,16 @@ export function HomeClient({
             viewport={{ once: true, margin: '-60px' }}
           >
             {features.map((f) => (
-              <motion.div key={f.title} variants={fadeUp} className="card card-hover group relative overflow-hidden !rounded-3xl !p-8">
+              <m.div key={f.title} variants={fadeUp} className="card card-hover group relative overflow-hidden !rounded-3xl !p-8">
                 <span className="absolute right-4 top-4 h-2 w-2 rounded-full bg-brand-400/60 opacity-60" />
                 <span className="glass-secondary mb-5 flex h-14 w-14 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-110">
                   <f.icon className="h-7 w-7 text-brand-600" />
                 </span>
                 <h3 className="text-lg font-bold text-foreground">{f.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-gray-500">{f.desc}</p>
-              </motion.div>
+              </m.div>
             ))}
-          </motion.div>
+          </m.div>
         </div>
       </section>
 
@@ -323,17 +323,17 @@ export function HomeClient({
       <section className="relative py-24">
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-brand-50/50 to-transparent dark:via-blue-950/20" />
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-          <motion.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
-            <motion.span variants={fadeUp} className="section-badge">
+          <m.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
+            <m.span variants={fadeUp} className="section-badge">
               <Rocket className="h-4 w-4 text-brand-500" />
               {t('how_badge')}
-            </motion.span>
-            <motion.h2 variants={fadeUp} className="mt-6 text-balance text-3xl font-bold leading-tight text-foreground md:text-5xl">
+            </m.span>
+            <m.h2 variants={fadeUp} className="mt-6 text-balance text-3xl font-bold leading-tight text-foreground md:text-5xl">
               {t('how_title_1')} <span className="gradient-text-blue">{t('how_title_2')}</span>
-            </motion.h2>
-          </motion.div>
+            </m.h2>
+          </m.div>
 
-          <motion.div
+          <m.div
             className="mt-16 grid gap-8 lg:grid-cols-3"
             variants={stagger}
             initial="hidden"
@@ -341,7 +341,7 @@ export function HomeClient({
             viewport={{ once: true, margin: '-60px' }}
           >
             {steps.map((step, i) => (
-              <motion.div key={step.title} variants={fadeUp} className="group relative">
+              <m.div key={step.title} variants={fadeUp} className="group relative">
                 <div className="card card-hover relative h-full overflow-visible !rounded-3xl !p-8 text-center">
                   <span className="glass absolute -right-4 -top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-brand-600">
                     {i + 1}
@@ -358,16 +358,16 @@ export function HomeClient({
                     <ArrowRight className="h-6 w-6" />
                   </span>
                 )}
-              </motion.div>
+              </m.div>
             ))}
-          </motion.div>
+          </m.div>
         </div>
       </section>
 
       {/* ================= EDUCATOR CTA (template solution card) ================= */}
       <section className="py-24">
         <div className="mx-auto w-full max-w-5xl px-4 sm:px-6">
-          <motion.div
+          <m.div
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-80px' }}
@@ -393,7 +393,7 @@ export function HomeClient({
               </div>
               <div className="space-y-4">
                 {[t('teach_benefit_1'), t('teach_benefit_2'), t('teach_benefit_3')].map((b, i) => (
-                  <motion.div
+                  <m.div
                     key={b}
                     className="glass flex items-center gap-3 rounded-2xl px-5 py-4"
                     initial={{ opacity: 0, x: 30 }}
@@ -405,33 +405,33 @@ export function HomeClient({
                       {i === 0 ? <HandCoins className="h-4 w-4 text-white" /> : i === 1 ? <Zap className="h-4 w-4 text-white" /> : <BookOpen className="h-4 w-4 text-white" />}
                     </span>
                     <span className="font-semibold text-foreground">{b}</span>
-                  </motion.div>
+                  </m.div>
                 ))}
               </div>
             </div>
-          </motion.div>
+          </m.div>
         </div>
       </section>
 
       {/* ================= FINAL CTA ================= */}
       <section className="pb-10 pt-4">
         <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
-          <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }}>
-            <motion.h2 variants={fadeUp} className="text-balance text-3xl font-bold text-foreground md:text-4xl">
+          <m.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }}>
+            <m.h2 variants={fadeUp} className="text-balance text-3xl font-bold text-foreground md:text-4xl">
               {t('final_cta_title')}
-            </motion.h2>
-            <motion.p variants={fadeUp} className="mt-3 text-gray-500">
+            </m.h2>
+            <m.p variants={fadeUp} className="mt-3 text-gray-500">
               {t('final_cta_sub')}
-            </motion.p>
-            <motion.div variants={fadeUp} className="mt-7 flex flex-wrap items-center justify-center gap-4">
+            </m.p>
+            <m.div variants={fadeUp} className="mt-7 flex flex-wrap items-center justify-center gap-4">
               <Link href="/signup" className="btn !rounded-2xl !px-8 !py-4 !text-base">
                 {t('get_started')} <ArrowRight className="h-5 w-5" />
               </Link>
               <Link href="/courses" className="btn-secondary !rounded-2xl !px-8 !py-4 !text-base">
                 {t('explore_courses')}
               </Link>
-            </motion.div>
-          </motion.div>
+            </m.div>
+          </m.div>
         </div>
       </section>
     </div>
