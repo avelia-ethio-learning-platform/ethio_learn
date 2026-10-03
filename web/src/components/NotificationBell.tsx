@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { useDismiss } from '@/lib/use-dismiss';
 
 interface Notif {
   id: string;
@@ -27,6 +28,8 @@ export function NotificationBell() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
 
   const { data: unread } = useQuery({
     queryKey: ['unread-count'],
@@ -40,13 +43,7 @@ export function NotificationBell() {
     enabled: open,
   });
 
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('click', onClick);
-    return () => document.removeEventListener('click', onClick);
-  }, []);
+  useDismiss({ open, onClose: () => setOpen(false), containerRef: ref, triggerRef });
 
   if (!ready || !user) return null;
   const count = unread?.count ?? 0;
@@ -62,12 +59,13 @@ export function NotificationBell() {
 
   return (
     <div className="relative" ref={ref}>
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
+      <button
+        ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
-        className="glass-secondary relative flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition-colors hover:text-brand-700"
+        className="glass-secondary relative flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
         aria-label="Notifications"
+        aria-expanded={open}
+        aria-controls={panelId}
       >
         <Bell className="h-4 w-4" />
         {count > 0 && (
@@ -80,16 +78,17 @@ export function NotificationBell() {
             {count > 9 ? '9+' : count}
           </motion.span>
         )}
-      </motion.button>
+      </button>
 
       <AnimatePresence>
         {open && (
           <motion.div
+            id={panelId}
             initial={{ opacity: 0, scale: 0.95, y: -8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -8 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl shadow-floating"
+            className="fixed inset-x-4 top-20 z-50 overflow-hidden sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80 rounded-2xl shadow-floating"
             style={{ background: 'var(--popover)', border: '1px solid var(--card-border)', backdropFilter: 'blur(16px)' }}
           >
             <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
