@@ -1,6 +1,6 @@
 # Phase 7b: Public and learner pages
 
-Status: in code review (round 1); steps 1–11 done
+Status: done. Merged to main via PR #27 (merge `ff1d89e`, 2026-10-03).
 Size: M (sessions: 3 — ethio-impl, or `ethio-impl-web`, implements; ethio-plan-review reviews plan and code). Web, plus one public auth endpoint (with a two-file migration) and one new event that the notification service consumes.
 Base branch: `origin/main` @ `ebc1eba` (2026-10-03), which already has 6a (PR #24) and 7a (PR #25). So 6a's auth migrations (`…397-InvitedAt`, `…398-InvitedAtIndex`) and its account/password rewrite are already below this branch; the drift D4/D5 notes about merging them in later only apply to the pre-PR `git merge origin/main` (6c or 6b may land first). Built in the `ethi0-web` worktree by ethio-planner. This phase uses 7a's `Field`, `FormStatus`, `labels.ts`, `format.ts` and axe gate · Feature branch: `feat/public-learner-pages`
 Roadmap: phase 7b (Phase 7 split; see `../2026-10-02-ui-foundations/plan.md`, "Roadmap change").
@@ -234,7 +234,7 @@ Line numbers are from `fix/access-control` @ `3de83c3`; phases 5, 6b and 7a edit
   - the Playwright suite against the local stack, in Phase 5's build order;
   - **before the PR:** `git merge origin/main` (it brings 6a, and 6c/6b if merged). Resolve auth `migrations/index.ts` (6a's first) and 6a's account/password page (gate on `ok`), then rerun the migration round trip, `db:check`, web vitest (6a's `page.test.tsx` included) and the Playwright suite (drift D4, D5);
   - CI `api`, `web` and `e2e` jobs green on the PR.
-- [ ] 12. Code review by ethio-plan-review; the user approves push and PR.
+- [x] 12. Code review by ethio-plan-review (round 2 APPROVED); merged via PR #27.
 
 ## Test plan
 - **jest (auth):** the resend matrix and the gateway classification (step 6).
