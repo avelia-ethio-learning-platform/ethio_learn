@@ -43,7 +43,7 @@ describe('<Bars />', () => {
     const { container } = render(<Bars data={[{ label: '2026-09', value: 125000 }]} format={(v) => `${v.toLocaleString('en-GB')} ETB`} />);
     const li = container.querySelector('li')!;
     expect(li.className).toContain('min-w-0');
-    expect(li.querySelector('[aria-hidden="true"]')!.textContent).toBe('125K');
+    expect(li.querySelector('[aria-hidden="true"]')!.textContent).toBe('125k');
     expect(li.querySelector('.sr-only')!.textContent).toContain('125,000 ETB');
   });
 });
