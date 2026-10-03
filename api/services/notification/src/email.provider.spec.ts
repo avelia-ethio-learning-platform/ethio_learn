@@ -1,4 +1,4 @@
-import { BrevoApiEmailProvider, emailProviderClass, parseAddress, SmtpEmailProvider, ConsoleEmailProvider, ResendEmailProvider } from './email.provider';
+import { BrevoApiEmailProvider, emailProductionRules, emailProviderClass, parseAddress, SmtpEmailProvider, ConsoleEmailProvider, ResendEmailProvider } from './email.provider';
 import { NotificationController } from './controllers';
 
 const ENV_KEYS = ['BREVO_API_KEY', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_FALLBACK_PORT', 'SMTP_SECURE', 'RESEND_API_KEY', 'EMAIL_FROM'];
@@ -26,6 +26,33 @@ describe('emailProviderClass', () => {
     expect(emailProviderClass()).toBe(SmtpEmailProvider);
     process.env.BREVO_API_KEY = 'xkeysib-1';
     expect(emailProviderClass()).toBe(BrevoApiEmailProvider);
+  });
+});
+
+describe('the console provider in production', () => {
+  it('is refused at boot unless a real provider is set, naming the variables', () => {
+    expect(emailProductionRules({ NODE_ENV: 'production' })).toEqual([
+      'no email provider is configured (set one of BREVO_API_KEY, SMTP_HOST, RESEND_API_KEY)',
+    ]);
+    for (const name of ['BREVO_API_KEY', 'SMTP_HOST', 'RESEND_API_KEY']) {
+      expect(emailProductionRules({ NODE_ENV: 'production', [name]: 'set' })).toEqual([]);
+    }
+  });
+
+  it('refuses to construct in production, and still prints the email (links included) in development', async () => {
+    const nodeEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'production';
+      expect(() => new ConsoleEmailProvider()).toThrow('ConsoleEmailProvider cannot run in production');
+      process.env.NODE_ENV = 'development';
+      const provider = new ConsoleEmailProvider();
+      const log = jest.spyOn((provider as unknown as { logger: { log(m: string): void } }).logger, 'log').mockImplementation(() => undefined);
+      await provider.send({ to: 'abebe@example.com', subject: 'Reset', html: '<a href="http://localhost:3000/reset?token=t1">reset</a> http://localhost:3000/reset?token=t1' });
+      expect(log.mock.calls[0][0]).toContain('To: a***@example.com');
+      expect(log.mock.calls[0][0]).toContain('http://localhost:3000/reset?token=t1');
+    } finally {
+      process.env.NODE_ENV = nodeEnv;
+    }
   });
 });
 

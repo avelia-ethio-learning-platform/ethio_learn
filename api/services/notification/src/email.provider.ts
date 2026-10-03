@@ -94,11 +94,30 @@ export class ResendEmailProvider implements EmailProvider {
   }
 }
 
-/** DEV-ONLY: prints the email to service logs instead of sending. */
+/** The variables that select a real provider (see emailProviderClass). */
+const REAL_PROVIDER_VARS = ['BREVO_API_KEY', 'SMTP_HOST', 'RESEND_API_KEY'] as const;
+
+/**
+ * The notification service's production rule: a real provider must be set, or
+ * the console provider would print verify, reset and invite links to the logs.
+ */
+export function emailProductionRules(environment: NodeJS.ProcessEnv): string[] {
+  if (REAL_PROVIDER_VARS.some((name) => environment[name])) return [];
+  return [`no email provider is configured (set one of ${REAL_PROVIDER_VARS.join(', ')})`];
+}
+
+/** DEV-ONLY: prints the email to service logs instead of sending. Refuses to exist in production. */
 @Injectable()
 export class ConsoleEmailProvider implements EmailProvider {
   readonly name = 'console';
   private readonly logger = new Logger('DevEmail');
+
+  constructor() {
+    // Second line behind emailProductionRules: its log lines carry account-takeover links.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('ConsoleEmailProvider cannot run in production: set a real email provider');
+    }
+  }
 
   async send(message: EmailMessage): Promise<{ message_id: string }> {
     const id = uuidv4();
