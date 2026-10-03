@@ -1,6 +1,6 @@
 # Phase 1: CI green and repo baseline
 
-Status: code review approved (round 1), waiting for the user to approve push and PR
+Status: done. Merged to main via PR #17 (merge `f7cc2e7`, 2026-10-02).
 Size: S (sessions: 2 — ethio-planner implements, ethio-plan-review reviews plan and code)
 Base branch: `origin/main` · Feature branch: `fix/ci-green`
 Roadmap: [../2026-10-02-refinement-audit/roadmap.md](../2026-10-02-refinement-audit/roadmap.md) · Audit: `../2026-10-02-refinement-audit/audit.md` (local only until phases 3–4 ship)

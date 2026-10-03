@@ -1,6 +1,6 @@
 # Phase 5: Web P0 fixes and a browser E2E harness
 
-Status: approved (round 2); amendment A1 (wake from outside Render) approved in round 4
+Status: done. Merged to main via PR #22 (merge `4b4a64c`, 2026-10-03).
 Size: M (sessions: 3 — ethio-impl implements, ethio-plan-review reviews plan and code)
 Base branch: `fix/payment-integrity` (stacked, so impl isn't idle while #19, Phase 3 and Phase 4 wait on the user's production steps; it already has Phase 3's changes to the login, accept-invite and institution pages this phase also touches). Merge `origin/main` back in once those three land; see `handoff.md` → Branch. · Feature branch: `fix/web-p0`
 Roadmap: phase 5 · Findings: P0-09 (code part), P0-11, P0-12, P0-13, P0-14, P0-15, P0-16, P0-17, P0-18, P1-30; also P1-58 (same CSS line as P0-14) and a minimal 404/error page needed by P0-09 (the branded versions are P1-32, Phase 7)
