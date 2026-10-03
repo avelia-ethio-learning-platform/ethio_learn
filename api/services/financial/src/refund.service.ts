@@ -13,10 +13,10 @@ const ALREADY_OPEN = 'A refund is already open for this payment';
 /** A payment already in a payout is refunded by support: there is no clawback from the educator here. */
 const PAID_OUT = 'This payment has already been paid out to the educator. Contact support from Help to request a refund.';
 
-/** When the payment was confirmed (COALESCE(webhook_received_at, created_at)): the clock of the refund window and of its credits' hold. */
 /** An approval that refunded its payment: credits voided, and whether the learner keeps the course another way. */
 type Approval = { voided: number; access_kept: boolean };
 
+/** When the payment was confirmed (COALESCE(webhook_received_at, created_at)): the clock of the refund window and of its credits' hold. */
 const purchasedAt = (p: Payment): Date => p.webhook_received_at ?? p.created_at;
 
 @Injectable()
