@@ -841,7 +841,9 @@ export class PaymentService {
    *     anything else is a 409;
    *  2. a confirmed course payment for this learner and course: a 409. Read
    *     here, so it sees a Chapa payment confirmed moments ago, before the
-   *     enrollment service has granted the entitlement;
+   *     enrollment service has granted the entitlement. When that payment is
+   *     this reference, recorded by a concurrent submit since step 1, it is
+   *     judged by step 1 instead (and likewise at step 4);
    *  3. the learner exists: 404 when not, 503 when the lookup fails;
    *  4. the learner doesn't own the course another way (gift, seat,
    *     sponsorship): 409, and 503 when that can't be checked. Unlike
@@ -856,13 +858,22 @@ export class PaymentService {
     dto: { learner_id: string; course_id: string; bank_reference: string },
   ): Promise<{ payment: Payment; created: boolean }> {
     const txRef = `bank-${dto.bank_reference}`;
-    const recorded = await this.payments.findOne({ where: { chapa_tx_ref: txRef } });
-    if (recorded) return { payment: await this.replayBankTransfer(adminId, recorded, dto), created: false };
+    /** Step 1: the payment already recorded under this reference, judged by replayBankTransfer; undefined when there is none. */
+    const replayed = async () => {
+      const recorded = await this.payments.findOne({ where: { chapa_tx_ref: txRef } });
+      return recorded ? { payment: await this.replayBankTransfer(adminId, recorded, dto), created: false } : undefined;
+    };
+    const first = await replayed();
+    if (first) return first;
 
     const paid = await this.payments.findOne({
       where: { learner_id: dto.learner_id, course_id: dto.course_id, purpose: PaymentPurpose.COURSE, status: PaymentStatus.CONFIRMED },
     });
-    if (paid) throw new ConflictException('This learner already paid for the course');
+    if (paid) {
+      const replay = await replayed();
+      if (replay) return replay;
+      throw new ConflictException('This learner already paid for the course');
+    }
 
     try {
       await this.internal.get(internalPath`/api/v1/internal/users/${dto.learner_id}`);
@@ -878,7 +889,11 @@ export class PaymentService {
     } catch {
       throw new ServiceUnavailableException("Couldn't check enrollment. Try again.");
     }
-    if (entitlement.entitlement_status === 'active') throw new ConflictException('This learner already owns the course');
+    if (entitlement.entitlement_status === 'active') {
+      const replay = await replayed();
+      if (replay) return replay;
+      throw new ConflictException('This learner already owns the course');
+    }
 
     const course = await this.courseInfo(dto.course_id);
     if (!course.price_etb) throw new BadRequestException('Course has no price');
@@ -903,9 +918,9 @@ export class PaymentService {
       );
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
-      const winner = await this.payments.findOne({ where: { chapa_tx_ref: txRef } });
+      const winner = await replayed();
       if (!winner) throw err;
-      return { payment: await this.replayBankTransfer(adminId, winner, dto), created: false };
+      return winner;
     }
     this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}): bank transfer recorded by admin ${adminId} for course ${dto.course_id}`);
     return { payment: await this.settleBankTransfer(payment), created: true };

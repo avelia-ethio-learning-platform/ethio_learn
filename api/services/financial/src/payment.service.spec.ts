@@ -623,6 +623,48 @@ describe('PaymentService.recordBankTransfer: the bank reference is the idempoten
     expect(t.walletRows('cashback')).toHaveLength(1);
   });
 
+  it('a submit whose twin recorded and confirmed the transfer after its check 1 gets the replay, not "already paid"', async () => {
+    const t = setup();
+    const findOne = t.payments.findOne as jest.Mock;
+    const base = findOne.getMockImplementation()!;
+    let twin!: { payment: Payment; created: boolean };
+    // This submit's check 1 finds nothing; then its twin runs to the end before check 2 reads.
+    findOne.mockImplementationOnce(async (opts) => {
+      const none = await base(opts);
+      twin = await t.service.recordBankTransfer('adm', transfer());
+      return none;
+    });
+
+    const late = await t.service.recordBankTransfer('adm', transfer());
+
+    expect(twin.created).toBe(true);
+    expect(late).toEqual({ payment: expect.objectContaining({ id: twin.payment.id, status: PaymentStatus.CONFIRMED }), created: false });
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+    expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+
+  it('a submit whose twin recorded the transfer and got the course granted before its check 4 gets the replay, not "already owns"', async () => {
+    const t = setup();
+    let twin: Promise<{ payment: Payment; created: boolean }> | undefined;
+    // This submit's lookup lets its twin run to the end first, so the grant has landed; the twin's own lookup comes before any grant.
+    answer(t, '/entitlements', async () => {
+      if (twin) return { entitlement_status: 'none' };
+      twin = t.service.recordBankTransfer('adm', transfer());
+      await twin;
+      return { entitlement_status: 'active' };
+    });
+
+    const late = await t.service.recordBankTransfer('adm', transfer());
+
+    const first = await twin!;
+    expect(first.created).toBe(true);
+    expect(late).toEqual({ payment: expect.objectContaining({ id: first.payment.id, status: PaymentStatus.CONFIRMED }), created: false });
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+    expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+
   it('a submit that loses the insert to the same reference for another learner is a 409', async () => {
     const t = setup();
     gateEntitlements(t, 2);
