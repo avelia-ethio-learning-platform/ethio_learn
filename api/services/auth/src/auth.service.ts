@@ -59,6 +59,11 @@ export class AuthService {
     private readonly dataSource: DataSource,
   ) {}
 
+  /** For /ready: refresh tokens live in Redis, so auth can't log anyone in without it. */
+  pingRedis(): Promise<string> {
+    return this.redis.ping();
+  }
+
   async signup(dto: SignupDto): Promise<{ user_id: string }> {
     const email = dto.email.toLowerCase().trim();
     const existing = await this.users.findOne({ where: { email } });
