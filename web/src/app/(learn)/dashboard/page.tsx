@@ -13,6 +13,7 @@ import {
   Gift,
   GraduationCap,
   HandCoins,
+  PartyPopper,
   ReceiptText,
   RotateCcw,
   Send,
@@ -105,8 +106,18 @@ function LearnerDashboard() {
                   </div>
                   <p className="mt-2 text-xs text-gray-500">
                     {e.progress_percent}% {t('progress')}
-                    {e.completed_at ? ' · finished 🎉' : ''}
-                    {e.source === 'sponsorship' ? ' · 🎁 gifted' : ''}
+                    {e.completed_at && (
+                      <>
+                        {' · '}
+                        <PartyPopper className="mb-0.5 inline h-3.5 w-3.5" aria-hidden="true" /> finished
+                      </>
+                    )}
+                    {e.source === 'sponsorship' && (
+                      <>
+                        {' · '}
+                        <Gift className="mb-0.5 inline h-3.5 w-3.5" aria-hidden="true" /> gifted
+                      </>
+                    )}
                   </p>
                   {e.entitlement_status === 'active' && (
                     <Link href={`/learn/${e.course_id}`} className="btn-secondary mt-4 inline-flex !px-3 !py-1.5 !text-xs">
@@ -304,7 +315,13 @@ function SponsorshipsSection() {
                         <div className="progress-fill" style={{ width: `${s.progress.progress_percent}%` }} />
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
-                        {s.progress.progress_percent}% complete{s.progress.lessons_complete ? ' · finished 🎉' : ''}
+                        {s.progress.progress_percent}% complete
+                        {s.progress.lessons_complete && (
+                          <>
+                            {' · '}
+                            <PartyPopper className="mb-0.5 inline h-3.5 w-3.5" aria-hidden="true" /> finished
+                          </>
+                        )}
                       </p>
                     </>
                   )}

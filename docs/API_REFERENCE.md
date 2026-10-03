@@ -47,6 +47,10 @@ Create a learner / educator / institution account. Sends a verification email.
 ### `POST /auth/verify-email?token=<token>` `[public]`
 Confirm email from the link. → `{ "message": "Email verified. You can now log in." }`
 
+### `POST /auth/resend-verification` `[public]`
+`{ "email": "a@example.com" }` → `200 { "message": "If an unverified account exists for that email, we've sent a new link." }`
+Sends a fresh 24 h link to an active, unverified account. The answer is the same for an unknown, verified, suspended or capped account (never leaks existence). Capped per account at 1 link per 60 s and 5 per 24 h (signup's link counts), silently: a `429` comes only from the per-IP credential limit. `400` on an invalid email.
+
 ### `POST /auth/login` `[public]`
 ```json
 // request

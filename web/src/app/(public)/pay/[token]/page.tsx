@@ -67,7 +67,7 @@ export default function PayRequestPage() {
   const paid = data.status === 'granted' || search.get('paid') === '1';
   if (paid) {
     return (
-      <AuthShell icon={<CheckCircle2 className="h-6 w-6" />} title="Thank you! 🎉" subtitle={`${data.requester_name} now has access to "${data.course_title}".`}>
+      <AuthShell icon={<CheckCircle2 className="h-6 w-6" />} title="Thank you!" subtitle={`${data.requester_name} now has access to "${data.course_title}".`}>
         <div className="text-center">
           <p className="text-sm text-gray-500">We&apos;ve let them know. Your receipt is in your dashboard.</p>
           <Link href="/dashboard" className="btn mt-5 inline-flex !px-8 !py-3">

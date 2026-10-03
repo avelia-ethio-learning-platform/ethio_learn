@@ -23,7 +23,7 @@ function makeService(user: Row | null, resets: Row[] = []) {
   };
   const resetRepo = { findOne: jest.fn(async () => resets[0] ?? null), save: jest.fn(async (r: Row) => r) };
   process.env.JWT_SECRET = 'test-secret-not-real';
-  const svc = new AuthService(users as never, {} as never, resetRepo as never, {} as never, {} as never);
+  const svc = new AuthService(users as never, {} as never, resetRepo as never, {} as never, {} as never, {} as never);
   (svc as unknown as { redis: { disconnect?: () => void } }).redis.disconnect?.();
   const revoke = jest.spyOn(svc, 'revokeAllSessions').mockImplementation(async () => {
     calls.push('revoke');

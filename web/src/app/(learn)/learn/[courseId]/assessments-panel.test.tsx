@@ -54,7 +54,22 @@ describe('AssessmentsPanel results', () => {
     respondWith({ score: 90, passed: true });
     await takeQuiz();
     const status = screen.getByRole('status');
-    await waitFor(() => expect(status.textContent).toBe('Score: 90 — PASSED 🎉'));
+    await waitFor(() => expect(status.textContent).toBe('Score: 90 — PASSED'));
     expect(status.querySelector('.badge-success')).not.toBeNull();
+  });
+});
+
+describe('AssessmentsPanel load failure', () => {
+  it('shows its own error with Retry that refetches', async () => {
+    apiMock.mockRejectedValue(new Error('down'));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AssessmentsPanel courseId="c1" />
+      </QueryClientProvider>,
+    );
+    expect((await screen.findByRole('alert')).textContent).toContain("Couldn't load assessments.");
+    respondWith({});
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('button', { name: 'Start Quiz' })).toBeTruthy();
   });
 });

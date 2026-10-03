@@ -29,4 +29,5 @@ regexes = [
   '''minioadmin''',
   '''ethiopialearn:ethiopialearn''', # local dev postgres dsn
   '''guest:guest@localhost''', # local dev rabbitmq
+  '''1790964028397-InvitedAt''', # Phase 6a's auth migration name, quoted in the Phase 7b plan review
 ]

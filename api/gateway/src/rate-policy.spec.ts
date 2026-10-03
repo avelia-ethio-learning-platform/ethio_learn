@@ -10,6 +10,11 @@ describe('rate-limit policy classification', () => {
     expect(classifyRequest('POST', '/api/v1/auth/accept-invite')).toBe('auth-strict');
   });
 
+  it('puts resend-verification in the strict bucket: it sends email, so it is capped per IP', () => {
+    expect(classifyRequest('POST', '/api/v1/auth/resend-verification')).toBe('auth-strict');
+    expect(classifyRequest('POST', '/api/v1/auth/Resend-Verification/')).toBe('auth-strict');
+  });
+
   it('puts the two profile routes that check the password in the strict bucket', () => {
     expect(classifyRequest('PUT', '/api/v1/profiles/password')).toBe('auth-strict');
     expect(classifyRequest('DELETE', '/api/v1/profiles/me')).toBe('auth-strict');

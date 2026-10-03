@@ -42,6 +42,7 @@ import {
   Role,
   StaffInvitedPayload,
   UserRegisteredPayload,
+  VerificationEmailRequestedPayload,
 } from '@ethiopialearn/contracts';
 import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
 import { InboxNotification, NotificationLog, NotificationPreference } from './entities';
@@ -70,6 +71,15 @@ function quote(text: string | null | undefined): SafeHtml {
 /** The teal call-to-action button used in most emails. */
 function button(href: string, label: string): SafeHtml {
   return html`<p><a href="${href}" style="background:#0f766e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">${label}</a></p>`;
+}
+
+const VERIFY_EMAIL_SUBJECT = 'Verify your EthiopiaLearn account';
+
+/** The "confirm your email" message: the same at signup and on a resend. */
+function verificationEmail(p: { name: string; verification_url: string }): string {
+  return layout('Welcome to EthiopiaLearn!', html`<p>Hi ${p.name},</p><p>Confirm your email address to activate your account:</p>
+        ${button(p.verification_url, 'Verify my email')}
+        <p>Or open this link: ${p.verification_url}</p><p>The link expires in 24 hours.</p>`);
 }
 
 interface OwnerMessage {
@@ -117,10 +127,11 @@ export class NotificationService implements OnModuleInit {
 
   onModuleInit() {
     this.bus.subscribe<UserRegisteredPayload>('UserRegistered', (p) =>
-      this.deliver('UserRegistered', p.user_id, p.email, 'Verify your EthiopiaLearn account',
-        layout('Welcome to EthiopiaLearn!', html`<p>Hi ${p.name},</p><p>Confirm your email address to activate your account:</p>
-        ${button(p.verification_url, 'Verify my email')}
-        <p>Or open this link: ${p.verification_url}</p><p>The link expires in 24 hours.</p>`)));
+      this.deliver('UserRegistered', p.user_id, p.email, VERIFY_EMAIL_SUBJECT, verificationEmail(p)));
+
+    // A fresh link the learner asked for (auth's resend-verification, already capped there).
+    this.bus.subscribe<VerificationEmailRequestedPayload>('VerificationEmailRequested', (p) =>
+      this.deliver('VerificationEmailRequested', p.user_id, p.email, VERIFY_EMAIL_SUBJECT, verificationEmail(p)));
 
     this.bus.subscribe<PasswordResetRequestedPayload>('PasswordResetRequested', (p) =>
       this.deliver('PasswordResetRequested', p.user_id, p.email, 'Reset your EthiopiaLearn password',

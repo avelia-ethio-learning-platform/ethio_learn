@@ -224,6 +224,16 @@ const COURSES = [
       ['Polish & practice', ['Sounding natural: fillers and pace', 'Video interview etiquette', 'Full mock interview walkthrough']],
     ],
   },
+  // Amharic title: lets the OG image's Ethiopic font be checked against a seeded course.
+  {
+    title: 'ኤክሴል ለጀማሪዎች', category: 'business', pricing_type: 'free',
+    description: 'Learn Excel from scratch: spreadsheets, formulas and simple charts for everyday office and small-business work.',
+    outline: [
+      ['Getting started', ['Cells, rows and columns', 'Entering and formatting data', 'Saving and sharing your file']],
+      ['Formulas that save time', ['SUM, AVERAGE and COUNT', 'IF and lookup formulas', 'Avoiding common formula errors']],
+      ['Charts and reports', ['Turning numbers into charts', 'Sorting and filtering', 'A simple monthly sales report']],
+    ],
+  },
 ];
 
 /** Expand the compact outline into the API's sections payload. */

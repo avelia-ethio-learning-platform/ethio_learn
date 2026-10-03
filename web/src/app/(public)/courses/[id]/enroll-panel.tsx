@@ -53,7 +53,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
 
   if (!user) {
     return (
-      <button className="btn mt-4 w-full !py-3" onClick={() => router.push(`/login?next=/courses/${courseId}`)}>
+      <button data-primary-action="login" className="btn mt-4 w-full !py-3" onClick={() => router.push(`/login?next=/courses/${courseId}`)}>
         <Lock className="h-4 w-4" /> {t('login_to_enroll')}
       </button>
     );
@@ -69,7 +69,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
   if (status?.entitlement_status === 'active') {
     return (
       <div className="mt-4 space-y-3">
-        <button className="btn w-full !py-3" onClick={() => router.push(`/learn/${courseId}`)}>
+        <button data-primary-action="continue" className="btn w-full !py-3" onClick={() => router.push(`/learn/${courseId}`)}>
           {t('continue_learning')} <ArrowRight className="h-4 w-4" />
         </button>
         {paid && <GiftForm courseId={courseId} amountDue={price ?? 0} walletBalance={wallet?.balance_etb ?? 0} coupon="" compact />}
@@ -157,7 +157,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
               )}
             </div>
           )}
-          <button className="btn w-full !py-3" onClick={() => enroll(false)} disabled={busy}>
+          <button data-primary-action="enroll" className="btn w-full !py-3" onClick={() => enroll(false)} disabled={busy}>
             {busy ? (
               <>
                 <LoaderCircle className="h-4 w-4 animate-spin" /> Please wait…

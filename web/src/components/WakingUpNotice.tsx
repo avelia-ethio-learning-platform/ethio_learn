@@ -22,7 +22,12 @@ export function WakingUpNotice() {
   }, [visible]);
 
   return (
-    <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+    <div
+      aria-live="polite"
+      className="pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4"
+      // Stacks above the course page's mobile buy bar while that bar is showing.
+      style={{ bottom: 'calc(1rem + var(--buy-bar-h, 0px))' }}
+    >
       {visible && (
         <p
           className="flex max-w-md items-center gap-2.5 rounded-2xl bg-background px-4 py-3 text-sm text-foreground shadow-floating"

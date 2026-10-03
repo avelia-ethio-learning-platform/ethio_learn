@@ -103,6 +103,17 @@ jobs:
             curl -sf "http://localhost:$port/health" > /dev/null || { echo "service on :$port is not healthy"; exit 1; }
           done
           pnpm -C api db:check
+      # 5 parallel resends for one account must send 1 link (a row lock holds
+      # the per-account cap). On a scratch database in the compose Postgres,
+      # reached with the services' own DATABASE_URL (api/.env) under another
+      # name. The spec calls AuthService directly, never the gateway, whose
+      # auth-strict budget the later steps share.
+      - name: Resend-verification cap under concurrency (real Postgres)
+        run: |
+          base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
+          [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
+          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_resend_verification'
+          TEST_DATABASE_URL="${base%/*}/el_ci_resend_verification" pnpm -C api exec jest --ci services/auth/src/auth.resend-verification.db.spec.ts
       - name: End-to-end flow (educator → QO → learner → certificate)
         run: node scripts/demo-seed.mjs
       # Before the smoke step: that one hammers the login limiter on purpose.

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, Ban, Camera, Check, CircleX, Clock, Eye, Loader2, PartyPopper, Sparkles, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { ProctorEngine, ProctorStatus, Violation, VIOLATION_LABELS } from '@/lib/proctor';
@@ -155,7 +156,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
           await endExam({ terminated: true, reason: `3rd violation: ${VIOLATION_LABELS[v.type] ?? v.type}` });
         } else {
           setBanner({
-            text: `⚠️ Warning ${res.count} of ${current.warning_limit} — ${v.description}. ${res.remaining} more and the exam ends.`,
+            text: `Warning ${res.count} of ${current.warning_limit} — ${v.description}. ${res.remaining} more and the exam ends.`,
             key: Date.now(),
           });
         }
@@ -230,12 +231,14 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
         <div className="card space-y-3">
           <p className="text-sm text-gray-700">
             {meta?.question_count ?? '…'} questions{meta?.written_count ? ` (${meta.written_count} written, AI-graded)` : ''} · pass ≥ {meta?.pass_score ?? '…'}%
-            {meta?.time_limit_minutes ? ` · ⏱ ${meta.time_limit_minutes} min limit` : ''}
+            {meta?.time_limit_minutes ? ` · ${meta.time_limit_minutes} min limit` : ''}
           </p>
           {proctored ? (
             <>
               <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                <p className="font-semibold">📹 This exam is proctored. During the exam:</p>
+                <p className="font-semibold">
+                  <Camera className="mr-1 inline h-4 w-4" aria-hidden="true" />
+                  This exam is proctored. During the exam:</p>
                 <ul className="ml-5 mt-1 list-disc space-y-0.5">
                   <li>Your camera stays on — keep your face visible, alone, facing the screen</li>
                   <li>Do not switch tabs or windows</li>
@@ -247,11 +250,32 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
               <div className="flex items-center gap-4">
                 <video ref={setVideoEl} muted playsInline className="h-32 w-44 rounded-lg bg-gray-900 object-cover" />
                 <div className="space-y-1 text-sm">
-                  <p>{proctorStatus.camera === 'on' ? '✅ Camera ready' : proctorStatus.camera === 'denied' ? '❌ Camera blocked — allow camera access to start' : '⏳ Requesting camera…'}</p>
                   <p>
-                    {modelState === 'ready' && (proctorStatus.faces === null ? '✅ Face detection ready' : proctorStatus.faces === 1 ? '✅ One face detected' : proctorStatus.faces === 0 ? '👀 Position your face in view' : '⚠️ Multiple faces in view')}
-                    {modelState === 'loading' && '⏳ Loading face detection…'}
-                    {modelState === 'unavailable' && '⚠️ Face detection unavailable — tab & clipboard monitoring still apply'}
+                    {proctorStatus.camera === 'on' ? (
+                      <><Check className="mr-1 inline h-4 w-4 text-green-700" aria-hidden="true" />Camera ready</>
+                    ) : proctorStatus.camera === 'denied' ? (
+                      <><CircleX className="mr-1 inline h-4 w-4 text-red-700" aria-hidden="true" />Camera blocked — allow camera access to start</>
+                    ) : (
+                      <><Loader2 className="mr-1 inline h-4 w-4" aria-hidden="true" />Requesting camera…</>
+                    )}
+                  </p>
+                  <p>
+                    {modelState === 'ready' &&
+                      (proctorStatus.faces === null ? (
+                        <><Check className="mr-1 inline h-4 w-4 text-green-700" aria-hidden="true" />Face detection ready</>
+                      ) : proctorStatus.faces === 1 ? (
+                        <><Check className="mr-1 inline h-4 w-4 text-green-700" aria-hidden="true" />One face detected</>
+                      ) : proctorStatus.faces === 0 ? (
+                        <><Eye className="mr-1 inline h-4 w-4" aria-hidden="true" />Position your face in view</>
+                      ) : (
+                        <><AlertTriangle className="mr-1 inline h-4 w-4 text-amber-700" aria-hidden="true" />Multiple faces in view</>
+                      ))}
+                    {modelState === 'loading' && (
+                      <><Loader2 className="mr-1 inline h-4 w-4" aria-hidden="true" />Loading face detection…</>
+                    )}
+                    {modelState === 'unavailable' && (
+                      <><AlertTriangle className="mr-1 inline h-4 w-4 text-amber-700" aria-hidden="true" />Face detection unavailable — tab &amp; clipboard monitoring still apply</>
+                    )}
                   </p>
                 </div>
               </div>
@@ -283,14 +307,23 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
           <div className={`card border-2 ${terminated ? 'border-red-300 bg-red-50' : result.passed ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/40' : 'border-amber-300 dark:border-amber-700'}`}>
             {terminated ? (
               <>
-                <h1 className="text-xl font-bold text-red-800">🚫 Exam ended by proctoring</h1>
+                <h1 className="text-xl font-bold text-red-800">
+                  <Ban className="mr-1 inline h-5 w-5" aria-hidden="true" />
+                  Exam ended by proctoring
+                </h1>
                 <p className="mt-1 text-sm text-red-700">{result.termination_reason ?? 'Repeated violations of the exam rules.'} The attempt is flagged for your educator with the full violation report below.</p>
               </>
             ) : (
               <>
-                <h1 className="text-xl font-bold">{result.passed ? '🎉 Passed' : 'Not passed yet'}</h1>
+                <h1 className="text-xl font-bold">{result.passed ? (
+                    <><PartyPopper className="mr-1.5 inline h-5 w-5" aria-hidden="true" />Passed</>
+                  ) : (
+                    'Not passed yet'
+                  )}</h1>
                 <p className="mt-1 text-3xl font-bold">{result.score}%</p>
-                {result.flagged && <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">⚠️ This attempt has proctoring flags — see the report below.</p>}
+                {result.flagged && <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="mr-1 inline h-4 w-4" aria-hidden="true" />
+                    This attempt has proctoring flags — see the report below.</p>}
               </>
             )}
           </div>
@@ -323,7 +356,11 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                         {b.ai_feedback && <p className="mt-0.5">{b.ai_feedback}</p>}
                       </div>
                     ) : (
-                      <p className="mt-1 text-xs text-gray-500">{b.correct ? 'Correct ✓' : 'Incorrect ✗'}</p>
+                      <p className="mt-1 text-xs text-gray-500">{b.correct ? (
+                          <><Check className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Correct</>
+                        ) : (
+                          <><X className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Incorrect</>
+                        )}</p>
                     )}
                   </li>
                 );
@@ -334,7 +371,9 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
 
         {report && report.events.length > 0 && (
           <div className="card">
-            <h2 className="font-semibold">📹 Proctoring report ({report.events.length} flag{report.events.length !== 1 ? 's' : ''})</h2>
+            <h2 className="font-semibold">
+              <Camera className="mr-1 inline h-4 w-4" aria-hidden="true" />
+              Proctoring report ({report.events.length} flag{report.events.length !== 1 ? 's' : ''})</h2>
             <ul className="mt-2 space-y-3">
               {report.events.map((e, i) => (
                 <li key={i} className="flex gap-3 rounded-lg border p-3">
@@ -376,7 +415,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
             <span key={t} className="rounded bg-amber-100 px-2 py-0.5 text-amber-800">{VIOLATION_LABELS[t] ?? t}: {n}/{attempt?.warning_limit}</span>
           ))}
           {secondsLeft !== null && (
-            <span className={`rounded px-2 py-0.5 font-mono font-semibold ${secondsLeft < 60 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>⏱ {fmtTime(secondsLeft)}</span>
+            <span className={`rounded px-2 py-0.5 font-mono font-semibold ${secondsLeft < 60 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}><Clock className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />{fmtTime(secondsLeft)}</span>
           )}
         </div>
       </div>
@@ -384,6 +423,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
       <div role="alert">
         {banner && (
           <div key={banner.key} className="mb-4 animate-pulse rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm font-medium text-amber-900">
+            <AlertTriangle className="mr-1.5 inline h-4 w-4" aria-hidden="true" />
             {banner.text}
           </div>
         )}
@@ -479,7 +519,9 @@ function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean 
   if (!plan) {
     return (
       <div className="card border-2 border-brand-200 bg-brand-50/50">
-        <p className="font-semibold text-foreground">✨ {passed ? 'Want to reinforce what you learned?' : 'Not quite — let the AI coach help you retry'}</p>
+        <p className="font-semibold text-foreground">
+          <Sparkles className="mr-1 inline h-4 w-4" aria-hidden="true" />
+          {passed ? 'Want to reinforce what you learned?' : 'Not quite — let the AI coach help you retry'}</p>
         <p className="mt-1 text-sm text-gray-600">Get a personalized review plan built from the exact questions you missed and this course&apos;s lessons.</p>
         <button className="btn mt-3" disabled={busy} onClick={load}>
           {busy ? 'Building your plan…' : 'Get my study plan'}
@@ -490,7 +532,9 @@ function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean 
   }
   return (
     <div className="card border-2 border-brand-200 bg-brand-50/50">
-      <h2 className="flex items-center gap-2 font-semibold text-foreground">✨ Your study plan</h2>
+      <h2 className="flex items-center gap-2 font-semibold text-foreground">
+        <Sparkles className="h-4 w-4" aria-hidden="true" /> Your study plan
+      </h2>
       <p className="mt-1 text-sm text-gray-700">{plan.summary}</p>
       <ol className="mt-3 space-y-2">
         {plan.plan.map((item, i) => (

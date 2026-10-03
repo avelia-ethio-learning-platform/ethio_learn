@@ -52,6 +52,8 @@ export class User {
 }
 
 @Entity({ name: 'email_verifications' })
+// Resend caps: one account's links since a cutoff.
+@Index('IDX_email_verifications_user_id_created_at', ['user_id', 'created_at'])
 export class EmailVerification {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -68,6 +70,10 @@ export class EmailVerification {
 
   @Column({ type: 'timestamptz', nullable: true })
   used_at: Date | null;
+
+  /** When the link was issued; the resend caps count these rows. */
+  @CreateDateColumn({ type: 'timestamptz' })
+  created_at: Date;
 }
 
 @Entity({ name: 'password_resets' })

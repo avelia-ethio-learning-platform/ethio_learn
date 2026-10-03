@@ -16,23 +16,18 @@ const course = (thumbnail_url: string | null) => ({
   thumbnail_url,
 });
 
-// Next merges openGraph shallowly, so a course that sets openGraph without
-// images would lose the site share image. Next also copies openGraph images to
-// the twitter card when `twitter` sets none, so the course must not set its own.
-describe('course page share image', () => {
+// The per-course card comes from opengraph-image.tsx (the file convention), which wins
+// over any `images` entry, so generateMetadata must not set one (not even the thumbnail).
+// Next merges openGraph/twitter shallowly per key, so both keep their text and the large card.
+describe('course page share metadata', () => {
   beforeEach(() => serverApi.mockReset());
 
-  it('falls back to the site image when the course has no thumbnail', async () => {
-    serverApi.mockResolvedValue({ ok: true, data: course(null) });
+  it.each([null, 'https://cdn.example/t.png'])('sets no images entry (thumbnail %s)', async (thumb) => {
+    serverApi.mockResolvedValue({ ok: true, data: course(thumb) });
     const meta = await generateMetadata({ params: { id: 'c1' } });
-    expect(meta.openGraph?.images).toEqual(['/opengraph-image']);
+    expect(meta.openGraph?.images).toBeUndefined();
     expect(meta.twitter?.images).toBeUndefined();
-  });
-
-  it("uses the course's own thumbnail when it has one", async () => {
-    serverApi.mockResolvedValue({ ok: true, data: course('https://cdn.example/t.png') });
-    const meta = await generateMetadata({ params: { id: 'c1' } });
-    expect(meta.openGraph?.images).toEqual(['https://cdn.example/t.png']);
-    expect(meta.twitter?.images).toBeUndefined();
+    expect(meta.openGraph?.title).toBe('Python for Data Analysis');
+    expect(meta.twitter).toMatchObject({ card: 'summary_large_image', title: 'Python for Data Analysis' });
   });
 });

@@ -33,6 +33,9 @@ export const EVENT_TYPES = [
   // sends email. This event resolves that conflict; remove if the spec adds an
   // alternative channel.
   'PasswordResetRequested',
+  // Same reasoning: a resent verification link is an email, so it goes through
+  // the Notification service. Not UserRegistered again: the account registered once.
+  'VerificationEmailRequested',
   // Post-MVP additions for the requested features:
   'CourseAppealSubmitted', // educator/instructor appeals a flagged course → re-review
   'StaffInvited', // admin provisioned a staff account → email a one-time password
@@ -83,6 +86,14 @@ export interface UserRegisteredPayload {
   email: string;
   name: string;
   role: string;
+  verification_url: string;
+}
+
+/** A fresh verification link for an unverified account (resend). Same email as UserRegistered. */
+export interface VerificationEmailRequestedPayload {
+  user_id: string;
+  email: string;
+  name: string;
   verification_url: string;
 }
 

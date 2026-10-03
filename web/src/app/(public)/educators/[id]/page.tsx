@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { Star } from 'lucide-react';
 import { serverApi } from '@/lib/server-api';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
 import { BackButton } from '@/components/BackButton';
@@ -58,7 +59,10 @@ export default async function EducatorProfilePage({ params }: { params: { id: st
             {profile.course_count} course{profile.course_count !== 1 ? 's' : ''}
             {profile.learner_count > 0 ? ` · ${profile.learner_count} learners` : ''}
             {profile.average_rating != null ? (
-              <span className="text-amber-700 dark:text-amber-400"> · ★ {profile.average_rating} ({profile.rating_count} ratings · {profile.total_rating_points} pts)</span>
+              <span className="text-amber-700 dark:text-amber-400">
+                {' · '}
+                <Star className="mb-0.5 inline h-3.5 w-3.5 fill-current" aria-hidden="true" /> {profile.average_rating} ({profile.rating_count} ratings · {profile.total_rating_points} pts)
+              </span>
             ) : (
               ' · not yet rated'
             )}

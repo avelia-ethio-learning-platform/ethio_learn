@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 
@@ -46,11 +47,17 @@ export function FollowInstructorButton({ instructorId }: { instructorId: string 
     >
       {following ? (
         <>
-          <span className="group-hover:hidden">✓ Following</span>
+          <span className="group-hover:hidden">
+            <Check className="mr-1 inline h-4 w-4" aria-hidden="true" />
+            Following
+          </span>
           <span className="hidden group-hover:inline">Unfollow</span>
         </>
       ) : (
-        <>＋ Follow</>
+        <>
+          <Plus className="mr-1 inline h-4 w-4" aria-hidden="true" />
+          Follow
+        </>
       )}
     </button>
   );
