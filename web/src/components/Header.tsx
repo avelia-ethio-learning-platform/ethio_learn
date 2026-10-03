@@ -127,13 +127,7 @@ export function Header() {
           />
         )}
       </AnimatePresence>
-      <motion.nav
-        aria-label="Main"
-        className="fixed left-1/2 top-0 z-50 w-full max-w-6xl -translate-x-1/2 px-3 pt-4 sm:px-6"
-        initial={{ y: -80, x: '-50%', opacity: 0 }}
-        animate={{ y: 0, x: '-50%', opacity: 1 }}
-        transition={{ duration: 0.7, ease: 'easeOut' }}
-      >
+      <nav aria-label="Main" className="fixed left-1/2 top-0 z-50 w-full max-w-6xl -translate-x-1/2 px-3 pt-4 sm:px-6">
         <div
           className={`flex w-full items-center justify-between transition-all duration-500 ${
             isScrolled ? 'glass rounded-2xl px-4 py-2.5 shadow-floating sm:px-6' : 'glass-secondary rounded-full px-5 py-3 shadow-glass sm:px-8'
@@ -294,7 +288,7 @@ export function Header() {
             </motion.div>
           )}
         </AnimatePresence>
-      </motion.nav>
+      </nav>
     </>
   );
 }

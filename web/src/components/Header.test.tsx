@@ -146,3 +146,11 @@ describe('Header overlays', () => {
     expect(screen.getByRole('button', { name: 'Menu' }).getAttribute('aria-expanded')).toBe('false');
   });
 });
+
+describe('Header nav', () => {
+  it('renders visible in the server HTML, with no framer entrance state', () => {
+    const { container } = renderHeader();
+    const nav = container.querySelector('nav[aria-label="Main"]')!;
+    expect(nav.getAttribute('style')).toBeNull();
+  });
+});
