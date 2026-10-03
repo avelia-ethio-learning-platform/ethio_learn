@@ -333,3 +333,15 @@ Commits on `fix/event-delivery` (base `03fd049`): `3c6f164` plan docs · `ccef60
 - **CI.** The gateway's wait now fails the step on timeout, and the per-service wait in the drift-check step polls `/ready` and prints the failing body.
 - **Spec helper.** Quality's fake `DataSource` lives in `src/testing/` and is excluded from the build, as financial's helpers are.
 - **Step 10 runs on the real broker** with no test-only code: the drill restarts notification with SMTP on a closed port, a 3 s retry delay and 3 attempts, and starts a small SMTP sink for the success path (scratch script, not committed).
+
+**In flight / next step (checkpoint 2026-10-03 21:3x):**
+- The stack gate is running in the stack window that ethio-impl [9be294] (8b) handed over. Script: `<scratchpad>/gate9a.sh`, output in `<scratchpad>/gate9a.out`, with the scratchpad at `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/74eefc54-cbc5-4cbe-b23f-59ab045906b3/scratchpad`.
+  - Order: fresh `el_9a_e2e`, seed, start and wait on `/ready`, db:check, the resend cap, the six CI e2e scripts, web build, Playwright, smoke, then the drills `scripts/e2e-broker-outage.mjs` (step 9; output `g9-outage.txt`) and `<scratchpad>/retry-drill.mjs` (step 10; output `g9-retry.txt`), and finally it stops the stack.
+  - At checkpoint: stack ready, all 7 `/ready` 200, db:check no drift, resend ok, e2e scripts running (193 checks passed, none failed).
+- When it ends:
+  1. If the 9a services are still up, run `scripts/stop-backend.sh` from the worktree. Tell ethio-impl [9be294] "9a done, stack down".
+  2. Record the outage and retry drill outputs under steps 9 and 10, and tick steps 9–11 (or fix what failed).
+  3. Drop the scratch DBs `el_9a_gen` and `el_9a_e2e`.
+  4. Merge origin/main again if it moved.
+  5. Commit, then message ethio-reviewer: "Ready for code review (round 1): branch fix/event-delivery, base 03fd049 (origin/main), plan docs/plans/2026-10-02-event-delivery/plan.md".
+- After APPROVED: don't push. Tell ethio-planner [59d14c], who sends the 9b handoff (9a and 9b ship together).
