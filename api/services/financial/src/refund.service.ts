@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
-import { PaymentStatus, RefundDecisionPayload, RefundRequestedPayload, RefundStatus, Role } from '@ethiopialearn/contracts';
+import { EntitlementStatus, PaymentStatus, RefundDecisionPayload, RefundRequestedPayload, RefundStatus, Role } from '@ethiopialearn/contracts';
 import { PaymentMethod, PaymentPurpose } from '@ethiopialearn/contracts';
 import { Payment, RefundRequest } from './entities';
 import { GrowthService } from './growth.service';
@@ -54,6 +54,7 @@ export class RefundService {
     if (existing) throw new BadRequestException(ALREADY_OPEN);
 
     const entitlement = await this.internal.get<{
+      entitlement_status: EntitlementStatus;
       enrollment_id: string | null;
       progress_percent: number;
     }>(internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${payment.course_id}`);
@@ -63,10 +64,13 @@ export class RefundService {
 
     // The window runs from the payment's confirmation, the same clock its
     // pending cashback and referral reward are held on, so a re-purchase gets
-    // a window of its own. Without an enrollment (access not granted yet) it
-    // stays closed, as before: a refund approved then could be followed by
-    // the grant.
-    const daysSincePurchase = entitlement.enrollment_id ? (Date.now() - purchasedAt(payment).getTime()) / DAY_MS : Infinity;
+    // a window of its own. Only an active entitlement is judged on it. With
+    // none, or one still refunded (a re-purchase whose grant isn't consumed
+    // yet), the window stays closed, as before: a refund approved then could
+    // be followed by the grant, which would activate access on a refunded
+    // payment.
+    const granted = entitlement.entitlement_status === EntitlementStatus.ACTIVE;
+    const daysSincePurchase = granted ? (Date.now() - purchasedAt(payment).getTime()) / DAY_MS : Infinity;
     const progress = entitlement.progress_percent ?? 0;
 
     if (entitlement.enrollment_id) {

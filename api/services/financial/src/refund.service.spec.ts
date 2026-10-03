@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { PaymentStatus, RefundStatus } from '@ethiopialearn/contracts';
+import { EntitlementStatus, PaymentStatus, RefundStatus } from '@ethiopialearn/contracts';
 import { Coupon, Payment, Referral, ReferralCode, RefundRequest, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { RefundService } from './refund.service';
@@ -23,6 +23,8 @@ interface Options {
   payoutId?: string;
   /** No enrollment yet: the grant hasn't happened (or hasn't been consumed). */
   noEnrollment?: boolean;
+  /** The enrollment's entitlement; active unless set (refunded: a re-purchase whose grant isn't consumed yet). */
+  entitlementStatus?: EntitlementStatus;
   progress?: number;
   certificateIssued?: boolean;
   assessmentPassed?: boolean;
@@ -52,8 +54,9 @@ function setup(opts: Options = {}) {
   const internal = {
     get: jest.fn(async (path: string) => {
       if (path.startsWith('/api/v1/internal/entitlements')) {
-        if (opts.noEnrollment) return { enrollment_id: null, enrolled_at: null, progress_percent: 0 };
+        if (opts.noEnrollment) return { entitlement_status: EntitlementStatus.NONE, enrollment_id: null, enrolled_at: null, progress_percent: 0 };
         return {
+          entitlement_status: opts.entitlementStatus ?? EntitlementStatus.ACTIVE,
           enrollment_id: 'e1',
           enrolled_at: ago((opts.enrolledDaysAgo ?? opts.confirmedDaysAgo ?? 1) * DAY).toISOString(),
           progress_percent: opts.progress ?? 0,
@@ -174,7 +177,13 @@ describe('RefundService: the 7-day window runs from the payment confirmation (de
 
   it('a re-purchase after a refund is refundable within 7 days of the new payment', async () => {
     // The first purchase was refunded 40 days ago; buying again reused that enrollment.
-    const { service, payments, refunds, payment, published } = setup({ progress: 10, confirmedDaysAgo: 2, enrolledDaysAgo: 40 });
+    // Its grant has been consumed: the reused enrollment is active again.
+    const { service, payments, refunds, payment, published } = setup({
+      progress: 10,
+      confirmedDaysAgo: 2,
+      enrolledDaysAgo: 40,
+      entitlementStatus: EntitlementStatus.ACTIVE,
+    });
     payments.rows.push({ ...payment(), id: 'pay-0', chapa_tx_ref: 'TX-0', status: PaymentStatus.REFUNDED, refund_requested_at: ago(40 * DAY), webhook_received_at: ago(40 * DAY) });
     refunds.rows.push({ id: 'rr-0', payment_id: 'pay-0', learner_id: 'u1', reason: 'first time', status: RefundStatus.APPROVED, decision_rule: 'auto_approve_under_20pct_within_7d' });
 
@@ -189,6 +198,13 @@ describe('RefundService: the 7-day window runs from the payment confirmation (de
     const { service, payment } = setup({ confirmedDaysAgo: 1, noEnrollment: true });
     await expect(service.request(ctx, 'pay-1', 'no access yet')).resolves.toMatchObject({ status: RefundStatus.DENIED, rule: 'outside_7_day_window' });
     expect(payment()).toMatchObject({ status: PaymentStatus.CONFIRMED, refund_requested_at: null });
+  });
+
+  it("keeps the window closed for a re-purchase whose grant isn't consumed yet (the old enrollment is still refunded)", async () => {
+    const { service, payment, published } = setup({ progress: 5, confirmedDaysAgo: 5 / (24 * 60), enrolledDaysAgo: 40, entitlementStatus: EntitlementStatus.REFUNDED });
+    await expect(service.request(ctx, 'pay-1', 'no access yet')).resolves.toMatchObject({ status: RefundStatus.DENIED, rule: 'outside_7_day_window' });
+    expect(payment()).toMatchObject({ status: PaymentStatus.CONFIRMED, refund_requested_at: null });
+    expect(published('RefundApproved')).toHaveLength(0);
   });
 
   it('uses the payment creation time when it has no confirmation time', async () => {
