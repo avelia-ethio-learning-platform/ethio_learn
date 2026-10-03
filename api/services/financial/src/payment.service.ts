@@ -303,9 +303,10 @@ export class PaymentService {
    * others. A hold is a pending payment with the code created within
    * COUPON_HOLD_MINUTES; it lapses on its own. In one transaction:
    *  1. lock the coupon and re-check that it is active and unexpired;
-   *  2. the payer's own open checkout for this same purchase: a Chapa retry
-   *     at the same amount gets it back (no new row); otherwise it is
-   *     superseded (failed), and a late payment of it still confirms;
+   *  2. lock the payer's own open checkouts with the code. One for this
+   *     same purchase: a Chapa retry at the same amount gets it back (no new
+   *     row); otherwise it is superseded (failed), and a late payment of it
+   *     still confirms;
    *  3. refuse when confirmed uses plus holds reach max_uses. Confirmed uses
    *     are GREATEST(uses, confirmed payments), since the savepoint around
    *     uses + 1 can roll back;
@@ -327,7 +328,11 @@ export class PaymentService {
       if (unavailable || !coupon) throw new BadRequestException(unavailable);
 
       const held = { coupon_code: code, status: PaymentStatus.PENDING, created_at: MoreThan(new Date(Date.now() - holdMs)) };
-      const mine = await payments.find({ where: { ...held, learner_id: input.payer.id }, order: { created_at: 'ASC' } });
+      // FOR UPDATE (after the coupon, the order a confirmation uses too): a
+      // checkout still writing its Chapa URL onto one of these rows either
+      // committed first, so its URL is seen here, or waits for this
+      // transaction and then finds its row superseded (createSession's 409).
+      const mine = await payments.find({ where: { ...held, learner_id: input.payer.id }, order: { created_at: 'ASC' }, lock: { mode: 'pessimistic_write' } });
       const same = mine.filter((p) => isSamePurchase(p, input));
       const latest = same[same.length - 1];
       const reusable =

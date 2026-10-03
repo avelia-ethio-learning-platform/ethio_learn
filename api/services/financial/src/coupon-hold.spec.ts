@@ -141,6 +141,21 @@ describe('coupon checkout: the hold under the coupon lock (P1-13)', () => {
     expect(result).toMatchObject({ confirmed: false, checkout_url: `https://checkout.example/${result.tx_ref}`, amount_etb: 250, discount_etb: 250 });
   });
 
+  it("locks the payer's own open checkouts with the coupon, after the coupon, so a double-click's URL write waits for the supersede", async () => {
+    const t = setup();
+    t.coupon();
+    await t.buy();
+
+    const locked = t.payments.find.mock.calls.findIndex(([opts]) => (opts as Row | undefined)?.lock);
+    expect(t.payments.find.mock.calls[locked]?.[0]).toEqual({
+      where: { coupon_code: 'HALF', status: PaymentStatus.PENDING, created_at: expect.anything(), learner_id: 'u1' },
+      order: { created_at: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+    const couponLock = t.coupons.findOne.mock.calls.findIndex(([opts]) => (opts as Row | undefined)?.lock);
+    expect(t.coupons.findOne.mock.invocationCallOrder[couponLock]).toBeLessThan(t.payments.find.mock.invocationCallOrder[locked]);
+  });
+
   it('an open checkout by someone else holds the last use', async () => {
     const t = setup();
     t.coupon();
