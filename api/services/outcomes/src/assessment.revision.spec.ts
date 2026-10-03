@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
 import { AssessmentType, CourseRevisionClosedPayload, EventEnvelope, Role } from '@ethiopialearn/contracts';
 import { AssessmentService } from './assessment.service';
@@ -512,13 +512,22 @@ describe('project submission', () => {
 
   it('deletes an oversized object and refuses, leaving the attempt open', async () => {
     const { svc, attempts, storage } = projectHarness();
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     storage.headObject.mockResolvedValueOnce({ size: cap + 1, content_type: null });
     const err = await svc.submitAttempt(learner, 'att1', {}).catch((e) => e);
+    const lines = warn.mock.calls.map(([line]) => String(line));
+    warn.mockRestore();
     expect(err).toBeInstanceOf(BadRequestException);
     expect(err.message).toBe('Project files can be up to 50 MB.');
     expect(storage.deleteObject).toHaveBeenCalledWith('projects/l1/own-upload');
     expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
     expect(attempts.rows[0].submitted_at).toBeNull();
+    // The signed length was bypassed: logged with the attempt, the learner and the size, never the key.
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/attempt att1\b/);
+    expect(lines[0]).toMatch(/learner l1\b/);
+    expect(lines[0]).toContain(String(cap + 1));
+    expect(lines[0]).not.toContain('projects/l1/own-upload');
   });
 
   it('lets a storage error through without claiming the result', async () => {

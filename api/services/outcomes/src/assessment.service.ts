@@ -501,6 +501,7 @@ export class AssessmentService implements OnModuleInit {
       const stored = await this.storage.headObject(attempt.detail.file_key);
       if (!stored) throw new BadRequestException('Upload your file before submitting.');
       if (stored.size > PROJECT_MAX_BYTES) {
+        this.logger.warn(`project upload over the signed size removed: attempt ${attempt.id}, learner ${attempt.learner_id}, ${stored.size} bytes`);
         await this.storage.deleteObject(attempt.detail.file_key);
         throw new BadRequestException('Project files can be up to 50 MB.');
       }
@@ -690,7 +691,16 @@ export class AssessmentService implements OnModuleInit {
     attempt.flagged = true;
     const count = attempt.proctor_log.filter((e) => e.type === type).length;
     if (count >= PROCTOR_WARNING_LIMIT) attempt.terminated = true;
-    await this.attempts.save(attempt);
+    // Only the columns this event changes, and only while the attempt is open:
+    // a submit that landed during the upload keeps its result.
+    const { affected } = await this.attempts
+      .createQueryBuilder()
+      .update()
+      .set({ proctor_log: attempt.proctor_log, flagged: true, ...(count >= PROCTOR_WARNING_LIMIT ? { terminated: true } : {}) })
+      .where('id = :id', { id: attempt.id })
+      .andWhere('submitted_at IS NULL')
+      .execute();
+    if (!affected) throw new BadRequestException('Attempt already submitted');
 
     return {
       recorded: true,

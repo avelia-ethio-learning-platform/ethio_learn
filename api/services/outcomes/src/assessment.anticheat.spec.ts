@@ -18,7 +18,7 @@ function bankOf(n: number) {
   }));
 }
 
-function harness(config: Record<string, unknown>, priorAttempts: Record<string, unknown>[] = []) {
+function harness(config: Record<string, unknown>, priorAttempts: Record<string, unknown>[] = [], storage: Record<string, unknown> = {}) {
   const assessment = { id: 'as1', course_id: 'c1', type: AssessmentType.QUIZ, pass_score: 50, config, is_required: true };
   const saved: Record<string, any>[] = [];
   const updates: Record<string, any>[] = [];
@@ -65,7 +65,6 @@ function harness(config: Record<string, unknown>, priorAttempts: Record<string, 
   const assessments = { findOne: jest.fn(async () => assessment), find: jest.fn(async () => [assessment]), save: jest.fn(), create: jest.fn() };
   const bus = { publish: jest.fn() };
   const internal = { get: jest.fn(async () => ({ entitlement_status: 'active', enrollment_id: 'en1', title: 'Course' })) };
-  const storage = {};
   const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, storage as never);
   return { svc, attempts, saved, bus, updates };
 }
@@ -247,5 +246,50 @@ describe('proctor events on a finished attempt', () => {
     const row = { id: 'att-1', assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), detail: {}, proctor_log: [] };
     const { svc } = harness({ questions: bankOf(2) }, [row]);
     await expect(svc.recordProctorEvent(learner, 'att-1', { type: 'tab', description: 'x' })).rejects.toThrow(new BadRequestException('Attempt already submitted'));
+  });
+
+  it('a submit that lands during the screenshot upload wins: 400, and the result is left as the submit wrote it', async () => {
+    const row: Record<string, any> = {
+      id: 'att-1', assessment_id: 'as1', learner_id: 'l1', submitted_at: null, score: null, passed: null, detail: {}, proctor_log: [], flagged: false, terminated: false,
+    };
+    // The submit's claim lands between the proctor event's read and its write.
+    const storage = { putObject: jest.fn(async () => void Object.assign(row, { submitted_at: new Date(), score: 80, passed: true })) };
+    const { svc, attempts, updates } = harness({ questions: bankOf(2) }, [row], storage);
+    await expect(
+      svc.recordProctorEvent(learner, 'att-1', { type: 'tab_switch', description: 'x', screenshot_base64: 'aGVsbG8=' }),
+    ).rejects.toThrow(new BadRequestException('Attempt already submitted'));
+    expect(storage.putObject).toHaveBeenCalledTimes(1);
+    expect(attempts.save).not.toHaveBeenCalled();
+    expect(updates).toHaveLength(1); // the conditional write, which hit nothing
+    expect(row.submitted_at).toBeInstanceOf(Date);
+    expect(row).toMatchObject({ score: 80, passed: true, proctor_log: [], flagged: false, terminated: false });
+  });
+});
+
+describe('proctor events on an open attempt', () => {
+  const event = (type: string) => ({ type, description: 'earlier', at: new Date().toISOString(), screenshot_key: null });
+  const openRow = (proctor_log: Record<string, unknown>[] = []): Record<string, any> => ({
+    id: 'att-1', assessment_id: 'as1', learner_id: 'l1', submitted_at: null, score: null, passed: null, detail: {}, proctor_log, flagged: false, terminated: false,
+  });
+
+  it('appends to the log and flags the attempt, writing only those columns', async () => {
+    const row = openRow();
+    const { svc, attempts, updates } = harness({ questions: bankOf(2) }, [row]);
+    const res = await svc.recordProctorEvent(learner, 'att-1', { type: 'tab_switch', description: 'left the tab' });
+    expect(res).toEqual({ recorded: true, type: 'tab_switch', count: 1, remaining: 2, terminate: false });
+    expect(attempts.save).not.toHaveBeenCalled();
+    expect(updates).toEqual([{ proctor_log: [expect.objectContaining({ type: 'tab_switch', description: 'left the tab', screenshot_key: null })], flagged: true }]);
+    expect(row.proctor_log).toHaveLength(1);
+    expect(row).toMatchObject({ flagged: true, terminated: false, submitted_at: null });
+  });
+
+  it('terminates the attempt at the limit', async () => {
+    const row = openRow([event('tab_switch'), event('no_face'), event('tab_switch')]);
+    const { svc, updates } = harness({ questions: bankOf(2) }, [row]);
+    const res = await svc.recordProctorEvent(learner, 'att-1', { type: 'tab_switch', description: 'left again' });
+    expect(res).toEqual({ recorded: true, type: 'tab_switch', count: 3, remaining: 0, terminate: true });
+    expect(Object.keys(updates[0]).sort()).toEqual(['flagged', 'proctor_log', 'terminated']);
+    expect(row.proctor_log).toHaveLength(4);
+    expect(row).toMatchObject({ flagged: true, terminated: true, submitted_at: null });
   });
 });
