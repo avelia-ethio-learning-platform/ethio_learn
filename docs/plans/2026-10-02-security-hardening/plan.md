@@ -224,7 +224,7 @@ Phase 2 pattern; entities updated so `db:check` stays at 0.
 - [x] 4. Password change, decisions 4–8, with auth unit tests and web vitest.
 - [x] 5. Email caps, decisions 9–10, with unit tests per path.
 - [x] 6. Financial and auth migrations. `db:check` at 0 on a fresh and an existing local DB. Revert round-trips with `-t none`.
-- [ ] 7. Coupon hold and per-user limit, decisions 11–14, with unit tests and a coupon-manager field.
+- [x] 7. Coupon hold and per-user limit, decisions 11–14, with unit tests and a coupon-manager field.
 - [ ] 8. `scripts/e2e-security.mjs` (added to CI e2e before the smoke step):
   - the P1-01 probe → 400;
   - password change without the current password → 400, with it → 200 and still signed in;
@@ -311,6 +311,32 @@ Deviations:
   - The web dashboard reads `{ invited }`. The 4 cap env vars are added to `api/.env.example`, commented out. The per-recipient limits are constants.
 - **Step 7, ruling R12:** in the "held by another checkout you started" message, `<time>` is `HH:MM` in Africa/Addis_Ababa.
 - **Briefs:** the controller corrected the step 5 and step 7 briefs, whose test-plan, logging and risk lines had been quoted off by one.
+
+- **Step 7 (`f8800bc`, `9de4954`, `23d5bdc`, `a1fb767`, then fix round 1 `c4d2c85`, `e3f7234`, `c17ade9`):**
+  - The coupon transaction is as planned: lock the coupon; re-check it; handle the payer's same-purchase rows; count `GREATEST(uses, confirmed)` plus holds; check the per-user limit; insert. The 100% path goes through the same transaction. `GET /coupons/validate` is in `community-write`. The coupon manager has an optional "Uses per learner" field.
+  - Only the notification service consumes `PaymentFailed`, so a fail with reason `superseded`, `wallet_insufficient` or `checkout_open_failed` publishes nothing.
+  - Decisions beyond the plan. The task review and ethio-reviewer's early read 2 both judged them sound:
+    - **D1:** an instant settlement (wallet or 100%) claims only a `pending` row. The loser of a same-purchase double submit gets 409 "A newer checkout for this purchase replaced this one." (ruling R16). Gateway sources still confirm failed rows.
+    - **D2:** `confirmPayment` takes the coupon lock, in a savepoint, before it claims the payment. Checkout and confirmation then both lock coupon → payment, so they can't deadlock.
+    - **D3:** the checkout URL is written with a targeted `update`, not `save`.
+    - **D4:** every failure after the insert fails the row, coupon or not.
+    - **D5:** when the payer's own open holds put them at the per-user limit, the refusal is the "held by another checkout you started" message (ruling R17).
+  - **Fix round 1 (ruling R15):** the task review found that a superseded checkout someone pays could be confirmed only by the webhook. Two changes:
+    - The URL write is guarded on `status = pending`. When it matches 0 rows, the request gets the same 409, and the URL isn't handed out.
+    - `reconcile` also verifies a `failed` row that has a `chapa_checkout_url`.
+
+    The failed-row sweep stays in 6c amendment A2 (P1-62). ethio-planner agreed, and A2 builds on this reconcile branch.
+  - **Ruling R18:** the payer's own-holds lookup takes `FOR UPDATE` after the coupon lock, so a double-click leaves exactly one live checkout.
+  - **Ruling R12:** `<time>` is `HH:MM` in Africa/Addis_Ababa.
+  - ethio-reviewer's N2 is fixed: a supersede is logged only after the checkout transaction commits.
+  - Pre-existing issues step 7 found went to 6c amendment A: the nudge cron's lost update (P1-61), the sweep skipping failed rows (P1-62), orphan sponsorship rows (P2-46).
+- **ethio-reviewer's early read (`d76e28f`, `0740870`, `4a3701f`, `412fc8f`):**
+  - B1: `changePassword` runs `assertActive` before anything else.
+  - S1: `/teach/analytics` sends at most 25 course ids (ruling R14).
+  - S2: the password form shows the current-password field when the server asks for it.
+  - N1: the referral daily cap is checked before any account lookup.
+  - S3 is deferred to Phase 9c (ruling R13). ethio-planner added it to 9c decision 2 and step 3.
+- **Merge:** `origin/main` is merged in as `8d3bccc`. It brings #17–#22, the Groq model fix and `.gitleaks.toml` `9274e9f`, with no conflicts. After the merge, api typecheck is clean with 61 suites and 997 tests passing, and web typecheck is clean with 30 files and 377 tests passing. The code review base is now `origin/main`.
 
 ### In flight / next step (checkpoint 2, 2026-10-03)
 - **Method:** subagent-driven development. The workspace is `.superpowers/sdd/plan/` (git-ignored), and `progress.md` is the ledger, with rulings R3–R12, the deferred minors and the agent ids. Steps 2, 3, 3a, 4, 6 and 5 are complete and have passed task review.
