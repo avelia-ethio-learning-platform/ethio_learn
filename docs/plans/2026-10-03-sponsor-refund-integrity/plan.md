@@ -195,12 +195,14 @@ Deviations:
 - **`closedRequest`:** the 400 after a conditional write matched nothing is "This request has already been paid" for `granted` or `pending_claim` (paid, with the learner not signed up yet), and otherwise the existing `Request is <status>`.
 - **The admin replay message** reads `replayed` from the body (`api<{ replayed?: boolean }>`).
 
-### In flight / next step (checkpoint 2026-10-03)
-- **Images:** building in the background from the worktree. 6 of 9 were ok at checkpoint time (gateway, auth, course, enrollment, outcomes, financial). The script is `images6d.sh` in ethio-impl's session scratchpad (`98b11715…/scratchpad`), with per-image logs `g6-img-*.log`. If unsure, re-run it: `bash <scratchpad>/images6d.sh`.
+### In flight / next step (resumed 2026-10-03)
+- **Images:** all 9 build from the worktree (notification was re-run after the session restart cut it off).
+- **Base:** 6b is on main (#28), and origin/main is merged in (3ef1439). The review base is origin/main `bbd6146`.
 - **Stack part of step 7:** waiting for ethio-planner's "window open" (queued after its 8a run). Then:
-  1. `bash <scratchpad>/gate6d.sh > <scratchpad>/gate6d.out 2>&1`. It refuses to run if ports 4000/4101–4107/3000 are busy. It runs a fresh `el_6d_e2e` DB on `api/.env.example` values (`env6d.sh`), the resend spec, every e2e script in CI order, the web build, Playwright and smoke, then stops the 6d services.
+  1. `bash <scratchpad>/gate6d.sh > <scratchpad>/gate6d.out 2>&1`, where `<scratchpad>` is ethio-impl's session scratchpad (`4ea5ed01…/scratchpad`, with `env6d.sh` alongside).
+     - It refuses to run if ports 4000/4101–4107/3000 are busy.
+     - It runs a fresh `el_6d_e2e` DB on `api/.env.example` values, the resend spec, every e2e script in CI order, the web build, Playwright and smoke, then stops the 6d services.
   2. Reply "window closed" to ethio-planner.
-  3. If green, tick step 7 with the results and ask ethio-reviewer for code review round 1: branch `fix/sponsor-refund-integrity`, base `46e9ff6` (6b tip; PR #28). After #28 merges, `git merge origin/main` and use origin/main as the base.
+  3. If green, tick step 7 and ask ethio-reviewer for code review round 1.
 - **The worktree's `api/.env`** is a copy of `api/.env.example` (untracked, git-ignored).
-- **Ownership:** 6b belongs to the other ethio-impl session ([9be294]). This session owns 6d only.
 - **Money phase:** push only when it can merge and deploy the same day.
