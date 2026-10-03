@@ -1,13 +1,16 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/lib/hooks';
 import { roleHome, roleHomeLabel } from '@/lib/safe-next';
+import { useT } from '@/lib/i18n';
 
 /** Consistent back navigation on inner pages. */
-export function BackButton({ fallback = '/', label = 'Back' }: { fallback?: string; label?: string }) {
+export function BackButton({ fallback = '/', label }: { fallback?: string; label?: ReactNode }) {
   const router = useRouter();
+  const { t } = useT();
   return (
     <button
       onClick={() => {
@@ -17,7 +20,7 @@ export function BackButton({ fallback = '/', label = 'Back' }: { fallback?: stri
       className="group mb-6 inline-flex items-center gap-2 rounded-xl px-2 py-1 text-sm font-medium text-gray-500 transition-colors hover:text-brand-600"
     >
       <ArrowLeft className="h-4 w-4 transition-transform duration-200 group-hover:-translate-x-1" />
-      {label}
+      {label ?? t('back')}
     </button>
   );
 }

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Providers } from '@/components/Providers';
+import { LocaleNotice } from '@/components/LocaleNotice';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { THEME_COLOR_DARK, THEME_COLOR_LIGHT, THEME_INIT_SCRIPT } from '@/lib/theme-script';
@@ -44,7 +45,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <Header />
           {/* pt-28 clears the fixed header on every page */}
-          <main id="main" tabIndex={-1} className="min-h-screen pt-28 focus:outline-none">{children}</main>
+          <main id="main" tabIndex={-1} className="min-h-screen pt-28 focus:outline-none">
+            <LocaleNotice />
+            {children}
+          </main>
           <Footer />
         </Providers>
       </body>

@@ -39,7 +39,7 @@ function SignupForm() {
     if (!scorePassword(password).ok) {
       // The field error replaces any earlier server error, which no longer applies.
       clearStatus();
-      setPasswordError('Password must include at least 3 of: lowercase, uppercase, number, symbol (min 8 chars).');
+      setPasswordError(t('password_rule'));
       return;
     }
     setBusy(true);
@@ -61,10 +61,10 @@ function SignupForm() {
 
   if (doneEmail !== null) {
     return (
-      <AuthShell icon={<MailCheck className="h-6 w-6" />} title="Check your email" subtitle="One more step to activate your account.">
+      <AuthShell icon={<MailCheck className="h-6 w-6" />} title={t('check_email_title')} subtitle={t('check_email_subtitle')}>
         <div className="text-center">
           <p className="text-sm leading-relaxed text-gray-500">
-            We sent a verification link to your inbox. Click it, then{' '}
+            {t('check_email_body')}{' '}
             <Link className="font-semibold text-brand-600 hover:underline" href="/login">
               {t('login')}
             </Link>
@@ -82,10 +82,10 @@ function SignupForm() {
     <AuthShell
       icon={<UserPlus className="h-6 w-6" />}
       title={t('create_account')}
-      subtitle="Join Ethiopia's educator-first learning community."
+      subtitle={t('signup_subtitle')}
       footer={
         <>
-          Already have an account?{' '}
+          {t('have_account')}{' '}
           <Link href="/login" className="font-medium text-brand-600 hover:underline">
             {t('login')}
           </Link>
@@ -100,7 +100,7 @@ function SignupForm() {
           {(ids) => <input {...ids} name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />}
         </Field>
         <div>
-          <Field label={`${t('password')} (8+ characters)`} error={passwordError}>
+          <Field label={t('password_min')} error={passwordError}>
             {(ids) => (
               <input
                 {...ids}
@@ -117,19 +117,19 @@ function SignupForm() {
           </Field>
           <PasswordStrength value={password} />
         </div>
-        <Field label="I am joining as">
+        <Field label={t('joining_as')}>
           {(ids) => (
             <select {...ids} name="role" defaultValue={params.get('role') ?? 'learner'} className="input">
-              <option value="learner">Learner — I want to take courses</option>
-              <option value="educator">Educator — I want to teach</option>
-              <option value="institution_admin">Institution — training center / bootcamp</option>
+              <option value="learner">{t('role_learner_option')}</option>
+              <option value="educator">{t('role_educator_option')}</option>
+              <option value="institution_admin">{t('role_institution_option')}</option>
             </select>
           )}
         </Field>
-        <p className="text-xs text-gray-500">No phone number required — just email and password.</p>
+        <p className="text-xs text-gray-500">{t('no_phone')}</p>
         <FormStatus status={status} />
         <button className="btn w-full !py-3" disabled={busy}>
-          {busy ? 'Creating…' : t('signup')}
+          {busy ? t('creating') : t('signup')}
         </button>
         <GoogleSignInButton next={params.get('next')} />
       </form>

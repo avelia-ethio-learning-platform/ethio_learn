@@ -67,11 +67,11 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
         </span>
         {t('free_preview')}
       </h2>
-      <p className="mt-2 text-sm text-gray-500">Watch these lessons for free before you enroll.</p>
+      <p className="mt-2 text-sm text-gray-500">{t('preview_intro')}</p>
       <div className="mt-4 overflow-hidden rounded-2xl bg-black shadow-elevated">
         <video ref={videoRef} controls className="aspect-video w-full" />
       </div>
-      {playing && <p className="mt-3 text-sm font-semibold text-foreground">Now playing: {playing}</p>}
+      {playing && <p className="mt-3 text-sm font-semibold text-foreground">{t('now_playing', { title: playing })}</p>}
       {error && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{error}</p>}
       <ul className="mt-4 space-y-1">
         {previewLessons.map((l) => (

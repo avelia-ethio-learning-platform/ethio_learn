@@ -12,13 +12,7 @@ const CATEGORIES = ['tech', 'business', 'freelancing', 'healthcare', 'other'] as
 const PRICING = ['free', 'freemium', 'paid'] as const;
 const PAGE_SIZES = [12, 24, 48] as const;
 const DEFAULT_LIMIT = 12;
-const SORTS = [
-  { value: 'top', label: 'Recommended' },
-  { value: 'new', label: 'Newest' },
-  { value: 'popular', label: 'Most popular' },
-  { value: 'price_asc', label: 'Price: low to high' },
-  { value: 'price_desc', label: 'Price: high to low' },
-] as const;
+const SORTS = ['top', 'new', 'popular', 'price_asc', 'price_desc'] as const;
 const DEFAULT_SORT = 'top';
 
 export interface ExploreFilters {
@@ -55,12 +49,13 @@ function pageItems(current: number, totalPages: number): (number | 'gap')[] {
 }
 
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  const { t } = useT();
   return (
     <span className="glass-secondary inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-medium text-brand-700 shadow-glass">
       {label}
       <button
         onClick={onRemove}
-        aria-label={`Remove ${label}`}
+        aria-label={t('remove_filter', { label })}
         className="flex h-5 w-5 items-center justify-center rounded-full transition-colors hover:bg-brand-500/15"
       >
         <X className="h-3 w-3" />
@@ -93,7 +88,7 @@ export function ExploreClient({
 
   const activeCategory = CATEGORIES.find((c) => c === filters.category);
   const activePricing = PRICING.find((p) => p === filters.pricing_type);
-  const activeSort = SORTS.find((s) => s.value === filters.sort)?.value ?? DEFAULT_SORT;
+  const activeSort = SORTS.find((s) => s === filters.sort) ?? DEFAULT_SORT;
   const hasFilters = Boolean(filters.q || activeCategory || activePricing);
   const activeCount = [filters.q, activeCategory, activePricing].filter(Boolean).length;
   // Below md the filters sit behind a button; they start open when a filter is already applied.
@@ -168,7 +163,7 @@ export function ExploreClient({
             {searchText && (
               <button
                 type="button"
-                aria-label="Clear search"
+                aria-label={t('clear_search')}
                 onClick={() => {
                   setSearchText('');
                   if (filters.q) navigate({ q: undefined, page: 1 });
@@ -190,7 +185,7 @@ export function ExploreClient({
           >
             <span className="inline-flex items-center gap-2">
               <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-              {activeCount > 0 ? `Filters (${activeCount} active)` : 'Filters'}
+              {activeCount > 0 ? t('filters_active', { n: activeCount }) : t('filters')}
             </span>
             <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
           </button>
@@ -250,15 +245,13 @@ export function ExploreClient({
           <p className="flex items-center gap-2 text-sm text-gray-500">
             {/* Past the last page (`?page=` typed by hand) there is no range to show. */}
             {from > to ? (
-              <span>No courses on this page</span>
+              <span>{t('no_courses_on_page')}</span>
             ) : (
-              <span>
-                Showing <span className="font-semibold text-foreground">{from}–{to}</span> of {total} courses
-              </span>
+              <span>{t('showing_range', { from, to, total })}</span>
             )}
             {isPending && <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />}
           </p>
-          <Field label="Sort by">
+          <Field label={t('sort_by')}>
             {(ids) => (
               <select
                 {...ids}
@@ -267,8 +260,8 @@ export function ExploreClient({
                 className="input !w-auto"
               >
                 {SORTS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
+                  <option key={s} value={s}>
+                    {t(`sort_${s}`)}
                   </option>
                 ))}
               </select>
@@ -314,7 +307,7 @@ export function ExploreClient({
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <nav aria-label="Pagination" className="mt-12 flex flex-wrap items-center justify-center gap-2">
+          <nav aria-label={t('pagination')} className="mt-12 flex flex-wrap items-center justify-center gap-2">
             <button
               disabled={page <= 1 || isPending}
               onClick={() => navigate({ page: page - 1 }, { scroll: true })}

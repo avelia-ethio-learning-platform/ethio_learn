@@ -215,7 +215,7 @@ export function Header() {
             <button
               ref={burgerRef}
               onClick={() => setMenuOpen((o) => !o)}
-              aria-label="Menu"
+              aria-label={t('menu')}
               aria-expanded={menuOpen}
               aria-controls={menuId}
               className="glass-secondary flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass"

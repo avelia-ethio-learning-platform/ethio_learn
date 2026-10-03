@@ -3,9 +3,9 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { BadgeCheck, Clock, Globe, Layers, PlayCircle, Star, UserRound, Wallet } from 'lucide-react';
 import { serverApi, SITE_URL } from '@/lib/server-api';
-import { categoryLabel, hasRealThumbnail } from '@/lib/categories';
-import { BUY_BULLET_TEXT, buyBullets, hasPlayablePreview, sectionHasPreview, type BuyBullet } from '@/lib/course-page';
-import { priceLabel } from '@/components/CourseCard';
+import { hasRealThumbnail } from '@/lib/categories';
+import { BUY_BULLET_KEY, buyBullets, hasPlayablePreview, sectionHasPreview, type BuyBullet } from '@/lib/course-page';
+import { CategoryName, LocalDate, PriceLabel } from '@/components/Localized';
 import { CourseCover } from '@/components/CourseCover';
 import { ExpandableSummary } from '@/components/ExpandableSummary';
 import { MobileBuyBar } from '@/components/MobileBuyBar';
@@ -15,9 +15,9 @@ import { PageShell } from '@/components/PageChrome';
 import { WakingUp } from '@/components/WakingUp';
 import { EnrollPanel } from './enroll-panel';
 import { jsonLdScript } from '@/lib/json-ld';
-import { formatDate } from '@/lib/format';
+import { T, type TKey } from '@/lib/i18n';
 
-const LANGUAGES: Record<string, string> = { en: 'English', am: 'Amharic' };
+const LANGUAGES: Record<string, TKey> = { en: 'lang_en', am: 'lang_am' };
 
 interface CourseDetail {
   last_major_update_at?: string | null;
@@ -96,22 +96,23 @@ export default async function CoursePage({ params }: { params: { id: string } })
     },
   };
 
+  const language = course.language ? LANGUAGES[course.language] : undefined;
   const facts = [
-    { icon: Layers, label: `${course.sections.length} sections` },
-    { icon: PlayCircle, label: `${totalLessons} lessons` },
-    { icon: Clock, label: `~${totalMinutes} min` },
-    ...(course.language ? [{ icon: Globe, label: LANGUAGES[course.language] ?? course.language.toUpperCase() }] : []),
-    { icon: BadgeCheck, label: 'Certificate' },
-    ...(reviews?.average_rating ? [{ icon: Star, label: `${reviews.average_rating} (${reviews.review_count})` }] : []),
+    { key: 'sections', icon: Layers, label: <T k="n_sections" vars={{ n: course.sections.length }} /> },
+    { key: 'lessons', icon: PlayCircle, label: <T k="n_lessons" vars={{ n: totalLessons }} /> },
+    { key: 'minutes', icon: Clock, label: <T k="about_n_min" vars={{ n: totalMinutes }} /> },
+    ...(course.language ? [{ key: 'language', icon: Globe, label: language ? <T k={language} /> : course.language.toUpperCase() }] : []),
+    { key: 'certificate', icon: BadgeCheck, label: <T k="certificate" /> },
+    ...(reviews?.average_rating ? [{ key: 'rating', icon: Star, label: `${reviews.average_rating} (${reviews.review_count})` }] : []),
   ];
-  const price = priceLabel(course);
+  const price = <PriceLabel pricingType={course.pricing_type} priceEtb={course.price_etb} />;
   const educatorName = course.instructor_name?.trim();
   const bulletIcons: Record<BuyBullet, typeof BadgeCheck> = { certificate: BadgeCheck, payment: Wallet, refund: Clock };
 
   return (
     <PageShell>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
-      <BackButton fallback="/courses" label="Browse courses" />
+      <BackButton fallback="/courses" label={<T k="footer_browse" />} />
 
       {/* One buy box, placed by grid order: right after the header below lg, the sticky right column from lg. */}
       <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:gap-y-6 lg:grid-cols-3">
@@ -126,9 +127,13 @@ export default async function CoursePage({ params }: { params: { id: string } })
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:mt-4">
-            <span className="badge-info uppercase tracking-wider">{categoryLabel(course.category)}</span>
+            <span className="badge-info uppercase tracking-wider">
+              <CategoryName value={course.category} />
+            </span>
             {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
-              <span className="badge-success">Recently updated</span>
+              <span className="badge-success">
+                <T k="recently_updated" />
+              </span>
             )}
           </div>
           <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-foreground sm:mt-3 sm:text-3xl md:text-4xl">{course.title}</h1>
@@ -137,7 +142,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
             <p className="mt-3 flex items-center gap-2 text-sm text-gray-600 sm:mt-4">
               <UserRound className="h-4 w-4 shrink-0 text-brand-500" aria-hidden />
               <span>
-                By{' '}
+                <T k="course_by" />{' '}
                 <Link href={`/educators/${course.instructor_id}`} className="font-semibold text-brand-600 hover:underline">
                   {educatorName}
                 </Link>
@@ -146,7 +151,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
           )}
           <ul className="mt-3 flex flex-wrap gap-2 sm:mt-5">
             {facts.map((fact) => (
-              <li key={fact.label} className="section-badge !px-3 !py-1.5 !text-xs">
+              <li key={fact.key} className="section-badge !px-3 !py-1.5 !text-xs">
                 <fact.icon className="h-3.5 w-3.5 text-brand-500" aria-hidden />
                 {fact.label}
               </li>
@@ -163,7 +168,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
                 const Icon = bulletIcons[b];
                 return (
                   <li key={b} className="flex items-center gap-2.5">
-                    <Icon className="h-4 w-4 shrink-0 text-brand-500" aria-hidden /> {BUY_BULLET_TEXT[b]}
+                    <Icon className="h-4 w-4 shrink-0 text-brand-500" aria-hidden /> <T k={BUY_BULLET_KEY[b]} />
                   </li>
                 );
               })}
@@ -174,7 +179,9 @@ export default async function CoursePage({ params }: { params: { id: string } })
         <div className="animate-fade-in-up min-w-0 lg:col-span-2 lg:row-start-2">
           {hasPlayablePreview(course.sections) && <CoursePreviewPlayer sections={course.sections} />}
 
-          <h2 className="mt-10 text-xl font-bold text-foreground">Course content</h2>
+          <h2 className="mt-10 text-xl font-bold text-foreground">
+            <T k="course_content" />
+          </h2>
           <div className="mt-4 space-y-3">
             {course.sections.map((section, idx) => (
               <div key={section.id} className="card !p-0 overflow-hidden">
@@ -183,7 +190,11 @@ export default async function CoursePage({ params }: { params: { id: string } })
                     {idx + 1}
                   </span>
                   <h3 className="min-w-0 flex-1 font-semibold text-foreground">{section.title}</h3>
-                  {sectionHasPreview(section) && <span className="badge-success shrink-0">Free preview</span>}
+                  {sectionHasPreview(section) && (
+                    <span className="badge-success shrink-0">
+                      <T k="free_preview" />
+                    </span>
+                  )}
                 </div>
                 <ul className="px-5 py-3">
                   {section.lessons.map((lesson) => (
@@ -192,7 +203,9 @@ export default async function CoursePage({ params }: { params: { id: string } })
                         <PlayCircle className="h-4 w-4 shrink-0 text-brand-400" />
                         <span className="truncate">{lesson.title}</span>
                       </span>
-                      <span className="shrink-0 text-xs text-gray-500">{Math.max(1, Math.round(lesson.duration_seconds / 60))} min</span>
+                      <span className="shrink-0 text-xs text-gray-500">
+                        <T k="n_min" vars={{ n: Math.max(1, Math.round(lesson.duration_seconds / 60)) }} />
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -202,7 +215,9 @@ export default async function CoursePage({ params }: { params: { id: string } })
 
           {reviews && reviews.reviews.length > 0 && (
             <>
-              <h2 className="mt-10 text-xl font-bold text-foreground">Learner reviews</h2>
+              <h2 className="mt-10 text-xl font-bold text-foreground">
+                <T k="learner_reviews" />
+              </h2>
               <div className="mt-4 space-y-3">
                 {reviews.reviews.slice(0, 5).map((r) => (
                   <div key={r.id} className="card">
@@ -212,7 +227,9 @@ export default async function CoursePage({ params }: { params: { id: string } })
                       ))}
                     </p>
                     {r.comment && <p className="mt-2 text-sm leading-relaxed text-gray-600">{r.comment}</p>}
-                    <p className="mt-2 text-xs text-gray-500">{formatDate(r.created_at, 'en')}</p>
+                    <p className="mt-2 text-xs text-gray-500">
+                      <LocalDate iso={r.created_at} />
+                    </p>
                   </div>
                 ))}
               </div>
