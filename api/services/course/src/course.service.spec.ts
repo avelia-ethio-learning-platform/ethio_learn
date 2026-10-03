@@ -73,7 +73,7 @@ const liveSection = (over: Row = {}): Row => ({
 });
 const liveLesson = (over: Row = {}): Row => ({
   id: 'l1', section_id: 's1', title: 'Live lesson', summary: 'live summary', video_s3_key: 'videos/edu1/live.mp4',
-  duration_seconds: 600, order_index: 0, pending_state: null, pending: null, ...over,
+  duration_seconds: 600, video_duration_seconds: null, order_index: 0, pending_state: null, pending: null, ...over,
 });
 
 interface Fixture {
@@ -295,6 +295,81 @@ describe('CourseService staged writes on a live course', () => {
     expect(row.pending).toEqual({ summary: 'New summary' });
   });
 
+  describe('measured video duration', () => {
+    const LIVE_KEY = 'videos/edu1/live.mp4';
+    const NEW_KEY = 'videos/edu1/new.mp4';
+    const measured = (over: Row = {}) => liveLesson({ video_duration_seconds: 120, ...over });
+
+    describe.each([
+      ['draft course (direct write)', () => ({ course: { status: 'draft' } }), (r: Row) => r],
+      ['added lesson on a live course (in place)', () => ({ lessons: [measured({ pending_state: 'added' })] }), (r: Row) => r],
+    ])('%s', (_name, fx, view) => {
+      const make = () => setup({ lessons: [measured()], ...fx() });
+      it('clears the duration when the key changes to a new key or to null', async () => {
+        const a = make();
+        await a.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY });
+        expect(view(a.lessons.rows[0])).toMatchObject({ video_s3_key: NEW_KEY, video_duration_seconds: null });
+        const b = make();
+        await b.service.updateLesson(OWNER, 'l1', { video_s3_key: null as never });
+        expect(view(b.lessons.rows[0])).toMatchObject({ video_s3_key: null, video_duration_seconds: null });
+      });
+      it('keeps a duration sent with the new key, sets one sent alone, and ignores a re-sent key', async () => {
+        const a = make();
+        await a.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY, video_duration_seconds: 45 });
+        expect(view(a.lessons.rows[0])).toMatchObject({ video_s3_key: NEW_KEY, video_duration_seconds: 45 });
+        const b = make();
+        await b.service.updateLesson(OWNER, 'l1', { video_duration_seconds: 90 });
+        expect(view(b.lessons.rows[0])).toMatchObject({ video_s3_key: LIVE_KEY, video_duration_seconds: 90 });
+        const c = make();
+        await c.service.updateLesson(OWNER, 'l1', { video_s3_key: LIVE_KEY });
+        expect(view(c.lessons.rows[0])).toMatchObject({ video_duration_seconds: 120 });
+      });
+    });
+
+    it('on a live lesson stages the clear (an explicit null) and leaves the live duration', async () => {
+      const h = setup({ lessons: [measured()] });
+      await h.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY });
+      expect(h.lessons.rows[0]).toMatchObject({ video_duration_seconds: 120 });
+      expect(h.lessons.rows[0].pending).toEqual({ video_s3_key: NEW_KEY, video_duration_seconds: null });
+    });
+
+    it('on a live lesson stages a duration sent with the new key, or alone', async () => {
+      const a = setup({ lessons: [measured()] });
+      await a.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY, video_duration_seconds: 45 });
+      expect(a.lessons.rows[0].pending).toEqual({ video_s3_key: NEW_KEY, video_duration_seconds: 45 });
+      // The multipart flow: the server attaches the key, then the page sends the duration.
+      const b = setup({ lessons: [measured()] });
+      await b.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY });
+      await b.service.updateLesson(OWNER, 'l1', { video_duration_seconds: 45 });
+      expect(b.lessons.rows[0].pending).toEqual({ video_s3_key: NEW_KEY, video_duration_seconds: 45 });
+    });
+
+    it('on a live lesson does not clear when the same key is re-sent, judged against the effective (pending) key', async () => {
+      const a = setup({ lessons: [measured()] });
+      await a.service.updateLesson(OWNER, 'l1', { video_s3_key: LIVE_KEY });
+      expect(a.lessons.rows[0].pending).toBeNull();
+      const b = setup({ lessons: [measured({ pending: { video_s3_key: NEW_KEY, video_duration_seconds: 45 } })] });
+      await b.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY });
+      expect(b.lessons.rows[0].pending).toEqual({ video_s3_key: NEW_KEY, video_duration_seconds: 45 });
+    });
+
+    it('addLesson() stores the duration', async () => {
+      const h = setup({ course: { status: 'draft' } });
+      const lesson = await h.service.addLesson(OWNER, 's1', { title: 'Measured', video_s3_key: NEW_KEY, video_duration_seconds: 75 });
+      expect(lesson).toMatchObject({ video_duration_seconds: 75 });
+      const bare = await h.service.addLesson(OWNER, 's1', { title: 'No video' });
+      expect(bare).toMatchObject({ video_duration_seconds: null });
+    });
+
+    it('insertSection (outline import) stores each lesson duration', async () => {
+      const h = setup();
+      const sections = [{ title: 'Clips', is_free_preview: false, lessons: [{ title: 'A', video_s3_key: NEW_KEY, video_duration_seconds: 33 }, { title: 'B' }] }];
+      await h.service.applyStructure(OWNER, 'c1', sections);
+      const added = h.lessons.rows.filter((l) => l.pending_state === 'added');
+      expect(added.map((l) => [l.title, l.video_duration_seconds])).toEqual([['A', 33], ['B', null]]);
+    });
+  });
+
   it('updateLesson() edits a lesson added in this revision in place', async () => {
     const h = setup({ lessons: [liveLesson({ id: 'l2', pending_state: 'added' })] });
     await h.service.updateLesson(OWNER, 'l2', { title: 'Still new', summary: 'fresh' });
@@ -430,6 +505,18 @@ describe('CourseService learner reads are live-only', () => {
     await expect(internal.lesson('l1')).resolves.toMatchObject({ id: 'l1', course_id: 'c1', live: true });
     await expect(internal.lesson('l2')).resolves.toMatchObject({ live: false });
     await expect(internal.lesson('l4')).resolves.toMatchObject({ live: false });
+  });
+
+  it('internal lessons/:id reports the live video: has_video and the measured duration', async () => {
+    const h = setup({
+      lessons: [
+        liveLesson({ video_duration_seconds: 120, pending: { video_s3_key: null, video_duration_seconds: 5 } }),
+        liveLesson({ id: 'l2', video_s3_key: null, video_duration_seconds: null, pending: { video_s3_key: 'videos/edu1/staged.mp4' } }),
+      ],
+    });
+    const internal = new CourseInternalController(h.service);
+    await expect(internal.lesson('l1')).resolves.toMatchObject({ has_video: true, video_duration_seconds: 120 });
+    await expect(internal.lesson('l2')).resolves.toMatchObject({ has_video: false, video_duration_seconds: null });
   });
 
   it('internal courses/:id exposes institution_id and created_by for authorization', async () => {

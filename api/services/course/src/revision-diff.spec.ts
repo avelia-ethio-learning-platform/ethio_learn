@@ -91,7 +91,15 @@ describe('merge helpers', () => {
       summary: 'Summary l',
       duration_seconds: 90,
       video_s3_key: 'videos/edu1/l.mp4',
+      video_duration_seconds: null,
     });
+  });
+
+  it('carries a staged video duration, including a staged null, over the live one', () => {
+    const live = { video_duration_seconds: 120 };
+    expect(mergedLesson(lesson('l', 's', 0, live)).video_duration_seconds).toBe(120);
+    expect(mergedLesson(lesson('l', 's', 0, { ...live, pending: { video_duration_seconds: 45 } })).video_duration_seconds).toBe(45);
+    expect(mergedLesson(lesson('l', 's', 0, { ...live, pending: { video_duration_seconds: null } })).video_duration_seconds).toBeNull();
   });
 });
 
@@ -241,6 +249,18 @@ describe('contentHash', () => {
     b.sections.push(section('s9', 9));
     b.lessons.push(lesson('l9', 's9', 0, { pending: {} }));
     expect(contentHash(b)).toBe(contentHash(a));
+  });
+
+  // Pinned at the base of the measured-duration change: a revision submitted
+  // before that deploy must still hash the same when it is applied.
+  it('hashes an added lesson without a measured duration exactly as before, and differs when it has one', () => {
+    expect(contentHash(stagedState())).toBe('ee79afc66fe723c2f82c1a13d0ed826550980c1d7b7fd8e773eb51e89ed806b6');
+    const withDuration = stagedState();
+    withDuration.lessons[3].video_duration_seconds = 90;
+    expect(contentHash(withDuration)).not.toBe(contentHash(stagedState()));
+    const nulled = stagedState();
+    nulled.lessons[3].video_duration_seconds = null;
+    expect(contentHash(nulled)).toBe(contentHash(stagedState()));
   });
 
   // A revision id is reused across withdraw + resubmit; an approval of the

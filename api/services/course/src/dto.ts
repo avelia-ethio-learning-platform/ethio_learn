@@ -37,6 +37,12 @@ export class LessonInputDto {
   @IsInt()
   @Min(0)
   duration_seconds?: number;
+
+  /** Measured length of the attached video, in seconds (set by the upload probe). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  video_duration_seconds?: number;
 }
 
 /** Used for PUT /lessons/:id — all fields are optional (partial update). */
@@ -61,6 +67,12 @@ export class UpdateLessonDto {
   @IsInt()
   @Min(0)
   duration_seconds?: number;
+
+  /** Measured length of the attached video, in seconds (set by the upload probe). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  video_duration_seconds?: number;
 }
 
 export class SectionInputDto {

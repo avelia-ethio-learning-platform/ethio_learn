@@ -81,7 +81,15 @@ export async function applyStagedState(m: EntityManager, state: StagedState): Pr
     const merged = mergedLesson(l);
     await lessonRepo.update(
       { id: l.id },
-      { title: merged.title, summary: merged.summary, duration_seconds: merged.duration_seconds, video_s3_key: merged.video_s3_key, pending: null, pending_state: null },
+      {
+        title: merged.title,
+        summary: merged.summary,
+        duration_seconds: merged.duration_seconds,
+        video_s3_key: merged.video_s3_key,
+        video_duration_seconds: merged.video_duration_seconds,
+        pending: null,
+        pending_state: null,
+      },
     );
   }
   for (const s of state.sections) {
