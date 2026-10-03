@@ -105,6 +105,15 @@ for (const theme of THEMES) {
         }
       });
 
+      test('the 404 page and the verify-email error state', async ({ page }) => {
+        // /verify-email without a token is the error state: no API call, so no login budget.
+        for (const path of ['/does-not-exist', '/verify-email']) {
+          await scanVisit(page, path, theme);
+        }
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText('Verification failed');
+        await expect(page.getByRole('button', { name: 'Resend email' })).toBeVisible();
+      });
+
       test('login, signup, reset-password, /verify and a certificate', async ({ page, request }) => {
         const ids = await pages(request);
         for (const path of ['/login', '/signup', '/reset-password', '/verify', `/verify/${ids.certificate}`]) {
@@ -136,15 +145,38 @@ for (const theme of THEMES) {
       });
     });
 
+    test.describe('course page at 375 px', () => {
+      test.use({ viewport: { width: 375, height: 800 } });
+
+      test('with the bottom bar showing', async ({ page, request }) => {
+        const { paid } = await pages(request);
+        await scanVisit(page, `/courses/${paid}`, theme);
+        // Past the buy box the fixed bottom bar appears; scan it too.
+        const bar = page.locator('.fixed.bottom-0.lg\\:hidden');
+        await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+        await expect(bar).toBeVisible();
+        await analyze(new AxeBuilder({ page }), `/courses/${paid} with the bottom bar (${theme})`);
+      });
+    });
+
     test.describe('learner pages', () => {
       test.use({ storageState: authFile('learner') });
 
-      test('dashboard, lesson player, account, change password, notifications', async ({ page, request }) => {
-        const enrollments = await apiGet<{ course_id: string }[]>(request, '/enrollments', 'learner');
-        expect(enrollments.length, 'the seeded learner is enrolled (scripts/demo-seed.mjs)').toBeGreaterThan(0);
-        for (const path of ['/dashboard', `/learn/${enrollments[0].course_id}`, '/account', '/account/password', '/notifications']) {
+      test('dashboard, account, change password, notifications', async ({ page }) => {
+        for (const path of ['/dashboard', '/account', '/account/password', '/notifications']) {
           await scanVisit(page, path, theme);
         }
+      });
+
+      test('lesson player, empty state', async ({ page, request }) => {
+        const enrollments = await apiGet<{ course_id: string }[]>(request, '/enrollments', 'learner');
+        expect(enrollments.length, 'the seeded learner is enrolled (scripts/demo-seed.mjs)').toBeGreaterThan(0);
+        const path = `/learn/${enrollments[0].course_id}`;
+        await page.goto(path);
+        // The Start/Resume button proves this is the player, not a "not enrolled" or loading card.
+        await expect(page.getByRole('button', { name: /^(Start lesson 1|Resume: )/ })).toBeVisible();
+        await expect(page.locator('video')).toHaveCount(0);
+        await scan(page, `${path} empty state (${theme})`);
       });
     });
   });
