@@ -186,11 +186,11 @@ Phase 2 pattern; entities updated so `db:check` stays at 0.
 - [x] 1. Branch per the base rule. Remove this folder's line from `.git/info/exclude` and commit the folder.
 - [x] 2. Migrations and entity changes. `db:check` at 0 on a fresh and an existing local DB. Revert round-trips with `-t none`.
 - [x] 3. Course: the new field in the DTOs, `updateLesson`'s clear rule, `createLesson`, `insertSection`, the `staging.ts` approval loop, `mergedLesson` and the canonical hash (decision 1), with course unit tests. The internal lesson endpoint fields. Then enrollment: the progress rule, `started_at` (and its reset in `onRevisionApplied`), and `/complete` with `retry_after_seconds`, decisions 1–3, with enrollment unit tests.
-- [ ] 4. Web, with vitest: the duration probe in `video-upload.tsx` on both upload paths; the learn page's final position, the 409 message and one retry after `retry_after_seconds`; `/complete` on a video lesson through `api()`, not the queue.
+- [x] 4. Web, with vitest: the duration probe in `video-upload.tsx` on both upload paths; the learn page's final position, the 409 message and one retry after `retry_after_seconds`; `/complete` on a video lesson through `api()`, not the queue.
 - [x] 5. Attempt start under the lock, reuse for every type, limits, viva question guard, decisions 5–6, with outcomes unit tests.
 - [x] 6. Submit claim and `breakdown` withholding, decisions 7–8, with tests. The teach form shows the limit fields for every type.
-- [ ] 7. Project size signing and submit check, decisions 9–10, with tests. The project picker comes before the start, and the start sends `file_size`.
-- [ ] 8. Update the scripts (decision 4). Add `scripts/e2e-learning.mjs` to CI right after e2e-payments, so Build web still sits between the e2e scripts and Playwright and the login limiter refills (Phase 5's order). Reuse its tokens: one login per role. It checks:
+- [x] 7. Project size signing and submit check, decisions 9–10, with tests. The project picker comes before the start, and the start sends `file_size`.
+- [x] 8. Update the scripts (decision 4). Add `scripts/e2e-learning.mjs` to CI right after e2e-payments, so Build web still sits between the e2e scripts and Playwright and the login limiter refills (Phase 5's order). Reuse its tokens: one login per role. It checks:
   - 5 parallel quiz starts → one attempt id;
   - after `max_attempts` finished, start → refused;
   - a heartbeat claiming 100% right after the start → not completed;
@@ -259,13 +259,21 @@ Executed with subagent-driven development: one implementer per task, then a task
   - Course: 4d6c4e3, 21c67aa, 6125abb.
   - Enrollment: 98a140c.
   - Origin/main was merged in after 6c landed (3e72a3b).
-- **Step 4:** the duration probe is done on both upload paths (1ecf677). The learn-page part (final position, the 409 message, one retry, `/complete` through `api()`) waits for 7b. 7b (#27) rewrites the learn page, so it goes in after `git merge origin/main`.
+- **Step 4:** done.
+  - The duration probe on both upload paths: 1ecf677.
+  - The learn page (final position, the 409 message, one retry of at most 120 s, and `/complete` on a video lesson through `api()`): 50274bf and 788dbaf. 788dbaf ignores a result that lands after the learner moved to another lesson.
+  - `ApiError` now carries the parsed error body.
 - **Step 5:** done (1af1615, a854ab0).
 - **Step 6:** done.
   - Submit claim and `breakdown`: 32d6ed1, 94c08b9.
   - Teach form limits for every type: f1abd7b.
-- **Step 7:** the API part is done (1f63f1d): `file_size` signing, the submit HEAD and size check, and the storage `deleteObject`. The project picker before Start waits for 7b, because 7b edits `assessments-panel.tsx`.
-- **Step 8:** waits for 7b, because 7b edits `demo-seed.mjs` and `ci.yml`.
+- **Step 7:** done.
+  - api: 1f63f1d (`file_size` signing, the submit HEAD and size check, the storage `deleteObject`) and dff2b9b (the planner's ruling P-1 below).
+  - web: 059928b (the project file flow).
+- **Step 8:** done.
+  - demo-seed: ebe2fc3.
+  - e2e-smoke, the new `scripts/e2e-learning.mjs`, and its CI step right after e2e-payments: f40b386.
+- 7b (#27) was merged in from origin/main at 09a1564, with no conflicts.
 
 Deviations and rulings (the plan left these open, or the review surfaced them):
 - **Deploy skew:** an internal lesson response without `has_video` is treated as a lesson without video. A course service older than 6b, during the deploy window, would otherwise 409 every text lesson.
@@ -279,8 +287,23 @@ Deviations and rulings (the plan left these open, or the review surfaced them):
 - **Multipart duration:** a failed duration follow-up PUT is silent. The upload ends as done and the lesson stays unmeasured.
 - **`proctorReport`:** it returns `breakdown: null` to the learner while retries remain (the shape it already used); the submit response omits the field.
 
+- **Planner ruling P-1, amending D7 and D9:** `file_size` is optional on a project start.
+  - Without it, the start opens or reuses the attempt and returns the project brief (`instructions`) with no `upload_url`. The panel's Start shows the brief and the file picker before any file is chosen.
+  - Choosing a file starts again with `{ file_size }`, which reuses the open attempt and returns a URL signed for that size, then uploads.
+  - No upload URL is ever issued without a declared size.
+  - An invalid size gives 400 `Invalid file size.`; above the cap it gives `Project files can be up to 50 MB.`.
+  - Why: under D7 the brief only arrived after a file was chosen.
+- **e2e-smoke and the refusal:** the refusal assertions (an early 100% claim is not completed; `/complete` answers 409 with `retry_after_seconds`) live in `e2e-learning.mjs`, which uses a fresh learner and its own course each run. The smoke reuses the demo learner, whose seeded lesson is already complete, and a rerun after the time window would pass an early claim. The smoke's video checks now fit a measured 2 s lesson.
+- **`e2e-learning.mjs` builds its own free course per run,** created as a draft and then approved. The course has:
+  - an uploaded stand-in video lesson measured at 600 s;
+  - a text lesson;
+  - a quiz with `max_attempts: 2`;
+  - a project.
+
+  This way the script doesn't depend on demo-seed's best-effort sample-video download.
+
 Gate: not run yet (step 9). Each task ran `pnpm -C api build`, `typecheck` and `test` (the last api run: 64 suites, 1202 tests) or `pnpm -C web typecheck` and `test` (55 files, 488 tests).
 
 ### In flight / next step
-- Waiting for 7b (#27) to merge. Then: `git merge origin/main`, the learn page and the project picker (steps 4 and 7, web), the scripts and CI (step 8), the full gate (step 9), a final whole-branch review, then code review round 1 with ethio-reviewer (base: origin/main after the merge).
+- Step 9 gate running on f40b386, alongside the final whole-branch review. Then the fix wave if needed, then code review round 1 with ethio-reviewer (base: origin/main ff1d89e).
 - Phase 6d (`2026-10-03-sponsor-refund-integrity`) is queued to start once 6b's code review is APPROVED.
