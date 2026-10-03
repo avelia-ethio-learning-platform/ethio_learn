@@ -367,7 +367,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
   return (
     <div className="page-shell max-w-3xl select-none">
       {/* sticky exam header, below the fixed site header */}
-      <div className="sticky top-24 z-20 -mx-2 mb-4 flex items-center justify-between gap-3 rounded-b-xl border-b bg-white/95 px-4 py-2 shadow-sm backdrop-blur">
+      <div className="sticky top-24 z-20 -mx-2 mb-4 flex items-center justify-between gap-3 rounded-b-xl border-b bg-card/95 px-4 py-2 shadow-sm backdrop-blur">
         <div className="text-sm font-semibold">{answered}/{attempt?.questions.length} answered</div>
         <div className="flex items-center gap-2 text-xs">
           {Object.entries(warnings).map(([t, n]) => (
