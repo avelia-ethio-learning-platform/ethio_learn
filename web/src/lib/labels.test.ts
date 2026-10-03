@@ -28,5 +28,7 @@ describe('labels', () => {
     expect(pricingLabel('pay_what_you_want')).toBe('Pay what you want');
     expect(categoryLabel('web_development')).toBe('Web Development');
     expect(categoryLabel('quantum_physics')).toBe('Quantum physics');
+    expect(categoryLabel(null)).toBe('Other');
+    expect(categoryLabel('')).toBe('Other');
   });
 });

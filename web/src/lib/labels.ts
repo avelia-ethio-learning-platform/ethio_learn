@@ -57,6 +57,8 @@ export function pricingLabel(pricing: string): string {
   return PRICING[pricing] ?? sentenceCase(pricing);
 }
 
-export function categoryLabel(category: string): string {
-  return COURSE_CATEGORIES.find((c) => c.value === category)?.label ?? sentenceCase(category);
+/** The one category label: the curated name, else sentence case; a missing category is "other". */
+export function categoryLabel(category: string | null | undefined): string {
+  const value = category || 'other';
+  return COURSE_CATEGORIES.find((c) => c.value === value)?.label ?? sentenceCase(value);
 }

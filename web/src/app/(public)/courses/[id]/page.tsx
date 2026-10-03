@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { BadgeCheck, Clock, Layers, PlayCircle, Star, Wallet } from 'lucide-react';
 import { serverApi, SITE_URL } from '@/lib/server-api';
-import { categoryIcon, categoryLabel } from '@/lib/categories';
+import { categoryLabel } from '@/lib/labels';
 import { priceLabel } from '@/components/CourseCard';
 import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
 import { BackButton } from '@/components/BackButton';
@@ -105,7 +105,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <div className="animate-fade-in-up min-w-0 lg:col-span-2">
-          <span className="badge-info uppercase tracking-wider">{course.category}</span>
+          <span className="badge-info uppercase tracking-wider">{categoryLabel(course.category)}</span>
           {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
             <span className="badge-success ml-2">Recently updated</span>
           )}

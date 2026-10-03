@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { categoryIcon, categoryLabel } from '@/lib/categories';
+import { categoryLabel } from '@/lib/labels';
 import { formatETB } from '@/lib/format';
 
 export interface CourseSummary {
@@ -62,7 +62,7 @@ export function CourseCard({ course }: { course: CourseSummary }) {
       </div>
       <div className="p-5">
         <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand-600">
-          {course.category}
+          {categoryLabel(course.category)}
           {course.language && (
             <span className="rounded-md bg-brand-500/10 px-1.5 py-0.5 text-xs font-bold tracking-normal">
               {LANG_LABEL[course.language] ?? course.language.toUpperCase()}

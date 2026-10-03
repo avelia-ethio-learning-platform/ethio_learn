@@ -3,7 +3,8 @@
 import { FormEvent, useState } from 'react';
 import { Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
-import { categoryLabel, COURSE_CATEGORIES } from '@/lib/categories';
+import { COURSE_CATEGORIES } from '@/lib/categories';
+import { categoryLabel } from '@/lib/labels';
 import { fieldLabel, type WorkingCourse } from './working';
 import { formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
