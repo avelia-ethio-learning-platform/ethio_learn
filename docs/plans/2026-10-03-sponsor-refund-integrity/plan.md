@@ -197,6 +197,16 @@ Deviations:
 
 - **Step 7 (gate, 2026-10-03, on 3ef1439 = 6d + origin/main bbd6146):** api build, typecheck and tests (1264 passed, 1 skipped); web typecheck and tests (590); db:check on a fresh `el_6d_e2e`, no drift; the resend spec on real Postgres (1/1); every api e2e script in CI order (revisions, institution, payments with the new duplicate-refund, concurrent-refund and payer checks, learning, security); web build; Playwright (96 passed); smoke; all 9 images build.
 
-### Next step
-- Code review round 1 by ethio-reviewer: branch `fix/sponsor-refund-integrity`, base origin/main `bbd6146`.
-- **Money phase:** push only when it can merge and deploy the same day.
+- **Step 8 (code review):** round 1 APPROVED (37465db). N2 fixed (b651063); N1 deferred to 9b (P1-17). The post-approval check of 37465db..ebb46de is APPROVED too.
+- **After approval:**
+  - PR #30 opened. CI e2e failed once: the security e2e had filled the login limiter (10/min per IP), and a cached web build reached Playwright 43 s later, so the learner login got a 429. Fixed in CI with `sleep 60` before Playwright (85548bc).
+  - Merged origin/main (8a, PR #29) as ebb46de. Two conflicts:
+    - admin `BankTransferForm`: 8a's confirm dialog, plus 6d's `replayed` message through `setOk`; the replay test was updated;
+    - `refund.service.spec.ts`: both describe blocks kept, and 8a's listPending test calls `find.mockClear()` after `spyOn`.
+  - Local after the merge: api jest 1281 passed, 1 skipped; web vitest 646; typechecks clean; gitleaks clean.
+
+### In flight / next step (checkpoint 2026-10-03)
+- **PR #30**, head `ebb46de` (this checkpoint commit adds a docs-only head on top). CI was running, with e2e pending; api, web, secret-scan and Vercel had passed.
+- When CI is green on the current head: `gh pr merge 30 --merge --match-head-commit <head sha>`. If it fails, read `gh run view <id> --log-failed`. If GitHub says the branch is behind, `git merge origin/main` (never rebase or force-push).
+- Then send the PR number and merge sha to ethio-planner **[59d14c] only** ([bae003] is a duplicate). The planner moves `../ethi0-verify-main`, sets Start here, and updates the roadmap. There's no prod verify prerequisite: no migration, env var or config.
+- **Money phase:** merge today, the same day it's pushed.

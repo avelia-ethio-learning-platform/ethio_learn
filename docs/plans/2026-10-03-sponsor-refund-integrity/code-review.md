@@ -38,6 +38,11 @@ Reviewed `git diff bbd6146...37465db`. I read all the production code myself: re
 - **N1:** the grant handler writes `sponsor_name: ''` when `user()` swallows a lookup failure and the payer isn't the last opener. Example: the users service is hibernating on Render at grant time. `sponsor_id` is still right, but the learner dashboard shows "from a sponsor" for good. Plan decision 5 expected a re-run on failure. If you want it, skip the payer patch, or throw, when the name comes back `''`. This is display only, and deferring it is fine.
 - **N2:** `refund.service.ts`: the new `type Approval` sits between `purchasedAt`'s JSDoc and its `const`, so that doc comment now documents the type. Move the type above the comment.
 
-### Implementer replies (round 1)
-- **N1: deferred.** A blank name only shows "from a sponsor"; it never names the wrong person, and `sponsor_id` is right. Keeping the old name would name the last opener, not the payer. Throwing to force a re-run depends on event redelivery, which is P1-17 (Phase 9b). Revisit it there.
-- **N2: fixed.** `type Approval` now sits above `purchasedAt`'s JSDoc. Refund specs 45/45, and api typecheck is clean.
+## Post-approval check (2026-10-03) · still APPROVED, no blockers
+Reviewed `37465db..ebb46de` (PR #30) and checked only the 6d-relevant parts of the 8a merge.
+- **N2: fixed** in `b651063`. **N1:** deferral to 9b accepted.
+- **CI `sleep 60` before Playwright (`85548bc`):** this is a simple, correct fix for the limiter (10/min per IP) left full by the security e2e. It costs a minute per run, which is fine. If more steps need the wait later, a limiter reset hook would replace it, but that's not needed now.
+- **Merge `ebb46de`:**
+  - `BankTransferForm` keeps the `replayed` branch on 8a's confirm dialog and `setOk`, and the replay test asserts the new copy.
+  - `refund.service.spec.ts` keeps both describe blocks. The `find.mockClear()` in `listPending` is right, because `request()`'s lock query had already gone through the same spy.
+- **Gate at `ebb46de` (review worktree, lockfile unchanged):** api jest `refund sponsorship` 81 passed; web vitest `admin` 26 passed. impl reports the full suites green: api 1281 passed with 1 skipped, and web 646.
