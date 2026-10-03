@@ -133,7 +133,7 @@ function Preview({ courseId }: { courseId: string }) {
             {reviews?.average_rating ? ` · ★ ${reviews.average_rating}` : ''}
           </p>
           <div className="relative mt-5 overflow-hidden rounded-2xl bg-black shadow-floating">
-            <video ref={videoRef} controls playsInline poster={course.thumbnail_url || undefined} className="aspect-video w-full" />
+            <video ref={videoRef} controls playsInline poster={hasRealThumbnail(course.thumbnail_url) ? course.thumbnail_url : undefined} className="aspect-video w-full" />
             {!playing && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-black/70 p-4 text-center text-sm font-medium text-white/80">
                 <Play className="h-5 w-5 shrink-0" aria-hidden /> Choose a lesson to start the preview
@@ -183,7 +183,7 @@ function Thumbnail({ url, alt, className = '' }: { url: string | null | undefine
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt={alt} width={224} height={126} decoding="async" loading="lazy" className="h-full w-full object-cover" />
       ) : (
-        <span className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-gray-500">
+        <span className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-gray-600">
           <ImageOff className="h-5 w-5" aria-hidden /> No thumbnail
         </span>
       )}

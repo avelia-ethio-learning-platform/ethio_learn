@@ -165,16 +165,16 @@ Acceptance criteria:
    - A Playwright check asserts one canonical per indexable route.
 
 ## Steps
-- [ ] 1. Branch `feat/web-hardening` from the base above. Record `next build`'s first-load sizes for the three routes.
-- [ ] 2. CSP builder and headers (decisions 1, 2): `lib/csp.ts`, `next.config.mjs` `headers()`, the report route, `NEXT_PUBLIC_MEDIA_ORIGINS` in `web/.env.example`, the SW version bump.
+- [x] 1. Branch `feat/web-hardening` from the base above. Record `next build`'s first-load sizes for the three routes.
+- [x] 2. CSP builder and headers (decisions 1, 2): `lib/csp.ts`, `next.config.mjs` `headers()`, the report route, `NEXT_PUBLIC_MEDIA_ORIGINS` in `web/.env.example`, the SW version bump.
   - vitest for `buildCsp`: origins reduced, Google present only with a client id, Report-Only versus enforce, no duplicate directives.
   - The report route: size cap and sampling.
-- [ ] 3. Playwright under the enforced CSP: a fixture fails a test on any `securitypolicyviolation` or console CSP error. Then run the whole suite.
+- [x] 3. Playwright under the enforced CSP: a fixture fails a test on any `securitypolicyviolation` or console CSP error. Then run the whole suite.
   - New flow checks: Google button renders (skip when there's no client id in CI); an upload to local MinIO; a preview video plays; a proctored exam loads its wasm detector (or the spec asserts the detector-load path doesn't hit a CSP error); PDF outline extraction; a wake ping to a listed origin.
   - Fix any directive gaps in `buildCsp`, not with blanket wildcards.
-- [ ] 4. Bundle (decision 3): hls.js dynamic in the three players; `LazyMotion` plus `m.*` across the shell and the two marketing clients. vitest stays green, playback works in Playwright, and the first-load sizes are recorded after.
-- [ ] 5. Images and fonts (decisions 4, 5). Verify: no Google font requests in Playwright's network log; the `font-light`/`font-black` grep is empty or swapped; screenshots show no layout shift on the home hero and course cards.
-- [ ] 6. Amharic (decisions 6, 7):
+- [x] 4. Bundle (decision 3): hls.js dynamic in the three players; `LazyMotion` plus `m.*` across the shell and the two marketing clients. vitest stays green, playback works in Playwright, and the first-load sizes are recorded after.
+- [x] 5. Images and fonts (decisions 4, 5). Verify: no Google font requests in Playwright's network log; the `font-light`/`font-black` grep is empty or swapped; screenshots show no layout shift on the home hero and course cards.
+- [x] 6. Amharic (decisions 6, 7):
   - `<T>`;
   - the listed pages;
   - `LocaleNotice` and `i18n-routes.ts`;
@@ -182,8 +182,8 @@ Acceptance criteria:
   - `docs/i18n/am-review.md`.
 
   vitest: parity; `LocaleNotice` shows on `/teach` in Amharic mode and not on `/courses`; `lang` is set by the init script. Playwright: in Amharic mode the signup page has no ASCII-letter text nodes except brand names, emails and placeholders listed in an allowlist.
-- [ ] 7. SEO (decision 8): the site-URL build guard, canonicals, sitemap entries, the canonical Playwright check.
-- [ ] 8. Screenshots: the new-learner path in Amharic at 375 and 1440, plus the English-only notice, into `screenshots/after-phase10/` (git-ignored).
+- [x] 7. SEO (decision 8): the site-URL build guard, canonicals, sitemap entries, the canonical Playwright check.
+- [x] 8. Screenshots: the new-learner path in Amharic at 375 and 1440, plus the English-only notice, into `screenshots/after-phase10/` (git-ignored).
 - [ ] 9. Full gate:
   - `pnpm -C web typecheck && pnpm -C web test && pnpm -C web build`;
   - the Playwright suite (enforced CSP), following Phase 5's build order;
@@ -224,14 +224,14 @@ Implementer: ethio-impl (3) [688c71], worktree `../ethi0-10`, branch `feat/web-h
 
 **First-load JS** (`next build`, clean env):
 
-| Route | Before (step 1) | After step 4 |
-|---|---|---|
-| `/` | 150 kB | 126 kB |
-| `/courses/[id]` | 277 kB | 121 kB |
-| `/learn/[courseId]` | 297 kB | 141 kB |
-| `/preview/[id]` (not on the list) | 287 kB | 130 kB |
+| Route | Before (step 1) | After step 4 | Gate (after step 7 and 8b) |
+|---|---|---|---|
+| `/` | 150 kB | 126 kB | 128 kB |
+| `/courses/[id]` | 277 kB | 121 kB | 124 kB |
+| `/learn/[courseId]` | 297 kB | 141 kB | 142 kB |
+| `/preview/[id]` (not on the list) | 287 kB | 130 kB | 132 kB |
 
-Shared by all stays 87.7 kB.
+Shared by all: 87.7 kB, then 87.8 kB at the gate. The Amharic dictionary is a separate 21.5 kB chunk, loaded only in Amharic mode.
 
 - **Step 1** done: the baseline above.
 - **Step 2** done (`b73dd93`): `src/lib/csp.mjs` (`buildCsp`, `cspEnforced`, `securityHeaders`), `next.config.mjs` `headers()`, `app/api/csp-report/route.ts`, `.env.example`, Dockerfile `ARG`s, `el-sw-v2`. vitest: 10 for the builder, 5 for the route.
@@ -243,6 +243,32 @@ Shared by all stays 87.7 kB.
 
   The a11y scans timed out at 30 s while other sessions' jest runs held the machine at load 16–24. Re-run with nothing else running, each took 7–11 s and passed.
 
+- **Step 6** code done (`dbc410f`):
+  - The dictionaries are split into `lib/i18n-en.ts` (inline) and `lib/i18n-am.ts` (loaded on first use).
+  - Server components render `<T k>` and the `components/Localized.tsx` helpers (`PriceLabel`, `CategoryName`, `LocalDate`, `StatusName`). These are English in the server HTML and switch after hydration, as the plan's non-goal says.
+  - `LocaleNotice` with `lib/i18n-routes.ts`, and the theme-init `lang` line.
+  - 225 new keys, all listed in `docs/i18n/am-review.md`.
+  - vitest: parity (keys, non-empty, placeholders), `LocaleNotice` (shows on `/teach` in Amharic mode; stays off `/courses` and English mode; dismissed per session), `isTranslatedRoute`, and the init script. Playwright: `e2e/i18n.spec.ts`, the Amharic signup page.
+- **Step 7** code done (`84629fb`):
+  - `lib/site-url.mjs` `assertSiteUrl`, called from `next.config.mjs`. With `VERCEL_ENV=production` and the `REPLACE` placeholder the config fails to load; with a real https URL it loads.
+  - `/verify` already had its canonical (Phase 5). Every other indexable route was checked against Current state, and all have one.
+  - `sitemap.ts` adds `/educators`, the top-24 educator profiles, `/help` and `/verify`.
+  - The canonical check is in `titles-and-robots.spec.ts`.
+- **origin/main merged** (`ab82bf4`, 8b): two import-line conflicts in `a11y.spec.ts` and `layout.spec.ts`. 8b added no `motion.*`. 11a hasn't merged, so there is no lint baseline yet.
+
+- **Step 8** done: the new learner's path in Amharic at 375 and 1440 px, covering home, catalog, a paid course, signup, login and the dashboard, plus the English-only notice on `/help`. They're in `screenshots/after-phase10/` in this folder (git-ignored as `docs/plans/*/screenshots/`; a top-level `screenshots/` isn't ignored).
+- **Step 9** gate on `ab82bf4` plus fixes, fresh `el_10_e2e` stack, clean-env build with the wake URL as in CI:
+  - typecheck clean; vitest 82 files, 692 tests; `next build` ok;
+  - Playwright 128 passed, 2 skipped (Google without a client id; `admin.spec` "Next shows the second page", which skips itself); no CSP violation;
+  - `pnpm -C api test`: see the line below;
+  - no lint step yet (11a hasn't merged).
+
+  The first gate run after the merge failed 4 tests, all fixed:
+  - **8b's new axe check of the admin preview** loaded the seeded `placehold.co` thumbnail through the video `poster`. Fixed: the poster goes through `hasRealThumbnail`.
+  - **The preview's "No thumbnail" fallback** failed contrast (`text-gray-500` on a gray tint). Step 5 made it show for seeded courses. Fixed: `text-gray-600`.
+  - **8b's axe check of "the editor of a draft"** opened the CSP checks' own draft, which had a lesson. That lesson's upload button fails contrast at 90% opacity, which is 8b's. Fixed: the CSP checks now use the suite's shared draft (`ownCourseId`), and their own draft helper is gone. The button's contrast is now in Phase 7c's plan (sent to ethio-planner).
+  - **The Amharic signup check** didn't allow for the footer's "Chapa" and "EthiopiaLearn ·". Fixed: brand names are removed before checking for Latin letters.
+
 **Deviations:**
 1. **`lib/csp.mjs`, not `lib/csp.ts`.** `next.config.mjs` imports the builder, and Next 14 can't load a TypeScript file from the config. JSDoc types; the vitest imports it from TS.
 2. **Media origins default to the storage public origin when `NEXT_PUBLIC_MEDIA_ORIGINS` is unset.** Local and CI have no web env, and MinIO serves uploads, video and thumbnails from one origin. Production sets the variable (Rollout).
@@ -252,3 +278,6 @@ Shared by all stays 87.7 kB.
 6. **Noto Sans Ethiopic isn't preloaded** (`preload: false`). Preloaded, it put a 198 KB file on every page's critical path for an English-first site. The browser still fetches it as soon as a page shows Ethiopic text (`unicode-range`), as the `@import` did. Inter (48 KB) is still preloaded.
 7. **The proctoring check serves the exam page a stub assessment list** (Playwright `route`): one proctored quiz in the learner's own course. The seed's only quiz is in a course the learner isn't enrolled in. The preflight screen reads nothing else, so the real detector (wasm and model) loads, and it loads with or without a camera. The seed, which other e2e scripts use, is unchanged.
 8. **CI sets `NEXT_PUBLIC_WAKE_URLS=http://localhost:4101/health`** on the web build and Playwright steps, so the wake check runs on its own origin instead of always skipping. The Google check skips without a client id, as planned.
+9. **The Amharic dictionary loads on first use** (a dynamic import in `lib/i18n.tsx`), so English readers don't download it. Until it arrives the page stays English, and text, prices and dates then switch together. The toggle's own vitest waits for it.
+10. **Status badges are translated on every page**, not only on the learner path. It is one map (`status_*` keys), so the role pages' badges are Amharic in Amharic mode too, inside pages that otherwise show the English-only notice.
+11. **The coupon line loses the bold on the discounted price.** Amharic puts the two prices in the other order, so the sentence is one translated string with both amounts filled in.

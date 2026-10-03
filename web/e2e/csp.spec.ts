@@ -1,5 +1,5 @@
-import { expect, test, type APIRequestContext } from './test';
-import { API_URL, apiGet, authFile, COLD_URL, firstCourseId, tokenFor } from './support';
+import { expect, test } from './test';
+import { apiGet, authFile, COLD_URL, firstCourseId, ownCourseId } from './support';
 
 // Phase 10: the flows whose sources the Content Security Policy must allow.
 // The fixture in ./test fails each of these on any violation; the assertions
@@ -34,29 +34,8 @@ test('the Google sign-in button renders', async ({ page }) => {
 test.describe('as the educator', () => {
   test.use({ storageState: authFile('educator') });
 
-  /** One draft for these checks, reused across runs: courses can't be deleted. */
-  async function draftCourse(request: APIRequestContext): Promise<string> {
-    const title = 'Playwright CSP check';
-    const own = await apiGet<{ id: string; title: string; status: string }[]>(request, '/courses', 'educator');
-    const existing = own.find((c) => c.title === title && c.status === 'draft');
-    if (existing) return existing.id;
-    const res = await request.post(`${API_URL}/api/v1/courses`, {
-      headers: { Authorization: `Bearer ${tokenFor('educator')}` },
-      data: {
-        title,
-        description: 'A draft the browser suite uses to check uploads and outlines under the CSP.',
-        category: 'other',
-        language: 'en',
-        pricing_type: 'free',
-        sections: [{ title: 'Only section', is_free_preview: false, lessons: [{ title: 'Only lesson' }] }],
-      },
-    });
-    expect(res.ok(), `POST /courses → ${res.status()}`).toBe(true);
-    return ((await res.json()) as { id: string }).id;
-  }
-
   test('a thumbnail uploads straight to storage and shows', async ({ page, request }) => {
-    await page.goto(`/teach/courses/${await draftCourse(request)}`);
+    await page.goto(`/teach/courses/${await ownCourseId(request)}`);
     const put = page.waitForResponse((r) => r.request().method() === 'PUT' && r.url().startsWith('http://localhost:9000/'));
     await page
       .locator('label', { hasText: /Upload image|Replace image/ })
@@ -69,7 +48,7 @@ test.describe('as the educator', () => {
   });
 
   test('a PDF is read in the browser for the outline (pdf.js worker)', async ({ page, request }) => {
-    await page.goto(`/teach/courses/${await draftCourse(request)}`);
+    await page.goto(`/teach/courses/${await ownCourseId(request)}`);
     await page.getByRole('heading', { name: /Generate an outline with AI/ }).locator('..').getByRole('button', { name: 'Open' }).click();
     await page
       .locator('label', { hasText: 'Upload PDF / Word / notes' })

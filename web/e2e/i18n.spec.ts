@@ -1,12 +1,8 @@
 import { expect, test } from './test';
 
 // Phase 10: in Amharic mode a new learner's path is in Amharic. Every visible text node on the
-// signup page is checked for Latin letters; ALLOWED is what stays Latin on purpose.
-const ALLOWED = [
-  'Ethiopia', // the brand, split in two spans in the header and footer
-  'Learn',
-  'EN', // the language toggle names the other language in that language
-];
+// signup page is checked for Latin letters, after taking out the names that stay Latin on purpose.
+const NAMES = /EthiopiaLearn|Ethiopia|Learn|Chapa|\bEN\b/g; // the brand, the payment provider, the toggle's "EN"
 
 test('in Amharic mode the signup page has no English text', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('el_locale', 'am'));
@@ -26,5 +22,5 @@ test('in Amharic mode the signup page has no English text', async ({ page }) => 
     }
     return found;
   });
-  expect(latin.filter((text) => !ALLOWED.includes(text))).toEqual([]);
+  expect(latin.filter((text) => /[A-Za-z]/.test(text.replace(NAMES, '')))).toEqual([]);
 });
