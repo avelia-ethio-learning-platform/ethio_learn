@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { apiGet } from './support';
 
 // P1-53 / P1-54: every route has its own title and exactly one robots

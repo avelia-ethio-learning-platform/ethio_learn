@@ -129,7 +129,11 @@ jobs:
         run: node scripts/e2e-security.mjs
       # Built with the stack up, so the prerendered home page has the seeded
       # courses. Takes over a minute, which also lets the login limiter refill.
+      # A wake URL on its own origin (auth's port), so the CSP check in
+      # e2e/csp.spec.ts sees the browser ping it under the enforced policy.
       - name: Build web
+        env:
+          NEXT_PUBLIC_WAKE_URLS: http://localhost:4101/health
         run: |
           pnpm -C web install --frozen-lockfile
           pnpm -C web build
@@ -147,6 +151,8 @@ jobs:
       # The e2e scripts above can leave the login limiter (10/min per IP) full,
       # and a cached web build reaches here in under a minute, so wait out the window.
       - name: Browser smoke (Playwright)
+        env:
+          NEXT_PUBLIC_WAKE_URLS: http://localhost:4101/health
         run: |
           sleep 60
           pnpm -C web exec playwright test

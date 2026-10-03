@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 
 // P1-57: with reduced motion on, the hero heading is fully opaque at first
 // paint, not faded in after hydration.

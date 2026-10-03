@@ -219,3 +219,36 @@ Acceptance criteria:
 - **framer `strict` mode** throws on a stray `motion.*` in development. That's intended, but 7a's or 8b's components may still use `motion.*` outside the shell. The implementer converts any that render under `LazyMotion`.
 
 ## Progress and deviations (implementer)
+
+Implementer: ethio-impl (3) [688c71], worktree `../ethi0-10`, branch `feat/web-hardening` from `origin/main` `03fd049` (handoff amendment).
+
+**First-load JS** (`next build`, clean env):
+
+| Route | Before (step 1) | After step 4 |
+|---|---|---|
+| `/` | 150 kB | 126 kB |
+| `/courses/[id]` | 277 kB | 121 kB |
+| `/learn/[courseId]` | 297 kB | 141 kB |
+| `/preview/[id]` (not on the list) | 287 kB | 130 kB |
+
+Shared by all stays 87.7 kB.
+
+- **Step 1** done: the baseline above.
+- **Step 2** done (`b73dd93`): `src/lib/csp.mjs` (`buildCsp`, `cspEnforced`, `securityHeaders`), `next.config.mjs` `headers()`, `app/api/csp-report/route.ts`, `.env.example`, Dockerfile `ARG`s, `el-sw-v2`. vitest: 10 for the builder, 5 for the route.
+- **Step 4** done (`82993f7`): `lib/video.ts` `attachVideo` loads hls.js on the first HLS playback, for all three players. `LazyMotion strict` in `Providers`, with `domMax` from `components/motion-features.ts` loaded lazily, and `m.*` in the six shell and marketing components. `Header.test.tsx` renders under `LazyMotion strict`, so a stray `motion.*` fails there.
+- **Step 5** code done (`69e6858`): `app/fonts.ts`, variables on `<html>`, the tailwind families, the `@import`s gone, `font-light` changed to `font-normal` (the only use; no `font-black`). `<img>` attributes as decided. The Playwright checks run in the stack window with step 3.
+- **Step 3** done: fixture `e2e/test.ts`, which every spec now imports; flow checks in `e2e/csp.spec.ts`. Playwright 2026-10-03 against the enforced policy: no violation anywhere in the suite. All six flow checks pass (Google skips without a client id, as planned). The step 5 font check passes too. Two fixes to the suite:
+  - `lesson-player.spec.ts` focused Next, which is disabled when "Resume" opens a finished course's last lesson. It only failed when the seed had a sample video, so it isn't a regression. It now focuses the last enabled control after the video.
+  - The draft-course payload in `csp.spec.ts` was missing `is_free_preview`.
+
+  The a11y scans timed out at 30 s while other sessions' jest runs held the machine at load 16–24. Re-run with nothing else running, each took 7–11 s and passed.
+
+**Deviations:**
+1. **`lib/csp.mjs`, not `lib/csp.ts`.** `next.config.mjs` imports the builder, and Next 14 can't load a TypeScript file from the config. JSDoc types; the vitest imports it from TS.
+2. **Media origins default to the storage public origin when `NEXT_PUBLIC_MEDIA_ORIGINS` is unset.** Local and CI have no web env, and MinIO serves uploads, video and thumbnails from one origin. Production sets the variable (Rollout).
+3. **`img-src` also allows the media origins.** The proctoring report's snapshots are signed storage URLs (`getSignedStreamUrl`), on the R2 S3 host rather than the public `r2.dev` URL. Without them, the educator's proctoring report would show broken images in production. Locally the hosts are the same, so only the vitest catches this.
+4. **`frame-src 'none'` without a Google client id.** The app has no other frames.
+5. **The editor and preview thumbnails keep their existing fallbacks** ("No thumbnail" in the preview, the upload icon in the editor) instead of `CourseCover`. Both go through `hasRealThumbnail`, so `placehold.co` stays out of the policy as N3 asks. `CourseCover` comes only in card and strip sizes, and neither fits the 96×56 editor box or the small aspect-video preview box.
+6. **Noto Sans Ethiopic isn't preloaded** (`preload: false`). Preloaded, it put a 198 KB file on every page's critical path for an English-first site. The browser still fetches it as soon as a page shows Ethiopic text (`unicode-range`), as the `@import` did. Inter (48 KB) is still preloaded.
+7. **The proctoring check serves the exam page a stub assessment list** (Playwright `route`): one proctored quiz in the learner's own course. The seed's only quiz is in a course the learner isn't enrolled in. The preflight screen reads nothing else, so the real detector (wasm and model) loads, and it loads with or without a camera. The seed, which other e2e scripts use, is unchanged.
+8. **CI sets `NEXT_PUBLIC_WAKE_URLS=http://localhost:4101/health`** on the web build and Playwright steps, so the wake check runs on its own origin instead of always skipping. The Google check skips without a client id, as planned.
