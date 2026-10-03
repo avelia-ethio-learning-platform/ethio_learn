@@ -536,7 +536,14 @@ export class PaymentService {
   /**
    * Abandoned checkout nudge: a course checkout opened 1–48h ago that never
    * completed gets ONE "finish your purchase" reminder (in-app + email via the
-   * notification service). Runs hourly; nudged_at guarantees a single send.
+   * notification service). Runs hourly.
+   *
+   * Each row is claimed with a conditional update (still pending, not yet
+   * nudged) and never saved: a save would write this run's stale `pending`
+   * back over a confirmation that landed in the meantime. Only the run that
+   * claims a row sends its reminder, so each payment gets at most one. The
+   * claim comes before the learner lookup: a failing lookup loses that one
+   * reminder rather than sending two.
    */
   @Cron('15 * * * *')
   async nudgeAbandonedCheckouts(): Promise<void> {
@@ -552,16 +559,13 @@ export class PaymentService {
       order: { created_at: 'ASC' },
       take: 50,
     });
+    let sent = 0;
     for (const payment of rows) {
-      // Skip if the learner already owns the course through another payment.
-      if (await this.ownsCourse(payment.learner_id, payment.course_id)) {
-        payment.nudged_at = new Date();
-        await this.payments.save(payment);
-        continue;
-      }
+      const owned = await this.ownsCourse(payment.learner_id, payment.course_id);
+      const claimed = await this.payments.update({ id: payment.id, status: PaymentStatus.PENDING, nudged_at: IsNull() }, { nudged_at: new Date() });
+      // Confirmed or nudged since the select; or the learner already owns the course through another payment.
+      if (claimed.affected !== 1 || owned) continue;
       const learner = await this.learnerInfo(payment.learner_id);
-      payment.nudged_at = new Date();
-      await this.payments.save(payment);
       await this.bus.publish<PaymentAbandonedPayload>('PaymentAbandoned', {
         payment_id: payment.id,
         learner_id: payment.learner_id,
@@ -572,8 +576,9 @@ export class PaymentService {
         amount_etb: Number(payment.amount_etb),
         resume_url: `${env('WEB_URL', 'http://localhost:3000')}/courses/${payment.course_id}`,
       });
+      sent += 1;
     }
-    if (rows.length) this.logger.log(`abandoned-checkout nudges sent: ${rows.length}`);
+    if (sent) this.logger.log(`abandoned-checkout nudges sent: ${sent}`);
   }
 
   /**

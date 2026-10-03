@@ -774,6 +774,89 @@ describe('PaymentService.sweepPendingPayments', () => {
   });
 });
 
+describe('PaymentService.nudgeAbandonedCheckouts: one reminder, and it never writes the status', () => {
+  /** A course checkout opened 2 h ago and never paid. */
+  const abandoned = (t: ReturnType<typeof setup>) => t.seed({ created_at: new Date(Date.now() - 2 * 3600_000) });
+
+  /** A confirmation (the webhook) lands the first time the job makes the internal call whose path contains `during`. */
+  const confirmDuring = (t: ReturnType<typeof setup>, during: string) => {
+    const get = t.internal.get.getMockImplementation()!;
+    let landed = false;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (!landed && path.includes(during)) {
+        landed = true;
+        await t.service.handleWebhook(successBody, signed(successBody));
+      }
+      return get(path);
+    });
+  };
+
+  it('sends an abandoned course checkout one reminder that links back to the course', async () => {
+    const t = setup();
+    abandoned(t);
+
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toEqual([
+      ['PaymentAbandoned', expect.objectContaining({ payment_id: 'pay-1', learner_email: 'learner@x.et', resume_url: expect.stringMatching(/\/courses\/c1$/) })],
+    ]);
+    expect(t.row()).toMatchObject({ status: PaymentStatus.PENDING, nudged_at: expect.any(Date) });
+  });
+
+  it('a payment confirmed while ownership is checked (before the claim) stays confirmed and gets no reminder', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    abandoned(t);
+    confirmDuring(t, '/entitlements');
+
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toHaveLength(0);
+    expect(t.row().status).toBe(PaymentStatus.CONFIRMED);
+    // Nothing reopened the confirmation, so the sweep has nothing to confirm a second time.
+    await t.service.sweepPendingPayments();
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('a payment confirmed after the claim (while the learner is looked up) stays confirmed; the late reminder still goes out', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    abandoned(t);
+    confirmDuring(t, '/internal/users/');
+
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toHaveLength(1);
+    expect(t.row()).toMatchObject({ status: PaymentStatus.CONFIRMED, nudged_at: expect.any(Date) });
+    await t.service.sweepPendingPayments();
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('a second run sends nothing, even one that overlaps the first', async () => {
+    const t = setup();
+    abandoned(t);
+
+    await Promise.all([t.service.nudgeAbandonedCheckouts(), t.service.nudgeAbandonedCheckouts()]);
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toHaveLength(1);
+  });
+
+  it('a learner who already owns the course gets no reminder; the row is claimed and stays pending', async () => {
+    const t = setup();
+    abandoned(t);
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => (path.includes('/entitlements') ? { entitlement_status: 'active' } : get(path)));
+
+    await t.service.nudgeAbandonedCheckouts();
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toHaveLength(0);
+    expect(t.row()).toMatchObject({ status: PaymentStatus.PENDING, nudged_at: expect.any(Date) });
+    expect(t.internal.get.mock.calls.filter(([path]) => path.includes('/entitlements'))).toHaveLength(1);
+  });
+});
+
 describe('PaymentService.mockComplete', () => {
   afterEach(() => {
     delete process.env.NODE_ENV;
