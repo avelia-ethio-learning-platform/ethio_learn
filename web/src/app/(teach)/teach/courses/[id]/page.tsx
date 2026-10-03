@@ -231,7 +231,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
                 <span>Submitted {formatDate(p.submitted_at, locale, 'datetime')}</span>
                 <span className="flex gap-2">
                   {p.download_url && <a className="font-medium text-brand-600 hover:underline" href={p.download_url} target="_blank">Download</a>}
-                  <button className="font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => review(p.attempt_id, true)}>Pass</button>
+                  <button className="font-medium text-emerald-700 hover:underline dark:text-emerald-400" onClick={() => review(p.attempt_id, true)}>Pass</button>
                   <button className="font-medium text-red-600 dark:text-red-400 hover:underline" onClick={() => review(p.attempt_id, false)}>Fail</button>
                 </span>
               </li>
@@ -303,7 +303,7 @@ function LearnerFeedback({ reviews }: { reviews: any }) {
         <ul className="mt-3 space-y-2">
           {reviews.reviews.map((r: any) => (
             <li key={r.id} className="border-t pt-2 text-sm first:border-0 first:pt-0">
-              <p className="text-amber-500">{'★'.repeat(r.rating)}<span className="text-gray-500">{'★'.repeat(5 - r.rating)}</span>
+              <p className="text-amber-700 dark:text-amber-400">{'★'.repeat(r.rating)}<span className="text-gray-500">{'★'.repeat(5 - r.rating)}</span>
                 <span className="ml-2 text-xs text-gray-500">{formatDate(r.created_at, locale)}</span>
               </p>
               {r.comment && <p className="mt-1 text-gray-700">{r.comment}</p>}

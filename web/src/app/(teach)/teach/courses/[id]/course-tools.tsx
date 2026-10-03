@@ -202,7 +202,7 @@ export function TutorKnowledgeTool({ courseId, live, locked }: { courseId: strin
         <div className="glass-secondary mt-4 rounded-xl p-3 text-xs">
           <p className="flex items-center gap-1 font-semibold text-foreground">
             <MessageCircleQuestion className="h-3.5 w-3.5 text-brand-500" /> {insights.questions_total} questions from {insights.learners} learner{insights.learners === 1 ? '' : 's'}
-            {insights.not_covered_total > 0 && <span className="ml-1 text-amber-600">· {insights.not_covered_total} not covered by your material</span>}
+            {insights.not_covered_total > 0 && <span className="ml-1 text-amber-700 dark:text-amber-400">· {insights.not_covered_total} not covered by your material</span>}
           </p>
           <ul className="mt-2 space-y-0.5 text-gray-600">
             {insights.recent_questions.slice(0, 6).map((q: any, i: number) => (

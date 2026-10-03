@@ -176,7 +176,7 @@ function LearnerDashboard() {
                     {p.purpose && p.purpose !== 'course' && <span className="ml-1 text-xs text-gray-500">({sentenceCase(p.purpose).toLowerCase()})</span>}
                   </span>
                   <span className="shrink-0 font-medium text-foreground">
-                    {formatETB(p.amount_etb, locale)}{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-600">−{p.discount_etb}</span>}
+                    {formatETB(p.amount_etb, locale)}{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-700 dark:text-emerald-400">−{formatETB(p.discount_etb, locale)}</span>}
                   </span>
                   <StatusBadge status={p.status} />
                   {p.status === 'confirmed' && p.purpose === 'course' && p.method === 'chapa' && <RefundButton paymentId={p.id} />}
@@ -253,9 +253,9 @@ function WalletCard() {
           {wallet.transactions.slice(0, 5).map((tx: any) => (
             <li key={tx.id} className="flex justify-between gap-2">
               <span className="truncate">{tx.note || tx.kind}</span>
-              <span className={tx.amount_etb >= 0 ? 'shrink-0 font-semibold text-emerald-600' : 'shrink-0 font-semibold text-gray-700'}>
+              <span className={tx.amount_etb >= 0 ? 'shrink-0 font-semibold text-emerald-700 dark:text-emerald-400' : 'shrink-0 font-semibold text-gray-700'}>
                 {tx.amount_etb >= 0 ? '+' : ''}
-                {tx.amount_etb}
+                {formatETB(tx.amount_etb, locale)}
               </span>
             </li>
           ))}

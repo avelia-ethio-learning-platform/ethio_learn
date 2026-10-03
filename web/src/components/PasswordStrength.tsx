@@ -29,7 +29,7 @@ export function PasswordStrength({ value }: { value: string }) {
       </p>
       <ul className="mt-1 space-y-0.5 text-xs">
         {checks.map((c) => (
-          <li key={c.text} className={c.ok ? 'text-green-600' : 'text-gray-500'}>
+          <li key={c.text} className={c.ok ? 'text-green-700 dark:text-green-400' : 'text-gray-500'}>
             {c.ok ? '✓' : '○'} {c.text}
           </li>
         ))}

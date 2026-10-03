@@ -122,7 +122,7 @@ function TeachDashboard() {
               >
                 <span className="text-gray-500">{formatDate(p.created_at, locale)}</span>
                 <span className="font-medium text-foreground">
-                  net {formatETB(p.net_amount_etb, locale)} <span className="font-normal text-gray-500">(gross {p.gross_amount_etb})</span>
+                  net {formatETB(p.net_amount_etb, locale)} <span className="font-normal text-gray-500">(gross {formatETB(p.gross_amount_etb, locale)})</span>
                 </span>
                 <StatusBadge status={p.status} suffix={p.hold_reason || undefined} />
               </div>

@@ -60,7 +60,7 @@ export default async function EducatorsPage() {
               <div className="shrink-0 text-right">
                 {e.average_rating != null ? (
                   <>
-                    <p className="font-semibold text-amber-600">★ {e.average_rating}</p>
+                    <p className="font-semibold text-amber-700 dark:text-amber-400">★ {e.average_rating}</p>
                     <p className="text-xs text-gray-500">{e.total_rating_points} pts · {e.rating_count} rating{e.rating_count !== 1 ? 's' : ''}</p>
                   </>
                 ) : (

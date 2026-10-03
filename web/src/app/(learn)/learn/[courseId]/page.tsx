@@ -317,7 +317,7 @@ function Player({ courseId }: { courseId: string }) {
           ) : (
             <p className="mt-4 text-sm text-gray-500">Select a lesson from the list to start.</p>
           )}
-          {videoError && <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">{videoError}</p>}
+          {videoError && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{videoError}</p>}
           {progress && (
             <div className="card mt-5 !p-4">
               <div className="flex items-center justify-between text-xs text-gray-500">
@@ -359,7 +359,7 @@ function Player({ courseId }: { courseId: string }) {
                   <span
                     className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
                       doneInSection === section.lessons.length && section.lessons.length > 0
-                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
                         : 'bg-brand-500/10 text-brand-600'
                     }`}
                   >

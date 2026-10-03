@@ -54,7 +54,7 @@ export function CourseCard({ course }: { course: CourseSummary }) {
         )}
         <span
           className={`absolute right-3 top-3 rounded-full px-3 py-1 text-xs font-bold shadow-elevated backdrop-blur-md ${
-            free ? 'bg-emerald-500/90 text-white' : 'bg-white/85 text-slate-900 dark:bg-slate-900/85 dark:text-white'
+            free ? 'bg-emerald-700 text-white' : 'bg-white/85 text-slate-900 dark:bg-slate-900/85 dark:text-white'
           }`}
         >
           {priceLabel(course)}

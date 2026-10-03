@@ -78,7 +78,7 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
         <video ref={videoRef} controls className="aspect-video w-full" />
       </div>
       {playing && <p className="mt-3 text-sm font-semibold text-foreground">Now playing: {playing}</p>}
-      {error && <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">{error}</p>}
+      {error && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{error}</p>}
       <ul className="mt-4 space-y-1">
         {previewLessons.map((l) => (
           <li key={l.id}>

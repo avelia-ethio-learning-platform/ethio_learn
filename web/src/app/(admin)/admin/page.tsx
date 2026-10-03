@@ -267,7 +267,7 @@ function RefundsTab() {
           <div key={r.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
             <span className="truncate pr-2">{r.reason}</span>
             <span className="flex gap-3">
-              <button className="font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => decide(r.id, 'approve')}>approve</button>
+              <button className="font-medium text-emerald-700 hover:underline dark:text-emerald-400" onClick={() => decide(r.id, 'approve')}>approve</button>
               <button className="font-medium text-red-600 dark:text-red-400 hover:underline" onClick={() => decide(r.id, 'deny')}>deny</button>
             </span>
           </div>
@@ -344,17 +344,17 @@ function UsersTab() {
             <span className="min-w-0">
               <span className="text-foreground">{u.name}</span> <span className="text-gray-500">({u.email})</span>
               <span className="badge-neutral ml-2">{u.role}</span>
-              {!u.email_verified && <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">unverified</span>}
+              {!u.email_verified && <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">unverified</span>}
             </span>
             <span className="flex items-center gap-2">
               <StatusBadge status={u.status} />
               {u.status === 'active' ? (
                 <>
-                  <button className="text-xs font-medium text-amber-600 hover:underline dark:text-amber-400" onClick={() => setStatus(u.id, 'suspended')}>Suspend</button>
+                  <button className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-400" onClick={() => setStatus(u.id, 'suspended')}>Suspend</button>
                   <button className="text-xs font-medium text-red-600 dark:text-red-400 hover:underline" onClick={() => confirm(`Ban ${u.email}?`) && setStatus(u.id, 'banned')}>Ban</button>
                 </>
               ) : (
-                <button className="text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => setStatus(u.id, 'active')}>Reactivate</button>
+                <button className="text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-400" onClick={() => setStatus(u.id, 'active')}>Reactivate</button>
               )}
             </span>
           </div>

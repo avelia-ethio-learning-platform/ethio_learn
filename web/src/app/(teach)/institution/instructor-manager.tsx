@@ -93,12 +93,12 @@ export function InstructorManager({ institutionId }: { institutionId: string }) 
                 </button>
               )}
               {m.status === 'active' && (
-                <button className={`${linkButton} text-amber-600 dark:text-amber-400`} onClick={() => setStatus(m, 'suspended')}>
+                <button className={`${linkButton} text-amber-700 dark:text-amber-400`} onClick={() => setStatus(m, 'suspended')}>
                   Suspend
                 </button>
               )}
               {m.status === 'suspended' && (
-                <button className={`${linkButton} text-emerald-600 dark:text-emerald-400`} onClick={() => setStatus(m, 'active')}>
+                <button className={`${linkButton} text-emerald-700 dark:text-emerald-400`} onClick={() => setStatus(m, 'active')}>
                   Reactivate
                 </button>
               )}

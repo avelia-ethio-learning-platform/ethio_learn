@@ -160,7 +160,7 @@ function InstitutionCourseRow({ course: c, onAct }: { course: any; onAct: (id: s
               <ul className="mt-2 space-y-1">
                 {reviews.reviews.map((r: any) => (
                   <li key={r.id} className="text-xs text-gray-600">
-                    <span className="text-amber-500">{'★'.repeat(r.rating)}</span>
+                    <span className="text-amber-700 dark:text-amber-400">{'★'.repeat(r.rating)}</span>
                     {r.comment ? ` — ${r.comment}` : ''}
                   </li>
                 ))}

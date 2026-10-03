@@ -85,7 +85,7 @@ export function TutorPanel({ courseId }: { courseId: string }) {
                       <BookOpenCheck className="h-3 w-3" /> {m.sources.join(' · ')}
                     </p>
                   )}
-                  {m.role === 'assistant' && m.not_covered && <p className="mt-1 text-xs text-amber-600">Not covered in the course material — try asking your instructor.</p>}
+                  {m.role === 'assistant' && m.not_covered && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">Not covered in the course material — try asking your instructor.</p>}
                 </div>
               </div>
             ))}

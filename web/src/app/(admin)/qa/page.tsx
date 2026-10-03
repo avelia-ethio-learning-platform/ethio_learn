@@ -353,7 +353,7 @@ function QueueCard({
             })}
           </div>
           {!gate.allowed && (
-            <p id={gateId} className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+            <p id={gateId} className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
               {gate.reason}
             </p>
           )}

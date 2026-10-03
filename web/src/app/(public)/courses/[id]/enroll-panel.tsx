@@ -151,7 +151,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
                 )}
               </Field>
               {quote?.code && (
-                <p className="mt-1.5 text-xs font-medium text-emerald-600">
+                <p className="mt-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                   {quote.description} — you pay <b>{formatETB(quote.amount_due_etb, locale)}</b> instead of {formatETB(quote.list_price_etb, locale)}
                 </p>
               )}

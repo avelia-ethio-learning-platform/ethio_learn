@@ -58,7 +58,7 @@ export default async function EducatorProfilePage({ params }: { params: { id: st
             {profile.course_count} course{profile.course_count !== 1 ? 's' : ''}
             {profile.learner_count > 0 ? ` · ${profile.learner_count} learners` : ''}
             {profile.average_rating != null ? (
-              <span className="text-amber-600"> · ★ {profile.average_rating} ({profile.rating_count} ratings · {profile.total_rating_points} pts)</span>
+              <span className="text-amber-700 dark:text-amber-400"> · ★ {profile.average_rating} ({profile.rating_count} ratings · {profile.total_rating_points} pts)</span>
             ) : (
               ' · not yet rated'
             )}

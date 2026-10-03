@@ -142,7 +142,7 @@ function Preview({ courseId }: { courseId: string }) {
             <video ref={videoRef} controls playsInline className="aspect-video w-full" />
           </div>
           {playing && <p className="mt-3 text-sm font-semibold text-foreground">Now playing: {playing}</p>}
-          {err && <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">{err}</p>}
+          {err && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{err}</p>}
         </div>
         <aside className="min-w-0 animate-fade-in-up space-y-3">
           {course.sections?.map((s: any) => (
@@ -321,7 +321,7 @@ function StructureTree({ diff }: { diff: RevisionDiff }) {
               <div className="min-w-0">
                 <p className={`break-words text-sm font-semibold text-foreground ${s.marker === '−' ? 'line-through opacity-70' : ''}`}>{s.title}</p>
                 {s.titleBefore && <p className="break-words text-xs text-gray-500">was “{s.titleBefore}”</p>}
-                {s.note && <p className="text-xs font-medium text-amber-600 dark:text-amber-400">{s.note}</p>}
+                {s.note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{s.note}</p>}
               </div>
             </div>
             {s.lessons.length > 0 && (
@@ -463,7 +463,7 @@ function ReviewPlayer({
         )}
       </div>
       {error && (
-        <p role="alert" className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+        <p role="alert" className="mt-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
           {error}
         </p>
       )}

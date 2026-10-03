@@ -279,7 +279,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
     return (
       <div className="page-shell max-w-2xl space-y-4">
         {result ? (
-          <div className={`card border-2 ${terminated ? 'border-red-300 bg-red-50' : result.passed ? 'border-green-300 bg-green-50' : 'border-amber-300'}`}>
+          <div className={`card border-2 ${terminated ? 'border-red-300 bg-red-50' : result.passed ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/40' : 'border-amber-300 dark:border-amber-700'}`}>
             {terminated ? (
               <>
                 <h1 className="text-xl font-bold text-red-800">🚫 Exam ended by proctoring</h1>
@@ -289,7 +289,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
               <>
                 <h1 className="text-xl font-bold">{result.passed ? '🎉 Passed' : 'Not passed yet'}</h1>
                 <p className="mt-1 text-3xl font-bold">{result.score}%</p>
-                {result.flagged && <p className="mt-1 text-sm text-amber-700">⚠️ This attempt has proctoring flags — see the report below.</p>}
+                {result.flagged && <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">⚠️ This attempt has proctoring flags — see the report below.</p>}
               </>
             )}
           </div>
@@ -430,7 +430,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
       {proctored && (
         <div className="fixed bottom-4 right-4 z-30 overflow-hidden rounded-xl border-2 border-white shadow-lg">
           <video ref={setVideoEl} muted playsInline className="h-24 w-32 bg-gray-900 object-cover" />
-          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-xs font-semibold text-white ${proctorStatus.faces === 1 ? 'bg-green-600' : 'bg-red-600'}`}>
+          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-xs font-semibold text-white ${proctorStatus.faces === 1 ? 'bg-green-700' : 'bg-red-600'}`}>
             {proctorStatus.faceModel !== 'ready' ? 'REC' : proctorStatus.faces === 1 ? '● OK' : proctorStatus.faces === 0 ? '● NO FACE' : `● ${proctorStatus.faces} FACES`}
           </div>
         </div>

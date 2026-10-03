@@ -37,7 +37,7 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
               <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-500">
                 <BadgeCheck className="h-8 w-8" />
               </span>
-              <h1 className="text-2xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400">Valid certificate</h1>
+              <h1 className="text-2xl font-extrabold tracking-tight text-emerald-700 dark:text-emerald-400">Valid certificate</h1>
               <dl className="mt-8 space-y-4 text-left">
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-wider text-gray-500">Learner</dt>
