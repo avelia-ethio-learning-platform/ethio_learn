@@ -138,3 +138,24 @@ describe('Admin payments: record a bank transfer', () => {
     await waitFor(() => expect(alertFn).toHaveBeenCalledWith(message));
   });
 });
+
+describe('Admin refunds: decide', () => {
+  it('shows a refused approval through alert()', async () => {
+    const message = 'This payment has already been paid out to the educator. Contact support from Help to request a refund.';
+    const alertFn = stubDialog('alert', null);
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/refunds/pending') return [{ id: 'r1', reason: 'Not what I expected' }];
+      if (path === '/refunds/r1/decide') throw new ApiError(400, message);
+      return {};
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AdminPage />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Refunds' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'approve' }));
+    await waitFor(() => expect(alertFn).toHaveBeenCalledWith(message));
+    expect(apiMock).toHaveBeenCalledWith('/refunds/r1/decide', { method: 'POST', body: { action: 'approve' } });
+  });
+});

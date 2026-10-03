@@ -275,8 +275,12 @@ function RefundsTab() {
   const queryClient = useQueryClient();
   const { data: refunds } = useQuery({ queryKey: ['admin-refunds'], queryFn: () => api<any[]>('/refunds/pending') });
   const decide = async (id: string, action: 'approve' | 'deny') => {
-    await api(`/refunds/${id}/decide`, { method: 'POST', body: { action } });
-    queryClient.invalidateQueries({ queryKey: ['admin-refunds'] });
+    try {
+      await api(`/refunds/${id}/decide`, { method: 'POST', body: { action } });
+      queryClient.invalidateQueries({ queryKey: ['admin-refunds'] });
+    } catch (err) {
+      alert((err as Error).message);
+    }
   };
   return (
     <div className="card">
