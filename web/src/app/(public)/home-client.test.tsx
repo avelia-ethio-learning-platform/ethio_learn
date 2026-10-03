@@ -31,4 +31,9 @@ describe('home hero', () => {
     const hero = serverHome().querySelector('section')!;
     expect(hero.querySelectorAll('.animate-in')).toHaveLength(1);
   });
+
+  it('names the hero search input for screen readers', () => {
+    const input = serverHome().querySelector('section form input[name="q"]')!;
+    expect(input.getAttribute('aria-label')).toBeTruthy();
+  });
 });

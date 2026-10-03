@@ -120,6 +120,7 @@ export function HomeClient({
                   <Search className="ml-2 h-5 w-5 shrink-0 text-blue-100" />
                   <input
                     name="q"
+                    aria-label={t('search_placeholder')}
                     placeholder={t('search_placeholder')}
                     className="w-full bg-transparent text-sm text-white outline-none placeholder:text-blue-200/80"
                   />

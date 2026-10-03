@@ -434,7 +434,7 @@ function ReviewBox({ courseId, progressPercent }: { courseId: string; progressPe
           </button>
         ))}
       </div>
-      <textarea className="input mt-3" rows={3} placeholder="Optional comment" value={comment} onChange={(e) => setComment(e.target.value)} />
+      <textarea className="input mt-3" rows={3} aria-label="Review comment (optional)" placeholder="Optional comment" value={comment} onChange={(e) => setComment(e.target.value)} />
       <button
         className="btn mt-3"
         onClick={async () => {

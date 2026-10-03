@@ -97,7 +97,7 @@ export function TutorPanel({ courseId }: { courseId: string }) {
             <div ref={endRef} />
           </div>
           <form onSubmit={ask} className="mt-3 flex gap-2">
-            <input className="input flex-1" placeholder="Ask a question about this course…" value={question} onChange={(e) => setQuestion(e.target.value)} maxLength={1500} />
+            <input className="input flex-1" aria-label="Ask a question about this course" placeholder="Ask a question about this course…" value={question} onChange={(e) => setQuestion(e.target.value)} maxLength={1500} />
             <button className="btn !px-4" disabled={busy || !question.trim()} aria-label="Send">
               <Send className="h-4 w-4" />
             </button>
