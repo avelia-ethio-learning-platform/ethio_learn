@@ -4,7 +4,7 @@ import { BulkPurchase, Coupon, Payment, Referral, ReferralCode, Sponsorship, Wal
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
 import { SponsorshipService } from './sponsorship.service';
-import { fakeDb, Row } from './testing/fake-db';
+import { fakeDb, fakeOutbox, Row } from './testing/fake-db';
 
 const ACCOUNTS: Record<string, { id: string; name: string; email: string; role: string }> = {
   'sister@x.et': { id: 'sister', name: 'Sister', email: 'sister@x.et', role: 'learner' },
@@ -46,7 +46,8 @@ function setup() {
     internal as never,
   );
   const payments = new PaymentService(db.repo(Payment) as never, chapa as never, bus as never, internal as never, growth, db.dataSource as never);
-  const sponsorships = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, payments, bus as never, internal as never);
+  const { outbox, committed, onEmit } = fakeOutbox(db.dataSource);
+  const sponsorships = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, payments, bus as never, internal as never, outbox as never);
   sponsorships.onModuleInit();
 
   const old = new Date(Date.now() - 5 * 60_000);
@@ -93,7 +94,7 @@ function setup() {
   };
   const events = (type: string) => bus.publishConfirmed.mock.calls.filter(([t]) => t === type);
   const payment = (id = 'pay-1') => db.repo(Payment).rows.find((p) => p.id === id)!;
-  return { db, bus, chapa, internal, payments, sponsorships, confirmedPayment, sponsorship, events, payment };
+  return { db, bus, chapa, internal, payments, sponsorships, confirmedPayment, sponsorship, events, payment, outbox, committed, onEmit };
 }
 
 describe('Sponsored payments: access events follow the sponsorship (P0-05)', () => {
@@ -425,5 +426,60 @@ describe('Pay requests: a stale call never overwrites a paid request (P2-47)', (
     t.row().status = 'granted';
     await expect(t.sponsorships.payRequest(PAYER_B, 'TOKEN', {})).rejects.toThrow('This request has already been paid');
     expect(t.db.repo(Payment).rows).toEqual([]);
+  });
+});
+
+describe('Seat claims commit with their events (9b outbox)', () => {
+  const signup = (t: ReturnType<typeof setup>) => {
+    const [, handler] = t.bus.subscribe.mock.calls.find(([type]) => type === 'UserRegistered')!;
+    return (user_id: string, email: string) => handler({ user_id, email });
+  };
+
+  it('a signup claims its waiting seat with SponsorshipGranted; a failure before commit leaves the seat waiting and the redelivery claims it once', async () => {
+    const t = setup();
+    t.sponsorship({ status: 'pending_claim', recipient_email: 'new@x.et' });
+    t.onEmit.mockImplementationOnce(() => {
+      throw new Error('outbox insert failed');
+    });
+
+    await expect(signup(t)('u-new', 'New@x.et')).rejects.toThrow('outbox insert failed');
+    expect(t.db.repo(Sponsorship).rows[0]).toMatchObject({ status: 'pending_claim', recipient_user_id: null, granted_at: null });
+    expect(t.committed).toEqual([]);
+
+    await signup(t)('u-new', 'New@x.et');
+    await signup(t)('u-new', 'New@x.et');
+    expect(t.db.repo(Sponsorship).rows[0]).toMatchObject({ status: 'granted', recipient_user_id: 'u-new' });
+    expect(t.committed).toEqual([['SponsorshipGranted', expect.objectContaining({ sponsorship_id: 'sp-1', recipient_user_id: 'u-new' })]]);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it("the dashboard's claim racing the signup's grants and announces the seat once", async () => {
+    const t = setup();
+    t.sponsorship({ status: 'pending_claim', recipient_email: 'new@x.et' });
+    const [a, b] = await Promise.all([signup(t)('u-new', 'new@x.et'), t.sponsorships.claimMine({ id: 'u-new', email: 'new@x.et' } as never)]);
+    expect([a, b]).toEqual([undefined, expect.objectContaining({ claimed: expect.any(Number) })]);
+    expect(t.committed.filter(([type]) => type === 'SponsorshipGranted')).toHaveLength(1);
+  });
+
+  it('an assigned bulk seat commits with its SponsorshipGranted or SponsorshipInvited; a failure leaves no seat', async () => {
+    const t = setup();
+    t.db.repo(BulkPurchase).rows.push({ id: 'bp-1', buyer_id: 'buyer', organization_name: 'Org', course_id: 'c1', course_title: 'Course', seats: 5, status: 'active' });
+    const buyer = { id: 'buyer', role: 'institution_admin', email: 'buyer@x.et' } as never;
+    t.onEmit.mockImplementationOnce(() => {
+      throw new Error('outbox insert failed');
+    });
+    await expect(t.sponsorships.assignSeats(buyer, 'bp-1', ['stranger@x.et'])).rejects.toThrow('outbox insert failed');
+    expect(t.db.repo(Sponsorship).rows).toHaveLength(0);
+    expect(t.committed).toEqual([]);
+
+    await expect(t.sponsorships.assignSeats(buyer, 'bp-1', ['stranger@x.et', 'sister@x.et'])).resolves.toMatchObject({
+      results: [
+        { email: 'stranger@x.et', status: 'invited' },
+        { email: 'sister@x.et', status: 'granted' },
+      ],
+    });
+    expect(t.db.repo(Sponsorship).rows.map((s) => s.status)).toEqual(['pending_claim', 'granted']);
+    expect(t.committed.map(([type]) => type)).toEqual(['SponsorshipInvited', 'SponsorshipGranted']);
+    expect(t.bus.publish).not.toHaveBeenCalled();
   });
 });

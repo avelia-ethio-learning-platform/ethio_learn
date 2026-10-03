@@ -1,7 +1,7 @@
 import { HttpStatus } from '@nestjs/common';
 import { BulkPurchase, Sponsorship } from './entities';
 import { SponsorshipService } from './sponsorship.service';
-import { fakeDb } from './testing/fake-db';
+import { fakeDb, fakeOutbox } from './testing/fake-db';
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000);
 const ME = { id: 'me', role: 'learner', email: 'me@x.et' } as never;
@@ -22,7 +22,7 @@ function setup() {
     createSession: jest.fn(async () => ({ confirmed: false, payment_id: 'pay-1', checkout_url: 'https://pay.example/x' })),
     onPurposeConfirmed: jest.fn(),
   };
-  const svc = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, payments as never, bus as never, internal as never);
+  const svc = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, payments as never, bus as never, internal as never, fakeOutbox(db.dataSource).outbox as never);
   const rows = () => db.repo(Sponsorship).rows;
   const published = () => bus.publish.mock.calls.filter((c: unknown[]) => c[0] === 'PayRequestCreated');
   const payRequest = (over: Record<string, unknown> = {}) => ({
