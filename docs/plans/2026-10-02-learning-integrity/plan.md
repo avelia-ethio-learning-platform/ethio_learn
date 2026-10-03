@@ -236,7 +236,50 @@ Production steps belong to the user, or to a session only on the user's explicit
 1. **Before merge (read-only):**
    - `SELECT count(*) FROM enrollment.video_progress`, to size the backfill;
    - the number of video lessons, all of which start without a measured duration and fall back to client durations: `SELECT count(*) FROM course.lessons WHERE video_s3_key IS NOT NULL`. A re-upload measures the duration;
-   - the number of viva and project learners already at 3 or more finished attempts, who will hit the new default limit.
+   - **viva and project learners the new limits would block** (planner ruling P-2). Assessments can't be edited in the app, so the count runs read-only before the merge, and the fix is the UPDATE below. The count lists each affected assessment with the number of blocked learners and the most attempts any of them has used:
+     ```sql
+     -- Read-only. Viva and project assessments where a learner who hasn't passed has
+     -- already used the attempts the new limit allows (default 3 when unset).
+     SELECT a.id AS assessment_id, a.type, a.course_id, a.is_required,
+            count(*) AS learners_blocked, max(t.finished) AS max_finished
+     FROM outcomes.assessments a
+     JOIN (
+       SELECT assessment_id, learner_id, count(*) AS finished, coalesce(bool_or(passed), false) AS passed
+       FROM outcomes.assessment_attempts
+       WHERE submitted_at IS NOT NULL
+       GROUP BY assessment_id, learner_id
+     ) t ON t.assessment_id = a.id
+     WHERE a.type IN ('ai_viva', 'project')
+       AND NOT t.passed
+       AND t.finished >= coalesce((a.config->>'max_attempts')::int, 3)
+     GROUP BY a.id, a.type, a.course_id, a.is_required
+     ORDER BY learners_blocked DESC;
+     ```
+1a. **Only if that count returned rows,** and before the merge: the user runs this UPDATE with the listed `assessment_id` values. It raises `max_attempts` on those assessments to one more than the most finished attempts any blocked learner has used, capped at 20, and keeps the rest of `config`. Re-running the count afterwards returns no rows.
+     ```sql
+     -- Only if the count above returned rows: give each listed assessment one attempt
+     -- more than the most any learner who hasn't passed has used (capped at the app's
+     -- maximum of 20). Replace the ids with the assessment_id values the count returned.
+     BEGIN;
+     UPDATE outcomes.assessments a
+     SET config = a.config || jsonb_build_object('max_attempts', least(20, f.max_finished + 1))
+     FROM (
+       SELECT assessment_id, max(finished) AS max_finished
+       FROM (SELECT assessment_id, learner_id, count(*) AS finished, coalesce(bool_or(passed), false) AS passed
+             FROM outcomes.assessment_attempts WHERE submitted_at IS NOT NULL
+             GROUP BY assessment_id, learner_id) per_learner
+       WHERE NOT passed
+       GROUP BY assessment_id
+     ) f
+     WHERE a.id = f.assessment_id
+       AND a.type IN ('ai_viva', 'project')
+       AND a.id IN ('<assessment_id>', '<assessment_id>')
+     RETURNING a.id, a.type, a.config->>'max_attempts' AS max_attempts;
+     COMMIT;
+     ```
+     Both queries were tested on a scratch database:
+     - The count listed exactly the blocked learners. It excluded a learner who had passed, quiz attempts, an assessment with its own `max_attempts`, and learners under the limit. A project awaiting review counts as not passed.
+     - The UPDATE raised the listed assessments: one with 4 finished attempts went to 5, one with 3 went to 4. Their other config keys were kept, and the count then returned no rows.
 2. Push and open the PR only when it can be merged and deployed the same day.
 3. **After deploy:**
    - a test learner's early 100% heartbeat doesn't complete the lesson;
@@ -247,7 +290,7 @@ Production steps belong to the user, or to a session only on the user's explicit
 ## Risks and open questions
 - **Lessons without a measured duration,** which at deploy means every existing video lesson, remain weakly protected: a client can claim a short duration and wait 45% of it. Step 1 of the rollout sizes this. New uploads always record a duration, and a re-upload fixes an old lesson. Rejected: using the editor's minutes as a floor (round-1 B1), because they overstate the length and would block honest learners.
 - **A learner whose first heartbeat was queued** gets `started_at` at replay time. That happens on a dropped connection, and also, since Phase 5, while a sleeping enrollment service answers with a hibernation 429 (drift D4). On the free tier that is common, and it hits short videos hardest. If the learner reaches the end before enough time has passed, `/complete` returns 409 with `retry_after_seconds`, and the web retries once after that wait. They don't have to rewatch. `/complete` on a video lesson is never queued, so a refusal is never dropped silently.
-- **New default limits on viva and project** may stop a few learners mid-course. The educator can raise them in the form, and rollout step 1 counts the affected learners.
+- **New default limits on viva and project** may stop a few learners mid-course. Assessments can't be edited in the app (there is no update endpoint), so pre-6b viva and project assessments get the defaults at deploy. Rollout step 1 counts the learners this blocks. If there are any, step 1a raises those assessments' limits before the merge (planner ruling P-2).
 
 ## Progress and deviations (implementer)
 
@@ -293,6 +336,7 @@ Deviations and rulings (the plan left these open, or the review surfaced them):
   - No upload URL is ever issued without a declared size.
   - An invalid size gives 400 `Invalid file size.`; above the cap it gives `Project files can be up to 50 MB.`.
   - Why: under D7 the brief only arrived after a file was chosen.
+- **Planner ruling P-2 (rollout):** the new viva and project limits can't be raised in the app, so rollout step 1 counts the learners they would block before the merge, and step 1a gives the user a tested UPDATE for those assessments if the count isn't zero. Rejected: no limit for pre-6b viva and project assessments, because every existing viva would stay unlimited and each viva start is a Groq call (half of P1-09).
 - **e2e-smoke and the refusal:** the refusal assertions (an early 100% claim is not completed; `/complete` answers 409 with `retry_after_seconds`) live in `e2e-learning.mjs`, which uses a fresh learner and its own course each run. The smoke reuses the demo learner, whose seeded lesson is already complete, and a rerun after the time window would pass an early claim. The smoke's video checks now fit a measured 2 s lesson.
 - **`e2e-learning.mjs` builds its own free course per run,** created as a draft and then approved. The course has:
   - an uploaded stand-in video lesson measured at 600 s;
