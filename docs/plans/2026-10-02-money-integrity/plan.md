@@ -250,11 +250,11 @@ Financial migrations, timestamps after 6a's, registered in `migrations/index.ts`
     - an unknown learner → 404;
     - a concurrent double insert → one payment.
   - Phase 4 spec that breaks by design (D2): `payment.service.spec.ts`'s bank-transfer case records a transfer with no `bank_reference`, and its fake client must now answer the users and entitlements lookups. Give it a reference and those answers.
-- [ ] 7. Contract and copy (decision 7):
+- [x] 7. Contract and copy (decision 7):
   - `GET /wallet` fields; admin stats; `WalletCredited.available_at` and the notification text;
   - web `WalletCard` pending line and row labels; admin liability card.
   - vitest for `WalletCard` pending and void rendering.
-- [ ] 7b. (A1–A3) Decisions 9–11, with fake-db unit tests:
+- [x] 7b. (A1–A3) Decisions 9–11, with fake-db unit tests:
   - **A1** (round-3 S3: the claim comes before `learnerInfo`, so the race splits in two):
     - the row turns `confirmed` while `ownsCourse` is awaited, before the claim → the claim affects 0 rows, nothing is published, and the row stays `confirmed`;
     - the row turns `confirmed` after the claim (while `learnerInfo` is awaited) → it stays `confirmed`; the late reminder is accepted;
@@ -339,6 +339,20 @@ Branch `fix/money-integrity`, created from `fix/security-platform` @ `e2c4014` (
   - **Ruling R2:** check 3 tells 404 from 503 by InternalHttpClient's `-> 404` message suffix. ethio-planner added this call site to 9c decision 2, where `PeerNotFoundError` replaces the match.
   - api: 1076 tests pass, web: 381. 12 mutation checks were caught.
 - **Merge (ruling R3):** 7a (PR #25) landed after the first merge, so `origin/main` is merged again as `c2798c7`, before step 7's web work. `admin/page.tsx` auto-merged and no api files changed. After installing web deps (7a added `@axe-core/playwright`), web typecheck is clean and 478 tests pass.
+- **Step 7 (`4c78ab0` api, `508e26f` web):**
+  - `GET /wallet` returns `pending_etb` (an SQL sum over all the owner's pending rows, open-refund rows included) and per-row `state` and `available_at`. Admin stats add `pending_rewards_etb` and leave `void` rows out of `by_kind`.
+  - `WalletCredited.available_at` is set only for pending credits. The notification title for one reads "{amount} ETB cashback, available on {date}" (or "referral reward"). The body says when the credit moves to the balance and no longer says "spend it". Other credits keep today's copy. The notification service had no date helper, so it uses `en-GB` in `Africa/Addis_Ababa`. The web uses `formatDate`.
+  - `WalletCard` moved to `dashboard/wallet-card.tsx` so vitest can import it (a Next page file can't export it). It shows "+{n} ETB pending" only when there is some, "Available {date}" on pending rows and "Refunded" on void rows. The admin page gets a separate "Pending rewards" tile beside "Wallet liability".
+  - api: 1081 tests pass. web: 481 tests pass.
+- **Step 7b (`a13f9e8` A1, `8bdc153` A2, `aecfe51` A3):**
+  - A1: one conditional claim (`status = pending`, `nudged_at IS NULL`) after `ownsCourse` and before `learnerInfo`. A reminder goes out only when `affected === 1`.
+  - A2: a second `find` for failed Chapa rows with a checkout URL (24 h window, newest first, 10 rows). The sweep runs one loop over pending rows, then failed rows. There is no guard against confirming superseded rows.
+  - A3: a gift undo is `delete({ id, status: 'pending_payment' })`. A pay request is reset with decision 11's predicate. On an undo failure the error is logged and the original error rethrown.
+  - Tests: the race tests fire a signed webhook from inside the job's own internal call. api: 1099 tests pass, RED first, and 8 guard mutations were each caught.
+  - **Deviation (ruling P1):** bulk orders get the same undo, `bulk.delete({ id, status: 'pending_payment' })`.
+  - **Deviation (ruling R4):** the gift and bulk deletes are conditional on `pending_payment`, not by id alone. A confirmation that already granted the row keeps it.
+  - **Deviation (ruling R5):** the pay-request undo writes `sponsor_name: ''`, not `null`. The column is `NOT NULL DEFAULT ''`.
+  - R15 was confirmed on the branch before the step started. `reconcile` is unchanged.
 - **Deferred minors from the task reviews:** in the SDD ledger, for the final review to triage. They are test-pinning gaps, the payee listing including marked-only payees, bank-transfer refusals not logged with the admin id, and different references for one (learner, course) not being serialized.
 
 ### In flight / next step (checkpoint 1, 2026-10-03)
