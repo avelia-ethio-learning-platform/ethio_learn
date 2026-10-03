@@ -346,8 +346,43 @@ Deviations and rulings (the plan left these open, or the review surfaced them):
 
   This way the script doesn't depend on demo-seed's best-effort sample-video download.
 
-Gate: not run yet (step 9). Each task ran `pnpm -C api build`, `typecheck` and `test` (the last api run: 64 suites, 1202 tests) or `pnpm -C web typecheck` and `test` (55 files, 488 tests).
+- **Final whole-branch review fixes** (e32c3d3, d6d7f5e, f199e6f, 59c87dc):
+  - A proctor event no longer saves the whole attempt. It writes only `proctor_log`, `flagged` and `terminated` with a conditional update on `submitted_at IS NULL`, so an event in flight during a submit can't reopen the submitted attempt. When the attempt was submitted meanwhile, it answers the existing 400.
+  - The first `video_progress` insert re-reads once on a unique violation. Simultaneous `pause`/`ended` heartbeats and `/complete` no longer 500.
+  - `video_duration_seconds` is capped at 86,400.
+  - Deleting an oversized project file logs a warning.
+  - Project submit goes to the attempt the file was uploaded to.
+- **e2e-payments now watches its seeded lessons through** (c9acd17). The plan's script list missed it: its refund-band setup completed seeded video lessons with a plain `/complete`. The same commit gives e2e-learning's course a thumbnail, which submit requires. It also makes the smoke check the enrollment demo-seed completed, because e2e-revisions enrols the demo learner in a newer course first.
+- **Accepted residuals** (final review):
+  - An open attempt that predates 6b and is newer than a finished attempt can still be resumed once.
+  - Two proctor events at the same moment can drop one log entry. That was already true before 6b.
+  - "Mark complete" clicks while a retry is pending do nothing, by design.
+  - A project upload URL stays valid for 15 minutes after submit. That is outside P1-10's size scope and a follow-up candidate.
+
+Gate (step 9):
+- **Run 1 (f40b386):**
+  - Passed:
+    - api build, typecheck and tests (1230);
+    - web typecheck and tests (586);
+    - `db:check` clean for all 7 services;
+    - the resend-verification spec on real Postgres;
+    - demo-seed, e2e-revisions, e2e-institution and e2e-security;
+    - the web build;
+    - Playwright (96 passed);
+    - all 9 images.
+  - Failed, all fixed in c9acd17: e2e-payments, e2e-learning and one smoke check.
+- **After the fixes,** against the run-1 stack: e2e-learning 12/12, e2e-payments 42/42, smoke 17/17. api tests 1234, web tests 587.
+- **Run 2 (c9acd17):** in progress.
 
 ### In flight / next step
-- Step 9 gate running on f40b386, alongside the final whole-branch review. Then the fix wave if needed, then code review round 1 with ethio-reviewer (base: origin/main ff1d89e).
-- Phase 6d (`2026-10-03-sponsor-refund-integrity`) is queued to start once 6b's code review is APPROVED.
+- **Gate run 2** is running on c9acd17 (fresh el_e2e stack). Its log is `full-gate-2.out` in ethio-impl's session scratchpad; the runner scripts are in the same folder.
+  - So far: api build, typecheck and tests (1234) pass; web typecheck passes.
+- **If it's green:**
+  1. Tick step 9 with the results.
+  2. Ask ethio-reviewer for code review round 1: branch `fix/learning-integrity`, base origin/main ff1d89e, plan here.
+- **If anything fails:** fix it, re-run the affected part, then go to review.
+- **Pre-merge (rollout step 1):** done by the user. No learners are blocked, so step 1a isn't needed.
+- **Next phase:** 6d (`2026-10-03-sponsor-refund-integrity`) is queued after 6b's code review is APPROVED.
+- **For the user's 6b summary:**
+  - The 3 existing video lessons stay unmeasured until their videos are re-uploaded, so P1-04 fully covers them only after that.
+  - Project-file overwrite after submit is a follow-up candidate.
