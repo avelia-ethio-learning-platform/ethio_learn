@@ -344,4 +344,4 @@ Commits on `fix/event-delivery` (base `03fd049`): `3c6f164` plan docs · `ccef60
   3. Drop the scratch DBs `el_9a_gen` and `el_9a_e2e`.
   4. Merge origin/main again if it moved.
   5. Commit, then message ethio-reviewer: "Ready for code review (round 1): branch fix/event-delivery, base 03fd049 (origin/main), plan docs/plans/2026-10-02-event-delivery/plan.md".
-- After APPROVED: don't push. Tell ethio-planner [59d14c], who sends the 9b handoff (9a and 9b ship together).
+- After APPROVED: don't push. Tell ethio-planner [aeff2b] ([59d14c] is gone), who sends the 9b handoff (9a and 9b ship together).
