@@ -299,12 +299,38 @@ describe('startAttempt(): the open attempt is reused for every type', () => {
 describe('startAttempt(): project file size', () => {
   const cap = 50 * 1024 * 1024;
 
-  it.each([undefined, {}, { file_size: 0 }, { file_size: 1.5 }])('refuses a start without a usable file size (%j)', async (body) => {
+  it.each([undefined, {}])('a start without a file size opens the attempt with no upload URL and no storage call (%j)', async (body) => {
+    const { svc, attempts, storage } = harness(AssessmentType.PROJECT, { instructions: 'Map a plot' });
+    const res: any = await svc.startAttempt(learner, 'as1', body as never);
+    expect(attempts.inserted).toHaveLength(1);
+    expect(res).toEqual({
+      attempt_id: attempts.inserted[0].id,
+      type: AssessmentType.PROJECT,
+      instructions: 'Map a plot',
+      file_key: attempts.inserted[0].detail.file_key,
+      max_bytes: cap,
+    });
+    expect(res).not.toHaveProperty('upload_url');
+    expect(storage.getSignedUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it('a reused attempt started without a size, then with one, gets its URL on the second call', async () => {
+    const { svc, storage } = harness(AssessmentType.PROJECT, {}, [{ id: 'open-1', detail: { file_key: 'projects/l1/k' } }]);
+    const first: any = await svc.startAttempt(learner, 'as1');
+    expect(first).toMatchObject({ attempt_id: 'open-1', file_key: 'projects/l1/k' });
+    expect(first.upload_url).toBeUndefined();
+    const second: any = await svc.startAttempt(learner, 'as1', { file_size: 77 });
+    expect(second.upload_url).toBe('https://r2/put/projects/l1/k');
+    expect(storage.getSignedUploadUrl).toHaveBeenCalledTimes(1);
+    expect(storage.getSignedUploadUrl).toHaveBeenCalledWith('projects/l1/k', 'application/octet-stream', 900, 77);
+  });
+
+  it.each([0, -1, 1.5, '12'])('refuses an invalid size (%j)', async (file_size) => {
     const { svc, attempts, storage } = harness(AssessmentType.PROJECT, {});
-    const err = await svc.startAttempt(learner, 'as1', body as never).catch((e) => e);
+    const err = await svc.startAttempt(learner, 'as1', { file_size } as never).catch((e) => e);
     expect(err).toBeInstanceOf(BadRequestException);
-    expect(err.message).toBe('Choose your project file first.');
-    expect(attempts.inserted).toHaveLength(0);
+    expect(err.message).toBe('Invalid file size.');
+    expect(attempts.manager.transaction).not.toHaveBeenCalled();
     expect(storage.getSignedUploadUrl).not.toHaveBeenCalled();
   });
 

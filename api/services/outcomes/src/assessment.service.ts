@@ -333,9 +333,10 @@ export class AssessmentService implements OnModuleInit {
     if (assessment.state === 'pending') throw new NotFoundException('Assessment not available yet');
     // A project upload is signed for its declared size, so a bad size costs nothing: no lock, no row.
     const fileSize = body?.file_size;
-    if (assessment.type === AssessmentType.PROJECT) {
-      if (!Number.isInteger(fileSize) || (fileSize as number) < 1) throw new BadRequestException('Choose your project file first.');
-      if ((fileSize as number) > PROJECT_MAX_BYTES) throw new BadRequestException('Project files can be up to 50 MB.');
+    // Without a size the attempt is opened but no URL is issued, so a URL never exists unsized.
+    if (assessment.type === AssessmentType.PROJECT && fileSize !== undefined) {
+      if (!Number.isInteger(fileSize) || fileSize < 1) throw new BadRequestException('Invalid file size.');
+      if (fileSize > PROJECT_MAX_BYTES) throw new BadRequestException('Project files can be up to 50 MB.');
     }
     const entitlement = await this.entitlement(ctx.id, assessment.course_id);
     const isQuiz = assessment.type === AssessmentType.QUIZ;
@@ -450,12 +451,12 @@ export class AssessmentService implements OnModuleInit {
 
     // project: hand back a signed upload URL for the attempt's key (max 50MB, spec §10.1)
     const key: string = started.detail.file_key;
-    const upload = await this.storage.getSignedUploadUrl(key, 'application/octet-stream', 900, fileSize);
+    const upload = fileSize === undefined ? null : await this.storage.getSignedUploadUrl(key, 'application/octet-stream', 900, fileSize);
     return {
       attempt_id: started.id,
       type: assessment.type,
       instructions: assessment.config.instructions ?? '',
-      upload_url: upload.url,
+      ...(upload ? { upload_url: upload.url } : {}),
       file_key: key,
       max_bytes: PROJECT_MAX_BYTES,
     };
