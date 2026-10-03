@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   HttpException,
   Injectable,
@@ -468,7 +469,7 @@ export class AssessmentService implements OnModuleInit {
     const attempt = await this.attempts.findOne({ where: { id: attemptId } });
     if (!attempt) throw new NotFoundException('Attempt not found');
     if (attempt.learner_id !== ctx.id) throw new ForbiddenException('Not your attempt');
-    if (attempt.submitted_at) throw new BadRequestException('Attempt already submitted');
+    if (attempt.submitted_at) throw new ConflictException('Attempt already submitted.');
     const assessment = await this.assessmentOrThrow(attempt.assessment_id);
 
     if (assessment.type === AssessmentType.QUIZ) {
@@ -492,23 +493,45 @@ export class AssessmentService implements OnModuleInit {
       attempt.passed = null;
     }
 
+    // Claim the result: only one of several concurrent submits updates the row.
+    // Everything grading changed is written here, and nothing else.
     attempt.submitted_at = new Date();
-    await this.attempts.save(attempt);
+    const { affected } = await this.attempts
+      .createQueryBuilder()
+      .update()
+      .set({ submitted_at: attempt.submitted_at, score: attempt.score, passed: attempt.passed, terminated: attempt.terminated, detail: attempt.detail })
+      .where('id = :id', { id: attempt.id })
+      .andWhere('submitted_at IS NULL')
+      .execute();
+    if (!affected) throw new ConflictException('Attempt already submitted.');
 
     if (attempt.passed !== null) {
       await this.publishResult(assessment, attempt, ctx.email);
     }
+    const showBreakdown = await this.mayShowBreakdown(assessment, attempt);
     return {
       attempt_id: attempt.id,
       score: attempt.score,
       passed: attempt.passed,
       feedback: attempt.detail.feedback,
       pending_review: assessment.type === AssessmentType.PROJECT,
-      breakdown: attempt.detail.breakdown,
+      ...(showBreakdown ? { breakdown: attempt.detail.breakdown } : {}),
       flagged: attempt.flagged,
       terminated: attempt.terminated,
       termination_reason: attempt.detail.termination_reason,
     };
+  }
+
+  /**
+   * Per-question results go to the learner only once they have passed or used
+   * every attempt (this one counts), so retries cannot be used to mine the key.
+   */
+  private async mayShowBreakdown(assessment: Assessment, attempt: AssessmentAttempt): Promise<boolean> {
+    if (attempt.passed === true) return true;
+    const finished = await this.attempts.count({
+      where: { assessment_id: attempt.assessment_id, learner_id: attempt.learner_id, submitted_at: Not(IsNull()) },
+    });
+    return finished >= attemptLimits(assessment.config).max_attempts;
   }
 
   /** Grade a mixed MCQ + written quiz. Written answers are scored by the AI grader. */
@@ -626,7 +649,7 @@ export class AssessmentService implements OnModuleInit {
     const attempt = await this.attempts.findOne({ where: { id: attemptId } });
     if (!attempt) throw new NotFoundException('Attempt not found');
     if (attempt.learner_id !== ctx.id) throw new ForbiddenException('Not your attempt');
-    if (attempt.submitted_at) throw new BadRequestException('Attempt already submitted');
+    if (attempt.submitted_at) throw new ConflictException('Attempt already submitted.');
 
     const type = (PROCTOR_EVENT_TYPES as readonly string[]).includes(dto.type) ? dto.type : 'other';
 
@@ -699,7 +722,8 @@ export class AssessmentService implements OnModuleInit {
       submitted_at: attempt.submitted_at,
       warning_limit: PROCTOR_WARNING_LIMIT,
       events,
-      breakdown: attempt.detail?.breakdown ?? null,
+      // Staff always see it; the learner only once retries are used up or passed.
+      breakdown: attempt.learner_id !== ctx.id || (await this.mayShowBreakdown(assessment, attempt)) ? (attempt.detail?.breakdown ?? null) : null,
     };
   }
 

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { AssessmentType, Role } from '@ethiopialearn/contracts';
 import { AssessmentService } from './assessment.service';
 
@@ -21,12 +21,16 @@ function bankOf(n: number) {
 function harness(config: Record<string, unknown>, priorAttempts: Record<string, unknown>[] = []) {
   const assessment = { id: 'as1', course_id: 'c1', type: AssessmentType.QUIZ, pass_score: 50, config, is_required: true };
   const saved: Record<string, any>[] = [];
+  const updates: Record<string, any>[] = [];
+  const stored = () => [...saved, ...priorAttempts.filter((p) => !saved.includes(p))];
   const attempts = {
+    // Copies, like a real read: a concurrent submit has its own object.
     findOne: jest.fn(async ({ where }: any) => {
       if (where.submitted_at) return priorAttempts.find((a) => !a.submitted_at) ?? null;
-      if (where.id) return saved.find((a) => a.id === where.id) ?? priorAttempts.find((a) => a.id === where.id) ?? null;
-      return null;
+      const row = where.id ? saved.find((a) => a.id === where.id) ?? priorAttempts.find((a) => a.id === where.id) : null;
+      return row ? { ...row } : null;
     }),
+    count: jest.fn(async () => stored().filter((a) => a.submitted_at).length), // finished attempts of this learner and assessment
     find: jest.fn(async () => priorAttempts.filter((a) => a.submitted_at)), // startAttempt asks for finished attempts only
     save: jest.fn(async (a: any) => {
       if (!a.id) a.id = `att-${saved.length + 1}`;
@@ -35,7 +39,26 @@ function harness(config: Record<string, unknown>, priorAttempts: Record<string, 
       return a;
     }),
     create: jest.fn((a: any) => ({ proctor_log: [], flagged: false, terminated: false, ...a })),
-    createQueryBuilder: jest.fn(),
+    // The conditional update that records a result: it only hits a row whose predicate holds.
+    createQueryBuilder: jest.fn(() => {
+      const wheres: string[] = [];
+      const params: Record<string, any> = {};
+      let patch: Record<string, any> = {};
+      const qb = {
+        update: () => qb,
+        set: (p: Record<string, any>) => ((patch = p), qb),
+        where: (sql: string, p: Record<string, any> = {}) => (wheres.push(sql), Object.assign(params, p), qb),
+        andWhere: (sql: string, p: Record<string, any> = {}) => (wheres.push(sql), Object.assign(params, p), qb),
+        execute: async () => {
+          updates.push(patch);
+          const guarded = wheres.some((w) => /submitted_at\s+IS\s+NULL/i.test(w));
+          const hit = stored().filter((r) => r.id === params.id && (!guarded || !r.submitted_at));
+          hit.forEach((r) => Object.assign(r, patch));
+          return { affected: hit.length };
+        },
+      };
+      return qb;
+    }),
     // startAttempt runs in one transaction (the lock is exercised in assessment.start.spec.ts).
     manager: { transaction: jest.fn(async (work: (m: unknown) => unknown) => work({ query: jest.fn(async () => []), getRepository: () => attempts })) },
   };
@@ -44,7 +67,7 @@ function harness(config: Record<string, unknown>, priorAttempts: Record<string, 
   const internal = { get: jest.fn(async () => ({ entitlement_status: 'active', enrollment_id: 'en1', title: 'Course' })) };
   const storage = {};
   const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, storage as never);
-  return { svc, attempts, saved, bus };
+  return { svc, attempts, saved, bus, updates };
 }
 
 describe('quiz anti-cheat: per-attempt paper', () => {
@@ -127,5 +150,94 @@ describe('quiz anti-cheat: attempts and clock', () => {
     expect(paper.deadline_at).toBeInstanceOf(Date);
     expect(paper.seconds_left).toBeGreaterThan(590);
     expect(paper.seconds_left).toBeLessThanOrEqual(600);
+  });
+});
+
+describe('submitting an attempt', () => {
+  const open = (extra: Record<string, unknown> = {}) => ({
+    id: 'open-1', assessment_id: 'as1', learner_id: 'l1', enrollment_id: 'en1', submitted_at: null, passed: null, score: null, created_at: new Date(),
+    detail: { order: [0, 1], option_orders: [null, null] }, proctor_log: [], flagged: false, terminated: false, ...extra,
+  });
+  const done = (id: string, passed = false) => ({ id, assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), passed, created_at: new Date(), detail: {} });
+  const wrong = { responses: [{ index: 0, selected_index: 3 }, { index: 1, selected_index: 3 }] }; // bank answers are 0 and 1
+  const right = { responses: [{ index: 0, selected_index: 0 }, { index: 1, selected_index: 1 }] };
+
+  it('two concurrent submits of one attempt record and publish once, the loser gets 409', async () => {
+    const { svc, bus, saved } = harness({ questions: bankOf(2), shuffle: false }, [open()]);
+    const results = await Promise.allSettled([svc.submitAttempt(learner, 'open-1', right), svc.submitAttempt(learner, 'open-1', right)]);
+    const lost = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    expect(lost[0].reason).toBeInstanceOf(ConflictException);
+    expect(lost[0].reason.message).toBe('Attempt already submitted.');
+    expect(bus.publish).toHaveBeenCalledTimes(1);
+    expect(saved).toHaveLength(0); // recorded by the claim, not by a blind save
+  });
+
+  it('an attempt that is already submitted is a 409 and publishes nothing', async () => {
+    const { svc, bus } = harness({ questions: bankOf(2) }, [open({ submitted_at: new Date(), passed: true, score: 100 })]);
+    await expect(svc.submitAttempt(learner, 'open-1', right)).rejects.toThrow(new ConflictException('Attempt already submitted.'));
+    expect(bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('the claim writes everything grading changed, with the time it reports', async () => {
+    const late = open({ created_at: new Date(Date.now() - 40 * 60_000) });
+    const { svc, updates } = harness({ questions: bankOf(2), shuffle: false, time_limit_minutes: 30 }, [late]);
+    const result: any = await svc.submitAttempt(learner, 'open-1', right);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({ score: 100, passed: false, terminated: true });
+    expect(updates[0].submitted_at).toBeInstanceOf(Date);
+    expect(updates[0].detail).toMatchObject({ termination_reason: 'Submitted after the time limit' });
+    expect(updates[0].detail.breakdown).toHaveLength(2);
+    expect(result.terminated).toBe(true);
+  });
+
+  it('withholds breakdown on a failed attempt while retries remain', async () => {
+    const { svc, updates } = harness({ questions: bankOf(2), shuffle: false, max_attempts: 3 }, [open(), done('a')]);
+    const result: any = await svc.submitAttempt(learner, 'open-1', wrong);
+    expect(result).toMatchObject({ score: 0, passed: false });
+    expect(result).not.toHaveProperty('breakdown');
+    expect(updates[0].detail.breakdown).toHaveLength(2); // stored for the study coach
+  });
+
+  it('returns breakdown on a pass', async () => {
+    const { svc } = harness({ questions: bankOf(2), shuffle: false, max_attempts: 3 }, [open()]);
+    const result: any = await svc.submitAttempt(learner, 'open-1', right);
+    expect(result.passed).toBe(true);
+    expect(result.breakdown).toHaveLength(2);
+  });
+
+  it('returns breakdown on the last allowed failed attempt, counting this one', async () => {
+    const { svc } = harness({ questions: bankOf(2), shuffle: false, max_attempts: 2 }, [open(), done('a')]);
+    const result: any = await svc.submitAttempt(learner, 'open-1', wrong);
+    expect(result.passed).toBe(false);
+    expect(result.breakdown).toHaveLength(2);
+  });
+
+  it('applies the default of 3 attempts when the assessment sets none', async () => {
+    const { svc } = harness({ questions: bankOf(2), shuffle: false }, [open(), done('a'), done('b')]);
+    expect(await svc.submitAttempt(learner, 'open-1', wrong)).toHaveProperty('breakdown');
+  });
+});
+
+describe('proctor report breakdown', () => {
+  const scored = (extra: Record<string, unknown> = {}) => ({
+    id: 'att-1', assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), passed: false, score: 0, flagged: false, terminated: false,
+    created_at: new Date(), proctor_log: [], detail: { breakdown: [{ index: 0, kind: 'mcq', correct: false }] }, ...extra,
+  });
+  const done = (id: string) => ({ id, assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), passed: false, created_at: new Date(), detail: {} });
+  const staff = { id: 'qo1', role: Role.QUALITY_OFFICER, email: 'q@x.et' };
+
+  it('hides it from the learner while retries remain, but not from staff', async () => {
+    const { svc } = harness({ questions: bankOf(2), max_attempts: 3 }, [scored()]);
+    expect((await svc.proctorReport(learner, 'att-1')).breakdown).toBeNull();
+    expect((await svc.proctorReport(staff, 'att-1')).breakdown).toHaveLength(1);
+  });
+
+  it('shows it to the learner once passed or out of attempts', async () => {
+    const out = harness({ questions: bankOf(2), max_attempts: 2 }, [scored(), done('a')]);
+    expect((await out.svc.proctorReport(learner, 'att-1')).breakdown).toHaveLength(1);
+    const passed = harness({ questions: bankOf(2), max_attempts: 3 }, [scored({ passed: true, score: 100 })]);
+    expect((await passed.svc.proctorReport(learner, 'att-1')).breakdown).toHaveLength(1);
   });
 });

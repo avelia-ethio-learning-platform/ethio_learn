@@ -17,6 +17,8 @@ function matches(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, value]) => {
     if (value instanceof FindOperator) {
       if (value.type === 'lessThanOrEqual') return row[key] <= value.value;
+      if (value.type === 'not') return !matches({ v: row[key] }, { v: value.child });
+      if (value.type === 'isNull') return row[key] === null || row[key] === undefined;
       if (value.type === 'in') return (value.value as unknown as unknown[]).includes(row[key]);
       throw new Error(`fake repo: unsupported operator ${value.type}`);
     }
@@ -28,7 +30,11 @@ function fakeRepo(rows: Row[]) {
   return {
     rows,
     find: jest.fn(async ({ where }: { where: Row }) => rows.filter((r) => matches(r, where))),
-    findOne: jest.fn(async ({ where }: { where: Row }) => rows.find((r) => matches(r, where)) ?? null),
+    count: jest.fn(async ({ where }: { where: Row }) => rows.filter((r) => matches(r, where)).length),
+    findOne: jest.fn(async ({ where }: { where: Row }) => {
+      const row = rows.find((r) => matches(r, where));
+      return row ? { ...row } : null; // a read is a copy, as with a real database
+    }),
     create: jest.fn((r: Row) => ({ ...r })),
     save: jest.fn(async (r: Row) => {
       if (!r.id) {
@@ -41,6 +47,23 @@ function fakeRepo(rows: Row[]) {
       const hit = rows.filter((r) => matches(r, where));
       hit.forEach((r) => Object.assign(r, patch));
       return { affected: hit.length };
+    }),
+    // The conditional update that records a submission.
+    createQueryBuilder: jest.fn(() => {
+      let patch: Row = {};
+      let id: unknown;
+      const qb = {
+        update: () => qb,
+        set: (p: Row) => ((patch = p), qb),
+        where: (_sql: string, p: Row) => ((id = p.id), qb),
+        andWhere: () => qb,
+        execute: async () => {
+          const hit = rows.filter((r) => r.id === id && !r.submitted_at);
+          hit.forEach((r) => Object.assign(r, patch));
+          return { affected: hit.length };
+        },
+      };
+      return qb;
     }),
     delete: jest.fn(async (where: Row) => {
       const keep = rows.filter((r) => !matches(r, where));
