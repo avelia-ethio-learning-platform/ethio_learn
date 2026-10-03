@@ -90,6 +90,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
     async (opts: { terminated?: boolean; reason?: string } = {}) => {
       if (endedRef.current) return;
       endedRef.current = true;
+      clearStatus();
       setSubmitting(true);
       engineRef.current?.stop();
       const current = attemptRef.current;
@@ -117,7 +118,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
       setSubmitting(false);
       setPhase('done');
     },
-    [],
+    [clearStatus, setError],
   );
 
   const handleViolationRef = useRef<(v: Violation) => Promise<void>>(async () => {});

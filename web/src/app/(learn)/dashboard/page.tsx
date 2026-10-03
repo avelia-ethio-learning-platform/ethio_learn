@@ -31,8 +31,7 @@ import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 function LearnerDashboard() {
-  const { locale } = useT();
-  const { t } = useT();
+  const { t, locale } = useT();
   const queryClient = useQueryClient();
   const { data: enrollments, isLoading: enrollLoading } = useQuery({ queryKey: ['enrollments'], queryFn: () => api<any[]>('/enrollments') });
   const { data: certificates } = useQuery({ queryKey: ['certificates'], queryFn: () => api<any[]>('/me/certificates') });
