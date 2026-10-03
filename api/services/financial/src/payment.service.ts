@@ -6,13 +6,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
 import { Between, DataSource, EntityManager, In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
-import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import {
   OwnerType,
   PaymentAbandonedPayload,
@@ -813,28 +813,99 @@ export class PaymentService {
     return this.handleWebhook(raw, { 'x-chapa-signature': signature });
   }
 
-  /** Manual bank-transfer fallback — platform admin marks it settled (spec §0.4). */
-  async recordBankTransfer(adminId: string, dto: { learner_id: string; course_id: string }) {
+  /**
+   * Manual bank-transfer fallback — platform admin marks it settled (spec §0.4).
+   * The bank's reference is the idempotency key (`bank-<REF>`). In order:
+   *  1. a payment with that reference: the same learner and course get it
+   *     back (an exact replay, settled now if it was left pending or failed);
+   *     anything else is a 409;
+   *  2. a confirmed course payment for this learner and course: a 409. Read
+   *     here, so it sees a Chapa payment confirmed moments ago, before the
+   *     enrollment service has granted the entitlement;
+   *  3. the learner exists: 404 when not, 503 when the lookup fails;
+   *  4. the learner doesn't own the course another way (gift, seat,
+   *     sponsorship): 409, and 503 when that can't be checked. Unlike
+   *     checkout's ownsCourse, this fails closed;
+   *  5. insert. A concurrent submit of the same reference that inserted first
+   *     makes this insert fail on the unique index; the row is re-read and
+   *     judged by step 1.
+   * `created` is false for a replay (the controller answers 200, not 201).
+   */
+  async recordBankTransfer(
+    adminId: string,
+    dto: { learner_id: string; course_id: string; bank_reference: string },
+  ): Promise<{ payment: Payment; created: boolean }> {
+    const txRef = `bank-${dto.bank_reference}`;
+    const recorded = await this.payments.findOne({ where: { chapa_tx_ref: txRef } });
+    if (recorded) return { payment: await this.replayBankTransfer(adminId, recorded, dto), created: false };
+
+    const paid = await this.payments.findOne({
+      where: { learner_id: dto.learner_id, course_id: dto.course_id, purpose: PaymentPurpose.COURSE, status: PaymentStatus.CONFIRMED },
+    });
+    if (paid) throw new ConflictException('This learner already paid for the course');
+
+    try {
+      await this.internal.get(internalPath`/api/v1/internal/users/${dto.learner_id}`);
+    } catch (err) {
+      // Phase 9c's typed PeerNotFoundError replaces this match on InternalHttpClient's message.
+      if ((err as Error).message.endsWith('-> 404')) throw new NotFoundException('Learner not found');
+      throw new ServiceUnavailableException("Couldn't check the learner. Try again.");
+    }
+
+    let entitlement: { entitlement_status: string };
+    try {
+      entitlement = await this.internal.get(internalPath`/api/v1/internal/entitlements?learner_id=${dto.learner_id}&course_id=${dto.course_id}`);
+    } catch {
+      throw new ServiceUnavailableException("Couldn't check enrollment. Try again.");
+    }
+    if (entitlement.entitlement_status === 'active') throw new ConflictException('This learner already owns the course');
+
     const course = await this.courseInfo(dto.course_id);
     if (!course.price_etb) throw new BadRequestException('Course has no price');
-    const payment = await this.payments.save(
-      this.payments.create({
-        learner_id: dto.learner_id,
-        course_id: dto.course_id,
-        amount_etb: course.price_etb.toFixed(2),
-        list_price_etb: course.price_etb.toFixed(2),
-        method: PaymentMethod.BANK_TRANSFER,
-        status: PaymentStatus.PENDING,
-        chapa_tx_ref: `bank-${uuidv4()}`,
-        payee_id: course.owner_id,
-        payee_type: course.owner_type,
-        course_title: course.title,
-        purpose: PaymentPurpose.COURSE,
-      }),
-    );
-    this.logger.log(`bank transfer recorded by admin ${adminId} for ${dto.course_id}`);
-    await this.confirmPayment(payment, 'bank_transfer');
-    return payment;
+    let payment: Payment;
+    try {
+      // save() runs in a transaction of its own, rolled back on a failure, so
+      // the re-read below runs outside it, not in an aborted transaction.
+      payment = await this.payments.save(
+        this.payments.create({
+          learner_id: dto.learner_id,
+          course_id: dto.course_id,
+          amount_etb: course.price_etb.toFixed(2),
+          list_price_etb: course.price_etb.toFixed(2),
+          method: PaymentMethod.BANK_TRANSFER,
+          status: PaymentStatus.PENDING,
+          chapa_tx_ref: txRef,
+          payee_id: course.owner_id,
+          payee_type: course.owner_type,
+          course_title: course.title,
+          purpose: PaymentPurpose.COURSE,
+        }),
+      );
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      const winner = await this.payments.findOne({ where: { chapa_tx_ref: txRef } });
+      if (!winner) throw err;
+      return { payment: await this.replayBankTransfer(adminId, winner, dto), created: false };
+    }
+    this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}): bank transfer recorded by admin ${adminId} for course ${dto.course_id}`);
+    return { payment: await this.settleBankTransfer(payment), created: true };
+  }
+
+  /** Check 1: an exact replay gets the recorded payment back, settled if it wasn't; another learner or course is a 409. */
+  private async replayBankTransfer(adminId: string, recorded: Payment, dto: { learner_id: string; course_id: string }): Promise<Payment> {
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+    if (!same(recorded.learner_id, dto.learner_id) || !same(recorded.course_id, dto.course_id)) {
+      throw new ConflictException('This bank reference is already recorded for another payment.');
+    }
+    this.logger.log(`payment ${recorded.id} (${recorded.chapa_tx_ref}): bank transfer replayed by admin ${adminId} (${recorded.status})`);
+    if (recorded.status !== PaymentStatus.PENDING && recorded.status !== PaymentStatus.FAILED) return recorded;
+    return this.settleBankTransfer(recorded);
+  }
+
+  /** Confirms once (confirmPayment); when a concurrent submit confirmed it instead, reports the row as it is now. */
+  private async settleBankTransfer(payment: Payment): Promise<Payment> {
+    if (await this.confirmPayment(payment, 'bank_transfer')) return payment;
+    return (await this.payments.findOne({ where: { id: payment.id } })) ?? payment;
   }
 
   async detail(ctx: UserContext, paymentId: string) {

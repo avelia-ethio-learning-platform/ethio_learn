@@ -1,12 +1,13 @@
 import { createHmac } from 'crypto';
 import { ForbiddenException } from '@nestjs/common';
+import { QueryFailedError } from 'typeorm';
 import { BrokerPublishError } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, PaymentStatus } from '@ethiopialearn/contracts';
 import { MockChapaProvider } from './chapa.provider';
 import { Coupon, Payment, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
-import { fakeDb, Row } from './testing/fake-db';
+import { fakeDb, Row, uniqueViolation } from './testing/fake-db';
 
 const SECRET = 'test-webhook-secret-0123456789';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -457,10 +458,188 @@ describe('PaymentService: instant settlements go through the same confirmation',
 
   it('a bank transfer recorded by an admin is confirmed through the same path', async () => {
     const t = setup();
-    const payment = await t.service.recordBankTransfer('adm', { learner_id: 'u1', course_id: 'c1' });
-    expect(t.row(payment.id)).toMatchObject({ status: PaymentStatus.CONFIRMED, method: PaymentMethod.BANK_TRANSFER });
+    const { payment, created } = await t.service.recordBankTransfer('adm', { learner_id: 'u1', course_id: 'c1', bank_reference: 'FT-001' });
+    expect(created).toBe(true);
+    expect(t.row(payment.id)).toMatchObject({ status: PaymentStatus.CONFIRMED, method: PaymentMethod.BANK_TRANSFER, chapa_tx_ref: 'bank-FT-001' });
+    expect(t.internal.get).toHaveBeenCalledWith('/api/v1/internal/users/u1');
+    expect(t.internal.get).toHaveBeenCalledWith('/api/v1/internal/entitlements?learner_id=u1&course_id=c1');
     expect(t.published('PaymentConfirmed')).toHaveLength(1);
     expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+});
+
+describe('PaymentService.recordBankTransfer: the bank reference is the idempotency key, and an owned course is refused', () => {
+  const transfer = (over: Partial<{ learner_id: string; course_id: string; bank_reference: string }> = {}) => ({
+    learner_id: 'u1',
+    course_id: 'c1',
+    bank_reference: 'FT-001',
+    ...over,
+  });
+  /** Answers the internal lookups whose path contains `match` with `reply`; the rest keep setup()'s answers. */
+  const answer = (t: ReturnType<typeof setup>, match: string, reply: () => unknown) => {
+    const get = t.internal.get as jest.Mock<Promise<unknown>, [string]>;
+    const base = get.getMockImplementation()!;
+    get.mockImplementation(async (path) => (path.includes(match) ? reply() : base(path)));
+  };
+  /** What InternalHttpClient throws: with the status for a non-2xx answer, without one for a network error. */
+  const failure = (path: string, status?: number) => new Error(`Internal request failed: GET ${path}${status ? ` -> ${status}` : ''}`);
+  const calls = (t: ReturnType<typeof setup>, match: string) => t.internal.get.mock.calls.filter(([path]) => path.includes(match));
+  /** Holds every entitlements lookup until `n` submits have reached it, so they all pass checks 1-4 before any inserts. */
+  const gateEntitlements = (t: ReturnType<typeof setup>, n: number) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let waiting = 0;
+    answer(t, '/entitlements', async () => {
+      if (++waiting === n) release();
+      await gate;
+      return { entitlement_status: 'none' };
+    });
+  };
+
+  it('a replay of the same reference, learner and course returns the same payment, with one confirmation and one cashback', async () => {
+    const t = setup();
+    const first = await t.service.recordBankTransfer('adm', transfer());
+    // By now the grant has landed: the replay is still answered from the recorded payment.
+    answer(t, '/entitlements', () => ({ entitlement_status: 'active' }));
+
+    const again = await t.service.recordBankTransfer('adm', transfer());
+
+    expect(first.created).toBe(true);
+    expect(again).toEqual({ payment: expect.objectContaining({ id: first.payment.id, status: PaymentStatus.CONFIRMED }), created: false });
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ payment_id: first.payment.id, state: 'pending' })]);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it.each([PaymentStatus.PENDING, PaymentStatus.FAILED])('a replay of a transfer left %s confirms it then, once', async (status) => {
+    const t = setup();
+    t.seed({ id: 'pay-b', chapa_tx_ref: 'bank-FT-001', method: PaymentMethod.BANK_TRANSFER, status });
+
+    const replay = await t.service.recordBankTransfer('adm', transfer());
+    await t.service.recordBankTransfer('adm', transfer());
+
+    expect(replay).toEqual({ payment: expect.objectContaining({ id: 'pay-b', status: PaymentStatus.CONFIRMED }), created: false });
+    expect(t.row('pay-b').status).toBe(PaymentStatus.CONFIRMED);
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+    expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+
+  it('a replay of a refunded transfer returns it as it is', async () => {
+    const t = setup();
+    t.seed({ id: 'pay-b', chapa_tx_ref: 'bank-FT-001', method: PaymentMethod.BANK_TRANSFER, status: PaymentStatus.REFUNDED });
+    expect(await t.service.recordBankTransfer('adm', transfer())).toEqual({ payment: expect.objectContaining({ id: 'pay-b', status: PaymentStatus.REFUNDED }), created: false });
+    expect(t.published('PaymentConfirmed')).toHaveLength(0);
+  });
+
+  it('the same reference for another learner or another course is a 409', async () => {
+    const t = setup();
+    await t.service.recordBankTransfer('adm', transfer());
+    for (const other of [transfer({ learner_id: 'u2' }), transfer({ course_id: 'c2' })]) {
+      await expect(t.service.recordBankTransfer('adm', other)).rejects.toMatchObject({ status: 409, message: 'This bank reference is already recorded for another payment.' });
+    }
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('a learner with a confirmed Chapa payment for the course is a 409, even while the entitlement is not active yet', async () => {
+    const t = setup();
+    t.seed({ status: PaymentStatus.CONFIRMED, webhook_received_at: new Date() });
+
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toMatchObject({ status: 409, message: 'This learner already paid for the course' });
+
+    expect(t.internal.get).not.toHaveBeenCalled();
+    expect(t.payments.rows).toHaveLength(1);
+  });
+
+  it('a refunded or unfinished course payment, or a gift the learner bought for someone else, is not a payment for the course', async () => {
+    const t = setup();
+    t.seed({ id: 'refunded', chapa_tx_ref: 'TX-1', status: PaymentStatus.REFUNDED });
+    t.seed({ id: 'failed', chapa_tx_ref: 'TX-2', status: PaymentStatus.FAILED });
+    t.seed({ id: 'gift', chapa_tx_ref: 'TX-3', status: PaymentStatus.CONFIRMED, purpose: PaymentPurpose.GIFT });
+
+    const { payment, created } = await t.service.recordBankTransfer('adm', transfer());
+
+    expect(created).toBe(true);
+    expect(t.row(payment.id).status).toBe(PaymentStatus.CONFIRMED);
+  });
+
+  it('a course the learner owns another way (gift, seat, sponsorship) is a 409', async () => {
+    const t = setup();
+    answer(t, '/entitlements', () => ({ entitlement_status: 'active' }));
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toMatchObject({ status: 409, message: 'This learner already owns the course' });
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it('an entitlement that was refunded does not count as owned', async () => {
+    const t = setup();
+    answer(t, '/entitlements', () => ({ entitlement_status: 'refunded' }));
+    expect((await t.service.recordBankTransfer('adm', transfer())).created).toBe(true);
+  });
+
+  it.each([500, 404, undefined])('an entitlements lookup that fails (%p) is a 503, never a guess', async (status) => {
+    const t = setup();
+    answer(t, '/entitlements', () => {
+      throw failure('/api/v1/internal/entitlements?learner_id=u1&course_id=c1', status);
+    });
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toMatchObject({ status: 503, message: "Couldn't check enrollment. Try again." });
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it('an unknown learner is a 404, and enrollment is not checked', async () => {
+    const t = setup();
+    answer(t, '/internal/users/', () => {
+      throw failure('/api/v1/internal/users/u9', 404);
+    });
+    await expect(t.service.recordBankTransfer('adm', transfer({ learner_id: 'u9' }))).rejects.toMatchObject({ status: 404, message: 'Learner not found' });
+    expect(calls(t, '/entitlements')).toHaveLength(0);
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it.each([500, 503, undefined])('a learner lookup that fails (%p) is a 503', async (status) => {
+    const t = setup();
+    answer(t, '/internal/users/', () => {
+      throw failure('/api/v1/internal/users/u1', status);
+    });
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toMatchObject({ status: 503 });
+    expect(calls(t, '/entitlements')).toHaveLength(0);
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it('two submits of one transfer at once record one payment: the insert that loses re-reads the winner', async () => {
+    const t = setup();
+    gateEntitlements(t, 2);
+
+    const results = await Promise.all([t.service.recordBankTransfer('adm', transfer()), t.service.recordBankTransfer('adm', transfer())]);
+
+    expect(t.payments.save).toHaveBeenCalledTimes(2); // both reached the insert; the unique index refused one
+    expect(t.payments.rows).toHaveLength(1);
+    expect(results.map((r) => r.created).sort()).toEqual([false, true]);
+    expect(results.map((r) => [r.payment.id, r.payment.status])).toEqual([
+      [t.payments.rows[0].id, PaymentStatus.CONFIRMED],
+      [t.payments.rows[0].id, PaymentStatus.CONFIRMED],
+    ]);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+    expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+
+  it('a submit that loses the insert to the same reference for another learner is a 409', async () => {
+    const t = setup();
+    gateEntitlements(t, 2);
+
+    const [won, lost] = await Promise.allSettled([t.service.recordBankTransfer('adm', transfer()), t.service.recordBankTransfer('adm', transfer({ learner_id: 'u2' }))]);
+
+    expect(won).toMatchObject({ status: 'fulfilled', value: { created: true } });
+    expect(lost).toMatchObject({ status: 'rejected', reason: { status: 409, message: 'This bank reference is already recorded for another payment.' } });
+    expect(t.payments.save).toHaveBeenCalledTimes(2);
+    expect(t.payments.rows).toEqual([expect.objectContaining({ learner_id: 'u1', status: PaymentStatus.CONFIRMED })]);
+  });
+
+  it('a unique violation with no row behind it is not a replay: it is rethrown', async () => {
+    const t = setup();
+    t.payments.save.mockRejectedValueOnce(uniqueViolation('payments(chapa_tx_ref)'));
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toBeInstanceOf(QueryFailedError);
+    expect(t.published('PaymentConfirmed')).toHaveLength(0);
   });
 });
 
