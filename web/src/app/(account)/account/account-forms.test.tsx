@@ -68,7 +68,9 @@ describe('Change password', () => {
     apiMock.mockRejectedValue(new Error('Password was used recently'));
     render(<ChangePasswordPage />);
     const password = screen.getByLabelText('New password');
+    const confirm = screen.getByLabelText('Confirm new password');
     fireEvent.change(password, { target: { value: 'Strong-passw0rd' } });
+    fireEvent.change(confirm, { target: { value: 'Strong-passw0rd' } });
     fireEvent.submit(password.closest('form')!);
     expect(await screen.findByText('Password was used recently')).toBeTruthy();
 
