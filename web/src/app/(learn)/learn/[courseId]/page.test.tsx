@@ -2,10 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }));
+const { apiMock, queuedMock } = vi.hoisted(() => ({ apiMock: vi.fn(), queuedMock: vi.fn() }));
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   api: (...args: unknown[]) => apiMock(...args),
+}));
+vi.mock('@/lib/offline-queue', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/offline-queue')>()),
+  queuedApi: (...args: unknown[]) => queuedMock(...args),
 }));
 vi.mock('next/navigation', () => ({
   useParams: () => ({ courseId: 'c1' }),
@@ -17,7 +21,7 @@ vi.mock('@/lib/hooks', () => ({ useAuth: () => ({ user: { role: 'learner', email
 vi.mock('@/lib/wake', () => ({ wakeServices: () => () => undefined }));
 vi.mock('hls.js', () => ({ default: class { static isSupported = () => false } }));
 
-import { ApiError } from '@/lib/api';
+import { ApiError, WakingError } from '@/lib/api';
 import LearnPage from './page';
 
 const course = {
@@ -65,6 +69,8 @@ function renderPage(client = new QueryClient({ defaultOptions: { queries: { retr
 
 beforeEach(() => {
   apiMock.mockReset();
+  queuedMock.mockReset();
+  queuedMock.mockResolvedValue({});
 });
 afterEach(cleanup);
 
@@ -285,5 +291,176 @@ describe('completion', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Download' }));
     expect(await screen.findByText('Could not start the download. Please try again.')).toBeTruthy();
     expect(screen.getByText('Could not start the download. Please try again.').getAttribute('role')).toBe('alert');
+  });
+});
+
+describe('completing a lesson', () => {
+  const MSG = 'Finish watching this lesson to complete it.';
+  const completeCalls = () => apiMock.mock.calls.filter(([p]) => String(p).endsWith('/complete'));
+
+  /** Opens lesson 1 with a player that holds its video (100 s long, at 95 s). */
+  async function openLesson(name = 'Start lesson 1') {
+    const base = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation(async (path: string, ...rest: unknown[]) => {
+      if (path.endsWith('/stream-url')) return new Promise(() => undefined);
+      return base(path, ...rest);
+    });
+    const { container } = renderPage();
+    fireEvent.click(await screen.findByRole('button', { name }));
+    await waitFor(() => expect(container.querySelector('video')).not.toBeNull());
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'duration', { value: 100, configurable: true });
+    Object.defineProperty(video, 'currentTime', { value: 95.7, configurable: true, writable: true });
+    return video;
+  }
+  /** Makes /complete answer with the next queued result. */
+  function completeAnswers(...results: unknown[]) {
+    const base = apiMock.getMockImplementation()!;
+    const queue = [...results];
+    apiMock.mockImplementation(async (path: string, ...rest: unknown[]) => {
+      if (path.endsWith('/complete')) {
+        const r = queue.shift();
+        if (r instanceof Error) throw r;
+        return r ?? {};
+      }
+      return base(path, ...rest);
+    });
+  }
+  const refused = (body: Record<string, unknown> = {}) => new ApiError(409, MSG, { statusCode: 409, message: MSG, ...body });
+  const markButton = () => screen.getByRole('button', { name: /Mark complete/ });
+
+  it('a video lesson completes through api() with the final position, never the queue', async () => {
+    route({});
+    await openLesson();
+    fireEvent.click(markButton());
+    await waitFor(() => expect(completeCalls()).toHaveLength(1));
+    expect(completeCalls()[0]).toEqual(['/progress/lessons/l1/complete', { method: 'POST', body: { position_seconds: 95 } }]);
+    expect(queuedMock.mock.calls.some(([p]) => String(p).endsWith('/complete'))).toBe(false);
+  });
+
+  it('a lesson without video still completes through the queue', async () => {
+    route({ course: { ...course, sections: [{ id: 's1', title: 'B', is_free_preview: false, lessons: [{ id: 'n1', title: 'Reading', duration_seconds: 60, has_video: false }] }] } });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Start lesson 1' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Mark complete/ }));
+    await waitFor(() => expect(queuedMock).toHaveBeenCalledWith('/progress/lessons/n1/complete', { method: 'POST' }));
+    expect(completeCalls()).toHaveLength(0);
+  });
+
+  it('a refusal without a wait shows the server message at once', async () => {
+    route({});
+    await openLesson();
+    completeAnswers(refused());
+    fireEvent.click(markButton());
+    expect(await screen.findByText(MSG)).toBeTruthy();
+    expect(completeCalls()).toHaveLength(1);
+  });
+
+  it('a refusal with a short wait retries once after that wait, then succeeds and refreshes progress', async () => {
+    route({});
+    await openLesson();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      completeAnswers(refused({ retry_after_seconds: 30 }), {});
+      const progressCalls = () => apiMock.mock.calls.filter(([p]) => p === '/enrollments/e1/progress').length;
+      fireEvent.click(markButton());
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(completeCalls()).toHaveLength(1);
+      expect(screen.queryByText(MSG)).toBeNull();
+      const before = progressCalls();
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(completeCalls()).toHaveLength(2);
+      expect(completeCalls()[1][1]).toEqual({ method: 'POST', body: { position_seconds: 95 } });
+      await waitFor(() => expect(progressCalls()).toBeGreaterThan(before));
+      expect(screen.queryByText(MSG)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a second refusal shows the message and does not retry again; a click during the wait starts no second timer', async () => {
+    route({});
+    await openLesson();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      completeAnswers(refused({ retry_after_seconds: 10 }), refused({ retry_after_seconds: 10 }));
+      fireEvent.click(markButton());
+      await vi.advanceTimersByTimeAsync(2_000);
+      fireEvent.click(markButton());
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(await screen.findByText(MSG)).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(completeCalls()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a wait over 120 seconds shows the message at once with no retry', async () => {
+    route({});
+    await openLesson();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      completeAnswers(refused({ retry_after_seconds: 300 }));
+      fireEvent.click(markButton());
+      expect(await screen.findByText(MSG)).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(400_000);
+      expect(completeCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('changing lesson cancels a pending retry and clears the message', async () => {
+    route({});
+    await openLesson();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      completeAnswers(refused({ retry_after_seconds: 30 }));
+      fireEvent.click(markButton());
+      await vi.advanceTimersByTimeAsync(1_000);
+      fireEvent.click(screen.getByRole('button', { name: /Seeds/ }));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(completeCalls()).toHaveLength(1);
+      expect(screen.queryByText(MSG)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an unmount cancels a pending retry', async () => {
+    route({});
+    await openLesson();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      completeAnswers(refused({ retry_after_seconds: 30 }));
+      fireEvent.click(markButton());
+      await vi.advanceTimersByTimeAsync(1_000);
+      cleanup();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(completeCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an unreachable server says progress is saved and queues nothing', async () => {
+    route({});
+    await openLesson();
+    completeAnswers(new WakingError());
+    fireEvent.click(markButton());
+    expect(await screen.findByText("We couldn't reach the server. Your progress is saved, so try again in a moment.")).toBeTruthy();
+    expect(queuedMock.mock.calls.some(([p]) => String(p).endsWith('/complete'))).toBe(false);
+  });
+
+  it('a network failure reads the same way, and any other error shows its message', async () => {
+    route({});
+    await openLesson();
+    completeAnswers(new TypeError('Failed to fetch'), new ApiError(500, 'Something broke'));
+    fireEvent.click(markButton());
+    expect(await screen.findByText(/We couldn't reach the server/)).toBeTruthy();
+    fireEvent.click(markButton());
+    expect(await screen.findByText('Something broke')).toBeTruthy();
+    expect(screen.queryByText(/We couldn't reach the server/)).toBeNull();
   });
 });
