@@ -201,6 +201,9 @@ export function WalletTab() {
     try {
       const res = await api<{ balance_etb: number }>('/admin/wallet/adjust', { method: 'POST', body: { user_id: user.id, amount_etb: value, note } });
       setOk(`Done — ${user.label} now has ${formatETB(res.balance_etb, locale)}.`);
+      setUser(null);
+      setAmount('100');
+      setNote('');
     } catch (err) {
       setError((err as Error).message);
     } finally {

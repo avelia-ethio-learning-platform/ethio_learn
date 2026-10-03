@@ -425,7 +425,7 @@ function RefundButton({
   const request = async () => {
     const answer = await ask({
       title: `Request a refund for ${payment.course_title}?`,
-      body: `You paid ${formatETB(payment.amount_etb, locale)}. The refund rules decide how much comes back.`,
+      body: `You paid ${formatETB(payment.amount_etb, locale)}. The refund rules decide whether it is approved, reviewed by our team, or declined.`,
       confirmLabel: 'Request refund',
       reason: { label: 'Why do you want a refund?', required: true, minLength: 5, maxLength: 500 },
     });
@@ -434,7 +434,11 @@ function RefundButton({
     try {
       const res = await api<{ status: string; rule: string }>(`/refunds`, { method: 'POST', body: { payment_id: payment.id, reason: answer.reason } });
       const why = refundRuleLabel(res.rule);
-      await queryClient.invalidateQueries({ queryKey: ['refunds'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['refunds'] }),
+        queryClient.invalidateQueries({ queryKey: ['payments'] }),
+        queryClient.invalidateQueries({ queryKey: ['enrollments'] }),
+      ]);
       onOutcome({ ok: `Refund request for ${payment.course_title}: ${statusLabel(res.status).label}${why ? ` (${why})` : ''}.` });
     } catch (err) {
       onOutcome({ error: (err as Error).message });
