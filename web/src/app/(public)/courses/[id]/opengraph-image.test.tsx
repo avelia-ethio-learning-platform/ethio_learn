@@ -44,6 +44,7 @@ describe('course OG image', () => {
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(Array.from(bytes.slice(0, 8))).toEqual(PNG);
     expect(bytes.length).toBeGreaterThan(5000);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=86400, stale-while-revalidate=604800');
   }, 30000);
 
   it.each([
@@ -53,5 +54,6 @@ describe('course OG image', () => {
     const { res, bytes } = await render(result, 'og-generic.png');
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(Array.from(bytes.slice(0, 8))).toEqual(PNG);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=300');
   }, 30000);
 });

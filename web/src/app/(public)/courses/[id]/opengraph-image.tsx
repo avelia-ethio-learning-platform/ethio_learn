@@ -108,11 +108,15 @@ function CourseCard({ course }: { course: OgCourse }) {
   );
 }
 
+// The URL hash comes from the route file, not the data, so never `immutable`.
+const CACHE_FALLBACK = 'public, max-age=300';
+const CACHE_COURSE = 'public, max-age=86400, stale-while-revalidate=604800';
+
 export default async function CourseOpengraphImage({ params }: { params: { id: string } }) {
   const result = await serverApi<OgCourse>(`/courses/${params.id}`, 300);
   if (!result.ok) {
     // Unavailable or not found: the site card, not a failed image request.
-    return new ImageResponse(<OgArt />, size);
+    return new ImageResponse(<OgArt />, { ...size, headers: { 'cache-control': CACHE_FALLBACK } });
   }
-  return new ImageResponse(<CourseCard course={result.data} />, { ...size, fonts: await loadFonts() });
+  return new ImageResponse(<CourseCard course={result.data} />, { ...size, fonts: await loadFonts(), headers: { 'cache-control': CACHE_COURSE } });
 }
