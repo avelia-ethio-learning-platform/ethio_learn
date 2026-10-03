@@ -206,6 +206,17 @@ describe('course authoring page', () => {
     expect(apiMock).not.toHaveBeenCalledWith(expect.stringContaining('/knowledge/Glossary'), expect.anything());
   });
 
+  it('asks before removing a tutor note on a draft too, and Cancel sends nothing', async () => {
+    respond(working({ status: 'draft', revision: null, has_pending_changes: false }), [{ source: 'notes', title: 'Glossary', state: 'live', chunks: 2 }]);
+    await renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove tutor note Glossary' }));
+    await settle();
+    expect(dialog().textContent).toContain("Removes it from the course tutor. This can't be undone.");
+    fireEvent.click(inDialog('Cancel'));
+    await settle();
+    expect(apiMock).not.toHaveBeenCalledWith(expect.stringContaining('/knowledge/Glossary'), expect.anything());
+  });
+
   it('keeps a draft from being submitted while a lesson video is still uploading', async () => {
     respond(working({ status: 'draft', revision: null, has_pending_changes: false }));
     await renderPage();
@@ -300,6 +311,22 @@ describe('course authoring page', () => {
     respond(working({ status: 'draft', revision: null, has_pending_changes: false }));
     await renderPage();
     expect(screen.getByRole('link', { name: /Preview as learner/ }).getAttribute('href')).toBe('/preview/c1');
+  });
+
+  it('keeps the answer key on the same option when an option above it is removed', async () => {
+    respond(working({ status: 'draft', revision: null, has_pending_changes: false }));
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: '+ Add question manually' }));
+    const options = () => [1, 2, 3, 4].map((n) => screen.queryByRole('textbox', { name: `Option ${n} of question 1` }) as HTMLInputElement | null).filter(Boolean) as HTMLInputElement[];
+    while (options().length < 4) fireEvent.click(screen.getByRole('button', { name: 'Add an option to question 1' }));
+    options().forEach((o, i) => fireEvent.change(o, { target: { value: 'ABCD'[i] } }));
+    const n = options().length;
+    expect(n).toBeGreaterThanOrEqual(3);
+    // Mark the next-to-last option correct (C of A–D), then remove the first one.
+    fireEvent.click(screen.getByRole('radio', { name: `Correct answer for question 1: option ${n - 1}` }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove option 1 of question 1' }));
+    const checked = screen.getAllByRole('radio').findIndex((r) => (r as HTMLInputElement).checked);
+    expect(options()[checked].value).toBe('ABCD'[n - 2]);
   });
 
   it('names every control of the quiz builder', async () => {

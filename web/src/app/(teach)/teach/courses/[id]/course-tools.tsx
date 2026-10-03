@@ -208,7 +208,7 @@ export function TutorKnowledgeTool({ courseId, live, locked }: { courseId: strin
                     title={locked ? 'Withdraw your changes from review to remove notes' : undefined}
                     onClick={async () => {
                       if (removeBusy) return; // aria-disabled, not disabled: the clicked button keeps the focus the dialog gives back
-                      if (removal.confirm && !(await ask({ title: `Remove the tutor note “${d.title}”?`, body: removal.confirm, confirmLabel: 'Remove note', tone: 'danger' }))) return;
+                      if (!(await ask({ title: `Remove the tutor note “${d.title}”?`, body: removal.confirm ?? "Removes it from the course tutor. This can't be undone.", confirmLabel: 'Remove note', tone: 'danger' }))) return;
                       clearStatus();
                       setRemoveBusy(true);
                       try {
