@@ -10,6 +10,9 @@ import { AuthService, generateTempPassword } from './auth.service';
 import { User } from './entities';
 import { CreateStaffDto, UserStatusActionDto } from './dto';
 
+/** Escapes LIKE wildcards so a search term matches literally. */
+const escapeLike = (s: string) => s.replace(/[\\%_]/g, '\\$&');
+
 /** Platform-admin user management (spec §2.1 admin console: user mgmt). */
 @Controller('admin/users')
 @UseGuards(RolesGuard)
@@ -26,9 +29,12 @@ export class AdminUsersController {
   async list(@Query('q') q?: string, @Query('role') role?: Role, @Query('page') page = '1', @Query('limit') limit = '20') {
     const take = Math.min(parseInt(limit, 10) || 20, 100);
     const skip = (Math.max(parseInt(page, 10) || 1, 1) - 1) * take;
-    const where: Record<string, unknown> = {};
-    if (q) where.email = ILike(`%${q}%`);
-    if (role) where.role = role;
+    if (q && q.length > 100) throw new BadRequestException('Search is limited to 100 characters.');
+    const roleFilter = role ? { role } : {};
+    const term = q?.trim();
+    const p = term ? `%${escapeLike(term)}%` : null;
+    // A name or an email match, the role filter kept on both branches.
+    const where = p ? [{ email: ILike(p), ...roleFilter }, { name: ILike(p), ...roleFilter }] : roleFilter;
     const [items, total] = await this.users.findAndCount({ where, order: { created_at: 'DESC' }, take, skip });
     return {
       total,
