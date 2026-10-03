@@ -8,7 +8,7 @@ for (const role of Object.keys(ROLES) as Role[]) {
     await logIn(page, role);
     await expect(page).toHaveURL(new RegExp(`${ROLES[role].home}$`));
     await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
-    await expect(page.getByText(/This area is for/)).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: "This page isn't available for your account" })).toHaveCount(0);
     await page.context().storageState({ path: authFile(role) });
   });
 }
