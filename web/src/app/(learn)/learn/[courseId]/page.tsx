@@ -4,28 +4,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Hls from 'hls.js';
-import {
-  BellRing,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  CircleCheck,
-  CloudOff,
-  History,
-  ListVideo,
-  LoaderCircle,
-  Play,
-  PlayCircle,
-} from 'lucide-react';
-import { api } from '@/lib/api';
+import Link from 'next/link';
+import { BellRing, ChevronLeft, ChevronRight, CircleCheck, CloudOff, Compass, History, LoaderCircle, Lock, Play, PlayCircle } from 'lucide-react';
+import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { queuedApi, useOffline } from '@/lib/offline-queue';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
+import { WakingUp } from '@/components/WakingUp';
 import { AssessmentsPanel } from './assessments-panel';
 import { TutorPanel } from './tutor-panel';
 import { ReviewBox } from './review-box';
+import { CompletionCard } from './completion-card';
+import { LessonList } from './lesson-list';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 
@@ -61,6 +53,19 @@ interface VideoProgress {
 
 const HEARTBEAT_MS = 10_000;
 
+function StateCard({ icon, title, body, children }: { icon: React.ReactNode; title: string; body: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-[50vh] items-center justify-center">
+      <div className="card w-full max-w-md animate-fade-in-up !rounded-3xl p-8 text-center">
+        <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-600">{icon}</span>
+        <h1 className="text-xl font-bold text-foreground">{title}</h1>
+        <p className="mt-2 text-sm leading-relaxed text-gray-500">{body}</p>
+        <div className="mt-6 flex justify-center">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function Player({ courseId }: { courseId: string }) {
   const { locale } = useT();
   const queryClient = useQueryClient();
@@ -80,8 +85,11 @@ function Player({ courseId }: { courseId: string }) {
   // Tear down any HLS instance when leaving the page.
   useEffect(() => () => hlsRef.current?.destroy(), []);
 
-  const { data: course } = useQuery({ queryKey: ['course', courseId], queryFn: () => api<CourseDetail>(`/courses/${courseId}`) });
-  const { data: status } = useQuery({
+  const { data: course, error: courseError, refetch: refetchCourse } = useQuery({
+    queryKey: ['course', courseId],
+    queryFn: () => api<CourseDetail>(`/courses/${courseId}`),
+  });
+  const { data: status, isError: statusError, refetch: refetchStatus } = useQuery({
     queryKey: ['enrollment-status', courseId],
     queryFn: () => api<{ entitlement_status: string; enrollment_id: string | null }>(`/enrollments/status?course_id=${courseId}`),
   });
@@ -201,7 +209,22 @@ function Player({ courseId }: { courseId: string }) {
     if (next) playLesson(next);
   };
 
-  if (!course) {
+  // States, in order: course not found, course unreachable, loading, enrollment unreachable, not enrolled.
+  if (courseError instanceof ApiError && (courseError.status === 400 || courseError.status === 404)) {
+    return (
+      <PageShell>
+        <StateCard icon={<Compass className="h-5 w-5" aria-hidden />} title="Course not found" body="This course doesn't exist, or the link is wrong.">
+          <Link href="/courses" className="btn !px-6">
+            Browse courses
+          </Link>
+        </StateCard>
+      </PageShell>
+    );
+  }
+  if (courseError) return <WakingUp onRetry={refetchCourse} />;
+  // A sleeping enrollment service must never read as "not enrolled".
+  if (statusError) return <WakingUp onRetry={refetchStatus} />;
+  if (!course || !status) {
     return (
       <PageShell>
         <div className="grid gap-6 lg:grid-cols-3">
@@ -217,25 +240,38 @@ function Player({ courseId }: { courseId: string }) {
       </PageShell>
     );
   }
+  if (status.entitlement_status !== 'active') {
+    return (
+      <PageShell>
+        <StateCard icon={<Lock className="h-5 w-5" aria-hidden />} title="You're not enrolled in this course" body="Enroll to watch the lessons and track your progress.">
+          <Link href={`/courses/${courseId}`} className="btn !px-6">
+            View the course
+          </Link>
+        </StateCard>
+      </PageShell>
+    );
+  }
   const active = flat[activeIndex];
-  const resumeLesson = !activeId && videoProgress?.last_lesson_id ? flat.find((l) => l.id === videoProgress.last_lesson_id) : null;
+  const resumeLesson = videoProgress?.last_lesson_id ? flat.find((l) => l.id === videoProgress.last_lesson_id) : undefined;
+  const startLesson = resumeLesson ?? flat[0];
 
   return (
     <PageShell>
       <BackButton fallback="/dashboard" label="My Learning" />
       {(!online || pending > 0) && (
         <p className="badge-warn mb-4 flex w-fit items-center gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-xs">
-          <CloudOff className="h-3.5 w-3.5" />
+          <CloudOff className="h-3.5 w-3.5" aria-hidden />
           {online ? `Syncing ${pending} saved update${pending === 1 ? '' : 's'}…` : `You're offline — your progress is saved on this device${pending ? ` (${pending} pending)` : ''} and will sync when you reconnect.`}
         </p>
       )}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="animate-fade-in-up min-w-0 lg:col-span-2">
+      <div className="grid grid-cols-1 gap-x-6 lg:grid-cols-3">
+        {/* DOM order is the mobile order: player, lesson list, then the panels. Desktop places them by grid lines. */}
+        <div className="animate-fade-in-up min-w-0 lg:col-span-2 lg:col-start-1 lg:row-start-1">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <h1 className="text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{course.title}</h1>
             {changelog && changelog.length > 0 && (
               <button onClick={openChangelog} className={hasUnseenUpdate ? 'badge-warn !rounded-xl !px-3 !py-1.5 !text-xs' : 'btn-secondary !px-3 !py-1.5 !text-xs'}>
-                {hasUnseenUpdate ? <BellRing className="h-3.5 w-3.5" /> : <History className="h-3.5 w-3.5" />}
+                {hasUnseenUpdate ? <BellRing className="h-3.5 w-3.5" aria-hidden /> : <History className="h-3.5 w-3.5" aria-hidden />}
                 {hasUnseenUpdate ? 'Updated — see what changed' : "What's changed"}
               </button>
             )}
@@ -257,20 +293,24 @@ function Player({ courseId }: { courseId: string }) {
           )}
 
           <div className="relative mt-5 overflow-hidden rounded-2xl bg-black shadow-floating" onContextMenu={(e) => e.preventDefault()}>
-            <video
-              ref={videoRef}
-              controls
-              playsInline
-              controlsList="nodownload noremoteplayback"
-              disablePictureInPicture
-              className="aspect-video w-full"
-              onPause={() => void sendHeartbeat()}
-              onEnded={() => {
-                void sendHeartbeat();
-                if (active) markComplete(active.id);
-              }}
-              onError={() => active?.has_video && setVideoError('Could not play this video. Please try again.')}
-            />
+            {activeId && active?.has_video ? (
+              <video
+                ref={videoRef}
+                controls
+                playsInline
+                controlsList="nodownload noremoteplayback"
+                disablePictureInPicture
+                className="aspect-video w-full"
+                onPause={() => void sendHeartbeat()}
+                onEnded={() => {
+                  void sendHeartbeat();
+                  if (active) markComplete(active.id);
+                }}
+                onError={() => active?.has_video && setVideoError('Could not play this video. Please try again.')}
+              />
+            ) : (
+              <div className="aspect-video w-full" />
+            )}
             {watermark && active && (
               // Moving viewer watermark — a screen recording carries the viewer's identity.
               <div className="pointer-events-none absolute inset-0 select-none">
@@ -279,18 +319,18 @@ function Player({ courseId }: { courseId: string }) {
             )}
             {videoLoading && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 text-sm text-white backdrop-blur-sm">
-                <LoaderCircle className="h-4 w-4 animate-spin" /> Loading video…
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden /> Loading video…
               </div>
             )}
-            {!active && !videoLoading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-white/80">
-                <PlayCircle className="h-10 w-10 opacity-70" />
-                {resumeLesson ? (
-                  <button className="btn !px-4 !py-2 !text-xs" onClick={() => playLesson(resumeLesson)}>
-                    <Play className="h-3.5 w-3.5" /> Resume: {resumeLesson.title}
+            {!activeId && !videoLoading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4 text-center text-sm text-white/80">
+                <PlayCircle className="h-10 w-10 opacity-70" aria-hidden />
+                {startLesson ? (
+                  <button className="btn !px-4 !py-2 !text-xs" onClick={() => playLesson(startLesson)}>
+                    <Play className="h-3.5 w-3.5" aria-hidden /> {resumeLesson ? `Resume: ${resumeLesson.title}` : 'Start lesson 1'}
                   </button>
                 ) : (
-                  'Select a lesson to begin'
+                  'This course has no lessons yet.'
                 )}
               </div>
             )}
@@ -314,10 +354,24 @@ function Player({ courseId }: { courseId: string }) {
                 </button>
               </div>
             </div>
-          ) : (
-            <p className="mt-4 text-sm text-gray-500">Select a lesson from the list to start.</p>
-          )}
+          ) : null}
           {videoError && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{videoError}</p>}
+        </div>
+
+        <aside className="animate-fade-in-up my-6 min-w-0 space-y-3 lg:sticky lg:top-28 lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:my-0 lg:max-h-[calc(100vh-8.5rem)] lg:self-start lg:overflow-y-auto lg:pb-4 lg:pr-1">
+          <LessonList
+            sections={course.sections}
+            activeId={activeId}
+            completedIds={completedIds}
+            watchedPercent={(id) => positions.get(id)?.percent_watched ?? 0}
+            onPlay={(id) => {
+              const lesson = flat.find((l) => l.id === id);
+              if (lesson) void playLesson(lesson);
+            }}
+          />
+        </aside>
+
+        <div className="animate-fade-in-up min-w-0 lg:col-span-2 lg:col-start-1 lg:row-start-2">
           {progress && (
             <div className="card mt-5 !p-4">
               <div className="flex items-center justify-between text-xs text-gray-500">
@@ -326,7 +380,7 @@ function Player({ courseId }: { courseId: string }) {
                       course update can add lessons afterwards and pull the percentage below 100. */}
                   {progress.completed_at && progress.progress_percent < 100
                     ? `${progress.progress_percent}% complete — new lessons were added since you completed`
-                    : `${progress.progress_percent}% complete${progress.completed_at ? ' — course completed 🎉' : ''}`}
+                    : `${progress.progress_percent}% complete${progress.completed_at ? ' — course completed' : ''}`}
                 </span>
                 <span className="font-semibold text-brand-600">{progress.progress_percent}%</span>
               </div>
@@ -336,74 +390,15 @@ function Player({ courseId }: { courseId: string }) {
             </div>
           )}
 
-          <AssessmentsPanel courseId={courseId} />
+          {progress?.completed_at && <CompletionCard courseId={courseId} />}
+
+          <div id="assessments" className="scroll-mt-28">
+            <AssessmentsPanel courseId={courseId} />
+          </div>
           <TutorPanel courseId={courseId} />
           <ReviewBox courseId={courseId} progressPercent={progress?.progress_percent ?? 0} />
         </div>
 
-        <aside className="animate-fade-in-up min-w-0 space-y-3 lg:sticky lg:top-28 lg:max-h-[calc(100vh-8.5rem)] lg:self-start lg:overflow-y-auto lg:pb-4 lg:pr-1">
-          <p className="flex items-center justify-between gap-2 px-1 text-sm font-bold uppercase tracking-wider text-gray-500">
-            <span className="flex items-center gap-2">
-              <ListVideo className="h-4 w-4 text-brand-500" /> Lessons
-            </span>
-            <span className="text-xs font-semibold normal-case tracking-normal text-gray-500">
-              {completedIds.size}/{flat.length} done
-            </span>
-          </p>
-          {course.sections.map((section) => {
-            const doneInSection = section.lessons.filter((l) => completedIds.has(l.id)).length;
-            return (
-              <div key={section.id} className="card !p-4">
-                <h3 className="flex items-center justify-between gap-2 text-sm font-bold text-foreground">
-                  <span className="min-w-0 truncate">{section.title}</span>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      doneInSection === section.lessons.length && section.lessons.length > 0
-                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
-                        : 'bg-brand-500/10 text-brand-600'
-                    }`}
-                  >
-                    {doneInSection}/{section.lessons.length}
-                  </span>
-                </h3>
-                <ul className="mt-2 space-y-1">
-                  {section.lessons.map((lesson) => {
-                    const isActive = lesson.id === activeId;
-                    const done = completedIds.has(lesson.id);
-                    const watched = positions.get(lesson.id)?.percent_watched ?? 0;
-                    return (
-                      <li key={lesson.id}>
-                        <button
-                          onClick={() => playLesson(lesson)}
-                          className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors ${
-                            isActive ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600 hover:bg-brand-500/5 hover:text-foreground'
-                          }`}
-                        >
-                          <span className="flex min-w-0 flex-1 items-center gap-2">
-                            {done ? (
-                              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                            ) : (
-                              <Play className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-500'}`} />
-                            )}
-                            <span className="min-w-0">
-                              <span className="block truncate">{lesson.title}</span>
-                              {!done && watched > 0 && (
-                                <span className="mt-1 block h-1 w-24 overflow-hidden rounded-full bg-gray-200">
-                                  <span className="block h-full bg-brand-500" style={{ width: `${watched}%` }} />
-                                </span>
-                              )}
-                            </span>
-                          </span>
-                          <span className="shrink-0 text-xs text-gray-500">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            );
-          })}
-        </aside>
       </div>
       <style jsx global>{`
         @keyframes el-wm {
