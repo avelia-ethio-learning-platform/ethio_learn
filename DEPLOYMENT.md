@@ -189,12 +189,17 @@ WHERE p.method = 'chapa' AND p.purpose = 'course' AND p.status = 'pending'
 ORDER BY p.created_at;
 
 -- 5. (A1) Coupons whose uses exceed their confirmed payments. An inflated count
---    closes a coupon early; correcting uses is your call.
-SELECT c.code, c.uses, c.max_uses, count(p.id) AS confirmed_payments
+--    closes a coupon early; correcting uses is your call. A refunded purchase
+--    also leaves uses above the confirmed count, since uses never goes down:
+--    uses up to confirmed + refunded is most likely right, and only what is
+--    above that is a use counted twice.
+SELECT c.code, c.uses, c.max_uses,
+       count(p.id) FILTER (WHERE p.status = 'confirmed') AS confirmed_payments,
+       count(p.id) FILTER (WHERE p.status = 'refunded') AS refunded_payments
 FROM financial.coupons c
-LEFT JOIN financial.payments p ON p.coupon_code = c.code AND p.status = 'confirmed'
+LEFT JOIN financial.payments p ON p.coupon_code = c.code AND p.status IN ('confirmed', 'refunded')
 GROUP BY c.id, c.code, c.uses, c.max_uses
-HAVING c.uses > count(p.id)
+HAVING c.uses > count(p.id) FILTER (WHERE p.status = 'confirmed')
 ORDER BY c.code;
 ```
 
