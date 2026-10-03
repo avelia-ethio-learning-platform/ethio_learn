@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { QualityService } from './quality.service';
+import { fakeDataSource } from './testing/fake-data-source';
 
 const ctx = { id: 'u1', role: 'learner', email: 'l@e.et' } as never;
 
@@ -42,6 +43,7 @@ function setup(opts: Options = {}) {
     noopRepo() as never, // refundLog
     bus as never,
     internal as never,
+    fakeDataSource(new Map()).dataSource,
   );
   return { service, bus, courseReviews };
 }

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
-import { ROLES_KEY, UserContext } from '@ethiopialearn/common';
+import { ProcessedEvent, ROLES_KEY, UserContext } from '@ethiopialearn/common';
 import { MockAiAssessor } from '@ethiopialearn/ai';
 import { PricingType, Role } from '@ethiopialearn/contracts';
 import { CourseService } from './course.service';
@@ -1260,5 +1260,33 @@ describe('Platform admins can use the authoring endpoints the teach page calls',
     await h.service.deleteSection(ADMIN, section.id);
     expect(h.course.title).toBe('Admin fix');
     await expect(h.service.update(OTHER_EDU, 'c1', { title: 'Hijack' })).rejects.toThrow(ForbiddenException);
+  });
+});
+
+describe('EnrollmentCreated: a redelivered event counts the enrollment once (P1-16)', () => {
+  it('the same event twice increments enrolled_count once; another enrollment increments it again', async () => {
+    const h = setup();
+    const processed = new Set<string>();
+    const manager = {
+      getRepository: (entity: unknown) => (entity === ProcessedEvent ? { metadata: { tablePath: 'course.processed_events' } } : h.courses),
+      query: jest.fn(async (sql: string, [consumer, eventId]: string[]) => {
+        if (!sql.startsWith('INSERT')) return [];
+        if (processed.has(`${consumer}|${eventId}`)) return [];
+        processed.add(`${consumer}|${eventId}`);
+        return [{}];
+      }),
+    };
+    h.dataSource.transaction.mockImplementation(async (fn: (m: never) => Promise<unknown>) => fn(manager as never));
+    const enrolled = h.handlers.EnrollmentCreated as (p: unknown, e: unknown) => Promise<void>;
+    const payload = { enrollment_id: 'enr-1', learner_id: 'u1', course_id: 'c1' };
+    const delivery = (eventId: string) => ({ event_type: 'EnrollmentCreated', payload, metadata: { event_id: eventId } });
+
+    await enrolled(payload, delivery('evt-1'));
+    await enrolled(payload, delivery('evt-1'));
+    expect(h.courses.increment).toHaveBeenCalledTimes(1);
+    expect(h.courses.increment).toHaveBeenCalledWith({ id: 'c1' }, 'enrolled_count', 1);
+
+    await enrolled(payload, delivery('evt-2'));
+    expect(h.courses.increment).toHaveBeenCalledTimes(2);
   });
 });

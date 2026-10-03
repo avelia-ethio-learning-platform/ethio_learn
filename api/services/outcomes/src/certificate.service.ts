@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import PDFDocument = require('pdfkit');
 import * as QRCode from 'qrcode';
-import { env, EventBusService, InternalHttpClient, internalPath } from '@ethiopialearn/common';
+import { env, EventBusService, InternalHttpClient, internalPath, isUniqueViolation } from '@ethiopialearn/common';
 import {
   AssessmentResultPayload,
   CertificateIssuedPayload,
@@ -81,22 +81,31 @@ export class CertificateService implements OnModuleInit {
     const pdfKey = `certificates/${uid}.pdf`;
     await this.storage.putObject(pdfKey, pdf, 'application/pdf');
 
-    const cert = await this.certificates.save(
-      this.certificates.create({
-        enrollment_id: p.enrollment_id,
-        certificate_uid: uid,
-        signature,
-        pdf_s3_key: pdfKey,
-        qr_code_url: verifyUrl,
-        learner_id: p.learner_id,
-        learner_name: p.learner_name,
-        course_id: p.course_id,
-        course_title: p.course_title,
-        educator_name: p.educator_name,
-        assessment_badges: passedTypes,
-        trust_tier_snapshot: tier,
-      }),
-    );
+    let cert: Certificate;
+    try {
+      cert = await this.certificates.save(
+        this.certificates.create({
+          enrollment_id: p.enrollment_id,
+          certificate_uid: uid,
+          signature,
+          pdf_s3_key: pdfKey,
+          qr_code_url: verifyUrl,
+          learner_id: p.learner_id,
+          learner_name: p.learner_name,
+          course_id: p.course_id,
+          course_title: p.course_title,
+          educator_name: p.educator_name,
+          assessment_badges: passedTypes,
+          trust_tier_snapshot: tier,
+        }),
+      );
+    } catch (err) {
+      // A concurrent delivery of the same completion got there first (unique enrollment_id).
+      // Its PDF is the one in use; this one stays unused in storage, which is harmless.
+      if (!isUniqueViolation(err)) throw err;
+      this.logger.log(`certificate for enrollment ${p.enrollment_id} already issued`);
+      return;
+    }
 
     await this.bus.publish<CertificateIssuedPayload>('CertificateIssued', {
       certificate_id: cert.id,

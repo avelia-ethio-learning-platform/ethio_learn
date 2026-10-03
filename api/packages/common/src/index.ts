@@ -4,6 +4,7 @@ export * from './config/production-config';
 export * from './events/event-bus.service';
 export * from './events/event-bus.module';
 export * from './events/event-context';
+export * from './events/run-once';
 export * from './auth/user-context';
 export * from './auth/roles.guard';
 export * from './auth/internal.guard';

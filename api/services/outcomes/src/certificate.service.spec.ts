@@ -1,4 +1,5 @@
 import { createHmac } from 'crypto';
+import { QueryFailedError } from 'typeorm';
 import { CertificateService } from './certificate.service';
 
 const SECRET = 'test-cert-secret';
@@ -79,5 +80,54 @@ describe('CertificateService.verify (public tamper check, spec §9.4)', () => {
       if (jwtSecret === undefined) delete process.env.JWT_SECRET;
       else process.env.JWT_SECRET = jwtSecret;
     }
+  });
+});
+
+describe('CertificateService.issue: a redelivered completion (P1-16)', () => {
+  beforeEach(() => {
+    process.env.CERT_SIGNING_SECRET = SECRET;
+  });
+
+  const completion = {
+    enrollment_id: 'enr-1', learner_id: 'u1', learner_email: 'l@e.et', learner_name: 'Learner',
+    course_id: 'c1', course_title: 'Course', educator_id: 'edu-1', educator_name: 'Educator', completed_at: '2026-10-03T00:00:00Z',
+  };
+
+  it('two deliveries racing past the existence check give one certificate, one CertificateIssued and no throw', async () => {
+    const saved: unknown[] = [];
+    const certificates = {
+      findOne: jest.fn().mockResolvedValue(null), // both see no certificate yet
+      create: jest.fn((row: object) => row),
+      save: jest.fn(async (row: object) => {
+        // The unique enrollment_id index lets the first one in.
+        if (saved.length) throw new QueryFailedError('INSERT', [], Object.assign(new Error('duplicate key'), { code: '23505' }));
+        saved.push(row);
+        return { id: 'cert-1', ...row };
+      }),
+    };
+    const none = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn().mockResolvedValue(null) };
+    const bus = { subscribe: jest.fn(), publish: jest.fn().mockResolvedValue(undefined) };
+    const storage = { putObject: jest.fn().mockResolvedValue(undefined) };
+    const service = new CertificateService(certificates as never, none as never, none as never, none as never, bus as never, storage as never, { get: jest.fn() } as never);
+
+    await Promise.all([service.issue(completion), service.issue(completion)]);
+
+    expect(saved).toHaveLength(1);
+    expect(bus.publish).toHaveBeenCalledTimes(1);
+    expect(bus.publish).toHaveBeenCalledWith('CertificateIssued', expect.objectContaining({ enrollment_id: 'enr-1' }));
+  });
+
+  it('any other save error still throws, so the bus retries', async () => {
+    const certificates = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((row: object) => row),
+      save: jest.fn().mockRejectedValue(new Error('connection reset')),
+    };
+    const none = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn().mockResolvedValue(null) };
+    const service = new CertificateService(
+      certificates as never, none as never, none as never, none as never,
+      { subscribe: jest.fn(), publish: jest.fn() } as never, { putObject: jest.fn() } as never, { get: jest.fn() } as never,
+    );
+    await expect(service.issue(completion)).rejects.toThrow('connection reset');
   });
 });

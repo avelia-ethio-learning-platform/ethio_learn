@@ -4,13 +4,17 @@ import {
   CourseAppealSubmittedPayload,
   CourseRevisionSubmittedPayload,
   CourseSubmittedPayload,
+  EventEnvelope,
+  EventType,
   OwnerType,
   PricingType,
   QaDecisionAction,
   QaReviewStatus,
   RevisionDiffSummary,
 } from '@ethiopialearn/contracts';
+import { QaReviewItem, QualityCourseCache, RefundLog } from './entities';
 import { CLAIM_TTL_MS, isLowRiskRevision, QualityService } from './quality.service';
+import { envelopeFor, fakeDataSource } from './testing/fake-data-source';
 
 type Row = Record<string, any>;
 
@@ -151,13 +155,22 @@ function setup(opts: SetupOptions = {}) {
     save: jest.fn(async (x: Row) => ({ id: 'row-1', ...x })),
     create: jest.fn((x: Row) => x),
   });
-  const handlers: Record<string, (p: unknown) => Promise<void>> = {};
+  // Each call is a fresh delivery unless the test passes the envelope of an earlier one.
+  const handlers: Record<string, (p: unknown, e?: EventEnvelope<unknown>) => Promise<void>> = {};
   const bus = {
     publish: jest.fn().mockResolvedValue(undefined),
-    subscribe: jest.fn((type: string, h: (p: unknown) => Promise<void>) => {
-      handlers[type] = h;
+    subscribe: jest.fn((type: EventType, h: (p: unknown, e: EventEnvelope<unknown>) => Promise<void>) => {
+      handlers[type] = (p, e = envelopeFor(type, p)) => h(p, e);
     }),
   };
+  const refundLog = repo();
+  const db = fakeDataSource(
+    new Map<unknown, unknown>([
+      [QaReviewItem, reviewItems],
+      [QualityCourseCache, courseCache],
+      [RefundLog, refundLog],
+    ]),
+  );
   const service = new QualityService(
     reviewItems as never,
     repo() as never, // courseReviews
@@ -165,9 +178,10 @@ function setup(opts: SetupOptions = {}) {
     repo() as never, // trustTiers
     courseCache as never,
     repo() as never, // stats
-    repo() as never, // refundLog
+    refundLog as never,
     bus as never,
     { get: jest.fn() } as never,
+    db.dataSource,
   );
   const plagiarismCheck = jest.fn(async () => {
     if (opts.plagiarism instanceof Error) throw opts.plagiarism;
@@ -176,7 +190,7 @@ function setup(opts: SetupOptions = {}) {
   (service as unknown as { ai: unknown }).ai = { plagiarismCheck };
   service.onModuleInit();
   const published = (type: string) => bus.publish.mock.calls.filter((c) => c[0] === type).map((c) => c[1]);
-  return { service, reviewItems, cacheRows, courseCache, bus, handlers, plagiarismCheck, published };
+  return { service, reviewItems, cacheRows, courseCache, bus, handlers, plagiarismCheck, published, db, refundLog };
 }
 
 function diffSummary(over: Partial<RevisionDiffSummary> = {}): RevisionDiffSummary {
@@ -893,5 +907,142 @@ describe('QualityService.decide (back-compat, by course)', () => {
     await t.service.decide(QO, 'c1', QaDecisionAction.APPROVE);
     expect(t.reviewItems.rows[0].status).toBe(QaReviewStatus.APPROVED);
     expect(t.published('CourseRevisionReviewed')[0]).toMatchObject({ review_item_id: 'rev', revision_id: 'rev-1' });
+  });
+});
+
+// ---- Redelivery (Phase 9a): a retried event repeats no effect ----
+
+describe('QualityService: a redelivered event (P1-16)', () => {
+  const submitted: CourseSubmittedPayload = {
+    course_id: 'c1',
+    title: 'Intro to Python',
+    description: 'Learn Python',
+    owner_id: 'owner-1',
+    owner_type: OwnerType.EDUCATOR,
+    owner_user_id: 'user-1',
+    owner_email: 'edu@x.et',
+    owner_name: 'Edu',
+    pricing_type: PricingType.FREE,
+  };
+  const open = (t: ReturnType<typeof setup>) => t.reviewItems.rows.filter((r) => openIds([r]).length);
+
+  it('CourseSubmitted twice queues one item and screens it once', async () => {
+    const t = setup();
+    const event = envelopeFor('CourseSubmitted', submitted);
+    await t.handlers.CourseSubmitted(submitted, event);
+    await t.handlers.CourseSubmitted(submitted, event);
+
+    expect(open(t)).toHaveLength(1);
+    expect(t.plagiarismCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it('a screen that failed after the commit is finished by the retry: one item, the screen stored, the signal raised (plan-review B1)', async () => {
+    const t = setup({ plagiarism: { similarity_score: 91, flagged: true, reason: 'copied' } });
+    const update = t.reviewItems.update.getMockImplementation()!;
+    t.reviewItems.update.mockImplementationOnce(update); // closeOpenItems, inside the transaction
+    t.reviewItems.update.mockImplementationOnce(async () => {
+      throw new Error('Connection terminated unexpectedly'); // recordScreen
+    });
+    const event = envelopeFor('CourseSubmitted', submitted);
+
+    await expect(t.handlers.CourseSubmitted(submitted, event)).rejects.toThrow('Connection terminated');
+    expect(open(t)[0].plagiarism).toEqual({ pending: true });
+    expect(t.published('FraudFlagRaised')).toHaveLength(0);
+
+    await t.handlers.CourseSubmitted(submitted, event);
+    expect(open(t)).toHaveLength(1);
+    expect(open(t)[0].plagiarism).toMatchObject({ flagged: true, reason: 'copied' });
+    expect(t.published('FraudFlagRaised')).toHaveLength(1);
+  });
+
+  it('a redelivery of an item that was already screened does nothing', async () => {
+    const t = setup({ plagiarism: { similarity_score: 91, flagged: true, reason: 'copied' } });
+    const event = envelopeFor('CourseSubmitted', submitted);
+    await t.handlers.CourseSubmitted(submitted, event);
+    await t.handlers.CourseSubmitted(submitted, event);
+    expect(t.plagiarismCheck).toHaveBeenCalledTimes(1);
+    expect(t.published('FraudFlagRaised')).toHaveLength(1);
+  });
+
+  it('CourseRevisionSubmitted twice queues one revision item; a failed screen is finished by the retry', async () => {
+    const t = setup();
+    const update = t.reviewItems.update.getMockImplementation()!;
+    t.reviewItems.update.mockImplementationOnce(update);
+    t.reviewItems.update.mockImplementationOnce(async () => {
+      throw new Error('Connection terminated unexpectedly');
+    });
+    const payload = revisionPayload();
+    const event = envelopeFor('CourseRevisionSubmitted', payload);
+
+    await expect(t.handlers.CourseRevisionSubmitted(payload, event)).rejects.toThrow('Connection terminated');
+    await t.handlers.CourseRevisionSubmitted(payload, event);
+    expect(open(t)).toHaveLength(1);
+    expect(open(t)[0].plagiarism).toMatchObject({ flagged: false });
+    expect(open(t)[0].priority).toBe(1);
+  });
+
+  it('CourseAppealSubmitted twice queues one appeal item', async () => {
+    const t = setup({ items: [{ id: 'old', course_id: 'c1', status: QaReviewStatus.FLAGGED }] });
+    const payload: CourseAppealSubmittedPayload = {
+      course_id: 'c1',
+      course_title: 'Live title',
+      owner_user_id: 'user-1',
+      owner_email: 'edu@x.et',
+      appeal_note: 'Please look again',
+    };
+    const event = envelopeFor('CourseAppealSubmitted', payload);
+    await t.handlers.CourseAppealSubmitted(payload, event);
+    await t.handlers.CourseAppealSubmitted(payload, event);
+    expect(t.reviewItems.rows.filter((r) => r.kind === 'appeal')).toHaveLength(1);
+  });
+
+  describe('trust stats', () => {
+    const statsSetup = () => {
+      const t = setup({ cache: [{ course_id: 'c1', owner_id: 'owner-1', owner_type: OwnerType.EDUCATOR, title: 'T' }] });
+      Object.assign(t.courseCache, { find: jest.fn().mockResolvedValue([]) });
+      const count: Record<string, jest.Mock> = {};
+      Object.assign(count, { where: jest.fn(() => count), andWhere: jest.fn(() => count), getCount: jest.fn().mockResolvedValue(0) });
+      Object.assign(t.refundLog, { createQueryBuilder: jest.fn(() => count) });
+      return t;
+    };
+    const paid = { payment_id: 'p1', payee_id: 'owner-1', learner_id: 'u1', course_id: 'c1', amount_etb: '500.00' };
+    const refund = { refund_request_id: 'r1', payment_id: 'p1', learner_id: 'u1', course_id: 'c1', course_title: 'T', amount_etb: 500, reason: 'auto' };
+
+    it('PaymentConfirmed twice counts one payment; two payments count two', async () => {
+      const t = statsSetup();
+      const event = envelopeFor('PaymentConfirmed', paid);
+      await t.handlers.PaymentConfirmed(paid, event);
+      await t.handlers.PaymentConfirmed(paid, event);
+      expect(t.db.stats.get('owner-1')).toEqual({ payments: 1, refunds: 0, completions: 0 });
+
+      await t.handlers.PaymentConfirmed(paid);
+      expect(t.db.stats.get('owner-1')!.payments).toBe(2);
+    });
+
+    it('bumps a counter in one upsert statement, so concurrent events add up', async () => {
+      const t = statsSetup();
+      await Promise.all([t.handlers.PaymentConfirmed(paid), t.handlers.PaymentConfirmed(paid)]);
+      expect(t.db.stats.get('owner-1')!.payments).toBe(2);
+      const upserts = t.db.manager.query.mock.calls.filter(([sql]) => sql.includes('payee_stats'));
+      expect(upserts[0][0]).toMatch(/INSERT INTO quality\.payee_stats AS s .* ON CONFLICT \(payee_id\) DO UPDATE SET payments = s\.payments \+ EXCLUDED\.payments/s);
+    });
+
+    it('CourseCompleted twice counts one completion', async () => {
+      const t = statsSetup();
+      const payload = { learner_id: 'u1', course_id: 'c1' };
+      const event = envelopeFor('CourseCompleted', payload);
+      await t.handlers.CourseCompleted(payload, event);
+      await t.handlers.CourseCompleted(payload, event);
+      expect(t.db.stats.get('owner-1')).toEqual({ payments: 0, refunds: 0, completions: 1 });
+    });
+
+    it('RefundApproved twice logs one refund and counts it once', async () => {
+      const t = statsSetup();
+      const event = envelopeFor('RefundApproved', refund);
+      await t.handlers.RefundApproved(refund, event);
+      await t.handlers.RefundApproved(refund, event);
+      expect(t.refundLog.save).toHaveBeenCalledTimes(1);
+      expect(t.db.stats.get('owner-1')).toEqual({ payments: 0, refunds: 1, completions: 0 });
+    });
   });
 });

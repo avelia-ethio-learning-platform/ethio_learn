@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { EventBusService, InternalHttpClient, internalPath, runOnce, UserContext } from '@ethiopialearn/common';
 import { aiFallbackNote, AiAssessor, CourseStructureOrigin, createAiAssessor, GeneratedSection, MockAiAssessor } from '@ethiopialearn/ai';
 import {
   CourseCategory,
@@ -130,6 +130,8 @@ class TtlCache<T> {
 const BAYES_SCORE =
   '((c.rating_count::float / (c.rating_count + 3)) * COALESCE(c.rating_avg, 0)::float + (3.0 / (c.rating_count + 3)) * 3.75)';
 
+const ENROLLED_COUNT_HANDLER = 'course:EnrollmentCreated:enrolled-count';
+
 @Injectable()
 export class CourseService implements OnModuleInit {
   private readonly logger = new Logger(CourseService.name);
@@ -170,10 +172,17 @@ export class CourseService implements OnModuleInit {
     });
 
     // Enrollment counter → popularity signal for catalog sorting.
-    this.bus.subscribe<EnrollmentCreatedPayload>('EnrollmentCreated', async (payload) => {
-      await this.courses.increment({ id: payload.course_id }, 'enrolled_count', 1);
-      this.searchCache.clear();
-    });
+    // runOnce: a redelivered enrollment doesn't count twice. Never rename the handler (its dedupe key).
+    this.bus.subscribe<EnrollmentCreatedPayload>(
+      'EnrollmentCreated',
+      async (payload, e) => {
+        await runOnce(this.dataSource, ENROLLED_COUNT_HANDLER, e.metadata.event_id, (m) =>
+          m.getRepository(Course).increment({ id: payload.course_id }, 'enrolled_count', 1),
+        );
+        this.searchCache.clear();
+      },
+      { name: ENROLLED_COUNT_HANDLER },
+    );
   }
 
   /**
