@@ -29,9 +29,11 @@ export class AdminUsersController {
   async list(@Query('q') q?: string, @Query('role') role?: Role, @Query('page') page = '1', @Query('limit') limit = '20') {
     const take = Math.min(parseInt(limit, 10) || 20, 100);
     const skip = (Math.max(parseInt(page, 10) || 1, 1) - 1) * take;
-    if (q && q.length > 100) throw new BadRequestException('Search is limited to 100 characters.');
+    // A repeated ?q= arrives as an array: treat anything but a string as no term.
+    const raw = typeof q === 'string' ? q : undefined;
+    if (raw && raw.length > 100) throw new BadRequestException('Search is limited to 100 characters.');
     const roleFilter = role ? { role } : {};
-    const term = q?.trim();
+    const term = raw?.trim();
     const p = term ? `%${escapeLike(term)}%` : null;
     // A name or an email match, the role filter kept on both branches.
     const where = p ? [{ email: ILike(p), ...roleFilter }, { name: ILike(p), ...roleFilter }] : roleFilter;

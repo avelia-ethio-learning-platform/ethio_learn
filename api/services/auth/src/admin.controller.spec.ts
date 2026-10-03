@@ -14,6 +14,12 @@ function setup() {
 const pattern = (op: unknown) => (op as FindOperator<string>).value;
 
 describe('AdminUsersController.list search', () => {
+  it('treats a repeated q (an array) as no search term instead of throwing', async () => {
+    const t = setup();
+    await t.ctrl.list(['a', 'b'] as never);
+    expect(t.where()).toEqual({});
+  });
+
   it('matches the name or the email, case-insensitively', async () => {
     const t = setup();
     await t.ctrl.list('Abebe');
