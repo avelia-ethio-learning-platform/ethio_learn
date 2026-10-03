@@ -267,3 +267,16 @@ ethio-impl, worktree `../ethi0-11a`, branch `chore/ci-gates` (from origin/main; 
     - **fix `fe89fca`:** `shell: bash` (`-eo pipefail`) on both audit steps;
     - **on `1398c81`, at level high:** the `audit` check concludes **success**, with `warning: pnpm audit (api)` and `warning: pnpm audit (web)` annotations and the findings in the job summary;
     - this is P1-08's backlog for 11c.
+
+### In flight / next step (checkpoint 2026-10-03, resume 2026-10-05)
+- **State:**
+  - steps 1–8 are done; step 9's local gate is green;
+  - draft PR #32 is pushed at `8987efc`. CI on `8987efc`: api, web, lint, audit and secret-scan pass; `e2e` was still running at the checkpoint (it passed on `220e2c0`, and the later commits change only `ci.yml`'s audit steps and docs). Check it with `gh pr checks 32`.
+- **Next:**
+  1. If `e2e` on the head is green, send ethio-planner [31d0d2] the Rollout commands (below) for USER-ACTIONS.
+  2. Request the code review from ethio-plan-review [f903ba] (size M): branch `chore/ci-gates`, base `main`, this plan, and the gate above.
+  3. Before the merge: merge origin/main (keep 9a's `/ready` wait and 9c's `tini` if they've landed), regenerate the lint baseline (`node scripts/lint-check.mjs --update`), then mark the PR ready.
+- **Rollout commands to send** (the owner's token has admin and `repo`; all were checked read-only, never run):
+  1. After the merge, from an up-to-date `main` checkout: `gh api -X POST repos/avelia-ethio-learning-platform/ethio_learn/rulesets --input .github/rulesets/main.json`. Verify with `gh api repos/avelia-ethio-learning-platform/ethio_learn/rulesets --jq '.[] | "\(.name) \(.enforcement)"'`, which should print `main active`.
+  2. `gh api -X PUT repos/avelia-ethio-learning-platform/ethio_learn/vulnerability-alerts` (Dependabot security updates need alerts on first), then `gh api -X PATCH repos/avelia-ethio-learning-platform/ethio_learn -f 'security_and_analysis[secret_scanning][status]=enabled' -f 'security_and_analysis[secret_scanning_push_protection][status]=enabled' -f 'security_and_analysis[dependabot_security_updates][status]=enabled'`. Verify with `gh api repos/avelia-ethio-learning-platform/ethio_learn --jq .security_and_analysis`: each one should be `enabled`.
+  3. **Render:** after the deploy, each of the 8 services' Settings → Auto-Deploy should read "After CI checks pass". If the Blueprint didn't sync it, set it there.
