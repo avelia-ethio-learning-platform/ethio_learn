@@ -211,9 +211,9 @@ Financial migrations, timestamps after 6a's, registered in `migrations/index.ts`
 - `WalletCredited` event: optional `available_at` (contracts package).
 
 ## Steps
-- [ ] 1. Branch `fix/money-integrity` from the `fix/security-platform` tip (stacked on 6a). This folder is meant to be in `.git/info/exclude`, but it isn't yet (drift D7): the user adds it. Either way, commit the folder with `git add -f`, as 6a did, or leave that to the user. Stage paths explicitly; several plan folders are untracked.
-- [ ] 2. Migrations 1 and 2 plus entity changes (`state` with the named CHECK, `available_at`, `payment_id`, `refund_requested_at`); `db:check` 0 on a fresh and an existing local DB; both partial-index `WHERE` clauses checked in `pg_indexes` (D4); revert round-trip; the backfill tested on a seeded pending refund.
-- [ ] 3. Pending credits and lazy release (decisions 1–2): `creditWith` takes an optional `{ state, available_at, payment_id }`; `creditCashback` and `rewardReferrer` pass pending; `releaseMatured` in `GET /wallet` and `debitWith`; fake-db support.
+- [x] 1. Branch `fix/money-integrity` from the `fix/security-platform` tip (stacked on 6a). This folder is meant to be in `.git/info/exclude`, but it isn't yet (drift D7): the user adds it. Either way, commit the folder with `git add -f`, as 6a did, or leave that to the user. Stage paths explicitly; several plan folders are untracked.
+- [x] 2. Migrations 1 and 2 plus entity changes (`state` with the named CHECK, `available_at`, `payment_id`, `refund_requested_at`); `db:check` 0 on a fresh and an existing local DB; both partial-index `WHERE` clauses checked in `pg_indexes` (D4); revert round-trip; the backfill tested on a seeded pending refund.
+- [x] 3. Pending credits and lazy release (decisions 1–2): `creditWith` takes an optional `{ state, available_at, payment_id }`; `creditCashback` and `rewardReferrer` pass pending; `releaseMatured` in `GET /wallet` and `debitWith`; fake-db support.
   - Tests:
     - a cashback is pending and the balance is unchanged;
     - after `available_at`, one read releases it, and a second read doesn't add it again;
@@ -305,3 +305,21 @@ Financial migrations, timestamps after 6a's, registered in `migrations/index.ts`
 - **Fake DB brittleness:** every new raw SQL string needs a matching fake-db rule. Budget for it in steps 3–5.
 
 ## Progress and deviations (implementer)
+Branch `fix/money-integrity`, created from `fix/security-platform` @ `e2c4014` (6a APPROVED). The plan folder is committed with `git add -f` (`5a81bef`). 6a merged as PR #24 (`c82d091`), and `origin/main` is merged in as `ac596e6`. It brought docs only, because 6a's code was already on the branch. The code review base is now `origin/main`.
+
+- **Step 2 (`0a9eb57`):** `1790966512490-PendingCreditsRefundMark` and `1790966512491-PendingCreditIndexes`, and the entity declarations (`@Check('CHK_wallet_transactions_state', …)`, both partial `@Index`es).
+  - `db:check` reports no drift on a fresh DB and on a copy of the dev DB.
+  - Both partial-index predicates were checked by hand in `pg_indexes`.
+  - The `-t none` revert removes the columns, the indexes and the CHECK, and a re-run restores them.
+  - The backfill was tested on a seeded pending refund and an approved one: only the pending refund's payment is marked.
+- **Step 3 (`839e853`, `ebfe1f2`):** pending cashback and referral rewards, and `releaseMatured` in `GET /wallet` (now one transaction) and in `debitWith`.
+  - `confirmPayment` passes its own `now` to both credit helpers.
+  - `fake-db.ts` matches the wallet INSERT with two exact column lists instead of a wildcard, plus an exact release rule.
+  - The D2 specs are rewritten to the new rule.
+  - api: 62 suites, 1015 tests pass. A throwaway real-Postgres run of the built service released once across 8 concurrent reads and used the partial index.
+  - Interim until step 7: a pending credit's `WalletCredited` notice still has the old "spend it" copy.
+- **Method:** subagent-driven development, with a task review per step. Rulings P1–P3 are in the pre-flight scan:
+  - P1: A3 also covers `createBulk`, which has the same create-then-checkout shape.
+  - P2: replaying a non-confirmed `bank-<REF>` row re-runs `confirmPayment` with the existing bank source.
+  - P3: the DEPLOYMENT.md Phase 6c SQL goes into step 8.
+
