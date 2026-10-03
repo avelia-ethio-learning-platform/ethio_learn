@@ -319,7 +319,8 @@ export class PaymentService {
     const code = quote.coupon!.code;
     const due = quote.amount_due_etb;
     const holdMs = couponHoldMs();
-    return this.dataSource.transaction(async (m) => {
+    const superseded: Payment[] = [];
+    const opened = await this.dataSource.transaction(async (m): Promise<{ payment: Payment } | { reused: SessionResult }> => {
       const payments = m.getRepository(Payment);
       const coupon = await this.growth.lockCoupon(m, code);
       const unavailable = couponUnavailable(coupon);
@@ -331,7 +332,7 @@ export class PaymentService {
       const latest = same[same.length - 1];
       const reusable =
         latest && due > 0 && !input.useWallet && latest.chapa_checkout_url && Number(latest.amount_etb).toFixed(2) === due.toFixed(2) ? latest : null;
-      for (const p of same) if (p !== reusable) await this.failPayment(p, 'checkout', 'superseded', m);
+      for (const p of same) if (p !== reusable && (await this.failPayment(p, 'checkout', 'superseded', m))) superseded.push(p);
       if (reusable) {
         this.logger.log(`payment ${reusable.id} (${reusable.chapa_tx_ref}): open checkout returned to a retry of the same purchase`);
         return {
@@ -364,6 +365,10 @@ export class PaymentService {
 
       return { payment: await payments.save(draft) };
     });
+    // Only now: a refusal later in the transaction rolls the supersede back.
+    const by = 'reused' in opened ? opened.reused.payment_id : opened.payment.id;
+    for (const p of superseded) this.logger.log(`payment ${p.id} (${p.chapa_tx_ref}) marked failed via checkout (superseded by payment ${by})`);
+    return opened;
   }
 
   /** 400 naming the payer's own open checkout that holds the coupon, with its link when it has one. */
@@ -704,14 +709,16 @@ export class PaymentService {
    * goes out once. Only the notification service consumes PaymentFailed, so
    * the checkout's own reasons (SILENT_FAIL_REASONS) don't publish it. Runs in
    * `manager`'s transaction when given (a superseded row, which publishes
-   * nothing before that transaction commits).
+   * nothing before that transaction commits); the caller then writes the log
+   * line after the commit.
    */
   private async failPayment(payment: Payment, source: ConfirmSource, reason: string, manager?: EntityManager): Promise<boolean> {
     const repo = manager ? manager.getRepository(Payment) : this.payments;
     const failed = await repo.update({ id: payment.id, status: PaymentStatus.PENDING }, { status: PaymentStatus.FAILED, webhook_received_at: new Date() });
     if (failed.affected !== 1) return false;
     payment.status = PaymentStatus.FAILED;
-    this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}) marked failed via ${source} (${reason})`);
+    // In the caller's transaction a later rollback would undo this, so that caller logs it once it commits.
+    if (!manager) this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}) marked failed via ${source} (${reason})`);
     if (SILENT_FAIL_REASONS.has(reason)) return true;
     if ((payment.purpose ?? PaymentPurpose.COURSE) === PaymentPurpose.COURSE) {
       try {

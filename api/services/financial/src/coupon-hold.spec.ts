@@ -462,6 +462,66 @@ describe('coupon checkout: a superseded checkout paid late, checked from the ret
   });
 });
 
+describe('coupon checkout: the supersede log', () => {
+  /** Captures the service's log lines, each with whether a transaction was open when it was written. */
+  const watchLogs = (t: ReturnType<typeof setup>) => {
+    const transaction = t.db.dataSource.transaction as jest.Mock;
+    const run = transaction.getMockImplementation()!;
+    let open = 0;
+    transaction.mockImplementation(async (fn: unknown) => {
+      open += 1;
+      try {
+        return await run(fn);
+      } finally {
+        open -= 1;
+      }
+    });
+    const lines: Array<{ message: string; inTransaction: boolean }> = [];
+    jest.spyOn((t.service as any).logger, 'log').mockImplementation((message: unknown) => {
+      lines.push({ message: String(message), inTransaction: open > 0 });
+    });
+    return lines;
+  };
+
+  it('logs a superseded checkout only after the transaction commits, naming the checkout that replaced it', async () => {
+    const t = setup();
+    t.coupon();
+    const first = await t.buy();
+    t.course.price_etb = 600;
+    const lines = watchLogs(t);
+    const retry = await t.buy();
+
+    expect(lines.filter((l) => l.message.startsWith(`payment ${first.payment_id} `))).toEqual([
+      { message: expect.stringContaining(`superseded by payment ${retry.payment_id}`), inTransaction: false },
+    ]);
+  });
+
+  it('logs nothing about a supersede that a later refusal in the same transaction rolls back', async () => {
+    const t = setup();
+    // uses + 1 rolled back on a confirmed payment: the quote passes, the count under the lock refuses.
+    t.coupon({ max_uses: 1, uses: 0 });
+    t.hold({ status: PaymentStatus.CONFIRMED, created_at: minutesAgo(600) });
+    const mine = t.hold({ learner_id: 'u1' });
+    t.course.price_etb = 600;
+    const lines = watchLogs(t);
+
+    expect((await t.refusal(t.buy())).message).toBe(FULLY_USED);
+    expect(t.row(mine.id).status).toBe(PaymentStatus.PENDING);
+    expect(lines.filter((l) => l.message.startsWith(`payment ${mine.id} `))).toEqual([]);
+  });
+
+  it('a fail outside a transaction still logs itself', async () => {
+    const t = setup();
+    t.coupon();
+    const lines = watchLogs(t);
+    t.chapa.initialize.mockRejectedValueOnce(new Error('Chapa could not start this checkout. Please try again.'));
+    await expect(t.buy()).rejects.toThrow('Chapa could not start this checkout.');
+
+    const [p] = t.payments.rows;
+    expect(lines).toContainEqual({ message: `payment ${p.id} (${p.chapa_tx_ref}) marked failed via checkout (checkout_open_failed)`, inTransaction: false });
+  });
+});
+
 describe('coupon checkout: different purchases by the same payer', () => {
   it('a second gift of the course to another recipient is refused as held by your own checkout, and the first is untouched', async () => {
     const t = setup();
