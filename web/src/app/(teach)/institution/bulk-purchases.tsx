@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, LoaderCircle, ShoppingCart, UserPlus, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { StatusBadge } from '@/components/PageChrome';
+import { formatDate, formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 interface Quote {
   course_title: string;
@@ -22,6 +24,7 @@ interface Quote {
  * Each seat shows the employee's progress.
  */
 export function BulkPurchases({ organizationName }: { organizationName: string }) {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const { data: orders } = useQuery({ queryKey: ['bulk-purchases'], queryFn: () => api<any[]>('/bulk-purchases/mine') });
   const { data: wallet } = useQuery({ queryKey: ['wallet'], queryFn: () => api<{ balance_etb: number }>('/wallet') });
@@ -82,7 +85,7 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
                 {results.items.map((c) => (
                   <li key={c.id}>
                     <button className="w-full px-3 py-2 text-left text-sm hover:bg-brand-500/5" onClick={() => { setCourse({ id: c.id, title: c.title }); setQuote(null); }}>
-                      {c.title} <span className="text-xs text-gray-500">· {c.price_etb} ETB</span>
+                      {c.title} <span className="text-xs text-gray-500">· {formatETB(c.price_etb, locale)}</span>
                     </button>
                   </li>
                 ))}
@@ -99,9 +102,9 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
         {quote && (
           <div className="glass-secondary flex flex-wrap items-center justify-between gap-3 rounded-xl p-3 text-sm">
             <span>
-              <b>{quote.seats} seats</b> × {quote.unit_price_etb} ETB{quote.discount_percent > 0 && <span className="text-emerald-600"> − {quote.discount_percent}% volume discount</span>} ={' '}
-              <b className="text-brand-600">{quote.total_etb} ETB</b>
-              {quote.discount_percent > 0 && <span className="text-xs text-gray-500"> (list {quote.list_total_etb} ETB)</span>}
+              <b>{quote.seats} seats</b> × {formatETB(quote.unit_price_etb, locale)}{quote.discount_percent > 0 && <span className="text-emerald-600"> − {quote.discount_percent}% volume discount</span>} ={' '}
+              <b className="text-brand-600">{formatETB(quote.total_etb, locale)}</b>
+              {quote.discount_percent > 0 && <span className="text-xs text-gray-500"> (list {formatETB(quote.list_total_etb, locale)})</span>}
             </span>
             <span className="flex gap-2">
               <button className="btn" disabled={busy} onClick={() => buy(false)}>
@@ -130,6 +133,7 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
 }
 
 function BulkOrder({ order: o }: { order: any }) {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const [emails, setEmails] = useState('');
   const [status, setStatus] = useState('');
@@ -151,7 +155,7 @@ function BulkOrder({ order: o }: { order: any }) {
     <div className="card text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold text-foreground">
-          {o.course_title} <span className="text-xs font-normal text-gray-500">· {o.seats} seats · {o.total_etb} ETB · {new Date(o.created_at).toLocaleDateString()}</span>
+          {o.course_title} <span className="text-xs font-normal text-gray-500">· {o.seats} seats · {formatETB(o.total_etb, locale)} · {formatDate(o.created_at, locale)}</span>
         </p>
         <span className="flex items-center gap-2">
           <StatusBadge status={o.status} />

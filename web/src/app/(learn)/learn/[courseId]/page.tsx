@@ -26,6 +26,8 @@ import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { AssessmentsPanel } from './assessments-panel';
 import { TutorPanel } from './tutor-panel';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 interface Lesson {
   id: string;
@@ -60,6 +62,7 @@ interface VideoProgress {
 const HEARTBEAT_MS = 10_000;
 
 function Player({ courseId }: { courseId: string }) {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const search = useSearchParams();
   const { user } = useAuth();
@@ -245,7 +248,7 @@ function Player({ courseId }: { courseId: string }) {
                   <li key={c.id} className="flex gap-3">
                     <span className={c.kind === 'major' ? 'badge-info shrink-0' : 'badge-neutral shrink-0'}>{c.kind}</span>
                     <span className="min-w-0 flex-1 text-gray-600">
-                      {c.summary} <span className="text-xs text-gray-500">· {new Date(c.created_at).toLocaleDateString()}</span>
+                      {c.summary} <span className="text-xs text-gray-500">· {formatDate(c.created_at, locale)}</span>
                     </span>
                   </li>
                 ))}

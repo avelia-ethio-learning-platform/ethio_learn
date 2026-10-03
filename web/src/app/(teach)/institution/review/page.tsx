@@ -9,6 +9,8 @@ import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { CHIP_CLASS, diffChips, type RevisionDiffSummary } from '@/lib/qa';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 const QUEUE_KEY = ['institution-review'];
 
@@ -78,6 +80,7 @@ function ReviewQueue() {
 }
 
 function ReviewRow({ row, onDecided }: { row: InstitutionQueueRow; onDecided: (message: string) => void }) {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const uid = useId();
   const [notes, setNotes] = useState('');
@@ -124,7 +127,7 @@ function ReviewRow({ row, onDecided }: { row: InstitutionQueueRow; onDecided: (m
         <UserRound className="h-3.5 w-3.5 text-brand-400" />
         Created by <span className="font-semibold text-foreground">{row.instructor_name || 'Unknown instructor'}</span>
         {row.instructor_email && <span className="break-all text-gray-500">({row.instructor_email})</span>}
-        {isRevision && row.submitted_at && <span>· submitted {new Date(row.submitted_at).toLocaleDateString()}</span>}
+        {isRevision && row.submitted_at && <span>· submitted {formatDate(row.submitted_at, locale)}</span>}
       </p>
 
       {isRevision ? (

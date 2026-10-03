@@ -5,6 +5,8 @@ import { Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
 import { categoryLabel, COURSE_CATEGORIES } from '@/lib/categories';
 import { fieldLabel, type WorkingCourse } from './working';
+import { formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /** "Edited" chip when any of `fields` has a staged change (live courses only). */
 export function EditedChip({ course, fields }: { course: Pick<WorkingCourse, 'pending_fields'>; fields: string[] }) {
@@ -19,6 +21,7 @@ export function EditedChip({ course, fields }: { course: Pick<WorkingCourse, 'pe
 
 /** Title, description, category and pricing. On a live course a save is staged for review. */
 export function CourseDetails({ course, live, disabled, onSaved }: { course: WorkingCourse; live: boolean; disabled: boolean; onSaved: (message: string) => void }) {
+  const { locale } = useT();
   const [editing, setEditing] = useState(false);
   const [pricing, setPricing] = useState(course.pricing_type);
   const [busy, setBusy] = useState(false);
@@ -92,7 +95,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
           </dt>
           <dd className="capitalize">
             {course.pricing_type}
-            {course.pricing_type !== 'free' && course.price_etb ? ` · ${course.price_etb} ETB` : ''}
+            {course.pricing_type !== 'free' && course.price_etb ? ` · ${formatETB(course.price_etb, locale)}` : ''}
           </dd>
         </dl>
       ) : (

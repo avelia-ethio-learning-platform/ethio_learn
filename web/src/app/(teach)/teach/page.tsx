@@ -7,8 +7,11 @@ import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
+import { formatDate, formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 function TeachDashboard() {
+  const { locale } = useT();
   const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
   const { data: balance } = useQuery({ queryKey: ['balance'], queryFn: () => api<any>('/payouts/balance') });
   const { data: payouts } = useQuery({ queryKey: ['payouts'], queryFn: () => api<any[]>('/payouts') });
@@ -18,7 +21,7 @@ function TeachDashboard() {
     {
       icon: Wallet,
       label: 'Pending earnings (net, 80%)',
-      value: `${balance?.pending_net_etb ?? 0} ETB`,
+      value: `${formatETB(balance?.pending_net_etb ?? 0, locale)}`,
       hint: `from ${balance?.payment_count ?? 0} settled payments`,
     },
     { icon: BookOpen, label: 'Courses', value: courses?.length ?? 0, hint: 'drafts + published' },
@@ -92,7 +95,7 @@ function TeachDashboard() {
                     <p className="font-semibold text-foreground">{c.title}</p>
                     <p className="mt-0.5 text-xs text-gray-500">
                       {c.category} · {c.pricing_type}
-                      {c.price_etb ? ` · ${c.price_etb} ETB` : ''}
+                      {c.price_etb ? ` · ${formatETB(c.price_etb, locale)}` : ''}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
@@ -117,9 +120,9 @@ function TeachDashboard() {
                 className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5"
                 style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
               >
-                <span className="text-gray-500">{new Date(p.created_at).toDateString()}</span>
+                <span className="text-gray-500">{formatDate(p.created_at, locale)}</span>
                 <span className="font-medium text-foreground">
-                  net {p.net_amount_etb} ETB <span className="font-normal text-gray-500">(gross {p.gross_amount_etb})</span>
+                  net {formatETB(p.net_amount_etb, locale)} <span className="font-normal text-gray-500">(gross {p.gross_amount_etb})</span>
                 </span>
                 <StatusBadge status={p.status} suffix={p.hold_reason || undefined} />
               </div>

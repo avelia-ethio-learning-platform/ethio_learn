@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 interface ThreadView {
   thread_id: string;
@@ -31,6 +33,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 function Messenger() {
+  const { locale } = useT();
   const { user, ready } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
@@ -185,7 +188,7 @@ function Messenger() {
                     <div className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${m.mine ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-900'}`}>
                       <p className="whitespace-pre-wrap">{m.body}</p>
                       <p className={`mt-0.5 text-right text-xs ${m.mine ? 'text-brand-100' : 'text-gray-500'}`}>
-                        {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {formatDate(m.created_at, locale, 'datetime')}
                       </p>
                     </div>
                   </div>

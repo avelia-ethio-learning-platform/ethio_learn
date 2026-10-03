@@ -8,8 +8,11 @@ import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 function NotificationsList() {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const router = useRouter();
   const { data, isLoading } = useQuery({ queryKey: ['notifications-page'], queryFn: () => api<any[]>('/notifications') });
@@ -62,7 +65,7 @@ function NotificationsList() {
                 <span className="min-w-0 flex-1">{n.title}</span>
               </p>
               {n.body && <p className="mt-1 text-xs leading-relaxed text-gray-500">{n.body}</p>}
-              <p className="mt-1 text-xs text-gray-500">{new Date(n.created_at).toLocaleString()}</p>
+              <p className="mt-1 text-xs text-gray-500">{formatDate(n.created_at, locale, 'datetime')}</p>
             </button>
           ))}
         </div>

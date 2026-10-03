@@ -17,10 +17,13 @@ import { SectionsAndLessons } from './sections-editor';
 import { StructureGenerator } from './structure-generator';
 import { LessonUploadsProvider, ThumbnailUploader, useActiveLessonUploads, WAIT_FOR_UPLOAD } from './video-upload';
 import { COURSE_IN_REVIEW, editState, REVISION_IN_REVIEW, type ReviewFeedbackView, type WorkingCourse } from './working';
+import { formatDate, formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 const S3_PUBLIC_URL = process.env.NEXT_PUBLIC_S3_PUBLIC_URL ?? 'http://localhost:9000/ethiopialearn';
 
 function ManageCourse({ courseId, generate }: { courseId: string; generate: boolean }) {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [message, setMessage] = useState('');
@@ -107,7 +110,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
             {live && !revisionInReview && course.has_pending_changes && <span className="badge-warn">unpublished changes</span>}
             <span>
               {course.pricing_type}
-              {course.pricing_type !== 'free' && course.price_etb ? ` · ${course.price_etb} ETB` : ''}
+              {course.pricing_type !== 'free' && course.price_etb ? ` · ${formatETB(course.price_etb, locale)}` : ''}
               {reviews?.average_rating ? ` · ★ ${reviews.average_rating} (${reviews.review_count})` : ''}
             </span>
           </p>
@@ -225,7 +228,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
           <ul className="mt-2 space-y-2 text-sm">
             {pendingProjects.map((p) => (
               <li key={p.attempt_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
-                <span>Submitted {new Date(p.submitted_at).toLocaleString()}</span>
+                <span>Submitted {formatDate(p.submitted_at, locale, 'datetime')}</span>
                 <span className="flex gap-2">
                   {p.download_url && <a className="font-medium text-brand-600 hover:underline" href={p.download_url} target="_blank">Download</a>}
                   <button className="font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => review(p.attempt_id, true)}>Pass</button>
@@ -246,6 +249,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
  *  course itself, so the educator sees the comments without hunting in
  *  notifications. */
 function ReviewFeedback({ feedback }: { feedback: ReviewFeedbackView }) {
+  const { locale } = useT();
   const map: Record<string, { tone: string; label: string }> = {
     coach: {
       tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
@@ -267,7 +271,7 @@ function ReviewFeedback({ feedback }: { feedback: ReviewFeedbackView }) {
     },
   };
   const meta = map[feedback.action] ?? { tone: 'text-gray-600', label: 'Reviewer feedback' };
-  const when = feedback.reviewed_at ? new Date(feedback.reviewed_at).toLocaleString() : '';
+  const when = feedback.reviewed_at ? formatDate(feedback.reviewed_at, locale, 'datetime') : '';
   return (
     <div className={`rounded-2xl border px-4 py-3 text-sm ${meta.tone}`}>
       <div className="flex items-center justify-between gap-2">
@@ -284,6 +288,7 @@ function ReviewFeedback({ feedback }: { feedback: ReviewFeedbackView }) {
 }
 
 function LearnerFeedback({ reviews }: { reviews: any }) {
+  const { locale } = useT();
   return (
     <div className="card">
       <div className="flex items-center justify-between">
@@ -299,7 +304,7 @@ function LearnerFeedback({ reviews }: { reviews: any }) {
           {reviews.reviews.map((r: any) => (
             <li key={r.id} className="border-t pt-2 text-sm first:border-0 first:pt-0">
               <p className="text-amber-500">{'★'.repeat(r.rating)}<span className="text-gray-500">{'★'.repeat(5 - r.rating)}</span>
-                <span className="ml-2 text-xs text-gray-500">{new Date(r.created_at).toLocaleDateString()}</span>
+                <span className="ml-2 text-xs text-gray-500">{formatDate(r.created_at, locale)}</span>
               </p>
               {r.comment && <p className="mt-1 text-gray-700">{r.comment}</p>}
             </li>

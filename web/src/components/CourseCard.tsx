@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { categoryIcon, categoryLabel } from '@/lib/categories';
+import { formatETB } from '@/lib/format';
 
 export interface CourseSummary {
   id: string;
@@ -17,8 +18,10 @@ const LANG_LABEL: Record<string, string> = { en: 'EN', am: 'አማ' };
 
 export function priceLabel(course: Pick<CourseSummary, 'pricing_type' | 'price_etb'>): string {
   if (course.pricing_type === 'free') return 'Free';
-  if (course.pricing_type === 'freemium') return `Freemium · ${course.price_etb ?? '—'} ETB`;
-  return `${course.price_etb ?? '—'} ETB`;
+  // The server-rendered catalog has no locale context, so it formats in English.
+  const price = course.price_etb == null ? '— ETB' : formatETB(course.price_etb, 'en');
+  if (course.pricing_type === 'freemium') return `Freemium · ${price}`;
+  return price;
 }
 
 const CATEGORY_ART: Record<string, { emoji: string; gradient: string }> = {

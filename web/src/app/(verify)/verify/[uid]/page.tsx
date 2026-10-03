@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { BadgeCheck, ShieldX } from 'lucide-react';
 import { serverApi } from '@/lib/server-api';
 import { WakingUp } from '@/components/WakingUp';
+import { formatDate } from '@/lib/format';
 
 interface Verification {
   valid: boolean;
@@ -55,7 +56,7 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
                 </div>
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-wider text-gray-500">Issued</dt>
-                  <dd className="mt-0.5 text-foreground">{result.issued_at ? new Date(result.issued_at).toDateString() : '—'}</dd>
+                  <dd className="mt-0.5 text-foreground">{result.issued_at ? formatDate(result.issued_at, 'en') : '—'}</dd>
                 </div>
                 {result.assessment_badges && result.assessment_badges.length > 0 && (
                   <div>

@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpenCheck, Megaphone, MessageCircleQuestion, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { noteRemoval, type KnowledgeDoc } from './working';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /**
  * Educator: short change-log notes (minor — they never notify learners).
@@ -12,6 +14,7 @@ import { noteRemoval, type KnowledgeDoc } from './working';
  * on "Submit changes for review", so they fire only once the change is live.
  */
 export function ChangelogTool({ courseId, published }: { courseId: string; published: boolean }) {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const { data: entries } = useQuery({ queryKey: ['changelog', courseId], queryFn: () => api<any[]>(`/courses/${courseId}/changelog`) });
   const [summary, setSummary] = useState('');
@@ -57,7 +60,7 @@ export function ChangelogTool({ courseId, published }: { courseId: string; publi
             <li key={c.id} className="flex gap-2">
               <span className={c.kind === 'major' ? 'badge-info' : 'badge-neutral'}>{c.kind}</span>
               <span>
-                {c.summary} <span className="text-gray-500">· {new Date(c.created_at).toLocaleDateString()}</span>
+                {c.summary} <span className="text-gray-500">· {formatDate(c.created_at, locale)}</span>
               </span>
             </li>
           ))}

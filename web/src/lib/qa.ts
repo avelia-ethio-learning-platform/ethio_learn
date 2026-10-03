@@ -3,6 +3,8 @@
  * institution review). Kept free of React so the rules are unit-tested.
  */
 
+import { formatETB } from './format';
+
 export type QaItemKind = 'new_course' | 'revision' | 'appeal' | 'post_publish';
 export type QaAction = 'approve' | 'coach' | 'flag' | 'reject';
 
@@ -230,6 +232,7 @@ function count(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+// Plain grouping for the 'price 400→500 ETB' QA copy; the suffix comes from formatETB.
 function formatAmount(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? n.toLocaleString('en-US', { maximumFractionDigits: 2 }) : String(v);
@@ -237,7 +240,8 @@ function formatAmount(v: unknown): string {
 
 export function formatPrice(v: unknown): string {
   if (v === null || v === undefined || v === '') return 'none';
-  return `${formatAmount(v)} ETB`;
+  const n = Number(v);
+  return Number.isFinite(n) ? formatETB(n, 'en') : `${String(v)} ETB`;
 }
 
 /**

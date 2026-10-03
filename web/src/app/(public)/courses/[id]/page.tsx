@@ -10,6 +10,7 @@ import { PageShell } from '@/components/PageChrome';
 import { WakingUp } from '@/components/WakingUp';
 import { EnrollPanel } from './enroll-panel';
 import { jsonLdScript } from '@/lib/json-ld';
+import { formatDate } from '@/lib/format';
 
 interface CourseDetail {
   last_major_update_at?: string | null;
@@ -158,7 +159,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
                       ))}
                     </p>
                     {r.comment && <p className="mt-2 text-sm leading-relaxed text-gray-600">{r.comment}</p>}
-                    <p className="mt-2 text-xs text-gray-500">{new Date(r.created_at).toDateString()}</p>
+                    <p className="mt-2 text-xs text-gray-500">{formatDate(r.created_at, 'en')}</p>
                   </div>
                 ))}
               </div>

@@ -5,13 +5,16 @@ import { FormEvent, useState } from 'react';
 import { Eye, GitPullRequestArrow, Lock, Radio, Undo2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useActiveLessonUploads, WAIT_FOR_UPLOAD } from './video-upload';
-import { formatDate, stagedChangeChips, type WorkingCourse } from './working';
+import { stagedChangeChips, type WorkingCourse } from './working';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /**
  * Staged changes on an approved course: what is waiting, submit / discard,
  * the in-review lock with withdraw, and the reviewer's notes after coaching.
  */
 export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; onChanged: (message: string) => void }) {
+  const { locale } = useT();
   const [summary, setSummary] = useState('');
   const [major, setMajor] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -81,7 +84,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
           <h2 className="flex flex-wrap items-center gap-2 font-semibold">
             <Lock className="h-4 w-4 text-amber-500" />
             {revision.status === 'institution_review' ? "Your changes are with your institution's reviewers" : 'Your changes are in review'}
-            {revision.submitted_at && <span className="text-xs font-normal text-gray-500">In review since {formatDate(revision.submitted_at)}</span>}
+            {revision.submitted_at && <span className="text-xs font-normal text-gray-500">In review since {formatDate(revision.submitted_at, locale, 'datetime')}</span>}
           </h2>
           <p className="mt-1 text-sm text-gray-600">
             Editing is locked so the reviewer approves exactly what you submitted.

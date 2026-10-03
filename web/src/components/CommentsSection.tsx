@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 interface CommentRow {
   id: string;
@@ -132,6 +134,7 @@ function CommentItem({
   onDelete: (id: string) => void;
   depth: number;
 }) {
+  const { locale } = useT();
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
@@ -148,7 +151,7 @@ function CommentItem({
             <p>
               <span className="font-medium">{node.author_name}</span>
               {badge && <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-700">{badge}</span>}
-              <span className="ml-2 text-xs text-gray-500">{new Date(node.created_at).toLocaleString()}</span>
+              <span className="ml-2 text-xs text-gray-500">{formatDate(node.created_at, locale, 'datetime')}</span>
             </p>
             <p className="mt-0.5 whitespace-pre-wrap text-gray-800">{node.body}</p>
           </>

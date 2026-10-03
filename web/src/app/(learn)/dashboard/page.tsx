@@ -25,8 +25,10 @@ import { useT } from '@/lib/i18n';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
+import { formatDate, formatETB } from '@/lib/format';
 
 function LearnerDashboard() {
+  const { locale } = useT();
   const { t } = useT();
   const queryClient = useQueryClient();
   const { data: enrollments, isLoading: enrollLoading } = useQuery({ queryKey: ['enrollments'], queryFn: () => api<any[]>('/enrollments') });
@@ -144,7 +146,7 @@ function LearnerDashboard() {
                     </span>
                     {c.course_title}
                   </p>
-                  <p className="mt-2 text-xs text-gray-500">Issued {new Date(c.issued_at).toDateString()}</p>
+                  <p className="mt-2 text-xs text-gray-500">Issued {formatDate(c.issued_at, locale)}</p>
                   <div className="mt-3 flex flex-wrap gap-3 text-xs">
                     <a className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:underline" href={c.verify_url}>
                       <ExternalLink className="h-3.5 w-3.5" /> Public verification
@@ -171,7 +173,7 @@ function LearnerDashboard() {
                     {p.purpose && p.purpose !== 'course' && <span className="ml-1 text-xs text-gray-500">({p.purpose.replace('_', ' ')})</span>}
                   </span>
                   <span className="shrink-0 font-medium text-foreground">
-                    {p.amount_etb} ETB{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-600">−{p.discount_etb}</span>}
+                    {formatETB(p.amount_etb, locale)}{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-600">−{p.discount_etb}</span>}
                   </span>
                   <StatusBadge status={p.status} />
                   {p.status === 'confirmed' && p.purpose === 'course' && p.method === 'chapa' && <RefundButton paymentId={p.id} />}
@@ -201,6 +203,7 @@ function LearnerDashboard() {
 
 /** Prepaid credits: balance, top-up via Chapa, recent movements. */
 function WalletCard() {
+  const { locale } = useT();
   const { data: wallet } = useQuery({ queryKey: ['wallet'], queryFn: () => api<any>('/wallet') });
   const [amount, setAmount] = useState(200);
   const [busy, setBusy] = useState(false);
@@ -223,7 +226,7 @@ function WalletCard() {
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
             <Wallet className="h-4 w-4 text-brand-500" /> Wallet
           </p>
-          <p className="gradient-text-blue mt-1 text-3xl font-extrabold">{wallet?.balance_etb ?? 0} ETB</p>
+          <p className="gradient-text-blue mt-1 text-3xl font-extrabold">{formatETB(wallet?.balance_etb ?? 0, locale)}</p>
           <p className="mt-1 text-xs text-gray-500">
             Earn {wallet?.cashback_percent ?? 5}% cashback on every purchase · spend credits on any course
           </p>
@@ -255,6 +258,7 @@ function WalletCard() {
 
 /** Invite friends: share link + email invites; rewards land in the wallet. */
 function ReferralCard() {
+  const { locale } = useT();
   const { data } = useQuery({ queryKey: ['referral'], queryFn: () => api<any>('/referrals/me') });
   const [emails, setEmails] = useState('');
   const [message, setMessage] = useState('');
@@ -278,7 +282,7 @@ function ReferralCard() {
         <Users className="h-4 w-4 text-brand-500" /> Invite &amp; earn
       </p>
       <p className="mt-1 text-sm text-gray-600">
-        Get <b>{data?.reward_etb ?? 50} ETB</b> in your wallet when someone you invite makes their first purchase.
+        Get <b>{formatETB(data?.reward_etb ?? 50, locale)}</b> in your wallet when someone you invite makes their first purchase.
       </p>
       {data && (
         <div className="mt-3 flex gap-2">
@@ -307,7 +311,7 @@ function ReferralCard() {
       {status && <p className="mt-2 text-xs font-medium text-brand-600">{status}</p>}
       {data?.stats && (
         <p className="mt-3 text-xs text-gray-500">
-          {data.stats.signed_up + data.stats.rewarded} joined · {data.stats.rewarded} purchased · earned {data.stats.earned_etb} ETB
+          {data.stats.signed_up + data.stats.rewarded} joined · {data.stats.rewarded} purchased · earned {formatETB(data.stats.earned_etb, locale)}
         </p>
       )}
     </div>

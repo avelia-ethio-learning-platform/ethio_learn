@@ -8,9 +8,12 @@ import { RequireRole } from '@/components/RequireRole';
 import { RoleHomeBackButton } from '@/components/BackButton';
 import { PageHeader, PageShell } from '@/components/PageChrome';
 import { Bars } from '@/components/Bars';
+import { formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 
 function AnalyticsPage() {
+  const { locale } = useT();
   const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
   const ids = useMemo(() => (courses ?? []).map((c) => c.id), [courses]);
   const { data: revenue } = useQuery({ queryKey: ['payee-analytics'], queryFn: () => api<any>('/payouts/analytics') });
@@ -30,7 +33,7 @@ function AnalyticsPage() {
   }, [funnel]);
 
   const stats = [
-    { icon: TrendingUp, label: 'Revenue (gross)', value: `${revenue?.total_gross_etb ?? 0} ETB`, hint: `net ${revenue?.total_net_etb ?? 0} ETB after the 20% platform fee` },
+    { icon: TrendingUp, label: 'Revenue (gross)', value: `${formatETB(revenue?.total_gross_etb ?? 0, locale)}`, hint: `net ${formatETB(revenue?.total_net_etb ?? 0, locale)} after the 20% platform fee` },
     { icon: Users, label: 'Learners enrolled', value: totals.enrolled, hint: `${totals.active7} active in the last 7 days` },
     { icon: Star, label: 'Completion rate', value: totals.enrolled ? `${Math.round((totals.completed / totals.enrolled) * 100)}%` : '—', hint: `${totals.completed} finished` },
   ];
@@ -112,7 +115,7 @@ function AnalyticsPage() {
                     <td className="px-3 py-3 text-right">{c.active_last_30d}</td>
                     <td className="px-3 py-3 text-right">{c.never_started}</td>
                     <td className="px-3 py-3 text-right">{course?.rating_avg ? `★ ${Number(course.rating_avg).toFixed(1)} (${course.rating_count})` : '—'}</td>
-                    <td className="px-5 py-3 text-right">{rev ? `${rev.gross_etb} ETB` : '0 ETB'}</td>
+                    <td className="px-5 py-3 text-right">{formatETB(rev?.gross_etb ?? 0, locale)}</td>
                   </tr>
                 );
               })}

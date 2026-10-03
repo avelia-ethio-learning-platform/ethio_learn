@@ -9,6 +9,8 @@ import { api, setAuth } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 const ROLE_LABEL: Record<string, string> = {
   learner: 'Learner',
@@ -19,6 +21,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 function AccountPage() {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const { data: me, isLoading } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
   const [message, setMessage] = useState('');
@@ -70,7 +73,7 @@ function AccountPage() {
               <h1 className="text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">Account settings</h1>
               <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
                 <span className="badge-info">{ROLE_LABEL[me.role] ?? me.role}</span>
-                member since {new Date(me.created_at).toLocaleDateString()}
+                member since {formatDate(me.created_at, locale)}
                 {me.email_verified ? (
                   <span className="badge-success">
                     <BadgeCheck className="h-3 w-3" /> verified

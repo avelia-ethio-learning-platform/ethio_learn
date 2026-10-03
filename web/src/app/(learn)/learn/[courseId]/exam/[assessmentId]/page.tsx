@@ -6,6 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { ProctorEngine, ProctorStatus, Violation, VIOLATION_LABELS } from '@/lib/proctor';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 interface ExamQuestion {
   index: number;
@@ -47,6 +49,7 @@ interface ProctorReport {
 type Phase = 'preflight' | 'exam' | 'done';
 
 function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: string }) {
+  const { locale } = useT();
   const router = useRouter();
   const { data: assessments } = useQuery({
     queryKey: ['assessments', courseId],
@@ -342,7 +345,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                   <div className="text-sm">
                     <p className="font-medium">{VIOLATION_LABELS[e.type] ?? e.type}</p>
                     <p className="text-gray-600">{e.description}</p>
-                    <p className="mt-0.5 text-xs text-gray-500">{new Date(e.at).toLocaleString()}</p>
+                    <p className="mt-0.5 text-xs text-gray-500">{formatDate(e.at, locale, 'datetime')}</p>
                   </div>
                 </li>
               ))}

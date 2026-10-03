@@ -43,6 +43,8 @@ import {
   type TreeMarker,
   type VideosReviewedRecord,
 } from '@/lib/qa';
+import { formatDate, formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 function PreviewSkeleton() {
   return (
@@ -85,6 +87,7 @@ function attachStream(video: HTMLVideoElement, url: string): Hls | null {
  * changes to a live course are reviewed with ?revision= (RevisionPreview).
  */
 function Preview({ courseId }: { courseId: string }) {
+  const { locale } = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const back = useBackTarget(courseId);
@@ -132,7 +135,7 @@ function Preview({ courseId }: { courseId: string }) {
           </div>
           <p className="mt-2 text-sm text-gray-500">
             {course.category} · {course.pricing_type}
-            {course.price_etb ? ` · ${course.price_etb} ETB` : ''}
+            {course.price_etb ? ` · ${formatETB(course.price_etb, locale)}` : ''}
             {reviews?.average_rating ? ` · ★ ${reviews.average_rating}` : ''}
           </p>
           <div className="mt-5 overflow-hidden rounded-2xl bg-black shadow-floating">
@@ -587,13 +590,8 @@ function KnowledgeAdded({ items }: { items: RevisionDiff['knowledge_added'] }) {
   );
 }
 
-function formatWhen(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
-
 function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; revisionId: string; itemId: string | null }) {
+  const { locale } = useT();
   const back = useBackTarget(courseId);
   const { user } = useAuth();
   const { data: diff, error, isLoading, isFetching, dataUpdatedAt, refetch } = useQuery({
@@ -690,7 +688,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
         </div>
         <h1 className="mt-3 break-words text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{diff.course.title}</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Live course ({diff.course.status.replace(/_/g, ' ')}){revision?.submitted_at ? ` · submitted ${formatWhen(revision.submitted_at)}` : ''}. Learners keep
+          Live course ({diff.course.status.replace(/_/g, ' ')}){revision?.submitted_at ? ` · submitted ${formatDate(revision.submitted_at, locale, 'datetime')}` : ''}. Learners keep
           seeing the live version until these changes are approved.
         </p>
       </div>

@@ -7,6 +7,8 @@ import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { AnalyticsTab, BroadcastTab, CouponsTab, WalletTab } from './growth-tabs';
+import { formatDate, formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 type Tab = 'analytics' | 'payments' | 'payouts' | 'refunds' | 'fraud' | 'users' | 'courses' | 'coupons' | 'wallet' | 'broadcast';
 
@@ -73,6 +75,7 @@ function EmptyRows({ label, happy = false }: { label: string; happy?: boolean })
 }
 
 function PaymentsTab() {
+  const { locale } = useT();
   const { data } = useQuery({ queryKey: ['admin-payments'], queryFn: () => api<any>('/admin/payments') });
   const [openId, setOpenId] = useState<string | null>(null);
   return (
@@ -93,8 +96,8 @@ function PaymentsTab() {
                 <span className="block truncate font-medium text-foreground">{p.course_title}</span>
                 <span className="block truncate text-xs text-gray-500">{p.learner_name} · {p.learner_email}</span>
               </span>
-              <span className="hidden whitespace-nowrap text-xs text-gray-500 sm:inline">{new Date(p.created_at).toLocaleString()}</span>
-              <span className="whitespace-nowrap font-medium text-foreground">{p.amount_etb} ETB</span>
+              <span className="hidden whitespace-nowrap text-xs text-gray-500 sm:inline">{formatDate(p.created_at, locale, 'datetime')}</span>
+              <span className="whitespace-nowrap font-medium text-foreground">{formatETB(p.amount_etb, locale)}</span>
               <StatusBadge status={p.status} />
               <ChevronDown
                 className={`h-4 w-4 shrink-0 text-gray-500 transition-transform duration-200 ${openId === p.id ? 'rotate-180' : ''}`}
@@ -104,8 +107,8 @@ function PaymentsTab() {
               <dl className="glass-secondary mb-2 grid animate-fade-in gap-x-6 gap-y-1 rounded-xl p-3 text-xs sm:grid-cols-2">
                 <div><dt className="inline font-medium text-gray-500">Paid by: </dt><dd className="inline">{p.learner_name} ({p.learner_email})</dd></div>
                 <div><dt className="inline font-medium text-gray-500">Method: </dt><dd className="inline">{p.method}</dd></div>
-                <div><dt className="inline font-medium text-gray-500">Initiated: </dt><dd className="inline">{new Date(p.created_at).toLocaleString()}</dd></div>
-                <div><dt className="inline font-medium text-gray-500">Confirmed (webhook): </dt><dd className="inline">{p.webhook_received_at ? new Date(p.webhook_received_at).toLocaleString() : '— not yet'}</dd></div>
+                <div><dt className="inline font-medium text-gray-500">Initiated: </dt><dd className="inline">{formatDate(p.created_at, locale, 'datetime')}</dd></div>
+                <div><dt className="inline font-medium text-gray-500">Confirmed (webhook): </dt><dd className="inline">{p.webhook_received_at ? formatDate(p.webhook_received_at, locale, 'datetime') : '— not yet'}</dd></div>
                 <div className="sm:col-span-2"><dt className="inline font-medium text-gray-500">Transaction ref: </dt><dd className="inline font-mono">{p.tx_ref}</dd></div>
                 <div><dt className="inline font-medium text-gray-500">Payee: </dt><dd className="inline">{p.payee_type}</dd></div>
                 <div><dt className="inline font-medium text-gray-500">Payout: </dt><dd className="inline">{p.payout_id ? 'included in payout' : 'not yet paid out'}</dd></div>
@@ -204,6 +207,7 @@ function SearchPicker({
 }
 
 function PayoutsTab() {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const { data: payouts } = useQuery({ queryKey: ['admin-payouts'], queryFn: () => api<any[]>('/payouts') });
   return (
@@ -225,7 +229,7 @@ function PayoutsTab() {
         {payouts?.map((p) => (
           <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
             <span className="truncate pr-2 text-xs text-gray-500">{p.payee_type} {p.payee_id.slice(0, 8)}…</span>
-            <span className="font-medium text-foreground">net {p.net_amount_etb} ETB</span>
+            <span className="font-medium text-foreground">net {formatETB(p.net_amount_etb, locale)}</span>
             <span className="flex items-center gap-2">
               <StatusBadge status={p.status} suffix={p.hold_reason || undefined} />
               {p.status === 'held' && (

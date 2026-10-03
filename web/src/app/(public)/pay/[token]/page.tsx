@@ -10,6 +10,8 @@ import { useAuth } from '@/lib/hooks';
 import { retryWhileWaking } from '@/lib/query-client';
 import { AuthShell } from '@/components/PageChrome';
 import { WakingUp } from '@/components/WakingUp';
+import { formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 interface PayRequest {
   token: string;
@@ -23,6 +25,7 @@ interface PayRequest {
 
 /** "Someone asked you to pay for their course" — public landing; paying needs any signed-in account. */
 export default function PayRequestPage() {
+  const { locale } = useT();
   const { token } = useParams<{ token: string }>();
   const search = useSearchParams();
   const router = useRouter();
@@ -83,7 +86,7 @@ export default function PayRequestPage() {
           <Link href={`/courses/${data.course_id}`} className="mt-1 block font-bold text-foreground hover:underline">
             {data.course_title}
           </Link>
-          <p className="mt-1 text-2xl font-extrabold text-brand-600">{data.price_etb} ETB</p>
+          <p className="mt-1 text-2xl font-extrabold text-brand-600">{formatETB(data.price_etb ?? 0, locale)}</p>
           {data.message && <blockquote className="mt-3 border-l-2 border-brand-500 pl-3 text-sm italic text-gray-600">&ldquo;{data.message}&rdquo;</blockquote>}
         </div>
         {!user ? (
@@ -93,11 +96,11 @@ export default function PayRequestPage() {
         ) : (
           <>
             <button className="btn w-full !py-3" disabled={busy} onClick={() => pay(false)}>
-              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} Pay {data.price_etb} ETB with Chapa
+              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} Pay {formatETB(data.price_etb ?? 0, locale)} with Chapa
             </button>
             {canWallet && (
               <button className="btn-secondary w-full" disabled={busy} onClick={() => pay(true)}>
-                <Wallet className="h-4 w-4" /> Pay from my wallet ({wallet?.balance_etb} ETB)
+                <Wallet className="h-4 w-4" /> Pay from my wallet ({formatETB(wallet?.balance_etb ?? 0, locale)})
               </button>
             )}
             <p className="text-center text-xs text-gray-500">Telebirr, CBE Birr and 18+ Ethiopian banks via Chapa. You&apos;ll be able to follow their progress from your dashboard.</p>

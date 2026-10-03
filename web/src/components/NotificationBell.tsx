@@ -7,6 +7,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Bell, CheckCheck, Inbox } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 interface Notif {
   id: string;
@@ -19,6 +21,7 @@ interface Notif {
 }
 
 export function NotificationBell() {
+  const { locale } = useT();
   const { user, ready } = useAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -123,7 +126,7 @@ export function NotificationBell() {
                     <span className="min-w-0 flex-1">{n.title}</span>
                   </p>
                   {n.body && <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">{n.body}</p>}
-                  <p className="mt-1 text-xs text-gray-500">{new Date(n.created_at).toLocaleString()}</p>
+                  <p className="mt-1 text-xs text-gray-500">{formatDate(n.created_at, locale, 'datetime')}</p>
                 </button>
               ))}
             </div>

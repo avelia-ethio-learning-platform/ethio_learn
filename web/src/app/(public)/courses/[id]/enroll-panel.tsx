@@ -7,6 +7,7 @@ import { ArrowRight, Gift, HandCoins, LoaderCircle, Lock, ShoppingCart, Sparkles
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { formatETB } from '@/lib/format';
 
 interface Quote {
   code: string | null;
@@ -23,6 +24,7 @@ interface SessionResult {
 }
 
 export function EnrollPanel({ courseId, pricingType, price }: { courseId: string; pricingType: string; price?: number | null }) {
+  const { locale } = useT();
   const { user, ready } = useAuth();
   const { t } = useT();
   const router = useRouter();
@@ -144,7 +146,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
               </div>
               {quote?.code && (
                 <p className="mt-1.5 text-xs font-medium text-emerald-600">
-                  {quote.description} — you pay <b>{quote.amount_due_etb} ETB</b> instead of {quote.list_price_etb} ETB
+                  {quote.description} — you pay <b>{formatETB(quote.amount_due_etb, locale)}</b> instead of {formatETB(quote.list_price_etb, locale)}
                 </p>
               )}
               {couponError && <p className="mt-1.5 text-xs font-medium text-red-600 dark:text-red-400">{couponError}</p>}
@@ -166,17 +168,17 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
             ) : (
               <>
                 <ShoppingCart className="h-4 w-4" /> {t('buy_with_chapa')}
-                {quote?.code ? ` · ${amountDue} ETB` : ''}
+                {quote?.code ? ` · ${formatETB(amountDue, locale)}` : ''}
               </>
             )}
           </button>
           {canUseWallet && (
             <button className="btn-secondary w-full !py-2.5" onClick={() => enroll(true)} disabled={busy}>
-              <Wallet className="h-4 w-4" /> Pay {amountDue} ETB from my wallet ({wallet?.balance_etb} ETB available)
+              <Wallet className="h-4 w-4" /> Pay {formatETB(amountDue, locale)} from my wallet ({formatETB(wallet?.balance_etb ?? 0, locale)} available)
             </button>
           )}
           {paid && !canUseWallet && (wallet?.balance_etb ?? 0) > 0 && (
-            <p className="text-center text-xs text-gray-500">Wallet balance {wallet?.balance_etb} ETB — top up from your dashboard to pay with credits.</p>
+            <p className="text-center text-xs text-gray-500">Wallet balance {formatETB(wallet?.balance_etb ?? 0, locale)} — top up from your dashboard to pay with credits.</p>
           )}
           {pricingType === 'freemium' && <p className="text-xs text-gray-500">The first section is free to preview — buy to unlock everything.</p>}
         </>
@@ -192,6 +194,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
 
 /** Buy this course for someone else — by email; they get it instantly (or on signup). */
 function GiftForm({ courseId, amountDue, walletBalance, coupon, compact = false }: { courseId: string; amountDue: number; walletBalance: number; coupon: string; compact?: boolean }) {
+  const { locale } = useT();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -235,11 +238,11 @@ function GiftForm({ courseId, amountDue, walletBalance, coupon, compact = false 
       <textarea className="input" rows={2} placeholder="A short message (optional)" value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />
       <p className="text-xs text-gray-500">If they don&apos;t have an account yet, we email them an invite and the course unlocks when they sign up with that address. You can follow their progress from your dashboard.</p>
       <button className="btn w-full" disabled={busy || !email}>
-        {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} Pay {amountDue} ETB with Chapa
+        {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} Pay {formatETB(amountDue, locale)} with Chapa
       </button>
       {walletBalance >= amountDue && amountDue > 0 && (
         <button type="button" className="btn-secondary w-full" disabled={busy || !email} onClick={(e) => submit(e, true)}>
-          <Wallet className="h-4 w-4" /> Pay from my wallet ({walletBalance} ETB)
+          <Wallet className="h-4 w-4" /> Pay from my wallet ({formatETB(walletBalance, locale)})
         </button>
       )}
       {error && <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}

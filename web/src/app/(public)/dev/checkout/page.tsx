@@ -5,10 +5,13 @@ import { useSearchParams } from 'next/navigation';
 import { CreditCard, FlaskConical, XCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { AuthShell } from '@/components/PageChrome';
+import { formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /** DEV-ONLY stand-in for Chapa's hosted checkout (CHAPA_MODE=mock). Completing
  *  it triggers a genuinely HMAC-signed webhook into the Financial Service. */
 function MockCheckout() {
+  const { locale } = useT();
   const params = useSearchParams();
   const txRef = params.get('tx_ref') ?? '';
   const amount = params.get('amount') ?? '';
@@ -36,7 +39,7 @@ function MockCheckout() {
         DEV SANDBOX — this simulates Chapa&apos;s hosted checkout. In production learners see chapa.co with Telebirr, CBE Birr and 18+
         Ethiopian banks.
       </div>
-      <p className="gradient-text-blue mt-5 text-center text-4xl font-extrabold">{amount} ETB</p>
+      <p className="gradient-text-blue mt-5 text-center text-4xl font-extrabold">{formatETB(Number(amount), locale)}</p>
       <p className="mt-2 break-all text-center text-xs text-gray-500">tx_ref: {txRef}</p>
       {error && <p className="mt-3 text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
