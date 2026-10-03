@@ -353,7 +353,7 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
   - Coupons (P2-39, course picker, `Field`, deactivate confirm).
 
   vitest: update `admin/page.test.tsx` (Cancel on the suspend dialog sends nothing; a reason is sent; no Suspend or Ban on your own row; `?tab=users` opens Users; ArrowRight moves the tab; the fraud-resolve and payout-release dialog strings, including the hold reason) and extend 6a's `coupon-manager.test.tsx` (add `ready` to its `useAuth` mock; no `/courses` call for an admin, including while `ready` is false) (drift D6).
-- [ ] 5. Educator pages (decisions 2, 3, 8, 10–13):
+- [x] 5. Educator pages (decisions 2, 3, 8, 10–13):
   - `/teach` (labels, wrapping actions, EducatorSetup with `Field` and try/catch);
   - `/teach/new` (`Field`);
   - `/teach/analytics` (Bars, loaded-empty state, 7b's `PanelError` for errors, table scroll);
@@ -361,7 +361,7 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
   - `sections-editor`, `structure-generator`, `video-upload`, `revision-banner`, `course-tools` (confirms, `Field`, `FormStatus`, `btn-sm`, icons).
 
   vitest: update the editor specs for the dialog, plus one for the quiz builder's accessible names and one for analytics loaded-empty (no skeleton when `/courses` returns `[]`).
-- [ ] 6. Institution, review, QA and preview:
+- [x] 6. Institution, review, QA and preview:
   - institution page (setup `Field` and try/catch, unlist confirm);
   - `instructor-manager` (confirms with reason, `FormStatus`, `Field`; show `status_reason` on removed rows too, drift D4);
   - `bulk-purchases` (`Field`, debounce, `FormStatus`);
@@ -379,7 +379,7 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
   vitest: extend `invites-list.test.tsx` (Leave → confirm → POST → the section refreshes; a 404 on the GET hides the section).
 
   Verify: the native-dialog grep from the acceptance criteria finds nothing outside tests.
-- [ ] 8. Mobile pass (decision 12) at 375 px over every role page touched above.
+- [x] 8. Mobile pass (decision 12) at 375 px over every role page touched above.
 - [ ] 9. Playwright (8a parts written, run in step 11), reusing Phase 5's saved logins (no new `auth-strict` calls):
   - **`a11y.spec.ts` gets the role pages**, at 1440 in light and dark:
     - `/teach`, `/teach/new`, `/teach/analytics`, `/teach/coupons`, the editor of a seeded draft;
@@ -458,3 +458,39 @@ Deviations and controller rulings:
 - `course.service.ts` create still says "price_etb is required for paid courses"; reachable only from `/teach/new`, folded into 8b step 5.
 
 ### 8b
+
+Steps 5, 6 and 8 are done, and the 8b parts of step 9 are written and pass (the role-page a11y entries, the role pages in `layout.spec.ts`'s 375 px block). Step 10's screenshots are in `screenshots/after-phase8b/`. Step 11 ran on the head with 8a (#29), 6b (#28) and 6d (#30) merged in:
+- api build, typecheck and jest;
+- web typecheck and vitest (660);
+- db:check clean;
+- every e2e script, including e2e-institution and e2e-learning;
+- web build;
+- Playwright: 119 of 120 passed, and the one timeout (a public-pages a11y check) passed on rerun;
+- smoke;
+- all 9 images.
+
+Deviations and controller rulings:
+- **Quiz builder radios:** each correct-answer radio is named "Correct answer for question N: option M". The plan's shared name would give every option the same name, so a screen-reader user couldn't tell which answer they were choosing.
+- **Lesson buttons:** they keep their visible text and are named "Edit lesson {title}" and "Remove lesson {title}".
+- **Busy states:** Archive and Unpublish use `aria-disabled` plus a busy guard (8a's pattern). Submit appeal, Re-index outline and project Pass/Fail are disabled while their request runs, which also stops a double-posted appeal.
+- **Preview as learner:** it shows for every status. The owner can read a draft through `GET /courses/:id`, and Playwright opens a draft's editor.
+- **The preview overlay:** it hides once a lesson is chosen, not on the video's `playing` event. It uses `bg-black/70` for contrast over a light poster. `RevisionPreview` keeps its layout, and its status now goes through `statusLabel`.
+- **EducatorSetup:** it refreshes the profile query instead of reloading the page.
+- **The API create copy:** "Set a price for a paid course." (8a's deviation note).
+- **Found by the new Playwright entries and fixed:**
+  - the bell's unread badge failed contrast (`bg-red-600` now);
+  - at 375 px the admin and teach analytics chart grids overflowed by 23 px (the charts' month labels set the single column's minimum width), fixed with `grid-cols-1`;
+  - the bar charts' twelve labels overlapped at 375 px, so below `sm` they draw every other month (always January) and only the tallest value. The screen-reader text keeps every month and value.
+- **The final review's fix wave:** Post note and Add section are disabled while they run, so a double click no longer posts twice. The section, lesson and tutor-note Remove buttons, the QA decision buttons and Discard changes use `aria-disabled` plus a busy guard. The change-log badge goes through `sentenceCase`, the QA icons are `aria-hidden`, and `assertPricing` reads "Set a price for a paid course." (or freemium).
+- **The e2e helper `ownCourseId`:** it creates a draft through the API when the seeded educator has none, because the seed publishes all of its courses.
+- **The overflow checks:** they wait for `networkidle` before measuring.
+- **Bulk-assign emails:** they are lower-cased as well as de-duplicated.
+- **Parked nits** (in the SDD ledger, not blocking):
+  - the EducatorSetup success text is never seen;
+  - the funnel's empty copy;
+  - a courses-query failure shows two PanelErrors;
+  - a project Pass/Fail error shows in the page header;
+  - no tests for the replace-outline and mismatched-upload dialogs;
+  - the aria-current marker stays on a lesson whose stream failed;
+  - `sm:mt-6` offsets on the Assign and Invite buttons.
+

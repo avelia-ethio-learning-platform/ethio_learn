@@ -323,7 +323,7 @@ export class CourseService implements OnModuleInit {
       throw new ForbiddenException('Institutions do not create courses directly. Invite instructors to create courses.');
     }
     if (dto.pricing_type === PricingType.PAID && !dto.price_etb) {
-      throw new BadRequestException('price_etb is required for paid courses');
+      throw new BadRequestException('Set a price for a paid course.');
     }
     // Check every lesson video before anything is written, so a bad key cannot
     // leave a half-created course behind.
@@ -456,7 +456,7 @@ export class CourseService implements OnModuleInit {
 
   private assertPricing(c: { pricing_type: PricingType; price_etb: string | null }) {
     if ((c.pricing_type === PricingType.PAID || c.pricing_type === PricingType.FREEMIUM) && !c.price_etb) {
-      throw new BadRequestException(`Set a price (price_etb) for a ${c.pricing_type} course.`);
+      throw new BadRequestException(`Set a price for a ${c.pricing_type === PricingType.PAID ? 'paid' : 'freemium'} course.`);
     }
   }
 
