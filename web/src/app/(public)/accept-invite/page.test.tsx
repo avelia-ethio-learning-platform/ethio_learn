@@ -49,6 +49,21 @@ describe('Accept invite (set a password)', () => {
     expect(document.body.textContent).not.toMatch(/institution_admin|institution admin/);
   });
 
+  it('a weak password after a server error clears the stale server error', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/auth/invite/tok') return { email: 'new@x.et', name: 'New Person', role: 'educator' };
+      throw new Error('This invite has expired');
+    });
+    await setPassword();
+    expect(await screen.findByText('This invite has expired')).toBeTruthy();
+
+    const input = screen.getByLabelText('Choose a password');
+    fireEvent.change(input, { target: { value: 'aaaaaaaa' } });
+    fireEvent.click(screen.getByRole('button', { name: /set password/i }));
+    expect(await screen.findByText(/at least 3 of/)).toBeTruthy();
+    expect(screen.queryByText('This invite has expired')).toBeNull();
+  });
+
   it('sends staff to their home as before', async () => {
     respondWith('quality_officer', 0);
     await setPassword();

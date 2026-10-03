@@ -9,9 +9,10 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 }));
 vi.mock('@/components/RequireRole', () => ({ RequireRole: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/components/BackButton', () => ({ BackButton: () => null }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), back: vi.fn() }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), back: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 
 import Account from './page';
+import ChangePasswordPage from './password/page';
 
 const me = { name: 'Abebe Bikila', email: 'a@b.et', phone: '', role: 'learner', created_at: '2026-01-01T00:00:00Z', email_verified: true };
 
@@ -59,5 +60,21 @@ describe('Account settings', () => {
     const ok = await screen.findByText('Profile saved.');
     expect(ok.closest('[role="status"]')).not.toBeNull();
     expect(ok.className).toContain('badge-success');
+  });
+});
+
+describe('Change password', () => {
+  it('a weak password after a server error clears the stale server error', async () => {
+    apiMock.mockRejectedValue(new Error('Password was used recently'));
+    render(<ChangePasswordPage />);
+    const password = screen.getByLabelText('New password');
+    fireEvent.change(password, { target: { value: 'Strong-passw0rd' } });
+    fireEvent.submit(password.closest('form')!);
+    expect(await screen.findByText('Password was used recently')).toBeTruthy();
+
+    fireEvent.change(password, { target: { value: 'aaaaaaaa' } });
+    fireEvent.submit(password.closest('form')!);
+    expect(await screen.findByText(/at least 3 of/)).toBeTruthy();
+    expect(screen.queryByText('Password was used recently')).toBeNull();
   });
 });

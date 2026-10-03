@@ -51,6 +51,20 @@ describe('Auth forms', () => {
     expect(password.getAttribute('aria-invalid')).toBe('true');
   });
 
+  it('signup: a weak password after a server error clears the stale server error', async () => {
+    apiMock.mockRejectedValue(new Error('That email is already registered'));
+    render(<SignupPage />);
+    const password = screen.getByLabelText(/^Password/);
+    fireEvent.change(password, { target: { value: 'Strong-passw0rd' } });
+    fireEvent.submit(password.closest('form')!);
+    expect(await screen.findByText('That email is already registered')).toBeTruthy();
+
+    fireEvent.change(password, { target: { value: 'aaaaaaaa' } });
+    fireEvent.submit(password.closest('form')!);
+    expect(await screen.findByText(/at least 3 of/)).toBeTruthy();
+    expect(screen.queryByText('That email is already registered')).toBeNull();
+  });
+
   it('reset password: a success lands in the polite status region, not an alert', async () => {
     apiMock.mockResolvedValue({ message: 'If that account exists, a link is on its way.' });
     render(<ResetPasswordPage />);

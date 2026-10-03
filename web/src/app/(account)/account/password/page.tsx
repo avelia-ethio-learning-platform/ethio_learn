@@ -24,6 +24,8 @@ function ChangePassword() {
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (scorePassword(password).score < 3) {
+      // The field error replaces any earlier server error, which no longer applies.
+      clearStatus();
       setPasswordError('Password must include at least 3 of: lowercase, uppercase, number, symbol (min 8 chars).');
       return;
     }
