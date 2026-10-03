@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useId, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { getAuth } from '@/lib/api';
@@ -93,11 +93,13 @@ const FAQS: { group: string; items: Faq[] }[] = [
 
 function FaqItem({ item }: { item: Faq }) {
   const [open, setOpen] = useState(false);
+  const answerId = useId();
   return (
     <div className="border-b border-gray-100 last:border-0">
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
+        aria-controls={answerId}
         className="flex w-full items-center justify-between gap-4 py-4 text-left"
       >
         <span className="font-medium text-gray-900">{item.q}</span>
@@ -105,8 +107,12 @@ function FaqItem({ item }: { item: Faq }) {
           ＋
         </span>
       </button>
-      <div className={`grid transition-all duration-200 ${open ? 'grid-rows-[1fr] pb-4' : 'grid-rows-[0fr]'}`}>
-        <div className="overflow-hidden text-sm leading-relaxed text-gray-600">{item.a}</div>
+      <div id={answerId} className={`grid transition-all duration-200 ${open ? 'grid-rows-[1fr] pb-4' : 'grid-rows-[0fr]'}`}>
+        {/* invisible while closed, so links in a collapsed answer are not tab stops; the
+            visibility transition keeps the text shown until the collapse finishes. */}
+        <div className={`overflow-hidden text-sm leading-relaxed text-gray-600 transition-[visibility] duration-200 ${open ? 'visible' : 'invisible'}`}>
+          {item.a}
+        </div>
       </div>
     </div>
   );
