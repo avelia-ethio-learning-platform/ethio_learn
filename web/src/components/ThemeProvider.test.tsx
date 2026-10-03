@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { ThemeProvider, useTheme, type Theme } from './ThemeProvider';
 
 let setThemeRef: (t: Theme) => void = () => undefined;
@@ -44,5 +44,22 @@ describe('ThemeProvider theme-color sync', () => {
     expect(colors()).toEqual(['#2563eb', '#2563eb']);
     act(() => setThemeRef('system'));
     expect(colors()).toEqual(['#2563eb', '#0f172a']);
+  });
+
+  it('applies a saved explicit theme on load', () => {
+    localStorage.setItem('el_theme', 'dark');
+    render(<ThemeProvider><Probe /></ThemeProvider>);
+    expect(colors()).toEqual(['#0f172a', '#0f172a']);
+  });
+
+  it('re-applies an explicit theme when a client navigation re-creates the metas', async () => {
+    render(<ThemeProvider><Probe /></ThemeProvider>);
+    act(() => setThemeRef('dark'));
+    expect(colors()).toEqual(['#0f172a', '#0f172a']);
+    // Next remounts the route head on navigation: the old metas go, the server's colours come back.
+    document.head.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
+    addMeta('(prefers-color-scheme: light)', '#2563eb');
+    addMeta('(prefers-color-scheme: dark)', '#0f172a');
+    await waitFor(() => expect(colors()).toEqual(['#0f172a', '#0f172a']));
   });
 });
