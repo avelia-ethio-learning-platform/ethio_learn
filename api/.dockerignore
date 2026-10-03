@@ -2,6 +2,9 @@ node_modules
 **/node_modules
 **/dist
 **/*.tsbuildinfo
+**/.turbo
+**/coverage
+**/*.spec.ts
 .env
 .env.*
 Dockerfile
