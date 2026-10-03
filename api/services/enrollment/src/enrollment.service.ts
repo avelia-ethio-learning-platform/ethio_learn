@@ -10,7 +10,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
 import { In, IsNull, LessThan, MoreThan, Repository } from 'typeorm';
-import { envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, OutboxService, UserContext } from '@ethiopialearn/common';
 import {
   CourseCompletedPayload,
   CourseProgressMilestonePayload,
@@ -69,6 +69,7 @@ export class EnrollmentService implements OnModuleInit {
     @InjectRepository(VideoProgress) private readonly videoProgress: Repository<VideoProgress>,
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
+    private readonly outbox: OutboxService,
   ) {}
 
   onModuleInit() {
@@ -104,10 +105,7 @@ export class EnrollmentService implements OnModuleInit {
       enrollment = this.enrollments.create({ learner_id: ctx.id, course_id: courseId, source: 'free' });
     }
     enrollment.entitlement_status = EntitlementStatus.ACTIVE;
-    enrollment = await this.enrollments.save(enrollment);
-
-    await this.publishEnrollmentCreated(enrollment, course.title, ctx.email, course.pricing_type);
-    return enrollment;
+    return this.saveActivated(enrollment, course.title, ctx.email, course.pricing_type);
   }
 
   async listForLearner(ctx: UserContext) {
@@ -540,18 +538,18 @@ export class EnrollmentService implements OnModuleInit {
   private async grantFromPayment(p: PaymentConfirmedPayload) {
     const enrollment = await this.activate(p.learner_id, p.course_id, 'payment', null);
     if (!enrollment) return;
+    await this.saveActivated(enrollment, p.course_title, p.learner_email, PricingType.PAID, p.learner_name);
     this.logger.log(`entitlement granted: learner ${p.learner_id} course ${p.course_id}`);
-    await this.publishEnrollmentCreated(enrollment, p.course_title, p.learner_email, PricingType.PAID, p.learner_name);
   }
 
   private async grantFromSponsorship(p: SponsorshipGrantedPayload) {
     const enrollment = await this.activate(p.recipient_user_id, p.course_id, 'sponsorship', p.sponsor_id);
     if (!enrollment) return;
+    await this.saveActivated(enrollment, p.course_title, p.recipient_email, PricingType.PAID);
     this.logger.log(`sponsored entitlement (${p.source}): learner ${p.recipient_user_id} course ${p.course_id}`);
-    await this.publishEnrollmentCreated(enrollment, p.course_title, p.recipient_email, PricingType.PAID);
   }
 
-  /** Idempotent activation shared by both grant paths. Returns null when already active. */
+  /** Idempotent activation shared by both grant paths: the enrollment marked active, not saved yet, or null when it already is. */
   private async activate(learnerId: string, courseId: string, source: string, sponsorId: string | null): Promise<Enrollment | null> {
     let enrollment = await this.enrollments.findOne({ where: { learner_id: learnerId, course_id: courseId } });
     if (!enrollment) enrollment = this.enrollments.create({ learner_id: learnerId, course_id: courseId });
@@ -559,7 +557,7 @@ export class EnrollmentService implements OnModuleInit {
     enrollment.entitlement_status = EntitlementStatus.ACTIVE;
     enrollment.source = source;
     enrollment.sponsor_id = sponsorId;
-    return this.enrollments.save(enrollment);
+    return enrollment;
   }
 
   /**
@@ -668,13 +666,20 @@ export class EnrollmentService implements OnModuleInit {
     return new Map(rows.map((r) => [r.enrollment_id, Number(r.done)]));
   }
 
-  private async publishEnrollmentCreated(
+  /**
+   * Saves an activated enrollment and its EnrollmentCreated in one outbox
+   * transaction (Phase 9b), so the course's enrolled count and the welcome
+   * email follow even when the broker is down. The names are looked up first:
+   * the transaction never waits on auth or course, and a failed lookup leaves
+   * them blank, as before.
+   */
+  private async saveActivated(
     enrollment: Enrollment,
     courseTitle: string,
     learnerEmail: string,
     pricing: PricingType,
     learnerName?: string,
-  ) {
+  ): Promise<Enrollment> {
     let name = learnerName ?? '';
     let email = learnerEmail;
     let educatorName = '';
@@ -693,19 +698,28 @@ export class EnrollmentService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(`enrichment failed for EnrollmentCreated: ${(err as Error).message}`);
     }
-    await this.bus.publish<EnrollmentCreatedPayload>('EnrollmentCreated', {
-      enrollment_id: enrollment.id,
-      learner_id: enrollment.learner_id,
-      learner_email: email,
-      learner_name: name,
-      course_id: enrollment.course_id,
-      course_title: courseTitle,
-      educator_name: educatorName,
-      pricing_type: pricing,
+    return this.outbox.transaction(async (m, emit) => {
+      const saved = await m.getRepository(Enrollment).save(enrollment);
+      emit<EnrollmentCreatedPayload>('EnrollmentCreated', {
+        enrollment_id: saved.id,
+        learner_id: saved.learner_id,
+        learner_email: email,
+        learner_name: name,
+        course_id: saved.course_id,
+        course_title: courseTitle,
+        educator_name: educatorName,
+        pricing_type: pricing,
+      });
+      return saved;
     });
   }
 
-  /** Returns true when this call completed the enrollment (and published CourseCompleted). */
+  /**
+   * Returns true when this call completed the enrollment (and emitted CourseCompleted).
+   * The names are looked up before the transaction and a failed lookup leaves them
+   * blank, so a completion never waits on, or fails with, auth or course being
+   * asleep: outcomes and notification fetch what's missing (9b plan-review B1).
+   */
   private async detectCompletion(enrollment: Enrollment, learnerEmail: string, lessonIds?: string[]): Promise<boolean> {
     if (enrollment.completed_at) return false;
     const lesson_ids =
@@ -714,13 +728,6 @@ export class EnrollmentService implements OnModuleInit {
     if (lesson_ids.length === 0) return false;
     const done = await this.progress.count({ where: { enrollment_id: enrollment.id, lesson_id: In(lesson_ids) } });
     if (done < lesson_ids.length) return false;
-
-    // Conditional write: the learner's own last lesson and the revision
-    // re-check can race, and only one of them may publish CourseCompleted.
-    const completedAt = new Date();
-    const { affected } = await this.enrollments.update({ id: enrollment.id, completed_at: IsNull() }, { completed_at: completedAt });
-    if (affected === 0) return false;
-    enrollment.completed_at = completedAt;
 
     let learnerName = '';
     let educatorId = '';
@@ -742,17 +749,29 @@ export class EnrollmentService implements OnModuleInit {
       this.logger.warn(`enrichment failed for CourseCompleted: ${(err as Error).message}`);
     }
 
-    await this.bus.publish<CourseCompletedPayload>('CourseCompleted', {
-      enrollment_id: enrollment.id,
-      learner_id: enrollment.learner_id,
-      learner_email: learnerEmail,
-      learner_name: learnerName,
-      course_id: enrollment.course_id,
-      course_title: courseTitle,
-      educator_id: educatorId,
-      educator_name: educatorName,
-      completed_at: completedAt.toISOString(),
+    // Conditional write: the learner's own last lesson and the revision
+    // re-check can race, and only one of them may emit CourseCompleted. The
+    // completion and its event commit together (Phase 9b), so a certificate
+    // follows even when the broker is down.
+    const completedAt = new Date();
+    const completed = await this.outbox.transaction(async (m, emit) => {
+      const { affected } = await m.getRepository(Enrollment).update({ id: enrollment.id, completed_at: IsNull() }, { completed_at: completedAt });
+      if (affected === 0) return false;
+      emit<CourseCompletedPayload>('CourseCompleted', {
+        enrollment_id: enrollment.id,
+        learner_id: enrollment.learner_id,
+        learner_email: learnerEmail,
+        learner_name: learnerName,
+        course_id: enrollment.course_id,
+        course_title: courseTitle,
+        educator_id: educatorId,
+        educator_name: educatorName,
+        completed_at: completedAt.toISOString(),
+      });
+      return true;
     });
+    if (!completed) return false;
+    enrollment.completed_at = completedAt;
     this.logger.log(`course completed: enrollment ${enrollment.id}`);
     return true;
   }

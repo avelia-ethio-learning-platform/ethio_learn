@@ -1,7 +1,56 @@
 import { BadRequestException, ConflictException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
-import { EntitlementStatus, Role } from '@ethiopialearn/contracts';
+import { EntitlementStatus, PricingType, Role } from '@ethiopialearn/contracts';
 import { EnrollmentService } from './enrollment.service';
+import { Enrollment } from './entities';
+
+type Emitted = { type: string; payload: any };
+
+/**
+ * outbox.transaction with the spec's fake manager: emitted events "commit" only
+ * when fn resolves. `inTransaction()` says whether a call runs inside one, and
+ * `failNextCommit` makes the next transaction throw after fn, as a failed outbox
+ * insert or commit would. The repository mocks can't roll back, so a rollback
+ * spec checks that the write ran inside the transaction that failed.
+ */
+function fakeOutbox(manager: unknown) {
+  const committed: Emitted[] = [];
+  let inside = false;
+  let failure: Error | null = null;
+  const outbox = {
+    transaction: jest.fn(async (fn: (m: unknown, emit: (type: string, payload: unknown) => void) => Promise<unknown>) => {
+      const queued: Emitted[] = [];
+      inside = true;
+      try {
+        const result = await fn(manager, (type, payload) => queued.push({ type, payload }));
+        if (failure) throw failure;
+        committed.push(...queued);
+        return result;
+      } finally {
+        inside = false;
+        failure = null;
+      }
+    }),
+  };
+  const failNextCommit = (err: Error) => {
+    failure = err;
+  };
+  return { outbox, committed, inTransaction: () => inside, failNextCommit };
+}
+
+/** Records, per call of `mock`, whether it ran inside the outbox transaction, keeping its behaviour. */
+function trackTx(mock: jest.Mock, inTransaction: () => boolean): boolean[] {
+  const seen: boolean[] = [];
+  const impl = mock.getMockImplementation();
+  mock.mockImplementation((...args: unknown[]) => {
+    seen.push(inTransaction());
+    return impl?.(...args);
+  });
+  return seen;
+}
+
+/** The transaction's manager hands out the same enrollment repository mock the service holds. */
+const managerFor = (enrollments: unknown) => ({ getRepository: (entity: unknown) => (entity === Enrollment ? enrollments : null) });
 
 const ctx = { id: 'u1', role: Role.LEARNER, email: 'l@e.et' } as never;
 
@@ -87,6 +136,7 @@ function setup(opts: Options = {}) {
       return { name: 'Someone', email: 'x@e.et' };
     }),
   };
+  const tx = fakeOutbox(managerFor(enrollments));
   const service = new EnrollmentService(
     enrollments as never,
     progress as never,
@@ -94,8 +144,9 @@ function setup(opts: Options = {}) {
     videoProgress as never,
     bus as never,
     internal as never,
+    tx.outbox as never,
   );
-  return { service, enrollments, progress, videoProgress, videoRows, bus, internal };
+  return { service, enrollments, progress, videoProgress, videoRows, bus, internal, ...tx };
 }
 
 describe('EnrollmentService.saveVideoProgress', () => {
@@ -133,14 +184,14 @@ describe('EnrollmentService.saveVideoProgress', () => {
     expect(result.completed).toBe(false);
   });
 
-  it('publishes CourseCompleted when the auto-completed lesson was the last one', async () => {
-    const { service, bus } = setup({
+  it('emits CourseCompleted when the auto-completed lesson was the last one', async () => {
+    const { service, committed } = setup({
       lessonIds: ['l1'],
       completedCount: 1,
       existingVideoRow: { enrollment_id: 'e1', lesson_id: 'l1', position_seconds: 100, duration_seconds: 120, percent_watched: 83, started_at: ago(110) },
     });
     await service.saveVideoProgress(ctx, 'l1', 119, 120);
-    expect(bus.publish).toHaveBeenCalledWith('CourseCompleted', expect.objectContaining({ enrollment_id: 'e1' }));
+    expect(committed).toEqual([{ type: 'CourseCompleted', payload: expect.objectContaining({ enrollment_id: 'e1' }) }]);
   });
 
   it('rejects heartbeats without an active entitlement', async () => {
@@ -431,11 +482,88 @@ describe('EnrollmentService.enrollFree', () => {
     await expect(service.enrollFree(ctx, 'c1')).rejects.toThrow();
   });
 
-  it('enrolls a learner on a free published course and publishes EnrollmentCreated', async () => {
-    const { service, bus } = setup({ entitlement: null });
+  it('enrolls a learner on a free published course and emits EnrollmentCreated', async () => {
+    const { service, committed } = setup({ entitlement: null });
     const result = (await service.enrollFree(ctx, 'c1')) as { entitlement_status: EntitlementStatus };
     expect(result.entitlement_status).toBe(EntitlementStatus.ACTIVE);
-    expect(bus.publish).toHaveBeenCalledWith('EnrollmentCreated', expect.objectContaining({ course_id: 'c1' }));
+    expect(committed).toEqual([{ type: 'EnrollmentCreated', payload: expect.objectContaining({ course_id: 'c1' }) }]);
+  });
+});
+
+describe('EnrollmentService: EnrollmentCreated commits with the activation (Phase 9b)', () => {
+  const payment = { payment_id: 'p1', learner_id: 'u1', learner_email: 'l@e.et', learner_name: 'Learner', course_id: 'c1', course_title: 'Course' };
+  const sponsorship = { sponsorship_id: 's1', source: 'gift', sponsor_id: 'sp1', recipient_user_id: 'u1', recipient_email: 'l@e.et', course_id: 'c1', course_title: 'Course' };
+  const handler = (bus: { subscribe: jest.Mock }, type: string) =>
+    bus.subscribe.mock.calls.find(([t]) => t === type)![1] as (p: unknown) => Promise<void>;
+
+  it('saves a free enrollment and EnrollmentCreated in one transaction, after the name lookups', async () => {
+    const t = setup({ entitlement: null });
+    t.enrollments.save.mockImplementation(async (e: unknown) => ({ ...(e as object), id: 'e9' }));
+    const saves = trackTx(t.enrollments.save, t.inTransaction);
+    const lookups = trackTx(t.internal.get, t.inTransaction);
+    await t.service.enrollFree(ctx, 'c1');
+    expect(saves).toEqual([true]);
+    expect(lookups.length).toBeGreaterThan(0);
+    expect(lookups).not.toContain(true);
+    expect(t.committed).toEqual([
+      {
+        type: 'EnrollmentCreated',
+        payload: {
+          enrollment_id: 'e9',
+          learner_id: 'u1',
+          learner_email: 'l@e.et',
+          learner_name: 'Someone',
+          course_id: 'c1',
+          course_title: 'Course',
+          educator_name: '',
+          pricing_type: 'free',
+        },
+      },
+    ]);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('commits neither the free enrollment nor its event when the transaction fails before commit', async () => {
+    const t = setup({ entitlement: null });
+    const saves = trackTx(t.enrollments.save, t.inTransaction);
+    t.failNextCommit(new Error('outbox insert failed'));
+    await expect(t.service.enrollFree(ctx, 'c1')).rejects.toThrow('outbox insert failed');
+    // The save ran inside the transaction that failed, so it rolled back with it.
+    expect(saves).toEqual([true]);
+    expect(t.committed).toEqual([]);
+  });
+
+  it.each([
+    ['PaymentConfirmed', payment, { source: 'payment', sponsor_id: null }],
+    ['SponsorshipGranted', sponsorship, { source: 'sponsorship', sponsor_id: 'sp1' }],
+  ])('a %s activation and its EnrollmentCreated commit together', async (type, event, fields) => {
+    const t = setup({ entitlement: EntitlementStatus.REFUNDED });
+    const saves = trackTx(t.enrollments.save, t.inTransaction);
+    t.service.onModuleInit();
+    await handler(t.bus, type)(event);
+    expect(saves).toEqual([true]);
+    expect(t.enrollments.save).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1', entitlement_status: EntitlementStatus.ACTIVE, ...fields }));
+    expect(t.committed).toEqual([
+      { type: 'EnrollmentCreated', payload: expect.objectContaining({ enrollment_id: 'e1', learner_id: 'u1', learner_email: 'l@e.et', pricing_type: PricingType.PAID }) },
+    ]);
+  });
+
+  it.each(['PaymentConfirmed', 'SponsorshipGranted'])('a %s for an enrollment already active opens no transaction and emits nothing', async (type) => {
+    const t = setup();
+    t.service.onModuleInit();
+    await handler(t.bus, type)(type === 'PaymentConfirmed' ? payment : sponsorship);
+    expect(t.outbox.transaction).not.toHaveBeenCalled();
+    expect(t.committed).toEqual([]);
+  });
+
+  it('a grant whose transaction fails commits nothing and throws, so the bus retries the event', async () => {
+    const t = setup({ entitlement: null });
+    const saves = trackTx(t.enrollments.save, t.inTransaction);
+    t.failNextCommit(new Error('outbox insert failed'));
+    t.service.onModuleInit();
+    await expect(handler(t.bus, 'PaymentConfirmed')(payment)).rejects.toThrow('outbox insert failed');
+    expect(saves).toEqual([true]);
+    expect(t.committed).toEqual([]);
   });
 });
 
@@ -460,16 +588,79 @@ describe('EnrollmentService: lessons staged in an unapproved revision', () => {
   });
 });
 
-describe('EnrollmentService: completion is published once', () => {
-  it('does not publish CourseCompleted when another path completed the enrollment first', async () => {
-    const { service, enrollments, bus } = setup({ lessonIds: ['l1'], completedCount: 1 });
+describe('EnrollmentService: completion is emitted once', () => {
+  it('does not emit CourseCompleted when another path completed the enrollment first', async () => {
+    const { service, enrollments, committed } = setup({ lessonIds: ['l1'], completedCount: 1 });
     enrollments.update.mockResolvedValue({ affected: 0 });
     await service.completeLesson(ctx, 'l1');
     expect(enrollments.update).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'e1', completed_at: expect.anything() }),
       { completed_at: expect.any(Date) },
     );
-    expect(bus.publish).not.toHaveBeenCalledWith('CourseCompleted', expect.anything());
+    expect(committed).toEqual([]);
+  });
+});
+
+describe('EnrollmentService: CourseCompleted commits with the completion (Phase 9b)', () => {
+  /** setup() whose auth lookups fail, as when auth is asleep. */
+  const authDown = (t: ReturnType<typeof setup>) => {
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.startsWith('/api/v1/internal/users/')) throw new Error(`Internal request failed: GET ${path} -> 503`);
+      return get(path);
+    });
+  };
+
+  it('commits the conditional completed_at write and CourseCompleted together, after the name lookups', async () => {
+    const t = setup({ lessonIds: ['l1'], completedCount: 1 });
+    const updates = trackTx(t.enrollments.update, t.inTransaction);
+    const lookups = trackTx(t.internal.get, t.inTransaction);
+    await t.service.completeLesson(ctx, 'l1');
+    expect(updates).toEqual([true]);
+    expect(lookups).not.toContain(true);
+    const [, patch] = t.enrollments.update.mock.calls[0];
+    expect(t.committed).toEqual([
+      {
+        type: 'CourseCompleted',
+        payload: {
+          enrollment_id: 'e1',
+          learner_id: 'u1',
+          learner_email: 'l@e.et',
+          learner_name: 'Someone',
+          course_id: 'c1',
+          course_title: 'Course',
+          educator_id: 'edu1',
+          educator_name: 'Someone',
+          completed_at: patch.completed_at.toISOString(),
+        },
+      },
+    ]);
+  });
+
+  it('auth down: completed_at is still set and CourseCompleted commits with blank names', async () => {
+    const t = setup({ lessonIds: ['l1'], completedCount: 1 });
+    authDown(t);
+    await expect(t.service.completeLesson(ctx, 'l1')).resolves.toEqual(expect.objectContaining({ enrollment_id: 'e1' }));
+    expect(t.enrollments.update).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), { completed_at: expect.any(Date) });
+    expect(t.committed).toEqual([
+      {
+        type: 'CourseCompleted',
+        payload: expect.objectContaining({ enrollment_id: 'e1', learner_email: 'l@e.et', learner_name: '', course_title: '', educator_id: '', educator_name: '' }),
+      },
+    ]);
+  });
+
+  it('commits neither when the transaction fails before commit, and completing the lesson again re-detects it', async () => {
+    const t = setup({ lessonIds: ['l1'], completedCount: 1 });
+    const updates = trackTx(t.enrollments.update, t.inTransaction);
+    t.failNextCommit(new Error('outbox insert failed'));
+    await expect(t.service.completeLesson(ctx, 'l1')).rejects.toThrow('outbox insert failed');
+    // The conditional write ran inside the transaction that failed, so it rolled back with it.
+    expect(updates).toEqual([true]);
+    expect(t.committed).toEqual([]);
+
+    await t.service.completeLesson(ctx, 'l1');
+    expect(t.committed).toEqual([{ type: 'CourseCompleted', payload: expect.objectContaining({ enrollment_id: 'e1' }) }]);
   });
 });
 
@@ -566,6 +757,7 @@ function revisionSetup(rows: Row[], done: Record<string, number>, liveLessonIds 
       return { name: 'Educator' };
     }),
   };
+  const tx = fakeOutbox(managerFor(enrollments));
   const service = new EnrollmentService(
     enrollments as never,
     progress as never,
@@ -573,6 +765,7 @@ function revisionSetup(rows: Row[], done: Record<string, number>, liveLessonIds 
     videoProgress as never,
     bus as never,
     internal as never,
+    tx.outbox as never,
   );
   service.onModuleInit();
   const handler = bus.subscribe.mock.calls.find(([type]) => type === 'CourseRevisionClosed')![1] as (p: unknown) => Promise<void>;
@@ -593,7 +786,7 @@ function revisionSetup(rows: Row[], done: Record<string, number>, liveLessonIds 
       notes: null,
       ...patch,
     });
-  return { closed, enrollments, progress, videoProgress, courseCache, bus, internal, findCalls, rows };
+  return { closed, enrollments, progress, videoProgress, courseCache, bus, internal, findCalls, rows, ...tx };
 }
 
 const row = (id: string, completed_at: Date | null = null, status = EntitlementStatus.ACTIVE): Row => ({
@@ -610,9 +803,9 @@ describe('EnrollmentService: CourseRevisionClosed', () => {
     const t = revisionSetup([row('e1'), row('e2')], { e1: 2, e2: 1 });
     await t.closed({ removed_lesson_ids: ['l3'] });
 
-    const completions = t.bus.publish.mock.calls.filter(([type]) => type === 'CourseCompleted');
+    const completions = t.committed.filter((e) => e.type === 'CourseCompleted');
     expect(completions).toHaveLength(1);
-    expect(completions[0][1]).toEqual(
+    expect(completions[0].payload).toEqual(
       expect.objectContaining({ enrollment_id: 'e1', learner_id: 'learner-e1', learner_email: 'learner-e1@e.et', course_id: 'c1' }),
     );
     expect(t.rows.find((r) => r.id === 'e1')!.completed_at).toBeInstanceOf(Date);
@@ -628,13 +821,13 @@ describe('EnrollmentService: CourseRevisionClosed', () => {
 
     expect(t.findCalls.map((c) => c.take)).toEqual([200, 200, 200]);
     expect(t.findCalls.map((c) => c.after)).toEqual([undefined, 'e199', 'e399']);
-    expect(t.bus.publish.mock.calls.filter(([type]) => type === 'CourseCompleted')).toHaveLength(450);
+    expect(t.committed.filter((e) => e.type === 'CourseCompleted')).toHaveLength(450);
   });
 
   it('skips enrollments that are already complete or not active', async () => {
     const t = revisionSetup([row('e1', new Date('2026-01-01')), row('e2', null, EntitlementStatus.REFUNDED)], { e1: 2, e2: 2 });
     await t.closed({ removed_lesson_ids: ['l3'] });
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toEqual([]);
     expect(t.enrollments.update).not.toHaveBeenCalled();
   });
 
@@ -642,7 +835,7 @@ describe('EnrollmentService: CourseRevisionClosed', () => {
     const t = revisionSetup([row('e1')], { e1: 2 });
     await t.closed({ added_lesson_ids: ['l9'] });
     expect(t.enrollments.find).not.toHaveBeenCalled();
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toEqual([]);
   });
 
   it('resets watch state for replaced videos but keeps lesson completions', async () => {
@@ -683,14 +876,28 @@ describe('EnrollmentService: CourseRevisionClosed', () => {
     expect(t.courseCache.update).not.toHaveBeenCalled();
     expect(t.videoProgress.update).not.toHaveBeenCalled();
     expect(t.enrollments.find).not.toHaveBeenCalled();
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toEqual([]);
+  });
+
+  it('completes a learner while auth is down: completed_at set, CourseCompleted with a blank email and names', async () => {
+    const t = revisionSetup([row('e1')], { e1: 2 });
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.startsWith('/api/v1/internal/users/')) throw new Error(`Internal request failed: GET ${path} -> 503`);
+      return get(path);
+    });
+    await t.closed({ removed_lesson_ids: ['l3'] });
+    expect(t.rows[0].completed_at).toBeInstanceOf(Date);
+    expect(t.committed).toEqual([
+      { type: 'CourseCompleted', payload: expect.objectContaining({ enrollment_id: 'e1', learner_email: '', learner_name: '', educator_name: '' }) },
+    ]);
   });
 
   it('keeps going when one enrollment fails', async () => {
     const t = revisionSetup([row('e1'), row('e2')], { e1: 2, e2: 2 });
     t.enrollments.update.mockRejectedValueOnce(new Error('deadlock'));
     await t.closed({ removed_lesson_ids: ['l3'] });
-    const completed = t.bus.publish.mock.calls.filter(([type]) => type === 'CourseCompleted').map(([, p]) => p.enrollment_id);
+    const completed = t.committed.filter((e) => e.type === 'CourseCompleted').map((e) => e.payload.enrollment_id);
     expect(completed).toEqual(['e2']);
   });
 });
