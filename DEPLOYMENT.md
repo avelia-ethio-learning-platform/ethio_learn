@@ -144,7 +144,7 @@ In this order. Steps 1, 2, 4 and 5 touch Neon or Render and are for the owner to
 
 ### Phase 6c: money integrity checks and rollback
 
-Both parts are for the owner to run against production (the Neon SQL editor, or `psql '<production url>'`). Production is off-limits to development sessions.
+Every part is for the owner to run against production (the Neon SQL editor, or `psql '<production url>'`). Production is off-limits to development sessions.
 
 **Before merging: read-only checks.** Every statement only selects. They use only columns that exist before 6c, so they run against production as it is now. Nothing acts on the results: each list is for you to decide on.
 
@@ -203,6 +203,18 @@ HAVING c.uses > count(p.id) FILTER (WHERE p.status = 'confirmed')
 ORDER BY c.code;
 ```
 
+**After every 6c deploy: the refund-mark check.** Read-only. A confirmed payment carries `refund_requested_at` exactly while a refund for it is pending; both counts should be 0. A stale mark (a confirmed payment marked with no pending refund) is skipped by payouts and the credit release, so the educator is never paid for that sale. A missing mark (a pending refund whose payment isn't marked) lets a payout claim the payment while the refund is under review. Both come from the previous code filing or deciding refunds: during a rollback, or, rarely, in the minutes of a deploy while the old instance still serves. If either count isn't 0, run the re-sync under "Redeploying 6c after a rollback" while no one is deciding refunds in the admin, then this check again.
+
+```sql
+-- Refund marks: both should be 0. Refunded payments keep their mark by design.
+SELECT
+  (SELECT count(*) FROM financial.payments p
+    WHERE p.refund_requested_at IS NOT NULL AND p.status = 'confirmed'
+      AND NOT EXISTS (SELECT 1 FROM financial.refund_requests r WHERE r.payment_id = p.id AND r.status = 'pending')) AS stale_marks,
+  (SELECT count(*) FROM financial.refund_requests r JOIN financial.payments p ON p.id = r.payment_id
+    WHERE r.status = 'pending' AND p.refund_requested_at IS NULL) AS missing_marks;
+```
+
 **Rolling back:** revert the code and keep the columns; the previous code ignores them. **Before reverting**, release every pending credit into its owner's balance, because the previous code reads only `balance_etb` and the learners would lose them. That includes credits whose purchase has a refund under review, which the previous code never held back either. The transaction is safe while 6c is serving: the app releases a credit only from `pending`, under the same row lock, so each credit moves once. Run the preview, then the transaction, then revert. Once the revert is live, run both again to catch credits earned in between. A second run releases only what is still pending.
 
 ```sql
@@ -224,7 +236,23 @@ ON CONFLICT (user_id) DO UPDATE SET balance_etb = w.balance_etb + EXCLUDED.balan
 COMMIT;
 ```
 
-`INSERT 0 <n>` is the number of wallets credited, and the preview then shows no pending credits.
+`INSERT 0 <n>` is the number of wallets credited, and the preview then shows no pending credits. If the transaction fails, run it again: it is all-or-nothing, so a failed run moved nothing.
+
+**Redeploying 6c after a rollback:** the previous code files and decides refunds without touching `refund_requested_at`, and the migration's backfill doesn't run again, so the marks drift. A refund denied during the rollback keeps its mark, and payouts never pay that sale out. A refund filed during it has none, and a payout can claim the payment while the refund is under review. Right before redeploying, while the old code still serves, re-sync the marks; once the deploy is live, run the refund-mark check. Run the re-sync while no one is deciding refunds in the admin: each UPDATE reads the refund requests as they were when it started, so a refund denied while it runs can come out marked again. With 6c serving, an admin decision is the only thing that can race it, so a rerun after the deploy is safe under the same rule.
+
+```sql
+-- Re-sync the refund marks: clear the stale ones, then set the missing ones.
+BEGIN;
+UPDATE financial.payments p SET refund_requested_at = NULL
+WHERE p.refund_requested_at IS NOT NULL AND p.status = 'confirmed'
+  AND NOT EXISTS (SELECT 1 FROM financial.refund_requests r WHERE r.payment_id = p.id AND r.status = 'pending');
+UPDATE financial.payments p SET refund_requested_at = r.created_at
+FROM financial.refund_requests r
+WHERE r.payment_id = p.id AND r.status = 'pending' AND p.refund_requested_at IS NULL;
+COMMIT;
+```
+
+The two `UPDATE <n>` counts are the stale marks cleared and the missing marks set; the check then shows 0 and 0.
 
 ## Scaling & operations
 
