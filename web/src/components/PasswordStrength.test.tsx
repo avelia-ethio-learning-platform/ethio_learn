@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
 import { PasswordStrength, scorePassword } from './PasswordStrength';
 
 // Copy of the server rule in api/services/auth/src/dto.ts (IsStrongPassword). Web cannot import api code,
@@ -49,6 +49,8 @@ describe('scorePassword', () => {
   });
 });
 
+afterEach(cleanup);
+
 describe('<PasswordStrength />', () => {
   it('renders nothing until the user types', () => {
     const { container } = render(<PasswordStrength value="" />);
@@ -63,5 +65,11 @@ describe('<PasswordStrength />', () => {
     expect(screen.getByText('uppercase').className).toContain('text-green-700');
     expect(screen.getByText('number').className).toContain('text-gray-500');
     expect(screen.getByText('symbol').className).toContain('text-gray-500');
+  });
+
+  it('tells a screen reader which rules are met, not only by colour', () => {
+    render(<PasswordStrength value="Password" />);
+    expect(screen.getByText(/At least 8 characters/).textContent).toBe('Met: At least 8 characters');
+    expect(screen.getByText('number').textContent).toBe('Not met: number');
   });
 });

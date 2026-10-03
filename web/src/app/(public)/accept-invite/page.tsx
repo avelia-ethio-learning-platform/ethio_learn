@@ -115,7 +115,6 @@ function AcceptInvite() {
                 required
                 autoFocus
                 autoComplete="new-password"
-                maxLength={128}
                 className="input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

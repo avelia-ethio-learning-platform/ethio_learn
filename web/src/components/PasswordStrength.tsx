@@ -29,7 +29,12 @@ export function PasswordStrength({ value }: { value: string }) {
   const { score, label, lengthOk, categoriesMet, categories } = scorePassword(value);
   const colors = ['bg-red-500', 'bg-red-500', 'bg-amber-500', 'bg-yellow-500', 'bg-green-600'];
   const tone = (ok: boolean) => (ok ? 'text-green-700 dark:text-green-400' : 'text-gray-500');
-  const mark = (ok: boolean) => (ok ? <Check className="mr-1 inline h-3 w-3" aria-hidden="true" /> : <Circle className="mr-1 inline h-3 w-3" aria-hidden="true" />);
+  const mark = (ok: boolean) => (
+    <>
+      {ok ? <Check className="mr-1 inline h-3 w-3" aria-hidden="true" /> : <Circle className="mr-1 inline h-3 w-3" aria-hidden="true" />}
+      <span className="sr-only">{ok ? 'Met: ' : 'Not met: '}</span>
+    </>
+  );
   return (
     <div className="mt-2">
       <div className="flex gap-1">

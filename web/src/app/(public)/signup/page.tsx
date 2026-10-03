@@ -109,7 +109,6 @@ function SignupForm() {
                 minLength={8}
                 required
                 autoComplete="new-password"
-                maxLength={128}
                 className="input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
