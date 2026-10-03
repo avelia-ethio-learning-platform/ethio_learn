@@ -2,9 +2,10 @@
 
 import { useId, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Inbox, PartyPopper, Search, ShieldCheck, UserPlus } from 'lucide-react';
+import { ChevronDown, Search, ShieldCheck, UserPlus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
+import { EmptyRows } from '@/components/EmptyRows';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { AnalyticsTab, BroadcastTab, CouponsTab, WalletTab } from './growth-tabs';
 import { formatDate, formatETB } from '@/lib/format';
@@ -59,18 +60,6 @@ function AdminConsole() {
         </div>
       </div>
     </PageShell>
-  );
-}
-
-/** Friendly empty state for admin lists. */
-function EmptyRows({ label, happy = false }: { label: string; happy?: boolean }) {
-  return (
-    <div className="flex flex-col items-center gap-2.5 py-10 text-center text-sm text-gray-500">
-      <span className="glass-secondary flex h-11 w-11 items-center justify-center rounded-2xl">
-        {happy ? <PartyPopper className="h-5 w-5 text-brand-400" /> : <Inbox className="h-5 w-5 text-brand-400" />}
-      </span>
-      {label}
-    </div>
   );
 }
 
