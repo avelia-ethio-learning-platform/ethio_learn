@@ -98,6 +98,13 @@ export class Payment {
   @Column({ type: 'timestamptz', nullable: true })
   effects_completed_at: Date | null;
 
+  /**
+   * Set when a refund request is filed for this payment; the payout claim
+   * skips marked payments so a refund can't race a payout.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  refund_requested_at: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 }
@@ -269,6 +276,8 @@ export class Wallet {
 }
 
 export type WalletTxKind = 'topup' | 'purchase' | 'referral_reward' | 'cashback' | 'gift_sent' | 'admin_adjust';
+/** available: already in the balance; pending: a credit held until available_at; void: a pending credit cancelled by a refund. */
+export type WalletTxState = 'available' | 'pending' | 'void';
 
 @Entity({ name: 'wallet_transactions' })
 // One credit or purchase debit per event; admin adjustments reuse their reference.
@@ -276,6 +285,10 @@ export type WalletTxKind = 'topup' | 'purchase' | 'referral_reward' | 'cashback'
   unique: true,
   where: `kind IN ('topup', 'cashback', 'referral_reward', 'purchase')`,
 })
+// The release sweep over pending credits, and the void by purchase.
+@Index('IDX_wallet_transactions_pending_user_id_available_at', ['user_id', 'available_at'], { where: `state = 'pending'` })
+@Index('IDX_wallet_transactions_payment_id', ['payment_id'], { where: 'payment_id IS NOT NULL' })
+@Check('CHK_wallet_transactions_state', `state IN ('available', 'pending', 'void')`)
 export class WalletTransaction {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -297,6 +310,17 @@ export class WalletTransaction {
 
   @Column({ default: '' })
   note: string;
+
+  @Column({ type: 'varchar', length: 16, default: 'available' })
+  state: WalletTxState;
+
+  /** When a pending credit becomes spendable; null on available rows. */
+  @Column({ type: 'timestamptz', nullable: true })
+  available_at: Date | null;
+
+  /** The purchase that earned a cashback or referral credit. */
+  @Column({ type: 'uuid', nullable: true })
+  payment_id: string | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

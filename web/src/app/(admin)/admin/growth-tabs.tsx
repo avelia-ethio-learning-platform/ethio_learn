@@ -19,6 +19,7 @@ export function AnalyticsTab() {
     { label: 'Active enrollments', value: enr?.active ?? 0, hint: `${enr?.distinct_learners ?? 0} learners · ${enr?.active_last_7d ?? 0} active this week` },
     { label: 'Completions', value: enr?.completed ?? 0, hint: enr?.active ? `${Math.round((enr.completed / enr.active) * 100)}% completion rate` : '' },
     { label: 'Wallet liability', value: `${formatETB(fin?.wallet?.outstanding_balance_etb ?? 0, locale)}`, hint: `coupon discounts given: ${formatETB(fin?.coupon_discount_total_etb ?? 0, locale)}` },
+    { label: 'Pending rewards', value: `${formatETB(fin?.wallet?.pending_rewards_etb ?? 0, locale)}`, hint: 'cashback and referral rewards not yet spendable' },
     { label: 'Sponsored seats', value: enr?.sponsored ?? 0, hint: 'gifts, pay requests and bulk seats' },
     { label: 'Pending / failed', value: `${fin?.pending_count ?? 0} / ${fin?.failed_count ?? 0}`, hint: 'checkouts opened but not confirmed' },
   ];

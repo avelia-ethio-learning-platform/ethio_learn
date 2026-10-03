@@ -515,3 +515,37 @@ describe('NotificationService: institution invitations', () => {
     expect(mail.html).toContain('Set a password first, then accept the invitation');
   });
 });
+
+describe('NotificationService: wallet credited', () => {
+  const credit = { user_id: 'u1', amount_etb: 25, balance_etb: 10, note: '5% cashback on "Course"' };
+
+  it('a pending cashback says when it becomes available and does not call it spendable', async () => {
+    const t = setup();
+    await t.emit('WalletCredited', { ...credit, kind: 'cashback', available_at: '2026-10-12T10:00:00.000Z' });
+    expect(t.inboxRows).toEqual([
+      expect.objectContaining({
+        user_id: 'u1',
+        type: 'wallet',
+        title: '25 ETB cashback, available on 12 Oct 2026',
+        body: '5% cashback on "Course". It moves to your wallet balance on 12 Oct 2026, once the 7-day refund window closes.',
+      }),
+    ]);
+    expect(t.inboxRows[0].body).not.toMatch(/spend|Balance/);
+  });
+
+  it('a pending referral reward reads the same way', async () => {
+    const t = setup();
+    await t.emit('WalletCredited', { ...credit, kind: 'referral_reward', note: 'Referral reward', available_at: '2026-10-12T10:00:00.000Z' });
+    expect(t.inboxRows[0]).toEqual(expect.objectContaining({ title: '25 ETB referral reward, available on 12 Oct 2026' }));
+  });
+
+  it('a credit without available_at keeps its copy', async () => {
+    const t = setup();
+    await t.emit('WalletCredited', { ...credit, kind: 'cashback' });
+    await t.emit('WalletCredited', { ...credit, kind: 'topup', note: 'Wallet top-up' });
+    expect(t.inboxRows).toEqual([
+      expect.objectContaining({ title: '25 ETB cashback added', body: '5% cashback on "Course". Balance: 10 ETB — spend it on any course.' }),
+      expect.objectContaining({ title: '25 ETB added to your wallet', body: 'Wallet top-up. Balance: 10 ETB — spend it on any course.' }),
+    ]);
+  });
+});

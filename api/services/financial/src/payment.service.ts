@@ -6,13 +6,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
 import { Between, DataSource, EntityManager, In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
-import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import {
   OwnerType,
   PaymentAbandonedPayload,
@@ -509,21 +509,36 @@ export class PaymentService {
   /**
    * Safety net for missed webhooks and abandoned return pages. Every 2 minutes,
    * ask Chapa about recent pending payments and apply the standard rules.
+   *
+   * Then it re-checks recent failed Chapa payments that had a checkout page,
+   * such as one a retry of the same purchase superseded. One Chapa reports
+   * paid is confirmed exactly as its webhook would confirm it (paying both
+   * pages is a duplicate purchase, a refund case); one reported unpaid or
+   * still pending stays failed. A failed row with no checkout URL is never
+   * selected: Chapa never opened its page, so it can't have been paid.
    */
   @Cron('*/2 * * * *')
   async sweepPendingPayments(): Promise<void> {
     if (chapaMode() !== 'live') return;
     const now = Date.now();
-    const rows = await this.payments.find({
-      where: {
-        status: PaymentStatus.PENDING,
-        method: PaymentMethod.CHAPA,
-        created_at: Between(new Date(now - 24 * 3600_000), new Date(now - 60_000)),
-      },
+    const recent = Between(new Date(now - 24 * 3600_000), new Date(now - 60_000));
+    const pending = await this.payments.find({
+      where: { status: PaymentStatus.PENDING, method: PaymentMethod.CHAPA, created_at: recent },
       order: { created_at: 'DESC' },
       take: 25,
     });
-    for (const payment of rows) {
+    const failed = await this.payments.find({
+      where: {
+        status: PaymentStatus.FAILED,
+        method: PaymentMethod.CHAPA,
+        chapa_tx_ref: Not(IsNull()),
+        chapa_checkout_url: Not(IsNull()),
+        created_at: recent,
+      },
+      order: { created_at: 'DESC' },
+      take: 10,
+    });
+    for (const payment of [...pending, ...failed]) {
       try {
         const verification = await this.chapa.verify(payment.chapa_tx_ref);
         await this.applyVerification(payment, verification, 'sweep');
@@ -536,7 +551,14 @@ export class PaymentService {
   /**
    * Abandoned checkout nudge: a course checkout opened 1–48h ago that never
    * completed gets ONE "finish your purchase" reminder (in-app + email via the
-   * notification service). Runs hourly; nudged_at guarantees a single send.
+   * notification service). Runs hourly.
+   *
+   * Each row is claimed with a conditional update (still pending, not yet
+   * nudged) and never saved: a save would write this run's stale `pending`
+   * back over a confirmation that landed in the meantime. Only the run that
+   * claims a row sends its reminder, so each payment gets at most one. The
+   * claim comes before the publish: a publish that fails after the claim
+   * loses that one reminder, and ends the run, rather than sending two.
    */
   @Cron('15 * * * *')
   async nudgeAbandonedCheckouts(): Promise<void> {
@@ -552,16 +574,13 @@ export class PaymentService {
       order: { created_at: 'ASC' },
       take: 50,
     });
+    let sent = 0;
     for (const payment of rows) {
-      // Skip if the learner already owns the course through another payment.
-      if (await this.ownsCourse(payment.learner_id, payment.course_id)) {
-        payment.nudged_at = new Date();
-        await this.payments.save(payment);
-        continue;
-      }
+      const owned = await this.ownsCourse(payment.learner_id, payment.course_id);
+      const claimed = await this.payments.update({ id: payment.id, status: PaymentStatus.PENDING, nudged_at: IsNull() }, { nudged_at: new Date() });
+      // Confirmed or nudged since the select; or the learner already owns the course through another payment.
+      if (claimed.affected !== 1 || owned) continue;
       const learner = await this.learnerInfo(payment.learner_id);
-      payment.nudged_at = new Date();
-      await this.payments.save(payment);
       await this.bus.publish<PaymentAbandonedPayload>('PaymentAbandoned', {
         payment_id: payment.id,
         learner_id: payment.learner_id,
@@ -572,8 +591,9 @@ export class PaymentService {
         amount_etb: Number(payment.amount_etb),
         resume_url: `${env('WEB_URL', 'http://localhost:3000')}/courses/${payment.course_id}`,
       });
+      sent += 1;
     }
-    if (rows.length) this.logger.log(`abandoned-checkout nudges sent: ${rows.length}`);
+    if (sent) this.logger.log(`abandoned-checkout nudges sent: ${sent}`);
   }
 
   /**
@@ -629,7 +649,8 @@ export class PaymentService {
    * - In the transaction, with the status change: the effects that ARE the
    *   purchase (wallet debit, top-up credit). They commit or roll back with it.
    * - In a savepoint each: coupon use, cashback, referral reward. A failure
-   *   there rolls back only that savepoint and never blocks access.
+   *   there rolls back only that savepoint and never blocks access. The
+   *   cashback and reward are pending, held from this confirmation's `now`.
    * - After commit, winner only: WalletCredited, then the access events
    *   (completeEffects), which the re-publish cron retries if they fail.
    *
@@ -669,9 +690,9 @@ export class PaymentService {
 
       await this.inSavepoint(m, payment, 'coupon use', (sp) => this.growth.recordCouponUse(payment.coupon_code ?? null, sp));
       if (purpose !== PaymentPurpose.WALLET_TOPUP) {
-        const cashback = await this.inSavepoint(m, payment, 'cashback', (sp) => this.growth.creditCashback(sp, payment));
+        const cashback = await this.inSavepoint(m, payment, 'cashback', (sp) => this.growth.creditCashback(sp, payment, now));
         if (cashback) credits.push(cashback);
-        const reward = await this.inSavepoint(m, payment, 'referral reward', (sp) => this.growth.rewardReferrer(sp, payment, buyerName));
+        const reward = await this.inSavepoint(m, payment, 'referral reward', (sp) => this.growth.rewardReferrer(sp, payment, buyerName, now));
         if (reward) credits.push(reward);
       }
       return true;
@@ -812,28 +833,114 @@ export class PaymentService {
     return this.handleWebhook(raw, { 'x-chapa-signature': signature });
   }
 
-  /** Manual bank-transfer fallback — platform admin marks it settled (spec §0.4). */
-  async recordBankTransfer(adminId: string, dto: { learner_id: string; course_id: string }) {
+  /**
+   * Manual bank-transfer fallback — platform admin marks it settled (spec §0.4).
+   * The bank's reference is the idempotency key (`bank-<REF>`). In order:
+   *  1. a payment with that reference: the same learner and course get it
+   *     back (an exact replay, settled now if it was left pending or failed);
+   *     anything else is a 409;
+   *  2. a confirmed course payment for this learner and course: a 409. Read
+   *     here, so it sees a Chapa payment confirmed moments ago, before the
+   *     enrollment service has granted the entitlement. When that payment is
+   *     this reference, recorded by a concurrent submit since step 1, it is
+   *     judged by step 1 instead (and likewise at step 4);
+   *  3. the learner exists: 404 when not, 503 when the lookup fails;
+   *  4. the learner doesn't own the course another way (gift, seat,
+   *     sponsorship): 409, and 503 when that can't be checked. Unlike
+   *     checkout's ownsCourse, this fails closed;
+   *  5. insert. A concurrent submit of the same reference that inserted first
+   *     makes this insert fail on the unique index; the row is re-read and
+   *     judged by step 1.
+   * `created` is false for a replay (the controller answers 200, not 201).
+   */
+  async recordBankTransfer(
+    adminId: string,
+    dto: { learner_id: string; course_id: string; bank_reference: string },
+  ): Promise<{ payment: Payment; created: boolean }> {
+    const txRef = `bank-${dto.bank_reference}`;
+    /** Step 1: the payment already recorded under this reference, judged by replayBankTransfer; undefined when there is none. */
+    const replayed = async () => {
+      const recorded = await this.payments.findOne({ where: { chapa_tx_ref: txRef } });
+      return recorded ? { payment: await this.replayBankTransfer(adminId, recorded, dto), created: false } : undefined;
+    };
+    const first = await replayed();
+    if (first) return first;
+
+    const paid = await this.payments.findOne({
+      where: { learner_id: dto.learner_id, course_id: dto.course_id, purpose: PaymentPurpose.COURSE, status: PaymentStatus.CONFIRMED },
+    });
+    if (paid) {
+      const replay = await replayed();
+      if (replay) return replay;
+      throw new ConflictException('This learner already paid for the course');
+    }
+
+    try {
+      await this.internal.get(internalPath`/api/v1/internal/users/${dto.learner_id}`);
+    } catch (err) {
+      // Phase 9c's typed PeerNotFoundError replaces this match on InternalHttpClient's message.
+      if ((err as Error).message.endsWith('-> 404')) throw new NotFoundException('Learner not found');
+      throw new ServiceUnavailableException("Couldn't check the learner. Try again.");
+    }
+
+    let entitlement: { entitlement_status: string };
+    try {
+      entitlement = await this.internal.get(internalPath`/api/v1/internal/entitlements?learner_id=${dto.learner_id}&course_id=${dto.course_id}`);
+    } catch {
+      throw new ServiceUnavailableException("Couldn't check enrollment. Try again.");
+    }
+    if (entitlement.entitlement_status === 'active') {
+      const replay = await replayed();
+      if (replay) return replay;
+      throw new ConflictException('This learner already owns the course');
+    }
+
     const course = await this.courseInfo(dto.course_id);
     if (!course.price_etb) throw new BadRequestException('Course has no price');
-    const payment = await this.payments.save(
-      this.payments.create({
-        learner_id: dto.learner_id,
-        course_id: dto.course_id,
-        amount_etb: course.price_etb.toFixed(2),
-        list_price_etb: course.price_etb.toFixed(2),
-        method: PaymentMethod.BANK_TRANSFER,
-        status: PaymentStatus.PENDING,
-        chapa_tx_ref: `bank-${uuidv4()}`,
-        payee_id: course.owner_id,
-        payee_type: course.owner_type,
-        course_title: course.title,
-        purpose: PaymentPurpose.COURSE,
-      }),
-    );
-    this.logger.log(`bank transfer recorded by admin ${adminId} for ${dto.course_id}`);
-    await this.confirmPayment(payment, 'bank_transfer');
-    return payment;
+    let payment: Payment;
+    try {
+      // save() runs in a transaction of its own, rolled back on a failure, so
+      // the re-read below runs outside it, not in an aborted transaction.
+      payment = await this.payments.save(
+        this.payments.create({
+          learner_id: dto.learner_id,
+          course_id: dto.course_id,
+          amount_etb: course.price_etb.toFixed(2),
+          list_price_etb: course.price_etb.toFixed(2),
+          method: PaymentMethod.BANK_TRANSFER,
+          status: PaymentStatus.PENDING,
+          chapa_tx_ref: txRef,
+          payee_id: course.owner_id,
+          payee_type: course.owner_type,
+          course_title: course.title,
+          purpose: PaymentPurpose.COURSE,
+        }),
+      );
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      const winner = await replayed();
+      if (!winner) throw err;
+      return winner;
+    }
+    this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}): bank transfer recorded by admin ${adminId} for course ${dto.course_id}`);
+    return { payment: await this.settleBankTransfer(payment), created: true };
+  }
+
+  /** Check 1: an exact replay gets the recorded payment back, settled if it wasn't; another learner or course is a 409. */
+  private async replayBankTransfer(adminId: string, recorded: Payment, dto: { learner_id: string; course_id: string }): Promise<Payment> {
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+    if (!same(recorded.learner_id, dto.learner_id) || !same(recorded.course_id, dto.course_id)) {
+      throw new ConflictException('This bank reference is already recorded for another payment.');
+    }
+    this.logger.log(`payment ${recorded.id} (${recorded.chapa_tx_ref}): bank transfer replayed by admin ${adminId} (${recorded.status})`);
+    if (recorded.status !== PaymentStatus.PENDING && recorded.status !== PaymentStatus.FAILED) return recorded;
+    return this.settleBankTransfer(recorded);
+  }
+
+  /** Confirms once (confirmPayment); when a concurrent submit confirmed it instead, reports the row as it is now. */
+  private async settleBankTransfer(payment: Payment): Promise<Payment> {
+    if (await this.confirmPayment(payment, 'bank_transfer')) return payment;
+    return (await this.payments.findOne({ where: { id: payment.id } })) ?? payment;
   }
 
   async detail(ctx: UserContext, paymentId: string) {
