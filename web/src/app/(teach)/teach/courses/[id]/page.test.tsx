@@ -103,10 +103,20 @@ async function renderPage() {
 
 beforeEach(() => {
   apiMock.mockReset();
+  // jsdom has no media pipeline: the upload's duration probe fails at once.
+  const create = document.createElement.bind(document);
+  vi.spyOn(document, 'createElement').mockImplementation(((tag: string, options?: ElementCreationOptions) => {
+    const el = create(tag, options);
+    if (tag === 'video') Object.defineProperty(el, 'src', { configurable: true, set: () => queueMicrotask(() => el.dispatchEvent(new Event('error'))) });
+    return el;
+  }) as typeof document.createElement);
+  URL.createObjectURL = vi.fn(() => 'blob:probe');
+  URL.revokeObjectURL = vi.fn();
   search.value = '';
   localStorage.setItem('el_auth', JSON.stringify({ access_token: 't', user: { id: 'u1', name: 'Almaz', email: 'a@x.et', role: 'educator' } }));
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   cleanup();
   localStorage.clear();
   resetLessonUploadsForTests();
@@ -209,6 +219,30 @@ describe('course authoring page', () => {
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(submit.disabled).toBe(false);
+  });
+
+  it('offers the attempt limits for every assessment type and saves them', async () => {
+    respond(working({ status: 'draft', revision: null, has_pending_changes: false }));
+    await renderPage();
+    const typeSelect = screen.getByDisplayValue('Quiz') as HTMLSelectElement;
+    for (const [type, placeholder, config] of [
+      ['ai_viva', /Topic context/, { topic_context: 'Soil' }],
+      ['project', /Project instructions/, { instructions: 'Dig' }],
+    ] as const) {
+      fireEvent.change(typeSelect, { target: { value: type } });
+      fireEvent.change(screen.getByPlaceholderText(placeholder), { target: { value: Object.values(config)[0] } });
+      fireEvent.change(screen.getByLabelText(/Max attempts/), { target: { value: '5' } });
+      fireEvent.change(screen.getByLabelText(/Cooldown between attempts/), { target: { value: '30' } });
+      // Quiz-only settings stay quiz-only.
+      expect(screen.queryByLabelText(/Time limit/)).toBeNull();
+      apiMock.mockClear();
+      fireEvent.click(screen.getByRole('button', { name: /Save assessment/ }));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      const post = apiMock.mock.calls.find(([path, opts]) => path === '/assessments' && opts?.method === 'POST');
+      expect(post?.[1].body).toMatchObject({ type, config: { ...config, max_attempts: 5, cooldown_minutes: 30 } });
+    }
   });
 
   it('opens the outline generator from ?generate=1', async () => {
