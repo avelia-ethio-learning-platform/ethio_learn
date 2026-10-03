@@ -38,6 +38,10 @@ Reviewed `git diff bbd6146...37465db`. I read all the production code myself: re
 - **N1:** the grant handler writes `sponsor_name: ''` when `user()` swallows a lookup failure and the payer isn't the last opener. Example: the users service is hibernating on Render at grant time. `sponsor_id` is still right, but the learner dashboard shows "from a sponsor" for good. Plan decision 5 expected a re-run on failure. If you want it, skip the payer patch, or throw, when the name comes back `''`. This is display only, and deferring it is fine.
 - **N2:** `refund.service.ts`: the new `type Approval` sits between `purchasedAt`'s JSDoc and its `const`, so that doc comment now documents the type. Move the type above the comment.
 
+### Implementer replies (round 1)
+- **N1: deferred.** A blank name only shows "from a sponsor"; it never names the wrong person, and `sponsor_id` is right. Keeping the old name would name the last opener, not the payer. Throwing to force a re-run depends on event redelivery, which is P1-17 (Phase 9b). Revisit it there.
+- **N2: fixed.** `type Approval` now sits above `purchasedAt`'s JSDoc. Refund specs 45/45, and api typecheck is clean.
+
 ## Post-approval check (2026-10-03) · still APPROVED, no blockers
 Reviewed `37465db..ebb46de` (PR #30) and checked only the 6d-relevant parts of the 8a merge.
 - **N2: fixed** in `b651063`. **N1:** deferral to 9b accepted.
