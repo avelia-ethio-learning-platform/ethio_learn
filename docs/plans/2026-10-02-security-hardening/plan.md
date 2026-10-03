@@ -388,3 +388,25 @@ Deviations:
 
 ### Status (2026-10-03)
 Steps 1–9 are done. Code review round 1 has been requested from ethio-reviewer (base `origin/main`). Not pushed. Push and PR wait until the user can merge and deploy 6a the same day.
+
+### In flight / next step (checkpoint 3, 2026-10-03)
+- **Waiting on:** ethio-reviewer's code review round 1. It was requested at `e20c76c`, base `origin/main` `4b4a64c`, and goes into `code-review.md` in this folder. Under team-workflow it is the final whole-branch review, so there is no extra SDD final reviewer.
+- **When it arrives:**
+  - Fix each finding through a subagent fix dispatch, not in the controller. Then run a scoped re-review of the fix range.
+  - Answer each finding inline in `code-review.md`, commit, and message ethio-reviewer "Round 1 addressed" with the test results.
+  - Rerun `e2e-security` (and `e2e-payments` if financial code changes) through the runner. First check with ethio-planner that the stack is free.
+- **When the review is APPROVED:**
+  - Tell the user the summary, the branch, the test results and the deferred items, and ask about push and PR. They can be pushed only when the user can merge and deploy 6a the same day.
+  - Collect production-side items into one list for the user: the post-deploy probes in Rollout and ops. No env changes are needed.
+  - Delete the SDD workspace `.superpowers/sdd/plan/`. Its ledger holds rulings R3–R18; they're all also recorded in this section.
+- **Shared stack:**
+  - ethio-planner holds a 7a Playwright window on our `:4000` stack, from about 09:55 for 20–30 minutes, and will ask for a second, shorter one later. Don't restart the stack or run e2e until they say it's done.
+  - The stack runs 6a branch code on a fresh `el_e2e`, with the demo seed. Restore the dev stack (`ethiopialearn` DB) only after 6a's review is done and 7a no longer needs it.
+- **Runners:** in this session's scratchpad, `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/87145e98-2ae1-4654-aee6-31e251d3e4d8/scratchpad/`:
+  - `e2e-up.sh`: fresh `el_e2e`, build, seed, start, `db:check`;
+  - `e2e-run.sh <script…>`: the e2e scripts with the `.env.example` env, `CHAPA_MODE=mock`, and SMTP and Groq blank;
+  - `gate.sh`: the full CI-order gate;
+  - `images.sh`: all 9 images.
+
+  `demo-seed.mjs` must run after `e2e-up.sh` and before the other scripts.
+- **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths, and use `git add -u -- <path>` for this tracked folder. Production is off-limits.
