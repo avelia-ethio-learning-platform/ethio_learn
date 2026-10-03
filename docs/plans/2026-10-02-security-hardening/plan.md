@@ -386,15 +386,16 @@ Deviations:
     - The `/profiles/password` retry also wraps the wrong-password call.
 - **Method:** subagent-driven development, with a task review per step and a scoped re-review per fix round. Every ruling (R3–R18) is in this section or in the step notes above.
 
+- **Code review round 1 (CHANGES REQUESTED, one blocker):**
+  - B2 `b3db839`: CI's gitleaks matched three made-up test values. `.gitleaks.toml` allowlists them by exact value. CI's scan command now reports 0 leaks, and the previous config still reports 3.
+  - N3 `0c876de`: `invited: 0` explains why nothing was sent.
+  - Both fixes are in the controller, not a subagent dispatch: one config line pair and one string. Neither touches the api or the e2e scripts, so the e2e was not rerun. The web typecheck is clean, and the web tests pass (30 files, 377 tests).
+
 ### Status (2026-10-03)
-Steps 1–9 are done. Code review round 1 has been requested from ethio-reviewer (base `origin/main`). Not pushed. Push and PR wait until the user can merge and deploy 6a the same day.
+Steps 1–9 are done, and code review round 1 is addressed (`b3db839`, `0c876de`). Not pushed. Push and PR wait until the user can merge and deploy 6a the same day.
 
 ### In flight / next step (checkpoint 3, 2026-10-03)
-- **Waiting on:** ethio-reviewer's code review round 1. It was requested at `e20c76c`, base `origin/main` `4b4a64c`, and goes into `code-review.md` in this folder. Under team-workflow it is the final whole-branch review, so there is no extra SDD final reviewer.
-- **When it arrives:**
-  - Fix each finding through a subagent fix dispatch, not in the controller. Then run a scoped re-review of the fix range.
-  - Answer each finding inline in `code-review.md`, commit, and message ethio-reviewer "Round 1 addressed" with the test results.
-  - Rerun `e2e-security` (and `e2e-payments` if financial code changes) through the runner. First check with ethio-planner that the stack is free.
+- **Waiting on:** ethio-reviewer's round 2, which checks B2 and N3. `code-review.md` is git-ignored in this folder, as `.git/info/exclude` excludes the folder. Force-add it at approval, as Phase 5's was.
 - **When the review is APPROVED:**
   - Tell the user the summary, the branch, the test results and the deferred items, and ask about push and PR. They can be pushed only when the user can merge and deploy 6a the same day.
   - Collect production-side items into one list for the user: the post-deploy probes in Rollout and ops. No env changes are needed.
