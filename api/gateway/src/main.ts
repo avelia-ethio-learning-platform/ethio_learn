@@ -11,7 +11,8 @@ import { timingSafeEqual } from 'crypto';
 import { Agent } from 'http';
 import { Agent as HttpsAgent } from 'https';
 import { assertProductionConfig, env, envInt, JsonLogger } from '@ethiopialearn/common';
-import { AuthMode, authModeFor, resolveRoute } from './routes';
+import { AuthMode, authModeFor, resolveRoute, upstreamOf } from './routes';
+import { accessNotes, requestLog } from './request-log';
 import { matchPath } from './request-path';
 import { classifyRequest, DEFAULT_LIMITS_PER_MIN as DEFAULTS, RatePolicy } from './rate-policy';
 
@@ -74,6 +75,8 @@ async function bootstrap() {
   });
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
+  // First: the request id and the access line cover every request, rejected ones included.
+  app.use(requestLog());
   app.use(helmet());
   // Allow the configured web origin(s); in dev also reflect any localhost /
   // 127.0.0.1 port so the exact dev-server port never breaks the browser call.
@@ -147,8 +150,9 @@ async function bootstrap() {
     router: (req) => targetFor(req),
     on: {
       error: (err, _req, res) => {
-        Logger.error(`proxy error: ${err.message}`, 'Gateway');
         const httpRes = res as Response;
+        // The access line reports it: the code only, since the message names the upstream host.
+        if (httpRes?.locals) accessNotes(httpRes).error_code = (err as NodeJS.ErrnoException).code ?? err.name;
         if (httpRes && typeof httpRes.writeHead === 'function' && !httpRes.headersSent) {
           httpRes.writeHead(502, { 'Content-Type': 'application/json' });
           httpRes.end(JSON.stringify({ statusCode: 502, message: 'Upstream service unavailable' }));
@@ -181,6 +185,7 @@ async function bootstrap() {
       res.status(404).json({ statusCode: 404, message: 'Not found (out of MVP scope or unknown route)' });
       return;
     }
+    accessNotes(res).upstream = upstreamOf(rule);
 
     // Identity headers are ONLY ever set by the gateway — strip client spoofing.
     const presentedInternal = String(req.headers['x-internal-token'] ?? '');
@@ -212,6 +217,7 @@ async function bootstrap() {
     // still personalize, e.g. an owner previewing an unpublished course).
     const claims = verifyBearer(req);
     if (claims) {
+      accessNotes(res).user_id = claims.sub;
       req.headers['x-user-id'] = claims.sub;
       req.headers['x-user-role'] = claims.role;
       req.headers['x-user-email'] = encodeURIComponent(claims.email ?? '');

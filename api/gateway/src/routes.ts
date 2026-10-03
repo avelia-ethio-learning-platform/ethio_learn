@@ -106,6 +106,21 @@ export const ROUTES: RouteRule[] = [
   { pattern: /^\/api\/v1\/support\/contact$/, target: NOTIFICATION, auth: 'public' },
 ];
 
+const UPSTREAM_NAMES = new Map<() => string, string>([
+  [AUTH, 'auth'],
+  [COURSE, 'course'],
+  [ENROLLMENT, 'enrollment'],
+  [OUTCOMES, 'outcomes'],
+  [FINANCIAL, 'financial'],
+  [QUALITY, 'quality'],
+  [NOTIFICATION, 'notification'],
+]);
+
+/** The service a rule proxies to, for the access log. */
+export function upstreamOf(rule: RouteRule): string {
+  return UPSTREAM_NAMES.get(rule.target) ?? 'unknown';
+}
+
 /** The rule for a path (without query string). Case and trailing-slash variants resolve like the canonical path. */
 export function resolveRoute(rawPath: string): RouteRule | undefined {
   const path = matchPath(rawPath);
