@@ -589,7 +589,8 @@ export class CourseService implements OnModuleInit {
     // A new video (or none) invalidates the measured length unless the same update brings its own.
     const effectiveKey = lesson.pending && 'video_s3_key' in lesson.pending ? lesson.pending.video_s3_key : lesson.video_s3_key;
     if (changes.video_s3_key !== undefined && changes.video_s3_key !== (effectiveKey ?? null) && dto.video_duration_seconds === undefined) {
-      changes.video_duration_seconds = null;
+      // Back to the live video: its own duration applies again, so drop whatever the abandoned replacement staged.
+      changes.video_duration_seconds = changes.video_s3_key === (lesson.video_s3_key ?? null) ? lesson.video_duration_seconds ?? null : null;
     }
     // Rows created inside the open revision are not live yet: edit them in place.
     if (mode === 'direct' || !isLiveRow(lesson) || !isLiveRow(section)) Object.assign(lesson, changes);

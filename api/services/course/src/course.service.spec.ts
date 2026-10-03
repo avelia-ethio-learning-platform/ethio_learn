@@ -6,6 +6,7 @@ import { PricingType, Role } from '@ethiopialearn/contracts';
 import { CourseService } from './course.service';
 import { CourseController } from './course.controller';
 import { CourseInternalController } from './internal.controller';
+import { mergedLesson } from './revision-diff';
 import { Course, CourseKnowledge, CourseRevision, Lesson, Section } from './entities';
 
 type Row = Record<string, any>;
@@ -351,6 +352,20 @@ describe('CourseService staged writes on a live course', () => {
       const b = setup({ lessons: [measured({ pending: { video_s3_key: NEW_KEY, video_duration_seconds: 45 } })] });
       await b.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY });
       expect(b.lessons.rows[0].pending).toEqual({ video_s3_key: NEW_KEY, video_duration_seconds: 45 });
+    });
+
+    it('re-sending the live key after staging a replacement keeps the live duration through approval', async () => {
+      const h = setup({ lessons: [measured()] });
+      await h.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY, video_duration_seconds: 45 });
+      await h.service.updateLesson(OWNER, 'l1', { video_s3_key: LIVE_KEY });
+      expect(h.lessons.rows[0].pending).toBeNull();
+      const row = h.lessons.rows[0];
+      const merged = mergedLesson(row as never);
+      expect(merged).toMatchObject({ video_s3_key: LIVE_KEY, video_duration_seconds: 120 });
+      // An explicit duration sent with the live key is still honoured.
+      await h.service.updateLesson(OWNER, 'l1', { video_s3_key: NEW_KEY });
+      await h.service.updateLesson(OWNER, 'l1', { video_s3_key: LIVE_KEY, video_duration_seconds: 60 });
+      expect(h.lessons.rows[0].pending).toEqual({ video_duration_seconds: 60 });
     });
 
     it('addLesson() stores the duration', async () => {
