@@ -270,7 +270,7 @@ Financial migrations, timestamps after 6a's, registered in `migrations/index.ts`
     - a refused gift leaves no sponsorship row;
     - a refused pay request is back to `requested` with no sponsor;
     - it doesn't undo another payer's `pending_payment`.
-- [ ] 8. `scripts/e2e-payments.mjs` (real Postgres, mock mode):
+- [x] 8. `scripts/e2e-payments.mjs` (real Postgres, mock mode):
   - buy a paid course → cashback pending, `balance_etb` unchanged;
   - request a refund (auto-approved) → the cashback is `void` and the balance unchanged;
   - buy another course, backdate its cashback row's `available_at` (and the payment's `webhook_received_at`, for consistency) by 8 days through the compose Postgres, then call `GET /wallet` twice concurrently → the balance rises by the cashback exactly once (round-1 S3);
@@ -353,17 +353,59 @@ Branch `fix/money-integrity`, created from `fix/security-platform` @ `e2c4014` (
   - **Deviation (ruling R4):** the gift and bulk deletes are conditional on `pending_payment`, not by id alone. A confirmation that already granted the row keeps it.
   - **Deviation (ruling R5):** the pay-request undo writes `sponsor_name: ''`, not `null`. The column is `NOT NULL DEFAULT ''`.
   - R15 was confirmed on the branch before the step started. `reconcile` is unchanged.
+- **Step 8 (`307b612` e2e, `7a90d78` DEPLOYMENT.md):**
+  - `e2e-payments.mjs` adds 22 checks, 42 in all, on its own learners, coupon and bank reference, so it can run again on the same DB. It covers every bullet in step 8:
+    - pending cashback;
+    - a refund that voids it;
+    - a matured cashback released once, across two concurrent wallet reads (the balance is read from `wallets`, so the check doesn't release anything itself);
+    - refund vs payout, in sequence, with progress at 33 % through the lesson-completion API;
+    - two identical bank transfers at once give one payment (one 201, one 200);
+    - a gift with a fully used coupon gives a 400 and adds no gift row.
+  - It passed twice in a row on a fresh, unmutated `el_e2e`.
+  - **Mutation checks (ruling R6):**
+    - Removing `refund_requested_at IS NULL` from both the payout candidate read and the claim fails "a payout run skips the payment while its refund is under review".
+    - Removing it from the claim alone passes. The candidate filter hides it there, so the claim-only predicate is pinned by the unit test and Task 4's real-Postgres race.
+    - Removing the release's `state = 'pending'` fails "the matured cashback raised the balance exactly once" (0 → 50 for a 25 ETB cashback) and "a later wallet read releases nothing more".
+  - **DEPLOYMENT.md (ruling P3):** a "Phase 6c" subsection under "Database migrations", with the five read-only pre-merge checks (pre-6c columns only) and the pre-rollback release transaction. All of it was run against `el_e2e`, with the release inside a rolled-back transaction: 6 credits for 4 owners, each balance up by exactly the owner's pending sum.
+- **Rulings made during execution (SDD ledger):**
+  - P1–P3, R1–R3: above.
+  - R4: the gift and bulk undo deletes are conditional on `pending_payment`.
+  - R5: `sponsor_name: ''`.
+  - R6: mutation 1 removes the predicate from both queries.
+- **Final whole-branch review (SDD, opus):** "With fixes", no Critical. One fix wave, re-reviewed as all addressed:
+  - I1 (`abb9beb`): DEPLOYMENT.md gets a read-only refund-mark check (stale and missing marks, both 0) after every 6c deploy, and a mark re-sync to run before redeploying 6c after a rollback, while no one is deciding refunds (ruling R7).
+  - M1 (`c63cbbf`): a concurrent identical bank-transfer submit that reaches check 2 or 4 after its twin re-reads by `bank-<REF>` and replays (200) instead of answering 409.
+  - M2 (`4c09b86`): the admin refunds tab shows a refused decision (the paid-out 400) through `alert()`.
+  - M3 (`1d9a0d0`): migration 1 alters and backfills `payments` before `wallet_transactions`, the app's lock order. `db:check`, the revert round-trip and the backfill were re-verified.
+  - M4 (`c7c8962`): rollout check 5 counts refunded purchases apart from confirmed ones.
+  - M5 (`f8fdce9`): a voided credit's amount is muted and struck through.
+  - M6 (`579306c`): the nudge comment names the real lost-reminder case.
+  - Left deferred, as the review triaged them: no index serves the A2 failed-row query (fine at today's volume; revisit in Phase 11), plus the listed test-pinning and logging minors.
+- **Backlog for ethio-planner:**
+  - `payRequest` and the gift and bulk `payment_id` saves still `save()` the whole row they read, so a grant landing in between can be overwritten (the A1 bug class, in `sponsorship.service.ts`). A payer opening a pay request while another payer's checkout is open overwrites the sponsor.
+  - A refund on a duplicate purchase revokes an entitlement that another payment still pays for (enrollment side).
 - **Deferred minors from the task reviews:** in the SDD ledger, for the final review to triage. They are test-pinning gaps, the payee listing including marked-only payees, bank-transfer refusals not logged with the admin id, and different references for one (learner, course) not being serialized.
 
-### In flight / next step (checkpoint 1, 2026-10-03)
-- **Next:** step 7 (contract and copy), BASE `c2798c7`. Then 7b (A1–A3), 8 (e2e, mutation checks, the DEPLOYMENT.md Phase 6c SQL per ruling P3), and 9 (gate). Then code review by ethio-reviewer, with base `origin/main`.
+### In flight / next step (checkpoint 2, 2026-10-03)
+- **Done:** steps 1–8, the SDD final whole-branch review and its fix wave (re-reviewed: all addressed). Head `abb9beb` plus this docs commit. No push yet.
+- **Step 9 gate:**
+  - Run 1, on `c08be3a`, passed everything except two Playwright specs from 7a:
+    - a11y "light mode › public pages" hit its 30 s timeout under load;
+    - keyboard "375 px › theme menu" found no mobile-menu panel.
+  - Both passed when re-run (18/18), so they're timing flakes on public pages 6c doesn't touch.
+  - The 8 api images build. The web image hung at 0 % CPU once, then built cleanly on retry.
+  - **Still to do:** re-run the whole gate on the fix-wave head with scratchpad `full-gate.sh` (it runs `e2e-up.sh` from the main tree on a fresh `el_e2e`). The fix wave touched api (bank transfer, migration order) and web (admin decide, wallet card).
+- **Stack:** lent to ethio-planner for roadmap 7b's Playwright and screenshots. It serves `../ethi0-web` @ `bfcd255` on `el_e2e`. Wait for its "window closed" before running the gate; the gate's `e2e-up.sh` restarts the stack from this tree. Remove `../ethi0-stack-main` after 6c's e2e (nothing serves from it now).
+- **Then:**
+  1. Message ethio-reviewer: "Ready for code review (round 1): branch `fix/money-integrity`, base `origin/main` (`ebc1eba`), plan `docs/plans/2026-10-02-money-integrity/plan.md`." Include the gate results and the SDD ledger path, which has the rulings and deferred minors.
+  2. Tell ethio-planner two things:
+     - the post-deploy refund-mark check (DEPLOYMENT.md, Phase 6c, I1) belongs with `verify 6c` or in USER-ACTIONS;
+     - the backlog items above.
 - **SDD workspace:** `.superpowers/sdd/plan-2026-10-02-money-integrity/`.
-  - `progress.md` is the ledger: the pre-flight scan, the rulings P1–P3 and R1–R3, and the deferred minors.
-  - `global-constraints.md`.
-  - The briefs `task-{2..8,7b}-brief.md`, prebuilt with `mkbrief.py`.
-  - The reports and the review packages.
-  - The 6a workspace `.superpowers/sdd/plan/` can be deleted (6a is merged).
-- **Stack:** `:4000` is free (ethio-planner's windows are closed). It still serves `origin/main` `c82d091` from the worktree `../ethi0-stack-main`. For step 8, stop it with `(cd ../ethi0-stack-main && scripts/stop-backend.sh)`, then run this session's scratchpad `e2e-up.sh` (main tree, fresh `el_e2e`), then `e2e-run.sh demo-seed.mjs …`. Remove the worktree after 6c's e2e. ethio-planner will ask for a window before 7b's auth migration.
-- **Runners:** in this session's scratchpad, `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/959c0807-89d7-43b0-b6b7-57b6bc2ac5e3/scratchpad/`: `e2e-up.sh`, `e2e-run.sh`, `e2e-up-main.sh`, `e2e-run-main.sh`, `gate.sh`, `images.sh`.
-- **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths. Production is off-limits.
-
+  - `progress.md` is the ledger, with every ruling from P1 to R7 and the triaged deferred minors.
+  - `final-review-report.md` and `final-fix-report.md`.
+  - Delete the workspace after the code review is APPROVED.
+- **Runners:** in scratchpad `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/74a75a51-886f-43fa-98db-aebd9fe9f3c8/scratchpad/`:
+  - `full-gate.sh`, `gate.sh`, `e2e-up.sh`, `e2e-run.sh`, `e2e-env.sh`, `images.sh`;
+  - `e2e-up-wt.sh` (`WT=<worktree>` brings the stack up from another worktree).
+- **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths, with `git add -f` for this plan folder. Production is off-limits.
