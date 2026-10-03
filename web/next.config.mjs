@@ -8,6 +8,12 @@ const nextConfig = {
   // Opt-in, set only by web/Dockerfile, so Vercel always gets a normal build.
   ...(process.env.BUILD_STANDALONE === '1' ? { output: 'standalone' } : {}),
 
+  // The course share image reads its fonts from disk at request time; file tracing can't see
+  // that, so say which files the route needs (Docker standalone, Vercel).
+  experimental: {
+    outputFileTracingIncludes: { '/courses/[id]/opengraph-image': ['./src/assets/fonts/*.ttf'] },
+  },
+
   // Browsers still ask for /favicon.ico; serve the generated 32px icon.
   async rewrites() {
     return [{ source: '/favicon.ico', destination: '/icon/32' }];

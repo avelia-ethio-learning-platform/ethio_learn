@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { ImageResponse } from 'next/og';
 import { OgArt } from '@/lib/brand-art';
 import { BAND_COLORS, GROUP_COLORS, categoryMeta } from '@/lib/categories';
@@ -19,13 +20,16 @@ interface OgCourse {
   price_etb: number | null;
 }
 
-// `new URL(..., import.meta.url)` is what lets Next's file tracing ship these
-// with the route (Docker standalone, Vercel).
+// Read from disk relative to the web app's root. `new URL(..., import.meta.url)` does not work
+// here: Next's webpack turns it into an asset URL (/_next/static/media/...), not a file path.
+// next.config.mjs (outputFileTracingIncludes) ships these files with the route (Docker standalone, Vercel).
+const FONT_DIR = path.join(process.cwd(), 'src', 'assets', 'fonts');
+
 async function loadFonts() {
   const [inter, interBold, ethiopicBold] = await Promise.all([
-    readFile(new URL('../../../../assets/fonts/Inter-Regular.ttf', import.meta.url)),
-    readFile(new URL('../../../../assets/fonts/Inter-Bold.ttf', import.meta.url)),
-    readFile(new URL('../../../../assets/fonts/NotoSansEthiopic-Bold.ttf', import.meta.url)),
+    readFile(path.join(FONT_DIR, 'Inter-Regular.ttf')),
+    readFile(path.join(FONT_DIR, 'Inter-Bold.ttf')),
+    readFile(path.join(FONT_DIR, 'NotoSansEthiopic-Bold.ttf')),
   ]);
   return [
     { name: 'Inter', data: inter, weight: 400 as const, style: 'normal' as const },
