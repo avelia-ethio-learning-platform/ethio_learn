@@ -27,6 +27,14 @@ class CreateAssessmentDto {
   pass_score?: number;
 }
 
+class StartAttemptDto {
+  /** Project only: the size of the file about to be uploaded, in bytes. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  file_size?: number;
+}
+
 class SubmitAttemptDto {
   @IsOptional()
   @IsArray()
@@ -124,8 +132,8 @@ export class OutcomesController {
   @Post('assessments/:id/attempts')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  startAttempt(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
-    return this.assessmentService.startAttempt(ctx, id);
+  startAttempt(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto?: StartAttemptDto) {
+    return this.assessmentService.startAttempt(ctx, id, dto);
   }
 
   @Get('attempts/mine')

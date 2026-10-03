@@ -66,7 +66,9 @@ async function main() {
   if (!token) throw new Error('cannot continue without a learner token');
 
   const enrollments = await call('/enrollments', { token });
-  const active = (enrollments.json ?? []).find((e) => e.entitlement_status === 'active');
+  // Newest first, and other scripts enrol the demo learner too: prefer the course demo-seed watched through.
+  const activeOnes = (enrollments.json ?? []).filter((e) => e.entitlement_status === 'active');
+  const active = activeOnes.find((e) => e.completed_at) ?? activeOnes[0];
   check('learner has an active enrollment (run demo-seed first)', !!active);
   if (active) {
     const course = await call(`/courses/${active.course_id}`, { token });
@@ -74,36 +76,30 @@ async function main() {
     check('enrolled course has lessons', !!lesson);
 
     if (lesson) {
-      const beat = await call(`/progress/lessons/${lesson.id}/video`, {
-        method: 'POST',
-        token,
-        body: { position_seconds: 30, duration_seconds: 100 },
-      });
-      // ≥ not ===: percent_watched is a high-water mark, so reruns against the
+      // demo-seed has already watched this lesson through; its measured length is 2 s
+      // when the seed had a sample video, else the client's duration counts. The
+      // refusals (a claim right after the start, /complete on a video lesson) are in e2e-learning.
+      const video = (position_seconds) =>
+        call(`/progress/lessons/${lesson.id}/video`, { method: 'POST', token, body: { position_seconds, duration_seconds: 2 } });
+
+      const beat = await video(1);
+      // >= not ===: percent_watched is a high-water mark, so reruns against the
       // same lesson legitimately report an already-higher value.
-      check('video heartbeat accepted', beat.status === 201 && beat.json?.percent_watched >= 30, JSON.stringify(beat.json));
+      check('video heartbeat accepted', beat.status === 201 && beat.json?.percent_watched >= 50, JSON.stringify(beat.json));
 
       const state = await call(`/enrollments/${active.id}/video-progress`, { token });
       const saved = state.json?.lessons?.find((l) => l.lesson_id === lesson.id);
-      check('resume position persisted', saved?.position_seconds === 30 && state.json?.last_lesson_id === lesson.id);
+      check('resume position persisted', saved?.position_seconds === 1 && state.json?.last_lesson_id === lesson.id);
 
-      const finish = await call(`/progress/lessons/${lesson.id}/video`, {
-        method: 'POST',
-        token,
-        body: { position_seconds: 95, duration_seconds: 100 },
-      });
+      const finish = await video(2);
       check('≥90% heartbeat accepted', finish.status === 201 && finish.json?.percent_watched >= 90);
 
       const progress = await call(`/enrollments/${active.id}/progress`, { token });
       const completed = progress.json?.completed_lessons?.some((l) => l.lesson_id === lesson.id);
-      check('lesson auto-completed at ≥90% watched', !!completed);
+      check('seeded lesson completed (watched through by demo-seed)', !!completed);
 
-      const rewind = await call(`/progress/lessons/${lesson.id}/video`, {
-        method: 'POST',
-        token,
-        body: { position_seconds: 10, duration_seconds: 100 },
-      });
-      check('rewind keeps the high-water mark', rewind.json?.percent_watched >= 90 && rewind.json?.position_seconds === 10);
+      const rewind = await video(0);
+      check('rewind keeps the high-water mark', rewind.json?.percent_watched >= 90 && rewind.json?.position_seconds === 0);
 
       const invalid = await call(`/progress/lessons/${lesson.id}/video`, {
         method: 'POST',

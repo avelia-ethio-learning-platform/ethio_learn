@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { BellRing, ChevronLeft, ChevronRight, CircleCheck, CloudOff, Compass, History, LoaderCircle, Lock, Play, PlayCircle } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
-import { queuedApi, useOffline } from '@/lib/offline-queue';
+import { isNetworkError, queuedApi, useOffline } from '@/lib/offline-queue';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
@@ -53,6 +53,9 @@ interface VideoProgress {
 }
 
 const HEARTBEAT_MS = 10_000;
+/** A completion refused only for lack of time is retried once if the wait is at most this long. */
+const MAX_COMPLETE_RETRY_S = 120;
+const UNREACHABLE_MESSAGE = "We couldn't reach the server. Your progress is saved, so try again in a moment.";
 
 function StateCard({ icon, title, body, children }: { icon: React.ReactNode; title: string; body: string; children: React.ReactNode }) {
   return (
@@ -77,6 +80,8 @@ function Player({ courseId }: { courseId: string }) {
   const hlsRef = useRef<Hls | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [videoError, setVideoError] = useState('');
+  const [completeError, setCompleteError] = useState('');
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
   const [watermark, setWatermark] = useState('');
   const [showChangelog, setShowChangelog] = useState(search.get('changelog') === '1');
@@ -85,6 +90,15 @@ function Player({ courseId }: { courseId: string }) {
 
   // Tear down any HLS instance when leaving the page.
   useEffect(() => () => hlsRef.current?.destroy(), []);
+
+  // Bumped whenever a completion stops mattering (lesson change, unmount), so a call already in flight is ignored.
+  const completeEpoch = useRef(0);
+  const cancelCompleteRetry = () => {
+    completeEpoch.current += 1;
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+  };
+  useEffect(() => cancelCompleteRetry, []);
 
   const { data: course, error: courseError, refetch: refetchCourse } = useQuery({
     queryKey: ['course', courseId],
@@ -159,6 +173,8 @@ function Player({ courseId }: { courseId: string }) {
   }, [sendHeartbeat]);
 
   const playLesson = async (lesson: Lesson) => {
+    setCompleteError('');
+    cancelCompleteRetry();
     await sendHeartbeat(); // save the lesson we are leaving
     setActiveId(lesson.id);
     setVideoError('');
@@ -199,8 +215,37 @@ function Player({ courseId }: { courseId: string }) {
     }
   };
 
-  const markComplete = async (lessonId: string) => {
-    await queuedApi(`/progress/lessons/${lessonId}/complete`, { method: 'POST' });
+  /**
+   * A video lesson's completion is checked by the server and is never queued: a queued call that gets a
+   * refusal on replay would be dropped silently. It carries the final position when the player holds
+   * this lesson's video.
+   */
+  const markComplete = async (lesson: Lesson, isRetry = false) => {
+    if (retryTimer.current) return; // a retry is already waiting
+    if (!isRetry) setCompleteError('');
+    const epoch = completeEpoch.current;
+    const video = videoRef.current;
+    const holdsVideo = lesson.has_video && !!video && activeIdRef.current === lesson.id && Number.isFinite(video.duration);
+    try {
+      if (!lesson.has_video) await queuedApi(`/progress/lessons/${lesson.id}/complete`, { method: 'POST' });
+      else {
+        const body = holdsVideo ? { position_seconds: Math.floor(video!.currentTime) } : undefined;
+        await api(`/progress/lessons/${lesson.id}/complete`, { method: 'POST', body });
+      }
+    } catch (err) {
+      if (epoch !== completeEpoch.current) return; // the learner moved on while this was in flight
+      const wait = err instanceof ApiError && err.status === 409 ? (err.body as { retry_after_seconds?: unknown } | undefined)?.retry_after_seconds : undefined;
+      if (!isRetry && typeof wait === 'number' && wait <= MAX_COMPLETE_RETRY_S) {
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          void markComplete(lesson, true);
+        }, wait * 1000);
+        return;
+      }
+      setCompleteError(isNetworkError(err) ? UNREACHABLE_MESSAGE : (err as Error).message);
+      return;
+    }
+    if (epoch === completeEpoch.current) setCompleteError('');
     await queryClient.invalidateQueries({ queryKey: ['progress'] });
     await queryClient.invalidateQueries({ queryKey: ['enrollments'] });
   };
@@ -311,7 +356,7 @@ function Player({ courseId }: { courseId: string }) {
                 onPause={() => void sendHeartbeat()}
                 onEnded={() => {
                   void sendHeartbeat();
-                  if (active) markComplete(active.id);
+                  if (active) void markComplete(active);
                 }}
                 onError={() => active?.has_video && setVideoError('Could not play this video. Please try again.')}
               />
@@ -353,7 +398,7 @@ function Player({ courseId }: { courseId: string }) {
                 <button className="btn-secondary !px-3 !py-1.5 !text-xs" disabled={activeIndex <= 0} onClick={() => goto(-1)}>
                   <ChevronLeft className="h-3.5 w-3.5" /> Previous
                 </button>
-                <button className="btn-secondary !px-3 !py-1.5 !text-xs" onClick={() => active && markComplete(active.id)}>
+                <button className="btn-secondary !px-3 !py-1.5 !text-xs" onClick={() => void markComplete(active)}>
                   <CircleCheck className="h-3.5 w-3.5" /> Mark complete
                 </button>
                 <button className="btn !px-3 !py-1.5 !text-xs" disabled={activeIndex >= flat.length - 1} onClick={() => goto(1)}>
@@ -363,6 +408,11 @@ function Player({ courseId }: { courseId: string }) {
             </div>
           ) : null}
           {videoError && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{videoError}</p>}
+          {completeError && (
+            <p role="alert" className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">
+              {completeError}
+            </p>
+          )}
         </div>
 
         <aside className="animate-fade-in-up my-6 min-w-0 space-y-3 lg:sticky lg:top-28 lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:my-0 lg:max-h-[calc(100vh-8.5rem)] lg:self-start lg:overflow-y-auto lg:pb-4 lg:pr-1">

@@ -311,9 +311,15 @@ async function main() {
   const outline = must(await call(`/courses/${thirdCourse.id}`), 'course detail');
   const lessonIds = (outline.sections ?? []).flatMap((s) => s.lessons ?? []).map((l) => l.id);
   // About a third of the lessons: inside the 20–50 % band an admin reviews.
+  const banded = lessonIds.slice(0, Math.ceil(lessonIds.length * 0.3));
+  // Seeded video lessons (2 s measured) complete only when watched: a start heartbeat, a wait, then the end position.
+  for (const id of banded) {
+    must(await call(`/progress/lessons/${id}/video`, { method: 'POST', token: reviewer.token, body: { position_seconds: 0, duration_seconds: 2 } }), 'video heartbeat');
+  }
+  await sleep(1100);
   let progress = null;
-  for (const id of lessonIds.slice(0, Math.ceil(lessonIds.length * 0.3))) {
-    progress = must(await call(`/progress/lessons/${id}/complete`, { method: 'POST', token: reviewer.token }), 'complete lesson');
+  for (const id of banded) {
+    progress = must(await call(`/progress/lessons/${id}/complete`, { method: 'POST', token: reviewer.token, body: { position_seconds: 2 } }), 'complete lesson');
   }
   check('lesson completions put progress in the 20–50 % band', progress?.progress_percent >= 20 && progress?.progress_percent <= 50, `${progress?.progress_percent}% of ${lessonIds.length} lessons`);
   const review = await call('/refunds', { method: 'POST', token: reviewer.token, body: { payment_id: reviewed.payment_id, reason: 'e2e: refund under review' } });

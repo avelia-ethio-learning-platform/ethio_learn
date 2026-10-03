@@ -173,6 +173,32 @@ describe('applyStagedRows', () => {
   });
 });
 
+describe('applyStagedRows carries the measured video duration', () => {
+  it('a replacement video staged without a duration clears the live one on approval', async () => {
+    const t = setup();
+    t.lessons.get('l1')!.video_duration_seconds = 120;
+    t.lessons.get('l1')!.pending = { video_s3_key: 'videos/e/NEW.mp4', video_duration_seconds: null };
+    await applyStagedRows(t.manager, 'c1');
+    expect(t.lessons.get('l1')).toMatchObject({ video_s3_key: 'videos/e/NEW.mp4', video_duration_seconds: null, pending: null });
+  });
+
+  it('a replacement video staged with a duration makes it live on approval', async () => {
+    const t = setup();
+    t.lessons.get('l1')!.video_duration_seconds = 120;
+    t.lessons.get('l1')!.pending = { video_s3_key: 'videos/e/NEW.mp4', video_duration_seconds: 45 };
+    await applyStagedRows(t.manager, 'c1');
+    expect(t.lessons.get('l1')).toMatchObject({ video_s3_key: 'videos/e/NEW.mp4', video_duration_seconds: 45 });
+  });
+
+  it('leaves the live duration alone when nothing about it was staged', async () => {
+    const t = setup();
+    t.lessons.get('l1')!.video_duration_seconds = 120;
+    t.lessons.get('l1')!.pending = { summary: 'new' };
+    await applyStagedRows(t.manager, 'c1');
+    expect(t.lessons.get('l1')).toMatchObject({ summary: 'new', video_duration_seconds: 120 });
+  });
+});
+
 describe('discardStagedRows', () => {
   it("deletes 'added' rows, clears pending values and 'removed' markers, and deletes pending notes", async () => {
     const t = setup();

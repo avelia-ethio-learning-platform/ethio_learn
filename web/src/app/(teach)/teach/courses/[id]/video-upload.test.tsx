@@ -85,7 +85,41 @@ const videoInput = () => screen.getByText('upload video').closest('label')!.quer
 const mp4 = (name = 'lecture.mp4') => new File(['x'], name, { type: 'video/mp4' });
 const state = (over: Partial<UploadState>): UploadState => ({ phase: 'uploading', loaded: 0, total: 100, percent: 0, speedBps: null, etaSeconds: null, ...over });
 
+/**
+ * jsdom has no media pipeline, so the duration probe's <video> is driven by hand:
+ * setting its src fires the chosen outcome ('error' by default, 'never' = silence for the timeout test).
+ */
+let probe: { outcome: 'error' | 'never' | number } = { outcome: 'error' };
+let revoked: string[] = [];
+function stubVideoProbe() {
+  probe = { outcome: 'error' };
+  revoked = [];
+  const create = document.createElement.bind(document);
+  vi.spyOn(document, 'createElement').mockImplementation(((tag: string, options?: ElementCreationOptions) => {
+    const el = create(tag, options);
+    if (tag === 'video') {
+      Object.defineProperty(el, 'src', {
+        configurable: true,
+        set: () => {
+          if (probe.outcome === 'never') return;
+          queueMicrotask(() => {
+            if (probe.outcome === 'error') el.dispatchEvent(new Event('error'));
+            else {
+              Object.defineProperty(el, 'duration', { value: probe.outcome, configurable: true });
+              el.dispatchEvent(new Event('loadedmetadata'));
+            }
+          });
+        },
+      });
+    }
+    return el;
+  }) as typeof document.createElement);
+  URL.createObjectURL = vi.fn(() => 'blob:probe');
+  URL.revokeObjectURL = vi.fn((u: string) => void revoked.push(u));
+}
+
 beforeEach(() => {
+  stubVideoProbe();
   created.length = 0;
   apiMock.mockReset();
   listMock.mockReset();
@@ -93,6 +127,8 @@ beforeEach(() => {
   discardMock.mockClear();
 });
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
   cleanup();
   resetLessonUploadsForTests();
 });
@@ -109,6 +145,76 @@ describe('lesson video uploads', () => {
     await act(async () => created[0].settle.resolve({ key: 'videos/u1/k-lecture.mp4', size: 1, lesson_updated: false }));
     await flush();
     expect(apiMock).toHaveBeenCalledWith('/lessons/l1', { method: 'PUT', body: { video_s3_key: 'videos/u1/k-lecture.mp4' } });
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('attaches the key and the measured length in one request on the single-PUT path', async () => {
+    probe.outcome = 42.7;
+    renderLesson();
+    choose(videoInput(), mp4());
+    apiMock.mockResolvedValue({});
+    await act(async () => created[0].settle.resolve({ key: 'k', size: 1, lesson_updated: false }));
+    await flush();
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(apiMock).toHaveBeenCalledWith('/lessons/l1', { method: 'PUT', body: { video_s3_key: 'k', video_duration_seconds: 42 } });
+    expect(revoked).toEqual(['blob:probe']);
+  });
+
+  it('sends the key alone when the length cannot be read or floors to zero', async () => {
+    renderLesson();
+    choose(videoInput(), mp4());
+    apiMock.mockResolvedValue({});
+    await act(async () => created[0].settle.resolve({ key: 'k', size: 1, lesson_updated: false }));
+    await flush();
+    expect(apiMock).toHaveBeenCalledWith('/lessons/l1', { method: 'PUT', body: { video_s3_key: 'k' } });
+    expect(revoked).toEqual(['blob:probe']);
+
+    cleanup();
+    resetLessonUploadsForTests();
+    apiMock.mockClear();
+    probe.outcome = 0.4;
+    renderLesson();
+    choose(videoInput(), mp4());
+    await act(async () => created[1].settle.resolve({ key: 'k2', size: 1, lesson_updated: false }));
+    await flush();
+    expect(apiMock).toHaveBeenCalledWith('/lessons/l1', { method: 'PUT', body: { video_s3_key: 'k2' } });
+  });
+
+  it('gives up on the length after 10 seconds and attaches the key alone', async () => {
+    probe.outcome = 'never';
+    vi.useFakeTimers();
+    renderLesson();
+    choose(videoInput(), mp4());
+    apiMock.mockResolvedValue({});
+    await act(async () => created[0].settle.resolve({ key: 'k', size: 1, lesson_updated: false }));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(9000)));
+    expect(apiMock).not.toHaveBeenCalled();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1100)));
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(apiMock).toHaveBeenCalledWith('/lessons/l1', { method: 'PUT', body: { video_s3_key: 'k' } });
+    expect(revoked).toEqual(['blob:probe']);
+  });
+
+  it('sends the measured length after the server attached a multipart video', async () => {
+    probe.outcome = 61.9;
+    renderLesson();
+    choose(videoInput(), mp4());
+    apiMock.mockResolvedValue({});
+    await act(async () => created[0].settle.resolve({ key: 'k', size: 1, lesson_updated: true }));
+    await flush();
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(apiMock).toHaveBeenCalledWith('/lessons/l1', { method: 'PUT', body: { video_duration_seconds: 61 } });
+  });
+
+  it('still finishes a multipart upload when saving the length fails', async () => {
+    probe.outcome = 61.9;
+    const { onChanged } = renderLesson();
+    choose(videoInput(), mp4());
+    apiMock.mockRejectedValue(new Error('boom'));
+    await act(async () => created[0].settle.resolve({ key: 'k', size: 1, lesson_updated: true }));
+    await flush();
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/boom|could not/)).toBeNull();
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
 

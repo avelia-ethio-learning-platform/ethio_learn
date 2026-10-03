@@ -394,8 +394,8 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
           pool_size: poolSize || undefined,
           proctored,
         };
-      } else if (type === 'ai_viva') config = { topic_context: vivaTopic };
-      else config = { instructions: projectInstr };
+      } else if (type === 'ai_viva') config = { topic_context: vivaTopic, max_attempts: maxAttempts, cooldown_minutes: cooldown };
+      else config = { instructions: projectInstr, max_attempts: maxAttempts, cooldown_minutes: cooldown };
       const saved = await api<{ state?: string }>('/assessments', { method: 'POST', body: { course_id: courseId, type, pass_score: passScore, is_required: true, config } });
       setQuestions([]); setTopic(''); setVivaTopic(''); setProjectInstr('');
       setNote(
@@ -467,8 +467,6 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
             <button className="text-sm text-brand-600" onClick={() => setQuestions((qs) => [...qs, { prompt: '', options: ['', ''], correct_index: 0 }])}>+ Add question manually</button>
             <div className="glass-secondary grid gap-2 rounded-xl p-3 text-xs sm:grid-cols-3">
               <p className="font-semibold text-foreground sm:col-span-3">Integrity settings (enforced on the server)</p>
-              <label>Max attempts <input type="number" min={1} max={20} className="input mt-1" value={maxAttempts} onChange={(e) => setMaxAttempts(+e.target.value)} /></label>
-              <label>Cooldown between attempts (min) <input type="number" min={0} className="input mt-1" value={cooldown} onChange={(e) => setCooldown(+e.target.value)} /></label>
               <label>Time limit (min, blank = none) <input type="number" min={1} max={240} className="input mt-1" value={timeLimit} onChange={(e) => setTimeLimit(e.target.value ? +e.target.value : '')} /></label>
               <label>Questions per paper (blank = all {questions.length}) <input type="number" min={1} max={questions.length || 1} className="input mt-1" value={poolSize} onChange={(e) => setPoolSize(e.target.value ? +e.target.value : '')} /></label>
               <label className="flex items-center gap-2 self-end pb-2"><input type="checkbox" checked={shuffle} onChange={(e) => setShuffle(e.target.checked)} /> Shuffle questions &amp; options per learner</label>
@@ -480,6 +478,11 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
         {type === 'ai_viva' && <textarea className="input" rows={2} placeholder="Topic context the AI uses to generate the viva question" value={vivaTopic} onChange={(e) => setVivaTopic(e.target.value)} />}
         {type === 'project' && <textarea className="input" rows={2} placeholder="Project instructions for learners" value={projectInstr} onChange={(e) => setProjectInstr(e.target.value)} />}
 
+        <div className="glass-secondary grid gap-2 rounded-xl p-3 text-xs sm:grid-cols-3">
+          <p className="font-semibold text-foreground sm:col-span-3">Attempt limits (enforced on the server)</p>
+          <label>Max attempts <input type="number" min={1} max={20} className="input mt-1" value={maxAttempts} onChange={(e) => setMaxAttempts(+e.target.value)} /></label>
+          <label>Cooldown between attempts (min) <input type="number" min={0} className="input mt-1" value={cooldown} onChange={(e) => setCooldown(+e.target.value)} /></label>
+        </div>
         {note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{note}</p>}
         {live && !locked && <p className="text-xs text-gray-500">New assessments on a live course are reviewed with your other changes before learners see them.</p>}
         <button className="btn" disabled={busy || locked} onClick={save} title={locked ? 'Editing is locked while your course or changes are in review' : undefined}>Save assessment</button>

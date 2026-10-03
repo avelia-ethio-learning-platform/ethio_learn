@@ -67,8 +67,18 @@ async function flush() {
 beforeEach(() => {
   apiMock.mockReset();
   uploads.length = 0;
+  // jsdom has no media pipeline: the upload's duration probe fails at once.
+  const create = document.createElement.bind(document);
+  vi.spyOn(document, 'createElement').mockImplementation(((tag: string, options?: ElementCreationOptions) => {
+    const el = create(tag, options);
+    if (tag === 'video') Object.defineProperty(el, 'src', { configurable: true, set: () => queueMicrotask(() => el.dispatchEvent(new Event('error'))) });
+    return el;
+  }) as typeof document.createElement);
+  URL.createObjectURL = vi.fn(() => 'blob:probe');
+  URL.revokeObjectURL = vi.fn();
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   cleanup();
   resetLessonUploadsForTests();
   vi.unstubAllGlobals();

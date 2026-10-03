@@ -68,6 +68,15 @@ describe('api()', () => {
     await expect(api('/enrollments/x')).rejects.toBeInstanceOf(ApiError);
   });
 
+  it('keeps the parsed JSON error body on ApiError.body; a non-JSON body leaves it undefined', async () => {
+    fetchMock.mockImplementationOnce(() => Promise.resolve(jsonResponse(409, { message: 'wait', retry_after_seconds: 30 })));
+    await expect(api('/x')).rejects.toMatchObject({ status: 409, body: { message: 'wait', retry_after_seconds: 30 } });
+    fetchMock.mockImplementationOnce(() => Promise.resolve(new Response('Bad gateway', { status: 502 })));
+    const err = await api('/x').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.body).toBeUndefined();
+  });
+
   it('joins array validation messages', async () => {
     fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(400, { message: ['a is required', 'b is required'] })));
     await expect(api('/x')).rejects.toMatchObject({ message: 'a is required, b is required' });

@@ -1,13 +1,15 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
+import { In, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { randomInt, randomUUID } from 'crypto';
 import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import { aiFallbackNote, AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
@@ -24,7 +26,7 @@ import { S3StorageProvider } from '@ethiopialearn/storage';
 import { Assessment, AssessmentAttempt, AssessmentState } from './entities';
 
 const PROJECT_MAX_BYTES = 50 * 1024 * 1024; // 50MB (spec §10.1)
-/** Quiz attempts per learner unless the educator sets max_attempts. */
+/** Attempts per learner (every assessment type) unless the educator sets max_attempts. */
 const DEFAULT_MAX_ATTEMPTS = 3;
 /** Seconds of grace past the time limit before a submission is refused as late. */
 const TIME_LIMIT_GRACE_SECONDS = 90;
@@ -47,6 +49,20 @@ function validDate(iso: string | null | undefined): Date | null {
   if (!iso) return null;
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * max_attempts (default 3, 1–20) and cooldown_minutes (default 0, up to a
+ * week) for every assessment type: normalised on create, and read the same way
+ * at start so assessments created before viva/project had limits get the defaults.
+ */
+function attemptLimits(config: Record<string, any> | null | undefined) {
+  const maxAttempts = Number(config?.max_attempts);
+  const cooldown = Number(config?.cooldown_minutes);
+  return {
+    max_attempts: Number.isFinite(maxAttempts) && maxAttempts >= 1 ? Math.min(Math.round(maxAttempts), 20) : DEFAULT_MAX_ATTEMPTS,
+    cooldown_minutes: Number.isFinite(cooldown) && cooldown >= 0 ? Math.min(Math.round(cooldown), 10_080) : 0,
+  };
 }
 
 /** Fisher–Yates with crypto randomness — the paper order must not be guessable. */
@@ -113,9 +129,7 @@ export class AssessmentService implements OnModuleInit {
     if (dto.type === AssessmentType.QUIZ) {
       const questions = this.validateQuizQuestions(config?.questions);
       const timeLimit = Number(config?.time_limit_minutes);
-      const maxAttempts = Number(config?.max_attempts);
       const poolSize = Number(config?.pool_size);
-      const cooldown = Number(config?.cooldown_minutes);
       config = {
         ...config,
         questions,
@@ -124,10 +138,10 @@ export class AssessmentService implements OnModuleInit {
         // Anti-cheat knobs (all server-enforced):
         shuffle: config?.shuffle === undefined ? true : !!config.shuffle, // randomize question + option order per attempt
         pool_size: Number.isFinite(poolSize) && poolSize >= 1 ? Math.min(Math.round(poolSize), questions.length) : null, // serve N of the bank
-        max_attempts: Number.isFinite(maxAttempts) && maxAttempts >= 1 ? Math.min(Math.round(maxAttempts), 20) : DEFAULT_MAX_ATTEMPTS,
-        cooldown_minutes: Number.isFinite(cooldown) && cooldown >= 0 ? Math.min(Math.round(cooldown), 10_080) : 0,
       };
     }
+    // Attempt limits and cooldown hold for every type (server-enforced at start).
+    config = { ...config, ...attemptLimits(config) };
     // Learners of an approved course keep the version the quality officer saw:
     // a new (possibly required) assessment would otherwise change certificate
     // criteria unreviewed. It goes live when the course's revision is applied.
@@ -306,97 +320,143 @@ export class AssessmentService implements OnModuleInit {
     return { course_id: p.course_id, state: 'pending' as const, created_at: LessThanOrEqual(submittedAt) };
   }
 
-  async startAttempt(ctx: UserContext, assessmentId: string) {
+  /**
+   * Starts an attempt, or resumes the open one. Each start is one transaction
+   * under an advisory lock per learner and assessment (transaction-scoped: the
+   * Neon URL is pooled), so concurrent starts queue and the later ones reuse
+   * the row the first inserted. An open row is resumed only when it was created
+   * after every finished attempt. Only finished attempts count towards
+   * max_attempts and the cooldown. AI and storage calls run after commit.
+   */
+  async startAttempt(ctx: UserContext, assessmentId: string, body?: { file_size?: number }) {
     const assessment = await this.assessmentOrThrow(assessmentId);
     if (assessment.state === 'pending') throw new NotFoundException('Assessment not available yet');
+    // A project upload is signed for its declared size, so a bad size costs nothing: no lock, no row.
+    const fileSize = body?.file_size;
+    // Without a size the attempt is opened but no URL is issued, so a URL never exists unsized.
+    if (assessment.type === AssessmentType.PROJECT && fileSize !== undefined) {
+      if (!Number.isInteger(fileSize) || fileSize < 1) throw new BadRequestException('Invalid file size.');
+      if (fileSize > PROJECT_MAX_BYTES) throw new BadRequestException('Project files can be up to 50 MB.');
+    }
     const entitlement = await this.entitlement(ctx.id, assessment.course_id);
+    const isQuiz = assessment.type === AssessmentType.QUIZ;
+    const isProject = assessment.type === AssessmentType.PROJECT;
+    const newProjectKey = () => `projects/${ctx.id}/${randomUUID()}`;
 
-    if (assessment.type === AssessmentType.QUIZ) {
+    // A refusal is returned rather than thrown, so closing an expired quiz still commits.
+    const started = await this.attempts.manager.transaction(async (m): Promise<AssessmentAttempt | HttpException> => {
+      await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`attempt:${assessment.id}:${ctx.id}`]);
+      const attempts = m.getRepository(AssessmentAttempt);
+      const mine = { assessment_id: assessment.id, learner_id: ctx.id };
+      const finished = await attempts.find({ where: { ...mine, submitted_at: Not(IsNull()) }, order: { submitted_at: 'DESC' } });
+      const lastStarted = finished.reduce((latest, a) => Math.max(latest, a.created_at.getTime()), 0);
+
       // Anti-cheat: an unfinished attempt is resumed, never replaced — restarting
-      // to fish for an easier question set is not possible. Expired open attempts
-      // are auto-submitted as late before a new one can start.
-      const open = await this.attempts.findOne({
-        where: { assessment_id: assessment.id, learner_id: ctx.id, submitted_at: IsNull() },
-        order: { created_at: 'DESC' },
-      });
-      if (open) {
-        if (this.timeLimitExpired(assessment, open)) {
-          open.submitted_at = new Date();
-          open.terminated = true;
-          open.passed = false;
-          open.score = open.score ?? 0;
-          open.detail = { ...open.detail, termination_reason: 'Time limit expired before submission' };
-          await this.attempts.save(open);
-        } else {
-          return this.quizAttemptView(assessment, open);
+      // to fish for an easier paper or viva question is not possible. Only the
+      // newest open row, and only when it was created after every finished
+      // attempt, is current. Older open rows (duplicates from before the lock)
+      // are stale: never resumed, closed or counted.
+      const newestOpen = await attempts.findOne({ where: { ...mine, submitted_at: IsNull() }, order: { created_at: 'DESC' } });
+      const open = newestOpen && newestOpen.created_at.getTime() > lastStarted ? newestOpen : null;
+      if (open && !(isQuiz && this.timeLimitExpired(assessment, open))) {
+        if (isProject && !open.detail?.file_key) {
+          // Left by a start that failed before its key was stored.
+          open.detail = { ...open.detail, file_key: newProjectKey() };
+          await attempts.save(open);
         }
+        return open;
       }
-      const finished = await this.attempts.find({
-        where: { assessment_id: assessment.id, learner_id: ctx.id },
-        order: { created_at: 'DESC' },
-      });
-      if (finished.some((a) => a.passed === true)) throw new BadRequestException('You have already passed this quiz');
-      const maxAttempts = Number(assessment.config.max_attempts ?? DEFAULT_MAX_ATTEMPTS);
-      if (finished.length >= maxAttempts) throw new ForbiddenException(`You have used all ${maxAttempts} attempts for this quiz`);
-      const cooldown = Number(assessment.config.cooldown_minutes ?? 0);
+      if (open) {
+        // An expired quiz is auto-submitted as late before a new one can start.
+        open.submitted_at = new Date();
+        open.terminated = true;
+        open.passed = false;
+        open.score = open.score ?? 0;
+        open.detail = { ...open.detail, termination_reason: 'Time limit expired before submission' };
+        await attempts.save(open);
+        finished.unshift(open); // now the newest submission
+      }
+
+      const noun = isQuiz ? 'quiz' : 'assessment';
+      const refuse = (reason: string, error: HttpException) => {
+        this.logger.log(`attempt start refused for assessment ${assessment.id}, learner ${ctx.id}: ${reason}`);
+        return error;
+      };
+      if (finished.some((a) => a.passed === true)) return refuse('already passed', new BadRequestException(`You have already passed this ${noun}`));
+      const { max_attempts: maxAttempts, cooldown_minutes: cooldown } = attemptLimits(assessment.config);
+      if (finished.length >= maxAttempts) {
+        return refuse(`all ${maxAttempts} attempts used`, new ForbiddenException(`You have used all ${maxAttempts} attempts for this ${noun}`));
+      }
       const last = finished[0];
       if (cooldown > 0 && last?.submitted_at && Date.now() - last.submitted_at.getTime() < cooldown * 60_000) {
         const wait = Math.ceil((cooldown * 60_000 - (Date.now() - last.submitted_at.getTime())) / 60_000);
-        throw new ForbiddenException(`Please wait ${wait} more minute(s) before trying again`);
+        return refuse(`cooldown, ${wait} minute(s) left`, new ForbiddenException(`Please wait ${wait} more minute(s) before trying again`));
       }
-    }
 
-    const attempt = await this.attempts.save(
-      this.attempts.create({
-        assessment_id: assessment.id,
-        learner_id: ctx.id,
-        enrollment_id: entitlement.enrollment_id!,
-        score: null,
-        passed: null,
-        detail: {},
-        submitted_at: null,
-      }),
-    );
+      let detail: Record<string, any> = {};
+      if (isQuiz) {
+        // Per-attempt paper: pick pool_size questions from the bank and shuffle
+        // question + option order. The served order is stored on the attempt so
+        // grading can map the learner's positional answers back to the bank —
+        // two learners sitting side by side never see the same paper.
+        const bank: any[] = assessment.config.questions ?? [];
+        let order = bank.map((_, i) => i);
+        if (assessment.config.shuffle !== false) order = shuffled(order);
+        const poolSize = Number(assessment.config.pool_size);
+        if (Number.isFinite(poolSize) && poolSize >= 1 && poolSize < order.length) order = order.slice(0, poolSize);
+        const optionOrders = order.map((qi) => {
+          const q = bank[qi];
+          if (q.kind === 'written' || !Array.isArray(q.options)) return null;
+          const idx = q.options.map((_: unknown, i: number) => i);
+          return assessment.config.shuffle !== false ? shuffled(idx) : idx;
+        });
+        detail = { order, option_orders: optionOrders };
+      } else if (isProject) {
+        detail = { file_key: newProjectKey() };
+      }
+      return attempts.save(
+        attempts.create({
+          ...mine,
+          enrollment_id: entitlement.enrollment_id!,
+          score: null,
+          passed: null,
+          detail,
+          submitted_at: null,
+        }),
+      );
+    });
+    if (started instanceof HttpException) throw started;
 
-    if (assessment.type === AssessmentType.QUIZ) {
-      // Per-attempt paper: pick pool_size questions from the bank and shuffle
-      // question + option order. The served order is stored on the attempt so
-      // grading can map the learner's positional answers back to the bank —
-      // two learners sitting side by side never see the same paper.
-      const bank: any[] = assessment.config.questions ?? [];
-      let order = bank.map((_, i) => i);
-      if (assessment.config.shuffle !== false) order = shuffled(order);
-      const poolSize = Number(assessment.config.pool_size);
-      if (Number.isFinite(poolSize) && poolSize >= 1 && poolSize < order.length) order = order.slice(0, poolSize);
-      const optionOrders = order.map((qi) => {
-        const q = bank[qi];
-        if (q.kind === 'written' || !Array.isArray(q.options)) return null;
-        const idx = q.options.map((_: unknown, i: number) => i);
-        return assessment.config.shuffle !== false ? shuffled(idx) : idx;
-      });
-      attempt.detail = { ...attempt.detail, order, option_orders: optionOrders };
-      await this.attempts.save(attempt);
-      return this.quizAttemptView(assessment, attempt);
-    }
+    if (isQuiz) return this.quizAttemptView(assessment, started);
 
     if (assessment.type === AssessmentType.AI_VIVA) {
-      const course = await this.internal.get<{ title: string }>(internalPath`/api/v1/internal/courses/${assessment.course_id}`);
-      const question = await this.ai.generateVivaQuestion(course.title, assessment.config.topic_context ?? course.title);
-      attempt.detail = { question };
-      await this.attempts.save(attempt);
-      return { attempt_id: attempt.id, type: assessment.type, question };
+      let question: string | undefined = started.detail?.question;
+      if (!question) {
+        // A new attempt, or one whose question generation failed. Concurrent
+        // starts may all get here: the conditional save keeps the first question.
+        const course = await this.internal.get<{ title: string }>(internalPath`/api/v1/internal/courses/${assessment.course_id}`);
+        const generated = await this.ai.generateVivaQuestion(course.title, assessment.config.topic_context ?? course.title);
+        const detail: AssessmentAttempt['detail'] = { ...started.detail, question: generated };
+        const { affected } = await this.attempts
+          .createQueryBuilder()
+          .update()
+          .set({ detail })
+          .where('id = :id', { id: started.id })
+          .andWhere(`detail->>'question' IS NULL`)
+          .execute();
+        question = affected ? generated : (await this.attempts.findOne({ where: { id: started.id } }))?.detail?.question;
+      }
+      return { attempt_id: started.id, type: assessment.type, question };
     }
 
-    // project: hand back a signed upload URL (max 50MB, spec §10.1)
-    const key = `projects/${ctx.id}/${randomUUID()}`;
-    const upload = await this.storage.getSignedUploadUrl(key, 'application/octet-stream');
-    attempt.detail = { file_key: key };
-    await this.attempts.save(attempt);
+    // project: hand back a signed upload URL for the attempt's key (max 50MB, spec §10.1)
+    const key: string = started.detail.file_key;
+    const upload = fileSize === undefined ? null : await this.storage.getSignedUploadUrl(key, 'application/octet-stream', 900, fileSize);
     return {
-      attempt_id: attempt.id,
+      attempt_id: started.id,
       type: assessment.type,
       instructions: assessment.config.instructions ?? '',
-      upload_url: upload.url,
+      ...(upload ? { upload_url: upload.url } : {}),
       file_key: key,
       max_bytes: PROJECT_MAX_BYTES,
     };
@@ -416,7 +476,17 @@ export class AssessmentService implements OnModuleInit {
     const attempt = await this.attempts.findOne({ where: { id: attemptId } });
     if (!attempt) throw new NotFoundException('Attempt not found');
     if (attempt.learner_id !== ctx.id) throw new ForbiddenException('Not your attempt');
-    if (attempt.submitted_at) throw new BadRequestException('Attempt already submitted');
+    if (attempt.submitted_at) throw new ConflictException('Attempt already submitted.');
+    // Start's rule: an open row is current only when it is newer than every
+    // finished attempt and nothing passed. Older open rows (duplicates from
+    // before the start lock) are stale and can't be submitted past the limit.
+    const finished = await this.attempts.find({
+      where: { assessment_id: attempt.assessment_id, learner_id: ctx.id, submitted_at: Not(IsNull()) },
+    });
+    if (finished.some((a) => a.passed === true || a.created_at.getTime() >= attempt.created_at.getTime())) {
+      this.logger.log(`stale attempt submit refused: attempt ${attempt.id}, learner ${ctx.id}`);
+      throw new ConflictException('This attempt is no longer open.');
+    }
     const assessment = await this.assessmentOrThrow(attempt.assessment_id);
 
     if (assessment.type === AssessmentType.QUIZ) {
@@ -436,27 +506,58 @@ export class AssessmentService implements OnModuleInit {
       // project — recorded, graded manually by the educator. The file is always
       // the key startAttempt issued (kept in attempt.detail): a client-supplied
       // key could point the educator's download at someone else's object.
+      // The upload must exist and fit the cap (the signed URL fixes the size,
+      // so an oversized object means a bypass: it is removed).
+      const stored = await this.storage.headObject(attempt.detail.file_key);
+      if (!stored) throw new BadRequestException('Upload your file before submitting.');
+      if (stored.size > PROJECT_MAX_BYTES) {
+        this.logger.warn(`project upload over the signed size removed: attempt ${attempt.id}, learner ${attempt.learner_id}, ${stored.size} bytes`);
+        await this.storage.deleteObject(attempt.detail.file_key);
+        throw new BadRequestException('Project files can be up to 50 MB.');
+      }
       attempt.score = null;
       attempt.passed = null;
     }
 
+    // Claim the result: only one of several concurrent submits updates the row.
+    // Everything grading changed is written here, and nothing else.
     attempt.submitted_at = new Date();
-    await this.attempts.save(attempt);
+    const { affected } = await this.attempts
+      .createQueryBuilder()
+      .update()
+      .set({ submitted_at: attempt.submitted_at, score: attempt.score, passed: attempt.passed, terminated: attempt.terminated, detail: attempt.detail })
+      .where('id = :id', { id: attempt.id })
+      .andWhere('submitted_at IS NULL')
+      .execute();
+    if (!affected) throw new ConflictException('Attempt already submitted.');
 
     if (attempt.passed !== null) {
       await this.publishResult(assessment, attempt, ctx.email);
     }
+    const showBreakdown = await this.mayShowBreakdown(assessment, attempt);
     return {
       attempt_id: attempt.id,
       score: attempt.score,
       passed: attempt.passed,
       feedback: attempt.detail.feedback,
       pending_review: assessment.type === AssessmentType.PROJECT,
-      breakdown: attempt.detail.breakdown,
+      ...(showBreakdown ? { breakdown: attempt.detail.breakdown } : {}),
       flagged: attempt.flagged,
       terminated: attempt.terminated,
       termination_reason: attempt.detail.termination_reason,
     };
+  }
+
+  /**
+   * Per-question results go to the learner only once they have passed or used
+   * every attempt (this one counts), so retries cannot be used to mine the key.
+   */
+  private async mayShowBreakdown(assessment: Assessment, attempt: AssessmentAttempt): Promise<boolean> {
+    if (attempt.passed === true) return true;
+    const finished = await this.attempts.count({
+      where: { assessment_id: attempt.assessment_id, learner_id: attempt.learner_id, submitted_at: Not(IsNull()) },
+    });
+    return finished >= attemptLimits(assessment.config).max_attempts;
   }
 
   /** Grade a mixed MCQ + written quiz. Written answers are scored by the AI grader. */
@@ -600,7 +701,16 @@ export class AssessmentService implements OnModuleInit {
     attempt.flagged = true;
     const count = attempt.proctor_log.filter((e) => e.type === type).length;
     if (count >= PROCTOR_WARNING_LIMIT) attempt.terminated = true;
-    await this.attempts.save(attempt);
+    // Only the columns this event changes, and only while the attempt is open:
+    // a submit that landed during the upload keeps its result.
+    const { affected } = await this.attempts
+      .createQueryBuilder()
+      .update()
+      .set({ proctor_log: attempt.proctor_log, flagged: true, ...(count >= PROCTOR_WARNING_LIMIT ? { terminated: true } : {}) })
+      .where('id = :id', { id: attempt.id })
+      .andWhere('submitted_at IS NULL')
+      .execute();
+    if (!affected) throw new BadRequestException('Attempt already submitted');
 
     return {
       recorded: true,
@@ -647,7 +757,8 @@ export class AssessmentService implements OnModuleInit {
       submitted_at: attempt.submitted_at,
       warning_limit: PROCTOR_WARNING_LIMIT,
       events,
-      breakdown: attempt.detail?.breakdown ?? null,
+      // Staff always see it; the learner only once retries are used up or passed.
+      breakdown: attempt.learner_id !== ctx.id || (await this.mayShowBreakdown(assessment, attempt)) ? (attempt.detail?.breakdown ?? null) : null,
     };
   }
 

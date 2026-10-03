@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -37,6 +38,13 @@ export class LessonInputDto {
   @IsInt()
   @Min(0)
   duration_seconds?: number;
+
+  /** Measured length of the attached video, in seconds (set by the upload probe); capped like the heartbeat's duration. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(86_400)
+  video_duration_seconds?: number;
 }
 
 /** Used for PUT /lessons/:id — all fields are optional (partial update). */
@@ -61,6 +69,13 @@ export class UpdateLessonDto {
   @IsInt()
   @Min(0)
   duration_seconds?: number;
+
+  /** Measured length of the attached video, in seconds (set by the upload probe); capped like the heartbeat's duration. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(86_400)
+  video_duration_seconds?: number;
 }
 
 export class SectionInputDto {
