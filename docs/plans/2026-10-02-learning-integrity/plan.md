@@ -380,6 +380,6 @@ Gate (step 9):
   - all 9 images.
 
 ### In flight / next step
-- Step 10: code review round 1 requested from ethio-reviewer (branch `fix/learning-integrity`, base origin/main ff1d89e).
+- Code review round 1: CHANGES REQUESTED. B1 and S1 are fixed in the round 1 response commit, and N1 and N2 are deferred (see code-review.md). Round 2 has been requested from ethio-reviewer.
 - Rollout step 1 is done by the user: no learners blocked, so step 1a isn't needed.
 - 6d is queued after 6b's review is APPROVED.
