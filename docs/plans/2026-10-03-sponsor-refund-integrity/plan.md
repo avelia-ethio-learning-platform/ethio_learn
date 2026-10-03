@@ -120,8 +120,8 @@ None. Contract change: one optional event field (decision 2). Response change: o
 - The admin bank-transfer endpoint: the response gains `replayed`, and the status codes are unchanged (201 create, 200 replay).
 
 ## Steps
-- [ ] 1. Branch `fix/sponsor-refund-integrity` from the base above. Commit the plan folder with `git add -f`.
-- [ ] 2. **Refunds:**
+- [x] 1. Branch `fix/sponsor-refund-integrity` from the base above. Commit the plan folder with `git add -f`.
+- [x] 2. **Refunds:**
   - `approveWith` gets the lock and `access_kept`;
   - `finalizeApproval` and `emitDecision` carry the flag;
   - the contracts field is added;
@@ -134,10 +134,10 @@ None. Contract change: one optional event field (decision 2). Response change: o
     - the admin `decide` path carries the flag.
   - `testing/fake-db.ts` `find` accepts the `lock` option as a no-op. The fake DB has no isolation between transactions, so the unit tests cover the decision logic with sequential calls, and the e2e covers the lock.
   - Verify: `pnpm -C api test -- refund`.
-- [ ] 3. **Enrollment and notification:**
+- [x] 3. **Enrollment and notification:**
   - `revokeFromRefund` gets the early return and the conditional update. Add `enrollment.service.spec.ts` revoke tests: flag true → still active; flag absent → refunded; an already refunded row stays refunded.
   - The notification copy branch, with a spec.
-- [ ] 4. **Pay requests:**
+- [x] 4. **Pay requests:**
   - the grant handler records the payer;
   - the three conditional writes in `payRequest`;
   - gift and bulk attach.
@@ -147,11 +147,11 @@ None. Contract change: one optional event field (decision 2). Response change: o
     - **A-3:** a grant lands inside the `/entitlements` call → the row stays granted, not cancelled;
     - **A-4:** B settles by wallet after A's refused checkout reset the row → the grant names B;
     - **N1:** the pay-request undo on a wallet refusal (`it.each` like the gift test at :222-235).
-- [ ] 5. **N2 and N3:**
+- [x] 5. **N2 and N3:**
   - the `replayed` field, the admin alert, and the `controllers.spec.ts` updates;
   - a `page.test.tsx` replay case;
   - a new `growth-tabs.test.tsx` for the Pending rewards tile.
-- [ ] 6. **e2e (`scripts/e2e-payments.mjs`, real Postgres):**
+- [x] 6. **e2e (`scripts/e2e-payments.mjs`, real Postgres):**
   - **Sequential:** a learner initiates two Chapa checkouts for one paid course before completing either, then `mockComplete`s both. Refund one: the entitlement is still active (`waitFor`), and enrollment and notification honour `access_kept`. Refund the other: it becomes refunded.
   - **Concurrent (review S1/S2):** a second learner with two duplicate payments sends both refund requests together with `Promise.all`. Both answer 2xx (no deadlock 500), and the entitlement ends `refunded` (`waitFor`). Requests don't always overlap, so this can miss a deadlock on some runs, but it never fails a correct build.
   - Two learners open the same pay request. The first one's checkout is completed, so the request's `sponsor_id` is the first learner, checked with SQL as the script already does elsewhere.
@@ -178,3 +178,19 @@ Steps 2–6. The decision logic is unit-tested with sequential calls through the
 - The concurrent e2e can't force an overlap; it guards against the deadlock rather than proving its absence on every run. The lock order in decision 1 is what prevents it.
 
 ## Progress and deviations (implementer)
+
+Worktree `../ethi0-6d`, branch `fix/sponsor-refund-integrity` from 6b's approved tip `46e9ff6`; `git merge origin/main` once 6b is on main.
+
+- **Step 1:** d7e28f7.
+- **Step 2:** ddbe3b9. One helper, `lockCoursePayments`, is the first statement of `request()`'s transaction and is called again in `approveWith` (a second `FOR UPDATE` in the same transaction is a no-op). It reads after the wait, so a row a concurrent refund flipped drops out. A unit test checks that the first lock comes before the mark.
+- **Step 3:** 2b3308b.
+- **Step 4:** ed10129. Three of the new tests fail on the old code (A-1, A-2, A-3). A-4 already passed before, and stays as a guard.
+- **Step 5:** 23db4aa.
+- **Step 6:** 7ed2931, including DEPLOYMENT.md "Phase 6d". The query was tested on a scratch DB (the enrollment and financial schemas from el_e2e, plus fixtures). It listed exactly the learner with a second confirmed purchase and the one with a granted pay request. It left out a learner with only a refunded payment, one with their own gift payment, an active learner, and one with a pending sponsorship. It also runs on el_e2e's real schema.
+- **Step 7, so far:** api build, typecheck and tests (1264 passed, 1 skipped); web typecheck and tests (590). The stack part (db:check, e2e, Playwright, images) waits for a stack window.
+
+Deviations:
+- **Grant handler (decision 5):** `sponsor_id`/`sponsor_name` are written only when the row's sponsor isn't already the payer. For a gift, or a pay request whose last opener paid, nothing changes and there's no user lookup. `user()` returns `''` when the lookup fails, and an unconditional write would blank a correct name.
+- **Enrollment has no `updated_at`,** so the Phase 6d query shows `enrolled_at`; the refund time isn't recorded on the enrollment.
+- **`closedRequest`:** the 400 after a conditional write matched nothing is "This request has already been paid" for `granted` or `pending_claim` (paid, with the learner not signed up yet), and otherwise the existing `Request is <status>`.
+- **The admin replay message** reads `replayed` from the body (`api<{ replayed?: boolean }>`).
