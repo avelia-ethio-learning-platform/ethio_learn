@@ -313,7 +313,7 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
 
 ## Steps
 - [ ] 1. Branch `feat/role-dashboards` from the base above.
-- [ ] 2. Shared pieces (decisions 1, 4, 6, 8):
+- [x] 2. Shared pieces (decisions 1, 4, 6, 8):
   - `ConfirmProvider`/`useConfirm` mounted in `Providers`;
   - `.btn-danger` and `.btn-sm`;
   - `SearchPicker` moved and made a combobox;
@@ -327,7 +327,7 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
   - `Pager`: range text and disabled ends;
   - `Bars`: non-zero height styles, sr-only month and value text, the empty state when all values are zero;
   - the new labels: known values and the unknown fallback.
-- [ ] 3. API (decisions 3, 5, 9):
+- [x] 3. API (decisions 3, 5, 9):
   - users search;
   - `listPending` amount and course;
   - `myMemberships` and `leave`, with routes and DTO; the leave route's `:id` uses `@UuidParam('id')` (drift D8);
@@ -340,7 +340,7 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
   - the course spec string.
 
   Run `pnpm -C api test`.
-- [ ] 4. Admin console (decisions 2–8, 10, 11, 14):
+- [x] 4. Admin console (decisions 2–8, 10, 11, 14):
   - tabs;
   - Payments (Pager, bank transfer with pickers, 6c's reference as a `Field`, confirm, `FormStatus`);
   - Payouts (confirm run and release, labels);
@@ -370,7 +370,7 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
   - preview (decision 13).
 
   vitest: update `instructor-manager.test.tsx`, with a case for a removed row showing "Left the institution"; add a bulk-purchases test (Cancel on the assign dialog sends nothing; the dialog lists the de-duplicated emails); add a preview test (prompt before play, `aria-current` after).
-- [ ] 7. Learner and account:
+- [x] 7. Learner and account:
   - dashboard refund (confirm with required reason, `FormStatus` instead of `alert`);
   - account delete (confirm);
   - `/account/invites` → Institutions with Leave;
@@ -380,7 +380,7 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
 
   Verify: the native-dialog grep from the acceptance criteria finds nothing outside tests.
 - [ ] 8. Mobile pass (decision 12) at 375 px over every role page touched above.
-- [ ] 9. Playwright, reusing Phase 5's saved logins (no new `auth-strict` calls):
+- [ ] 9. Playwright (8a parts written, run in step 11), reusing Phase 5's saved logins (no new `auth-strict` calls):
   - **`a11y.spec.ts` gets the role pages**, at 1440 in light and dark:
     - `/teach`, `/teach/new`, `/teach/analytics`, `/teach/coupons`, the editor of a seeded draft;
     - `/institution`, `/institution/review`;
@@ -436,5 +436,18 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
 ## Progress and deviations (implementer)
 
 ### 8a
+
+Steps 2, 3, 4 and 7 are done, and the 8a parts of step 9 are written (the `/admin` a11y entries, the `admin.spec.ts` rewrite, the institution leave step). Steps 10 and 11 are not ticked: the gate (full Playwright suite, `scripts/e2e-institution.mjs`, web and api build/test) runs in a stack window. The final review's fix wave (refund copy, reason hint, `q` array guard, picker focus, wallet reset, payments refresh) is applied.
+
+Deviations and controller rulings:
+- `holdReasonLabel` added to `labels.ts` for the release dialog.
+- The wallet picker searches all roles, not only learners.
+- The refund reason `maxLength` is 500 (the DTO allows 1000).
+- The gateway already routes `profiles/me/*` to auth with the leave POST in the `write` bucket: no `routes.ts` or `rate-policy.ts` change.
+- Users row buttons use `aria-disabled` plus a busy guard instead of `disabled`, so focus stays on the button. After a real suspend the row swaps to Reactivate, so focus drops there anyway.
+- The `admin.spec.ts` paging test skips on a fresh seed of 5 users; the vitest paging and `Pager` tests carry it.
+- `Bars` draws compact visible values (a 375 px overflow finding).
+- The `e2e-institution.mjs` step reactivates the membership before leaving.
+- `course.service.ts` create still says "price_etb is required for paid courses"; reachable only from `/teach/new`, folded into 8b step 5.
 
 ### 8b
