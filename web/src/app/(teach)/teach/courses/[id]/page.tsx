@@ -1,11 +1,16 @@
 'use client';
 
 import { Suspense, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { CheckCircle2, ImagePlus, Lock, Sparkles } from 'lucide-react';
+import { CheckCircle2, Eye, FilePenLine, Flag, Hourglass, ImagePlus, Lock, Sparkles, Undo2, X, XCircle } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { assessmentTypeLabel, pricingLabel } from '@/lib/labels';
 import { useAuth } from '@/lib/hooks';
 import { RequireRole } from '@/components/RequireRole';
 import { RoleHomeBackButton } from '@/components/BackButton';
@@ -26,7 +31,9 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
   const { locale } = useT();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const [message, setMessage] = useState('');
+  const ask = useConfirm();
+  const [status, setOk, setError, clearStatus] = useFormStatus();
+  const [acting, setActing] = useState(false);
   // The working copy: live values overlaid with staged edits (what the educator edits).
   const { data: course, error: loadError } = useQuery({
     queryKey: ['manage-course', courseId],
@@ -71,21 +78,35 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
   const lessonIds = course.sections.flatMap((s) => s.lessons.map((l) => l.id));
 
   const action = async (path: string, ok: string, body?: any) => {
-    setMessage('');
+    if (acting) return;
+    setActing(true);
+    clearStatus();
     try {
       await api(`/courses/${courseId}/${path}`, { method: 'POST', body });
-      setMessage(ok);
+      setOk(ok);
       refreshAll();
     } catch (err) {
-      setMessage((err as Error).message);
+      setError((err as Error).message);
+    } finally {
+      setActing(false);
     }
+  };
+
+  const unpublish = async () => {
+    if (!(await ask({ title: `Unpublish “${course.title}”?`, body: 'It’s hidden from the catalog; enrolled learners keep access.', confirmLabel: 'Unpublish' }))) return;
+    void action('unpublish', 'Course unpublished (hidden from catalog).');
+  };
+
+  const archive = async () => {
+    if (!(await ask({ title: `Archive “${course.title}”?`, body: 'Archiving is permanent and can’t be undone.', confirmLabel: 'Archive course', tone: 'danger' }))) return;
+    void action('archive', 'Course archived.');
   };
 
   async function review(attemptId: string, passed: boolean) {
     try {
       await api(`/attempts/${attemptId}/review`, { method: 'PUT', body: { passed } });
     } catch (err) {
-      setMessage((err as Error).message);
+      setError((err as Error).message);
     }
     queryClient.invalidateQueries({ queryKey: ['pending-projects', courseId] });
   }
@@ -109,47 +130,50 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
             {revisionInReview && <span className="badge-info">update in review</span>}
             {live && !revisionInReview && course.has_pending_changes && <span className="badge-warn">unpublished changes</span>}
             <span>
-              {course.pricing_type}
+              {pricingLabel(course.pricing_type)}
               {course.pricing_type !== 'free' && course.price_etb ? ` · ${formatETB(course.price_etb, locale)}` : ''}
               {reviews?.average_rating ? ` · ★ ${reviews.average_rating} (${reviews.review_count})` : ''}
             </span>
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Link href={`/preview/${courseId}`} className="btn-secondary">
+            <Eye className="h-4 w-4" aria-hidden /> Preview as learner
+          </Link>
           {isDraft && (
-            <button className="btn" disabled={uploading} title={uploading ? WAIT_FOR_UPLOAD : undefined} onClick={() => action('submit', 'Submitted for review.')}>
+            <button className="btn" disabled={uploading || acting} title={uploading ? WAIT_FOR_UPLOAD : undefined} onClick={() => action('submit', 'Submitted for review.')}>
               Submit for review
             </button>
           )}
           {COURSE_IN_REVIEW.includes(course.status) && (
-            <button className="btn-secondary" onClick={() => action('withdraw', 'Withdrawn to draft — you can edit and resubmit.')}>Withdraw &amp; edit</button>
+            <button className="btn-secondary" disabled={acting} onClick={() => action('withdraw', 'Withdrawn to draft — you can edit and resubmit.')}>Withdraw &amp; edit</button>
           )}
           {course.status === 'published' && (
-            <button className="btn-secondary" onClick={() => action('unpublish', 'Course unpublished (hidden from catalog).')}>Unpublish</button>
+            <button className="btn-secondary" disabled={acting} onClick={unpublish}>Unpublish</button>
           )}
           {course.status === 'unlisted' && (
-            <button className="btn" onClick={() => action('republish', 'Course re-published.')}>Re-publish</button>
+            <button className="btn" disabled={acting} onClick={() => action('republish', 'Course re-published.')}>Re-publish</button>
           )}
           {(isDraft || course.status === 'unlisted') && (
-            <button className="btn-secondary" onClick={() => confirm('Archive this course?') && action('archive', 'Course archived.')}>Archive</button>
+            <button className="btn-secondary" disabled={acting} onClick={archive}>Archive</button>
           )}
           {course.status === 'archived' && (
-            <button className="btn" onClick={() => action('restore', 'Restored to draft.')}>Restore</button>
+            <button className="btn" disabled={acting} onClick={() => action('restore', 'Restored to draft.')}>Restore</button>
           )}
-          <button className="btn-secondary" onClick={() => action('duplicate', 'Duplicated as a new draft — find it in My courses.')}>Duplicate</button>
+          <button className="btn-secondary" disabled={acting} onClick={() => action('duplicate', 'Duplicated as a new draft — find it in My courses.')}>Duplicate</button>
         </div>
       </div>
-      {message && <p className="badge-info w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm">{message}</p>}
+      <FormStatus status={status} />
       {isDraft && uploading && <p className="text-sm text-amber-700 dark:text-amber-300">{WAIT_FOR_UPLOAD}</p>}
 
       {course.status === 'institution_review' && (
         <p className="badge-info w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm">
-          ⏳ Awaiting your institution&apos;s internal review. Once they approve, it goes to the platform quality officers.
+          <Hourglass className="mr-1.5 inline h-4 w-4 align-text-bottom" aria-hidden /> Awaiting your institution&apos;s internal review. Once they approve, it goes to the platform quality officers.
         </p>
       )}
       {locked && !live && edit.lockReason && (
         <p className="flex w-fit items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
-          <Lock className="h-4 w-4 shrink-0" /> {edit.lockReason}
+          <Lock className="h-4 w-4 shrink-0" aria-hidden /> {edit.lockReason}
         </p>
       )}
       {showFeedback && feedback && <ReviewFeedback feedback={feedback} />}
@@ -157,12 +181,12 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
         <RevisionPanel
           course={course}
           onChanged={(m) => {
-            setMessage(m);
+            setOk(m);
             refreshAll();
           }}
         />
       )}
-      {course.status === 'flagged' && <AppealBox courseId={courseId} onDone={(m) => { setMessage(m); refreshAll(); }} />}
+      {course.status === 'flagged' && <AppealBox courseId={courseId} onDone={(m) => { setOk(m); refreshAll(); }} />}
 
       {canEdit && (
         <div className="card animate-fade-in-up">
@@ -173,7 +197,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
                 <img src={course.thumbnail_url} alt="Course thumbnail" className="h-14 w-24 shrink-0 rounded-xl border object-cover shadow-glass" />
               ) : (
                 <span className="glass-secondary flex h-14 w-24 shrink-0 items-center justify-center rounded-xl">
-                  <ImagePlus className="h-5 w-5 text-brand-400" />
+                  <ImagePlus className="h-5 w-5 text-brand-400" aria-hidden />
                 </span>
               )}
               <div className="min-w-0">
@@ -181,7 +205,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
                   Thumbnail
                   {course.thumbnail_url ? (
                     <span className="badge-success">
-                      <CheckCircle2 className="h-3 w-3" /> uploaded
+                      <CheckCircle2 className="h-3 w-3" aria-hidden /> uploaded
                     </span>
                   ) : (
                     <span className="badge-warn">required before submit</span>
@@ -197,7 +221,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
               hasThumbnail={!!course.thumbnail_url}
               disabled={locked}
               onSaved={() => {
-                if (live) setMessage('Thumbnail staged — it goes live after review.');
+                if (live) setOk('Thumbnail staged — it goes live after review.');
                 refreshAll();
               }}
             />
@@ -205,7 +229,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
         </div>
       )}
 
-      {canEdit && <CourseDetails course={course} live={live} disabled={locked} onSaved={(m) => { setMessage(m); refreshAll(); }} />}
+      {canEdit && <CourseDetails course={course} live={live} disabled={locked} onSaved={(m) => { setOk(m); refreshAll(); }} />}
 
       {canEdit && (
         <StructureGenerator courseId={courseId} title={course.title} live={live} disabled={locked} autoOpen={generate} onApplied={refreshAll} />
@@ -250,32 +274,38 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
  *  notifications. */
 function ReviewFeedback({ feedback }: { feedback: ReviewFeedbackView }) {
   const { locale } = useT();
-  const map: Record<string, { tone: string; label: string }> = {
+  const map: Record<string, { tone: string; label: string; Icon: typeof Flag }> = {
     coach: {
       tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-      label: '📝 Changes requested by our quality team',
+      label: 'Changes requested by our quality team',
+      Icon: FilePenLine,
     },
-    flag: { tone: 'border-red-400/40 bg-red-500/10 text-red-600 dark:text-red-300', label: '🚩 Your course was flagged in review' },
+    flag: { tone: 'border-red-400/40 bg-red-500/10 text-red-600 dark:text-red-300', label: 'Your course was flagged in review', Icon: Flag },
     institution_reject: {
       tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-      label: '↩️ Sent back by your institution',
+      label: 'Sent back by your institution',
+      Icon: Undo2,
     },
     approve: {
       tone: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-      label: '✅ Approved by quality review',
+      label: 'Approved by quality review',
+      Icon: CheckCircle2,
     },
     // A rejected update of a live course: its staged changes were discarded, the course itself is unchanged.
     reject: {
       tone: 'border-red-400/40 bg-red-500/10 text-red-600 dark:text-red-300',
-      label: '⛔ Your update was not approved — its changes were discarded',
+      label: 'Your update was not approved — its changes were discarded',
+      Icon: XCircle,
     },
   };
-  const meta = map[feedback.action] ?? { tone: 'text-gray-600', label: 'Reviewer feedback' };
+  const meta = map[feedback.action] ?? { tone: 'text-gray-600', label: 'Reviewer feedback', Icon: FilePenLine };
   const when = feedback.reviewed_at ? formatDate(feedback.reviewed_at, locale, 'datetime') : '';
   return (
     <div className={`rounded-2xl border px-4 py-3 text-sm ${meta.tone}`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold">{meta.label}</span>
+        <span className="flex items-center gap-1.5 font-semibold">
+          <meta.Icon className="h-4 w-4 shrink-0" aria-hidden /> {meta.label}
+        </span>
         {when && <span className="text-xs opacity-70">{when}</span>}
       </div>
       {feedback.notes ? (
@@ -317,11 +347,16 @@ function LearnerFeedback({ reviews }: { reviews: any }) {
 
 function AppealBox({ courseId, onDone }: { courseId: string; onDone: (m: string) => void }) {
   const [note, setNote] = useState('');
+  const [status, , setError] = useFormStatus();
   return (
     <div className="card !border-red-400/40 bg-gradient-to-br from-red-500/10 to-transparent">
       <h2 className="font-bold text-red-600 dark:text-red-400">This course was flagged</h2>
       <p className="mt-1 text-sm text-gray-600">Explain the changes you made or why it should be reconsidered. It will go back to the review queue.</p>
-      <textarea className="input mt-2" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Your appeal…" />
+      <div className="mt-2">
+        <Field label="Your appeal">
+          {(ids) => <textarea {...ids} className="input" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Explain what you changed…" />}
+        </Field>
+      </div>
       <button
         className="btn mt-2"
         disabled={note.trim().length < 10}
@@ -330,12 +365,13 @@ function AppealBox({ courseId, onDone }: { courseId: string; onDone: (m: string)
             await api(`/courses/${courseId}/appeal`, { method: 'POST', body: { note } });
             onDone('Appeal submitted — a quality officer will re-review your course.');
           } catch (err) {
-            onDone((err as Error).message);
+            setError((err as Error).message);
           }
         }}
       >
         Submit appeal
       </button>
+      <FormStatus status={status} />
     </div>
   );
 }
@@ -365,26 +401,26 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
   const [topic, setTopic] = useState('');
   const [count, setCount] = useState(5);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState('');
+  const [status, setOk, setError, clearStatus, setInfo] = useFormStatus();
   const [vivaTopic, setVivaTopic] = useState('');
   const [projectInstr, setProjectInstr] = useState('');
 
   const generate = async () => {
-    setBusy(true); setNote('');
+    setBusy(true); clearStatus();
     try {
       const res = await api<{ questions: QDraft[]; ai_live: boolean }>(`/assessments/generate`, { method: 'POST', body: { course_id: courseId, topic, count }, slow: true });
       setQuestions((q) => [...q, ...res.questions]);
-      if (!res.ai_live) setNote('Using the offline placeholder generator (set GROQ_API_KEY for real AI questions).');
-    } catch (err) { setNote((err as Error).message); }
+      if (!res.ai_live) setInfo('AI questions are unavailable right now — add questions manually.');
+    } catch (err) { setError((err as Error).message); }
     setBusy(false);
   };
 
   const save = async () => {
-    setBusy(true); setNote('');
+    setBusy(true); clearStatus();
     try {
       let config: any = {};
       if (type === 'quiz') {
-        if (!questions.length) { setNote('Add or generate at least one question.'); setBusy(false); return; }
+        if (!questions.length) { setError('Add or generate at least one question.'); setBusy(false); return; }
         config = {
           questions,
           max_attempts: maxAttempts,
@@ -398,14 +434,14 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
       else config = { instructions: projectInstr };
       const saved = await api<{ state?: string }>('/assessments', { method: 'POST', body: { course_id: courseId, type, pass_score: passScore, is_required: true, config } });
       setQuestions([]); setTopic(''); setVivaTopic(''); setProjectInstr('');
-      setNote(
+      setOk(
         saved?.state === 'pending'
           ? 'Assessment saved — learners get it once your changes are approved. Submit your changes for review.'
           : 'Assessment saved.',
       );
       queryClient.invalidateQueries({ queryKey: ['assessments', courseId] });
       onSaved();
-    } catch (err) { setNote((err as Error).message); }
+    } catch (err) { setError((err as Error).message); }
     setBusy(false);
   };
 
@@ -415,9 +451,9 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
       <ul className="mt-2 space-y-1 text-sm text-gray-600">
         {assessments?.map((a) => (
           <li key={a.id} className="flex flex-wrap items-center gap-2">
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-brand-500" />
-            <span className="capitalize">
-              {a.type.replace('_', ' ')} · pass ≥ {a.pass_score}
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-brand-500" aria-hidden />
+            <span>
+              {assessmentTypeLabel(a.type)} · pass ≥ {a.pass_score}
               {a.is_required ? ' · required' : ''}
             </span>
             {a.state === 'pending' && <span className="badge-warn ">pending review</span>}
@@ -427,60 +463,88 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
       </ul>
 
       <div className="mt-3 space-y-3 border-t pt-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <select value={type} onChange={(e) => setType(e.target.value)} className="input w-48">
-            <option value="quiz">Quiz</option>
-            <option value="ai_viva">AI viva (Groq)</option>
-            <option value="project">Project submission</option>
-          </select>
-          <label className="text-sm">Pass score <input type="number" min={1} max={100} value={passScore} onChange={(e) => setPassScore(+e.target.value)} className="input w-20" /></label>
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Assessment type">
+            {(ids) => (
+              <select {...ids} value={type} onChange={(e) => setType(e.target.value)} className="input w-48">
+                <option value="quiz">Quiz</option>
+                <option value="ai_viva">AI oral check (viva)</option>
+                <option value="project">Project submission</option>
+              </select>
+            )}
+          </Field>
+          <Field label="Pass score">
+            {(ids) => <input {...ids} type="number" min={1} max={100} value={passScore} onChange={(e) => setPassScore(+e.target.value)} className="input w-24" />}
+          </Field>
         </div>
 
         {type === 'quiz' && (
           <div className="space-y-2">
-            <div className="glass-secondary flex flex-wrap items-center gap-2 rounded-xl p-3">
-              <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                <Sparkles className="h-4 w-4 text-brand-500" /> Generate with AI:
+            <div className="glass-secondary flex flex-wrap items-end gap-2 rounded-xl p-3">
+              <span className="flex w-full items-center gap-1.5 text-sm font-semibold text-foreground">
+                <Sparkles className="h-4 w-4 text-brand-500" aria-hidden /> Generate with AI
               </span>
-              <input className="input flex-1" placeholder="Topic (e.g. HTML basics)" value={topic} onChange={(e) => setTopic(e.target.value)} />
-              <label className="text-sm">Qs <input type="number" min={1} max={20} value={count} onChange={(e) => setCount(+e.target.value)} className="input w-16" /></label>
+              <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
+                <Field label="Topic">
+                  {(ids) => <input {...ids} className="input" placeholder="e.g. HTML basics" value={topic} onChange={(e) => setTopic(e.target.value)} />}
+                </Field>
+              </div>
+              <Field label="Number of questions">
+                {(ids) => <input {...ids} type="number" min={1} max={20} value={count} onChange={(e) => setCount(+e.target.value)} className="input w-24" />}
+              </Field>
               <button className="btn-secondary text-xs" disabled={busy || !topic} onClick={generate}>Generate</button>
             </div>
             {questions.map((q, qi) => (
               <div key={qi} className="glass-secondary rounded-xl p-3">
                 <div className="flex items-center gap-2">
-                  <input className="input flex-1 text-sm" value={q.prompt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, prompt: e.target.value } : x)))} placeholder="Question prompt" />
-                  <button className="text-xs text-red-600 dark:text-red-400" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}>✕</button>
+                  <input className="input flex-1 text-sm" value={q.prompt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, prompt: e.target.value } : x)))} placeholder="Question prompt" aria-label={`Question ${qi + 1} prompt`} />
+                  <button aria-label={`Remove question ${qi + 1}`} className="btn-ghost btn-sm !text-red-600 dark:!text-red-400" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}><X className="h-4 w-4" aria-hidden /></button>
                 </div>
                 <div className="mt-1 space-y-1">
                   {q.options.map((opt, oi) => (
                     <div key={oi} className="flex items-center gap-2">
-                      <input type="radio" name={`correct-${qi}`} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
-                      <input className="input flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} />
-                      <button className="text-xs text-red-600 dark:text-red-400" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}>✕</button>
+                      <input type="radio" name={`correct-${qi}`} aria-label={`Correct answer for question ${qi + 1}`} value={oi} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
+                      <input className="input flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} aria-label={`Option ${oi + 1} of question ${qi + 1}`} />
+                      <button aria-label={`Remove option ${oi + 1} of question ${qi + 1}`} className="btn-ghost btn-sm !text-red-600 dark:!text-red-400" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}><X className="h-4 w-4" aria-hidden /></button>
                     </div>
                   ))}
-                  <button className="text-xs text-brand-600" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: [...x.options, ''] } : x)))}>+ option</button>
+                  <button className="btn-ghost btn-sm text-brand-600" aria-label={`Add an option to question ${qi + 1}`} onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: [...x.options, ''] } : x)))}>+ option</button>
                 </div>
               </div>
             ))}
-            <button className="text-sm text-brand-600" onClick={() => setQuestions((qs) => [...qs, { prompt: '', options: ['', ''], correct_index: 0 }])}>+ Add question manually</button>
+            <button className="btn-ghost btn-sm text-brand-600" onClick={() => setQuestions((qs) => [...qs, { prompt: '', options: ['', ''], correct_index: 0 }])}>+ Add question manually</button>
             <div className="glass-secondary grid gap-2 rounded-xl p-3 text-xs sm:grid-cols-3">
               <p className="font-semibold text-foreground sm:col-span-3">Integrity settings (enforced on the server)</p>
-              <label>Max attempts <input type="number" min={1} max={20} className="input mt-1" value={maxAttempts} onChange={(e) => setMaxAttempts(+e.target.value)} /></label>
-              <label>Cooldown between attempts (min) <input type="number" min={0} className="input mt-1" value={cooldown} onChange={(e) => setCooldown(+e.target.value)} /></label>
-              <label>Time limit (min, blank = none) <input type="number" min={1} max={240} className="input mt-1" value={timeLimit} onChange={(e) => setTimeLimit(e.target.value ? +e.target.value : '')} /></label>
-              <label>Questions per paper (blank = all {questions.length}) <input type="number" min={1} max={questions.length || 1} className="input mt-1" value={poolSize} onChange={(e) => setPoolSize(e.target.value ? +e.target.value : '')} /></label>
+              <Field label="Max attempts">
+                {(ids) => <input {...ids} type="number" min={1} max={20} className="input" value={maxAttempts} onChange={(e) => setMaxAttempts(+e.target.value)} />}
+              </Field>
+              <Field label="Cooldown between attempts (min)">
+                {(ids) => <input {...ids} type="number" min={0} className="input" value={cooldown} onChange={(e) => setCooldown(+e.target.value)} />}
+              </Field>
+              <Field label="Time limit (min, blank = none)">
+                {(ids) => <input {...ids} type="number" min={1} max={240} className="input" value={timeLimit} onChange={(e) => setTimeLimit(e.target.value ? +e.target.value : '')} />}
+              </Field>
+              <Field label={`Questions per paper (blank = all ${questions.length})`}>
+                {(ids) => <input {...ids} type="number" min={1} max={questions.length || 1} className="input" value={poolSize} onChange={(e) => setPoolSize(e.target.value ? +e.target.value : '')} />}
+              </Field>
               <label className="flex items-center gap-2 self-end pb-2"><input type="checkbox" checked={shuffle} onChange={(e) => setShuffle(e.target.checked)} /> Shuffle questions &amp; options per learner</label>
               <label className="flex items-center gap-2 self-end pb-2"><input type="checkbox" checked={proctored} onChange={(e) => setProctored(e.target.checked)} /> Webcam proctoring (face, tab &amp; clipboard)</label>
               <p className="text-gray-500 sm:col-span-3">Each learner gets a different paper drawn from your bank; the answer key never leaves the server; refreshing resumes the same attempt with the same deadline.</p>
             </div>
           </div>
         )}
-        {type === 'ai_viva' && <textarea className="input" rows={2} placeholder="Topic context the AI uses to generate the viva question" value={vivaTopic} onChange={(e) => setVivaTopic(e.target.value)} />}
-        {type === 'project' && <textarea className="input" rows={2} placeholder="Project instructions for learners" value={projectInstr} onChange={(e) => setProjectInstr(e.target.value)} />}
+        {type === 'ai_viva' && (
+          <Field label="Topic context for the oral check">
+            {(ids) => <textarea {...ids} className="input" rows={2} placeholder="What the AI uses to generate the viva question" value={vivaTopic} onChange={(e) => setVivaTopic(e.target.value)} />}
+          </Field>
+        )}
+        {type === 'project' && (
+          <Field label="Project instructions">
+            {(ids) => <textarea {...ids} className="input" rows={2} placeholder="Instructions for learners" value={projectInstr} onChange={(e) => setProjectInstr(e.target.value)} />}
+          </Field>
+        )}
 
-        {note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{note}</p>}
+        <FormStatus status={status} />
         {live && !locked && <p className="text-xs text-gray-500">New assessments on a live course are reviewed with your other changes before learners see them.</p>}
         <button className="btn" disabled={busy || locked} onClick={save} title={locked ? 'Editing is locked while your course or changes are in review' : undefined}>Save assessment</button>
       </div>

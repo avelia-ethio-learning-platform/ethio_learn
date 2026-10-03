@@ -3,6 +3,8 @@
 import { FormEvent, useState } from 'react';
 import { CheckCircle2, Layers, Pencil, Play, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { resolveContentType, VIDEO_ACCEPT } from '@/lib/upload';
 import {
   BADGE_CLASS,
@@ -39,7 +41,7 @@ export function SectionsAndLessons({ course, edit, refresh }: { course: WorkingC
   return (
     <div className="space-y-3">
       <h2 className="flex items-center gap-2 text-lg font-semibold">
-        <Layers className="h-5 w-5 text-brand-500" /> Sections &amp; lessons
+        <Layers className="h-5 w-5 text-brand-500" aria-hidden /> Sections &amp; lessons
       </h2>
       {edit.canEdit && <OrphanUploadHints />}
       {course.sections.map((section) => (
@@ -52,8 +54,9 @@ export function SectionsAndLessons({ course, edit, refresh }: { course: WorkingC
 }
 
 function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit: Edit; refresh: () => void }) {
+  const ask = useConfirm();
   const [editing, setEditing] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const removing = section.pending_state === 'removed';
   const editable = edit.canEdit && !edit.locked && !removing;
 
@@ -62,8 +65,8 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
     const question = staged
       ? 'Remove this section and its lessons? Learners keep them until your changes are approved.'
       : 'Delete this section and all its lessons?';
-    if (!confirm(question)) return;
-    setError('');
+    if (!(await ask({ title: `${staged ? 'Remove' : 'Delete'} the section “${section.title}”?`, body: question, confirmLabel: staged ? 'Remove section' : 'Delete section', tone: 'danger' }))) return;
+    clearStatus();
     try {
       await api(`/sections/${section.id}`, { method: 'DELETE' });
       refresh();
@@ -86,18 +89,18 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
         {edit.canEdit && !removing && (
           <span className="flex shrink-0 items-center gap-1">
             <button
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-brand-600 transition-colors hover:bg-brand-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="btn-ghost btn-sm inline-flex items-center gap-1 disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!editable}
               onClick={() => setEditing((v) => !v)}
             >
-              <Pencil className="h-3.5 w-3.5" /> Edit
+              <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
             </button>
             <button
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="btn-ghost btn-sm inline-flex items-center gap-1 !text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:!text-red-400"
               disabled={!editable}
               onClick={remove}
             >
-              <Trash2 className="h-3.5 w-3.5" /> Delete section
+              <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete section
             </button>
           </span>
         )}
@@ -112,7 +115,7 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
           onCancel={() => setEditing(false)}
         />
       )}
-      {error && <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
+      <FormStatus status={status} />
       <ul className="mt-2 space-y-0.5 text-sm text-gray-600">
         {section.lessons.map((lesson) => (
           <LessonRow key={lesson.id} lesson={lesson} sectionState={section.pending_state} edit={edit} refresh={refresh} />
@@ -125,15 +128,17 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
 }
 
 function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLesson; sectionState: PendingState; edit: Edit; refresh: () => void }) {
+  const ask = useConfirm();
   const [editing, setEditing] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const removing = sectionState === 'removed' || lesson.pending_state === 'removed';
   const editable = edit.canEdit && !edit.locked && !removing;
 
   const remove = async () => {
     const staged = edit.live && lesson.pending_state !== 'added' && sectionState !== 'added';
-    if (!confirm(staged ? 'Remove this lesson? Learners keep it until your changes are approved.' : 'Remove this lesson?')) return;
-    setError('');
+    const body = staged ? 'Learners keep it until your changes are approved.' : undefined;
+    if (!(await ask({ title: `Remove the lesson “${lesson.title}”?`, body, confirmLabel: 'Remove lesson', tone: 'danger' }))) return;
+    clearStatus();
     try {
       await api(`/lessons/${lesson.id}`, { method: 'DELETE' });
       refresh();
@@ -146,14 +151,14 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
     <li className="rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="flex min-w-[10rem] flex-1 items-center gap-2">
-          <Play className={`h-3.5 w-3.5 shrink-0 ${lesson.has_video ? 'text-brand-400' : 'text-gray-500'}`} />
+          <Play aria-hidden className={`h-3.5 w-3.5 shrink-0 ${lesson.has_video ? 'text-brand-400' : 'text-gray-500'}`} />
           <span className={`min-w-0 truncate ${removing ? 'line-through' : ''}`} title={lesson.title}>
             {lesson.title}
           </span>
           <Badges badges={lessonBadges(lesson, sectionState)} />
           {lesson.has_video ? (
             <span className="badge-success shrink-0 ">
-              <CheckCircle2 className="h-2.5 w-2.5" /> video
+              <CheckCircle2 className="h-2.5 w-2.5" aria-hidden /> video
             </span>
           ) : (
             <span className="badge-warn shrink-0 ">no video</span>
@@ -163,14 +168,14 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
           <span className="flex shrink-0 items-center gap-1">
             <UploadVideoButton lessonId={lesson.id} hasVideo={lesson.has_video} disabled={!editable} />
             <button
-              className="rounded-lg px-2 py-0.5 text-xs font-medium text-brand-600 opacity-80 transition-all hover:bg-brand-500/10 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+              className="btn-ghost btn-sm disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!editable}
               onClick={() => setEditing((v) => !v)}
             >
               edit
             </button>
             <button
-              className="rounded-lg px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400 opacity-70 transition-all hover:bg-red-500/10 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+              className="btn-ghost btn-sm !text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:!text-red-400"
               disabled={!editable}
               onClick={remove}
             >
@@ -190,7 +195,9 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
           onCancel={() => setEditing(false)}
         />
       )}
-      {error && <p className="ml-5 mt-1 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
+      <div className="ml-5">
+        <FormStatus status={status} />
+      </div>
       {edit.canEdit && (
         <div className="ml-5">
           <LessonUploadStatus lessonId={lesson.id} />
@@ -207,7 +214,7 @@ function EditLessonForm({ lesson, onDone, onCancel }: { lesson: WorkingLesson; o
   const [summary, setSummary] = useState(lesson.summary ?? '');
   const [minutes, setMinutes] = useState(initialMinutes);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -218,7 +225,7 @@ function EditLessonForm({ lesson, onDone, onCancel }: { lesson: WorkingLesson; o
     if (minutes !== initialMinutes) body.duration_seconds = Math.max(0, Math.round(Number(minutes || 0) * 60));
     if (!Object.keys(body).length) return onCancel();
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       await api(`/lessons/${lesson.id}`, { method: 'PUT', body });
       onDone();
@@ -259,8 +266,8 @@ function EditLessonForm({ lesson, onDone, onCancel }: { lesson: WorkingLesson; o
         <button type="button" className="text-xs text-gray-500 hover:underline" onClick={onCancel}>
           Cancel
         </button>
-        {error && <span className="text-xs font-medium text-red-600 dark:text-red-400">{error}</span>}
       </div>
+      <FormStatus status={status} />
     </form>
   );
 }
@@ -269,7 +276,7 @@ function EditSectionForm({ section, onDone, onCancel }: { section: WorkingSectio
   const [title, setTitle] = useState(section.title);
   const [preview, setPreview] = useState(section.is_free_preview);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -278,7 +285,7 @@ function EditSectionForm({ section, onDone, onCancel }: { section: WorkingSectio
     if (preview !== section.is_free_preview) body.is_free_preview = preview;
     if (!Object.keys(body).length) return onCancel();
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       await api(`/sections/${section.id}`, { method: 'PUT', body });
       onDone();
@@ -300,13 +307,15 @@ function EditSectionForm({ section, onDone, onCancel }: { section: WorkingSectio
       <button type="button" className="text-xs text-gray-500 hover:underline" onClick={onCancel}>
         Cancel
       </button>
-      {error && <span className="w-full text-xs font-medium text-red-600 dark:text-red-400">{error}</span>}
+      <div className="w-full">
+        <FormStatus status={status} />
+      </div>
     </form>
   );
 }
 
 function AddSection({ courseId, disabled, onDone }: { courseId: string; disabled: boolean; onDone: () => void }) {
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   return (
     <form
       className="card flex flex-wrap items-center gap-2"
@@ -314,7 +323,7 @@ function AddSection({ courseId, disabled, onDone }: { courseId: string; disabled
         e.preventDefault();
         const formEl = e.currentTarget;
         const form = new FormData(formEl);
-        setError('');
+        clearStatus();
         try {
           await api(`/courses/${courseId}/sections`, { method: 'POST', body: { title: String(form.get('title')).trim(), is_free_preview: form.get('preview') === 'on' } });
           formEl.reset();
@@ -331,7 +340,9 @@ function AddSection({ courseId, disabled, onDone }: { courseId: string; disabled
         </label>
         <button className="btn-secondary">Add section</button>
       </fieldset>
-      {error && <p className="w-full text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
+      <div className="w-full">
+        <FormStatus status={status} />
+      </div>
     </form>
   );
 }
@@ -341,7 +352,7 @@ function AddLesson({ sectionId, disabled, onDone }: { sectionId: string; disable
   const startUpload = useStartLessonUpload();
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   return (
     <form
       className="mt-3 border-t pt-3"
@@ -351,7 +362,7 @@ function AddLesson({ sectionId, disabled, onDone }: { sectionId: string; disable
         const form = new FormData(formEl);
         const summary = String(form.get('summary') ?? '').trim();
         setBusy(true);
-        setError('');
+        clearStatus();
         try {
           const lesson = await api<{ id: string }>(`/sections/${sectionId}/lessons`, {
             method: 'POST',
@@ -390,7 +401,7 @@ function AddLesson({ sectionId, disabled, onDone }: { sectionId: string; disable
                 setError(UNSUPPORTED_VIDEO);
                 return;
               }
-              setError('');
+              clearStatus();
               setFile(picked);
             }}
           />
@@ -403,7 +414,7 @@ function AddLesson({ sectionId, disabled, onDone }: { sectionId: string; disable
         <input name="summary" maxLength={500} placeholder="One-line summary (optional)" className="input min-w-0 basis-full text-xs" />
         <button className="btn-secondary">{busy ? 'Adding…' : file ? 'Add lesson & upload' : 'Add lesson'}</button>
       </fieldset>
-      {error && <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
+      <FormStatus status={status} />
     </form>
   );
 }

@@ -1,8 +1,9 @@
 'use client';
 
 import { ClipboardEvent, useEffect, useRef, useState } from 'react';
-import { BookOpenCheck, Sparkles, X } from 'lucide-react';
+import { BookOpenCheck, FileUp, Sparkles, X } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { extractDocument } from '@/lib/extract-text';
 import { buildDigest, DIGEST_BUDGET_CHARS, fitsDigestBudget } from '@/lib/outline-source';
 import {
@@ -53,6 +54,7 @@ export function StructureGenerator({
   autoOpen: boolean;
   onApplied: () => void;
 }) {
+  const ask = useConfirm();
   const [open, setOpen] = useState(autoOpen);
   const [prompt, setPrompt] = useState('');
   const [sourceText, setSourceText] = useState('');
@@ -157,7 +159,7 @@ export function StructureGenerator({
   };
 
   const generate = async () => {
-    if (draft?.length && !confirm('Replace your current draft outline with a new one?')) return;
+    if (draft?.length && !(await ask({ title: 'Replace your current draft outline with a new one?', confirmLabel: 'Replace outline' }))) return;
     setGenerating(true);
     setNote('');
     setResult('');
@@ -279,7 +281,11 @@ export function StructureGenerator({
           />
           <div className="flex flex-wrap items-center gap-2">
             <label className={`btn-secondary text-xs focus-within:ring-2 focus-within:ring-brand-500 ${reading ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}>
-              {reading ?? '📄 Upload PDF / Word / notes'}
+              {reading ?? (
+                <>
+                  <FileUp className="h-3.5 w-3.5" aria-hidden /> Upload PDF / Word / notes
+                </>
+              )}
               <input
                 type="file"
                 accept={FILE_ACCEPT}

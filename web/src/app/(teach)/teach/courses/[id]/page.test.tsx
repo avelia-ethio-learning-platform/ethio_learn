@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const { apiMock, search, uploads, FakeUpload } = vi.hoisted(() => {
@@ -37,6 +37,7 @@ vi.mock('next/navigation', () => ({
 // The extractor would load pdf.js; nothing here reads a file.
 vi.mock('@/lib/extract-text', () => ({ extractDocument: vi.fn(), textToBlocks: () => [] }));
 
+import { ConfirmProvider } from '@/components/confirm/ConfirmProvider';
 import ManageCoursePage from './page';
 import { resetLessonUploadsForTests } from './video-upload';
 import type { KnowledgeDoc, WorkingCourse } from './working';
@@ -86,6 +87,10 @@ function respond(course: WorkingCourse, knowledge: KnowledgeDoc[] = []) {
   });
 }
 
+const dialog = () => document.querySelector('dialog')!;
+const inDialog = (name: string) => within(dialog()).getByRole('button', { name });
+const settle = () => act(async () => {});
+
 /** The add forms are disabled through their <fieldset>, which disables every control inside. */
 const fieldsetDisabled = (buttonName: string) => !!screen.getByRole('button', { name: buttonName }).closest('fieldset')?.disabled;
 
@@ -93,7 +98,9 @@ async function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <ManageCoursePage />
+      <ConfirmProvider>
+        <ManageCoursePage />
+      </ConfirmProvider>
     </QueryClientProvider>,
   );
   await act(async () => {
@@ -170,22 +177,22 @@ describe('course authoring page', () => {
     // Of the pair only the pending row can be removed: one button, not two.
     const remove = (await screen.findByRole('button', { name: 'Remove tutor note FAQ' })) as HTMLButtonElement;
     expect(remove.disabled).toBe(false);
-    const confirm = vi.fn(() => true);
-    vi.stubGlobal('confirm', confirm);
     fireEvent.click(remove);
-    await act(async () => {});
-    expect(confirm).toHaveBeenCalledWith('Remove your pending note “FAQ”? Learners never saw it; the live “FAQ” note they use stays as it is.');
+    await settle();
+    expect(dialog().textContent).toContain('Remove your pending note “FAQ”? Learners never saw it; the live “FAQ” note they use stays as it is.');
+    fireEvent.click(inDialog('Remove note'));
+    await settle();
     expect(apiMock).toHaveBeenCalledWith('/courses/c1/knowledge/FAQ?state=pending', { method: 'DELETE' });
   });
 
   it('asks before removing a live note, which learners lose at once', async () => {
     respond(working(), [{ source: 'notes', title: 'Glossary', state: 'live', chunks: 2 }]);
     await renderPage();
-    const confirm = vi.fn((_message: string) => false);
-    vi.stubGlobal('confirm', confirm);
     fireEvent.click(await screen.findByRole('button', { name: 'Remove tutor note Glossary' }));
-    await act(async () => {});
-    expect(confirm.mock.calls[0][0]).toMatch(/Learners lose it right away/);
+    await settle();
+    expect(dialog().textContent).toMatch(/Learners lose it right away/);
+    fireEvent.click(inDialog('Cancel'));
+    await settle();
     expect(apiMock).not.toHaveBeenCalledWith(expect.stringContaining('/knowledge/Glossary'), expect.anything());
   });
 
@@ -215,7 +222,63 @@ describe('course authoring page', () => {
     search.value = 'generate=1';
     respond(working({ status: 'draft', revision: null, has_pending_changes: false }));
     await renderPage();
-    expect(screen.getByText('📄 Upload PDF / Word / notes')).toBeTruthy();
+    expect(screen.getByText('Upload PDF / Word / notes')).toBeTruthy();
     expect(screen.getByPlaceholderText(/paste your document/)).toBeTruthy();
+  });
+  it('archive asks first: Cancel sends nothing, Confirm archives', async () => {
+    respond(working({ status: 'draft', revision: null, has_pending_changes: false }));
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await settle();
+    expect(dialog().textContent).toContain('Archive “Farming 101”?');
+    fireEvent.click(inDialog('Cancel'));
+    await settle();
+    expect(apiMock).not.toHaveBeenCalledWith('/courses/c1/archive', expect.anything());
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await settle();
+    fireEvent.click(inDialog('Archive course'));
+    await settle();
+    expect(apiMock).toHaveBeenCalledWith('/courses/c1/archive', { method: 'POST', body: undefined });
+    expect(screen.getByText('Course archived.')).toBeTruthy();
+  });
+
+  it('unpublish asks first and says enrolled learners keep access', async () => {
+    respond(working({ has_pending_changes: false, revision: null }));
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Unpublish' }));
+    await settle();
+    expect(dialog().textContent).toContain('enrolled learners keep access');
+    fireEvent.click(inDialog('Cancel'));
+    await settle();
+    expect(apiMock).not.toHaveBeenCalledWith('/courses/c1/unpublish', expect.anything());
+  });
+
+  it('shows a failed action as an alert', async () => {
+    respond(working({ status: 'unlisted', revision: null, has_pending_changes: false }));
+    await renderPage();
+    apiMock.mockRejectedValueOnce(new Error('Not allowed'));
+    fireEvent.click(screen.getByRole('button', { name: 'Re-publish' }));
+    await settle();
+    expect(within(screen.getAllByRole('alert').find((n) => n.textContent)!).getByText('Not allowed')).toBeTruthy();
+  });
+
+  it('links to the learner preview', async () => {
+    respond(working({ status: 'draft', revision: null, has_pending_changes: false }));
+    await renderPage();
+    expect(screen.getByRole('link', { name: /Preview as learner/ }).getAttribute('href')).toBe('/preview/c1');
+  });
+
+  it('names every control of the quiz builder', async () => {
+    respond(working({ status: 'draft', revision: null, has_pending_changes: false }));
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: '+ Add question manually' }));
+    expect(screen.getByRole('textbox', { name: 'Question 1 prompt' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Option 2 of question 1' })).toBeTruthy();
+    expect(screen.getAllByRole('radio', { name: 'Correct answer for question 1' })).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Remove option 1 of question 1' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove question 1' })).toBeTruthy();
+    expect(screen.getByLabelText('Assessment type')).toBeTruthy();
+    expect(screen.getByLabelText('Pass score')).toBeTruthy();
+    expect(screen.getByLabelText('Max attempts')).toBeTruthy();
   });
 });
