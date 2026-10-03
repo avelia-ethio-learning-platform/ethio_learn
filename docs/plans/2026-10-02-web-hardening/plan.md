@@ -1,0 +1,221 @@
+# Phase 10: Security headers, performance, SEO and Amharic for new learners
+
+Status: approved (round 1, S1 and the nits folded in)
+Size: M (sessions: 3 — ethio-impl implements, ethio-plan-review reviews plan and code). Web only.
+Base branch: `origin/main` (amended 2026-10-03: runs in parallel with the backend stack 9a–9e and 11a; merge `origin/main` after 8b lands and before the gate). Earlier: the tip of the stack, expected `perf/read-paths` (9e). This phase builds on:
+- Phase 5's `wake.ts` and ISR pages;
+- 7a's metadata, icons, `MotionConfig` and i18n keys;
+- 7b's `CourseCover`, per-course OG images and fonts in `web/src/assets/fonts/`;
+- 8b's role pages;
+- 9e's list shapes.
+
+Feature branch: `feat/web-hardening`.
+Roadmap: phase 10. Findings: P1-06, P1-53 (the rest after 7a), P1-55 (scoped by the user's English-first decision), P1-56, P2-26, P2-28, P2-34.
+
+## Goal
+- The web app sends the security headers a payments and accounts site needs, including a Content Security Policy that allows exactly what the app loads.
+- First loads get lighter on the mobile connections the product targets: video and animation code load only when used, and fonts are self-hosted and subset.
+- An Amharic-speaking new learner sees Amharic from the header through sign-up, the catalog, a course page, checkout and the dashboard, and is told plainly when a page is still English-only.
+
+Acceptance criteria:
+- **Headers (P1-06):** every response carries:
+  - `X-Content-Type-Options: nosniff`;
+  - `Referrer-Policy: strict-origin-when-cross-origin`;
+  - `X-Frame-Options: DENY`;
+  - `Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=()`;
+  - `Cross-Origin-Opener-Policy: same-origin-allow-popups`;
+  - in production builds, `Strict-Transport-Security`.
+- **CSP:**
+  - built from the build's env;
+  - enforced in development, CI and Playwright, where the suite fails on any CSP violation in the console;
+  - in production, sent as `Content-Security-Policy-Report-Only` with reports collected, until the user flips `CSP_ENFORCE=true` after a clean week;
+  - every flow works under the enforced policy: Google sign-in, uploads, video playback, webcam proctoring (mediapipe wasm), PDF outline extraction, wake pings, Chapa redirect, the service worker.
+- **Bundle (P1-56):**
+  - `hls.js` is not in the first-load JS of the course page, the lesson player or the preview page; it loads when playback starts;
+  - framer-motion in the shared shell drops to the `LazyMotion` core.
+  - The `next build` first-load sizes for `/`, `/courses/[id]` and `/learn/[courseId]` are recorded before and after, and all three go down.
+- **Fonts (P2-28):**
+  - no request to `fonts.googleapis.com` or `fonts.gstatic.com`;
+  - Inter and Noto Sans Ethiopic self-hosted through `next/font`, with only the weights the UI uses;
+  - no render-blocking `@import`.
+- **Images (P2-26):** every raw `<img>` has `width`, `height`, `decoding="async"` and `loading="lazy"`, except the home hero, which gets `fetchpriority="high"`. Decorative thumbnails get `alt=""`.
+- **SEO (P1-53 rest):**
+  - every indexable route has a canonical URL;
+  - a production build fails if `NEXT_PUBLIC_SITE_URL` is missing, so canonicals, the sitemap and OG URLs never point at localhost.
+- **Amharic (P1-55, English-first scope):**
+  - in Amharic mode, every user-facing string is Amharic on: the header, footer, login, signup, reset-password, verify-email, the catalog, the course page (with its enroll panel and coupon, gift and sponsor forms), the payment return page, the dashboard, course cards, the waking-up states, and the 404 and error pages;
+  - on every other page, Amharic mode shows a one-line notice that the page is in English for now;
+  - new `am` strings are listed for the native speaker's review.
+- **`<html lang>` (P2-34):** it matches the saved locale before first paint.
+
+## Non-goals
+- **A nonce- or hash-based strict CSP.** Static and ISR pages (Phase 5) can't carry per-request nonces. Decision 1 explains the `'unsafe-inline'` trade.
+- **Proxying the API through the web origin** (P1-07, Phase 11). Phase 11 tightens `connect-src` to `'self'` when it lands.
+- **Translating role pages,** the lesson player, account, notifications, messages, help and educators. They get the English-only notice. The same goes for API error messages, which stay English.
+- **Server-side locale** (a cookie read in the root layout would make every page dynamic and undo Phase 5's ISR). Text flips after hydration, as the shell does today. `lang` is set before paint (decision 7).
+- **Next.js 15** (Phase 11), image optimization through Vercel (decision 4), and removing framer-motion entirely.
+
+## Current state
+- **Headers** (`web/next.config.mjs:1-24`): `poweredByHeader: false`, an optional standalone output and the `/?q` redirect. No `headers()`. `vercel.json` only names the framework. Production has only Vercel's HSTS; the gateway already sends helmet's set.
+- **What the app loads** (Phase 10 research; the CSP must allow each):
+  - **Inline scripts:** the theme-init script (`layout.tsx:34`, from `lib/theme-script.ts:5`) and Next's own inline flight scripts on every page.
+  - **Google Identity Services** (`GoogleSignInButton.tsx:9,33-39`): the script `accounts.google.com/gsi/client` and its iframe, style and fetches; profile images from `*.googleusercontent.com`.
+  - **API:** `NEXT_PUBLIC_API_URL`, with `credentials: 'include'`.
+  - **Wake pings** (`lib/wake.ts`): `NEXT_PUBLIC_WAKE_URLS`, `no-cors`.
+  - **Uploads** (`lib/upload.ts:363-375`): presigned PUTs straight to R2 (`https://<account>.r2.cloudflarestorage.com`; MinIO `:9000` locally).
+  - **Video:** hls.js loads signed R2 `.m3u8` and segments, with blob: workers and MSE blob: URLs. Safari plays the URL natively.
+  - **Images:** thumbnails from `NEXT_PUBLIC_S3_PUBLIC_URL`; proctor previews may be `data:` (`lib/proctor.ts:184-185`).
+  - **Proctoring:** mediapipe wasm and model self-hosted in `public/mediapipe/`, which needs `'wasm-unsafe-eval'`.
+  - **pdf.js** worker at `public/pdf.worker.min.mjs`.
+  - **Service worker** `public/sw.js` (`VERSION = 'el-sw-v1'`, `:14`).
+  - **Chapa:** a top-level redirect only. No iframes.
+  - framer-motion writes inline `style` attributes.
+- **i18n** (`lib/i18n.tsx`):
+  - client-only: starts `en`, reads `localStorage.el_locale` in an effect and sets `document.documentElement.lang` then (`:278-301`);
+  - about 125 keys per locale, with a parity test (`i18n.test.ts:4-17`);
+  - `t()` is used on the home page, the shell and parts of auth, the catalog, the dashboard and the enroll panel;
+  - hardcoded English remains in: login (~6), signup (~11), reset (~3), verify-email (~5), the enroll panel's sub-forms (~11), payment return, the dashboard (~27), `CourseCard` (price label, category), the course page (a server component, no `useT`), `error.tsx`, `not-found.tsx` and the waking-up components.
+  - 7a and 7b add keys for the chrome they touch, and 7b adds Amharic category labels.
+- **Bundle:**
+  - `hls.js` is imported statically at the top of `learn/[courseId]/page.tsx:6`, `CoursePreviewPlayer.tsx:5` and `(admin)/preview/[id]/page.tsx:6`;
+  - framer-motion is in the root-layout chrome (`Header`, `Footer`, `ThemeToggle`, `LanguageToggle`, `NotificationBell`) and in `home-client`/`explore-client`, so it ships on every route;
+  - pdf.js and mediapipe are already dynamic.
+- **Images:** no `next/image` and no `images` config. Raw `<img>` at:
+  - `CourseCard.tsx:42-46` (7b may replace it with `CourseCover` when there's no thumbnail);
+  - `home-client.tsx:208` (hero, likely LCP);
+  - `teach/courses/[id]/page.tsx:170`;
+  - `preview/[id]/page.tsx:180`;
+  - `exam/[assessmentId]/page.tsx:338`.
+- **Fonts:**
+  - `globals.css:1-3`: two `@import url(...)` lines (Inter 300–900 and Noto Sans Ethiopic 300–800, 13 weights);
+  - `tailwind.config.ts:56-58` names both families;
+  - `font-extrabold` (800) is used on headings across the app.
+- **Metadata:**
+  - `metadataBase` comes from `NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'` (`layout.tsx:10`, `lib/server-api.ts:58`);
+  - canonicals exist on `/`, `/courses`, `/courses/[id]`, `/educators` and `/educators/[id]`; 7a adds login, signup and help.
+
+## Design and key decisions
+1. **One CSP builder, Report-Only in production until the user enforces it:**
+   - `web/src/lib/csp.ts` exports `buildCsp(env)`, a pure function tested with vitest. `next.config.mjs` calls it in `headers()` for `/:path*`.
+   - **Directives:**
+     - `default-src 'self'`
+     - `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://accounts.google.com/gsi/client`
+     - `style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style`
+     - `img-src 'self' data: blob: <S3 public origin> https://*.googleusercontent.com`
+     - `font-src 'self'`
+     - `connect-src 'self' <API origin> <wake origins> <media origins> https://accounts.google.com/gsi/`
+     - `media-src 'self' blob: <media origins>`
+     - `worker-src 'self' blob:`
+     - `frame-src https://accounts.google.com/gsi/`
+     - `frame-ancestors 'none'`
+     - `object-src 'none'`
+     - `base-uri 'self'`
+     - `form-action 'self'`
+     - `manifest-src 'self'`
+     - production adds `upgrade-insecure-requests`;
+     - **`next dev` only** (`NODE_ENV === 'development'`) adds `'unsafe-eval'` to `script-src`, because webpack's eval dev builds and React Refresh need it. A vitest asserts it's absent from a production build's policy (plan-review S1).
+   - **Origins** come from `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WAKE_URLS`, `NEXT_PUBLIC_S3_PUBLIC_URL` and a new `NEXT_PUBLIC_MEDIA_ORIGINS` (comma-separated R2 upload and stream origins, which aren't in the web env today). They are reduced to origins (scheme, host, port). Locally, `http://localhost:4000` and `http://localhost:9000` apply.
+   - **Google** entries are present only when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is set.
+   - **Why `'unsafe-inline'` in `script-src`:** static and ISR pages can't carry a nonce, and Next's flight scripts change per build, so hashes don't work either. The policy still blocks every external script origin, plugins, `<base>` hijacks, framing (clickjacking on login, checkout, account deletion and QA approve), and exfiltration to unlisted hosts. Inline-injection defence stays with React's escaping and Phase 3's JSON-LD escaping.
+   - **Report-Only, then enforce:**
+     - `CSP_ENFORCE` (build-time) selects `Content-Security-Policy` or `Content-Security-Policy-Report-Only`. Its default is keyed on `VERCEL_ENV === 'production'`, never `NODE_ENV`, which `next build` always sets to production: Report-Only on Vercel production, enforced everywhere else, including CI's `next start`, so Playwright tests the enforced policy (plan-review N1).
+     - `NEXT_PUBLIC_MEDIA_ORIGINS` and `CSP_ENFORCE` are added as build `ARG`s in `web/Dockerfile`, so the self-hosted image gets the same policy.
+     - A route handler `app/api/csp-report/route.ts` accepts reports (body ≤ 8 KB, sampled to 1 in 10 after the first 100 per instance), logs them, and returns 204. The policy points `report-uri` and `report-to` at it.
+     - The user reviews Vercel's logs for a week and sets `CSP_ENFORCE=true`. Rollout gives the steps.
+   - **The service worker** version moves to `el-sw-v2` so cached pages pick up the new headers.
+2. **The other headers:**
+   - `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options: DENY` (alongside `frame-ancestors` for older browsers), `Permissions-Policy` and `Cross-Origin-Opener-Policy` go on every response, exactly as in the acceptance criteria.
+   - `camera=(self)`, because proctoring uses the webcam.
+   - `same-origin-allow-popups`, because Google sign-in can open a popup.
+   - **HSTS:** `Strict-Transport-Security: max-age=63072000; includeSubDomains` only when `VERCEL_ENV === 'production'`. Vercel already sends a shorter one on `vercel.app`; no `preload` until the user has a custom domain.
+3. **Bundle:**
+   - **hls.js:** `const { default: Hls } = await import('hls.js')` inside each play handler or effect (the three players), then `Hls.isSupported()`. Safari's native path never loads it.
+   - **framer-motion:**
+     - `Providers` wraps the app in `<LazyMotion features={domAnimation} strict>`;
+     - the shell components and `home-client`/`explore-client` use `m.*` instead of `motion.*`;
+     - `strict` makes any leftover `motion.*` throw in development, so none slips through;
+     - the header's nav underline uses `layoutId` (`Header.tsx:116`), which needs `domMax`, not `domAnimation`. The shell loads `domMax` lazily (`LazyMotion features={() => import('./motion-features').then(m => m.domMax)}`), so the underline still slides (plan-review N2);
+     - 7a's `MotionConfig` stays.
+   - **Measuring:** record `next build`'s first-load JS for `/`, `/courses/[id]` and `/learn/[courseId]` before and after, in Progress.
+4. **Images, without the optimizer:**
+   - Raw `<img>` keeps its `src`, and gains `width`/`height` matching its CSS box, `decoding="async"` and `loading="lazy"`.
+   - **The hero:** `fetchpriority="high"`, no lazy.
+   - **Card thumbnails** get `alt=""`, because the card's heading names the course.
+   - **The editor and preview thumbnails** (`teach/courses/[id]/page.tsx:170`, `preview/[id]/page.tsx:180`) go through 7b's `hasRealThumbnail`, falling back to `CourseCover`, so the seed's `placehold.co` thumbnails never reach the CSP and `placehold.co` stays out of the policy (plan-review N3).
+   - Rejected: `next/image`. On Vercel it routes every remote thumbnail through the image optimizer, which has a monthly quota on the free plan and would fetch from R2 on every miss. It also needs `remotePatterns` tied to env. The attributes give the layout stability and lazy loading that P2-26 asks for.
+5. **Fonts:**
+   - **`next/font/google` in `app/fonts.ts`:**
+     - Inter: weights 400, 500, 600, 700, 800 (headings use 800), subset `latin`;
+     - Noto Sans Ethiopic: 400, 600, 700, subset `ethiopic`;
+     - both `display: 'swap'`, exposed as CSS variables.
+   - `tailwind.config.ts` families use the variables, and the `@import` lines are deleted.
+   - Light (300) and black (900) weights are dropped; the implementer greps `font-light`/`font-black` and swaps any use to the nearest kept weight.
+   - 7b's TTFs in `web/src/assets/fonts/` stay for the OG images only.
+6. **Amharic for the new-learner path:**
+   - **Server components:** a small client `<T k="…" />` (and `useT` in client components) renders translated text. The course page, `CourseCard`, `error.tsx` and `not-found.tsx` render translatable text through `<T>`, so their server HTML is English and flips after hydration, as the shell does today.
+   - **Pages translated:** exactly the acceptance list. Prices go through 7a's `formatETB` with the locale, and categories through 7b's labels with their `am` names.
+   - **Untranslated pages:** a `LocaleNotice` in the root layout's client chrome compares `usePathname()` with a list of translated route prefixes in `lib/i18n-routes.ts`. In Amharic mode on any other route it shows one dismissible line, roughly "This page is in English for now" in Amharic. It is dismissed per session.
+   - **Review:** every new or changed `am` value is drafted by the implementer and listed in `docs/i18n/am-review.md` (key, English, Amharic draft, page) for the native speaker. The parity test keeps both dictionaries complete.
+   - Rejected: hiding the toggle on untranslated pages. Users would lose their place, and the notice is clearer.
+7. **`lang` before paint (P2-34):** the inline theme-init script also reads `el_locale` and sets `document.documentElement.lang`. This is a few bytes in an inline script already allowed by `'unsafe-inline'`. It fixes screen readers' language on first paint. Text still flips after hydration (Non-goals).
+8. **SEO:**
+   - **Required site URL:** `next.config.mjs` throws during a build where `VERCEL_ENV === 'production'` and `NEXT_PUBLIC_SITE_URL` is unset, not an `https://` URL, or contains `REPLACE` (any case). (Amended 2026-10-03 by ethio-planner: production shipped with the placeholder `https://REPLACE.vercel.app` set, which an unset-only check would let through; see USER-ACTIONS item 9.)
+   - **Canonicals:** `/verify` (the lookup form from Phase 5) gets a canonical, and every other indexable route is checked against the list in Current state.
+   - **Sitemap:** `sitemap.ts` lists `/help`, `/educators` and `/verify` alongside courses and educator profiles.
+   - A Playwright check asserts one canonical per indexable route.
+
+## Steps
+- [ ] 1. Branch `feat/web-hardening` from the base above. Record `next build`'s first-load sizes for the three routes.
+- [ ] 2. CSP builder and headers (decisions 1, 2): `lib/csp.ts`, `next.config.mjs` `headers()`, the report route, `NEXT_PUBLIC_MEDIA_ORIGINS` in `web/.env.example`, the SW version bump.
+  - vitest for `buildCsp`: origins reduced, Google present only with a client id, Report-Only versus enforce, no duplicate directives.
+  - The report route: size cap and sampling.
+- [ ] 3. Playwright under the enforced CSP: a fixture fails a test on any `securitypolicyviolation` or console CSP error. Then run the whole suite.
+  - New flow checks: Google button renders (skip when there's no client id in CI); an upload to local MinIO; a preview video plays; a proctored exam loads its wasm detector (or the spec asserts the detector-load path doesn't hit a CSP error); PDF outline extraction; a wake ping to a listed origin.
+  - Fix any directive gaps in `buildCsp`, not with blanket wildcards.
+- [ ] 4. Bundle (decision 3): hls.js dynamic in the three players; `LazyMotion` plus `m.*` across the shell and the two marketing clients. vitest stays green, playback works in Playwright, and the first-load sizes are recorded after.
+- [ ] 5. Images and fonts (decisions 4, 5). Verify: no Google font requests in Playwright's network log; the `font-light`/`font-black` grep is empty or swapped; screenshots show no layout shift on the home hero and course cards.
+- [ ] 6. Amharic (decisions 6, 7):
+  - `<T>`;
+  - the listed pages;
+  - `LocaleNotice` and `i18n-routes.ts`;
+  - the theme-init `lang` line;
+  - `docs/i18n/am-review.md`.
+
+  vitest: parity; `LocaleNotice` shows on `/teach` in Amharic mode and not on `/courses`; `lang` is set by the init script. Playwright: in Amharic mode the signup page has no ASCII-letter text nodes except brand names, emails and placeholders listed in an allowlist.
+- [ ] 7. SEO (decision 8): the site-URL build guard, canonicals, sitemap entries, the canonical Playwright check.
+- [ ] 8. Screenshots: the new-learner path in Amharic at 375 and 1440, plus the English-only notice, into `screenshots/after-phase10/` (git-ignored).
+- [ ] 9. Full gate:
+  - `pnpm -C web typecheck && pnpm -C web test && pnpm -C web build`;
+  - the Playwright suite (enforced CSP), following Phase 5's build order;
+  - `pnpm -C api test` untouched.
+- [ ] 10. Code review by ethio-plan-review; the user approves push and PR.
+
+## Test plan
+- **vitest:** `buildCsp` (step 2), the report route (step 2), `LocaleNotice` and the init script (step 6), the i18n parity test.
+- **Playwright:**
+  - the whole suite under the enforced CSP, with a violation-fails fixture (step 3);
+  - the new flow checks (step 3);
+  - no Google font requests (step 5);
+  - Amharic signup text (step 6);
+  - canonicals (step 7).
+- **Measurements:** first-load sizes before and after (steps 1, 4).
+
+## Rollout and ops
+- **Before deploy (the user, on Vercel):**
+  - set `NEXT_PUBLIC_MEDIA_ORIGINS` to the R2 upload and stream origins (from the Render storage env), comma-separated;
+  - **USER-ACTIONS item 9 done** (`NEXT_PUBLIC_SITE_URL` is the real `https://` site URL). This is a merge prerequisite: with the placeholder, the production build now fails on purpose;
+  - leave `CSP_ENFORCE` unset, so production ships Report-Only.
+- **After a week:**
+  - review CSP reports in Vercel's function logs for `/api/csp-report`;
+  - if only noise remains (browser extensions), set `CSP_ENFORCE=true` and redeploy;
+  - if a real flow shows up, add its origin to `NEXT_PUBLIC_MEDIA_ORIGINS` or file a fix.
+- **Native-speaker review:** `docs/i18n/am-review.md` lists every new Amharic string. Corrections are dictionary edits.
+- **Installed PWAs** pick up the new service worker version on their next visit.
+
+## Risks and open questions
+- **`'unsafe-inline'` scripts** are a known weakness (decision 1). Phase 11's same-origin API proxy and a future move to dynamic rendering with nonces could tighten it. Not this phase.
+- **Media origins** are env-driven. A wrong value breaks uploads or playback only when enforced, which is why production starts Report-Only and the Playwright suite enforces against local MinIO.
+- **Amharic quality:** drafts by the implementer need the native speaker's pass before they're relied on. Until then the English-only notice sets expectations.
+- **framer `strict` mode** throws on a stray `motion.*` in development. That's intended, but 7a's or 8b's components may still use `motion.*` outside the shell. The implementer converts any that render under `LazyMotion`.
+
+## Progress and deviations (implementer)
