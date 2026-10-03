@@ -267,7 +267,7 @@ Line numbers are from `fix/access-control` at `3de83c3`. Phase 5 edits some of t
   - the editor's file pickers with keyboard focus;
 
   saved into `docs/plans/2026-10-02-refinement-audit/screenshots/after-phase7a/` (git-ignored) for the user.
-- [ ] 12. Full gate:
+- [x] 12. Full gate (local gate done at `88c1cee`; CI on the PR pending):
   - `pnpm -C web typecheck && pnpm -C web test && pnpm -C web build`;
   - the Playwright suite against the local stack, using Phase 5's build order and restart rule;
   - `pnpm -C api test` untouched;
@@ -317,13 +317,37 @@ Deviations and notes (none changes a decision):
 - **Step 10:** 72/72 in the full suite. The first run found a real contrast failure: unread notification text on its tint, now `text-gray-600`. No axe waivers. The `/login` wrong-password scan stubs the login (drift D5), so the suite spends no extra auth-strict calls.
 - **Step 11:** the outline picker and the assessment upload weren't shot: the outline card is collapsed and the upload doesn't render on the sample course. 768 px and the role dashboards weren't shot either.
 
-### In flight / next step (tenth checkpoint, 2026-10-03)
-- Steps 1–11 are done and task-reviewed (step 10 complete after fix round 1, `c7113d7`).
-- **Next:**
-  1. The final whole-branch review on the most capable model (`4b4a64c..HEAD`), pointed at the ledger's deferred minors. Several are marked LIKELY FIX: the assessment non-pass shown in success green, `roleLabel` on accept-invite, the null guard in reduced-motion.
-  2. One fix wave and one scoped re-review.
-  3. Step 12's gate: typecheck, vitest and build, then the full Playwright suite in a stack window from ethio-impl (ask first, about 15 minutes).
-  4. Code review by ethio-plan-review (size M).
-  5. Push, PR and merge under the user's standing authorization in `~/.claude/CLAUDE.md`, once CI is green and the review is APPROVED.
-- After the merge: show the user the before/after screenshots (`after-phase7a/index.md`), and send 7b's handoff.
+- **Final whole-branch review** (most capable model, `4b4a64c..3a5bc33`): ready with fixes, 0 Critical, 7 Important:
+  - I1: white text on the inverting brand scale in dark mode, including the skip link;
+  - I2: light green, emerald and amber text below 4.5:1;
+  - I3: the hero CTAs' focus ring is invisible;
+  - I4: the mobile theme menu is clipped;
+  - I5: `CourseCard` shows the raw category;
+  - I6: `theme-color` is lost after client navigation;
+  - I7: unannounced or mis-styled messages.
 
+  It also marked three deferred minors to fix before merge: an assessment non-pass shown as success, the raw role and assessment-type text, and the vacuous reduced-motion check. The ledger has the triage of the other 28.
+- **Fix wave** `3a5bc33..a0f2d9f` (15 commits) took all of those, plus small minors that hit a criterion or the shared primitives:
+  - `FormStatus` is a full-width banner and gains an `info` tone;
+  - help FAQ tab order; the Footer waits for auth; the bell's count is in its name; the language toggle's name includes its visible text;
+  - the `.btn`/`.pill-active` gradient passes contrast;
+  - the a11y scans scroll first and add a dark skip-link scan;
+  - `/offline` is noindex; `RefundButton` shows labels; a weak password clears the stale server error; focus rings are inset on list rows; back to top respects reduced motion.
+
+  Beyond the list: the course page category, the Free badge, the avatar initial and the exam result card in dark mode. The scoped re-review found every item addressed and the contrast ratios recomputed.
+- **Merged `origin/main` (Phase 6a, `c82d091`)** as `ef6071c`, then `3b17ae6` (test). The three conflicts were resolved with 6a's behaviour and 7a's primitives:
+  - the password page's current, new and confirm fields all use `Field`;
+  - the dashboard referral card reads `{ invited }`, and `invited: 0` shows 6a's sentence as an `info` banner, not a success;
+  - the coupon manager keeps 6a's per-learner limit, with 7a's date format.
+- **`88c1cee`:** wallet entries on the dashboard show labels, not the raw `tx.kind`. This came from the re-review's out-of-scope note.
+- **Step 12 gate** (stack window 2, API at `c82d091`, at `88c1cee`):
+  - web typecheck clean, vitest 53 files / 473 tests, `next build` OK;
+  - `pnpm -C api test` 61 suites / 997 tests;
+  - Playwright 75/75 in one clean-env run on :3200/:3300 (new keyboard, a11y, reduced-motion and `/offline` checks included; no waivers, no flakes).
+
+  Screenshots of the changed pages were re-shot into `after-phase7a/after/`, with new shots for the hero focus, the mobile theme menu and `/account/password`. CI on the PR is still to come.
+- **Amharic, best effort, needs native review:** `unread`, `switch_language`, plus the earlier keys.
+
+### In flight / next step (2026-10-03)
+- Code review by ethio-plan-review (size M), base `origin/main` (`c82d091`), head `88c1cee` plus this progress commit.
+- Then push, PR and merge under the standing authorization once CI's `web` and `e2e` jobs are green and the review is APPROVED. After the merge: show the user the before/after screenshots and send 7b's handoff.
