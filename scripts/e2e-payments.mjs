@@ -359,6 +359,59 @@ async function main() {
   const giftsAfter = giftCount();
   check("the refused gift leaves the sponsor's gift count unchanged", giftsAfter === giftsBefore, `${giftsBefore} → ${giftsAfter}`);
 
+  // ---- a refund of one of two duplicate purchases keeps access; the second refund revokes (P1-63) ----
+  /** Two Chapa checkouts opened before either completes, then both confirmed: two confirmed payments for one course. */
+  const buyTwice = async (who, course) => {
+    const sessions = [];
+    for (let i = 0; i < 2; i++) sessions.push(must(await call('/payments/initiate', { method: 'POST', token: who.token, body: { course_id: course.id } }), `initiate ${i + 1}`));
+    for (const s of sessions) {
+      const confirmed = await mockComplete(s.tx_ref);
+      if (confirmed.json?.reason !== 'confirmed') throw new Error(`mock confirmation of ${s.tx_ref} failed: ${brief(confirmed)}`);
+    }
+    await waitEnrolled(who, course.id);
+    return sessions;
+  };
+  const entitlement = async (who, courseId) =>
+    must(await call('/enrollments', { token: who.token }), 'enrollments').find((e) => e.course_id === courseId)?.entitlement_status;
+  const refundOf = (who, paymentId) => call('/refunds', { method: 'POST', token: who.token, body: { payment_id: paymentId, reason: 'e2e: bought it twice' } });
+
+  const duplicate = await newLearner(admin, 'duplicate');
+  const [dupA, dupB] = await buyTwice(duplicate, firstCourse);
+  const firstDupRefund = await refundOf(duplicate, dupA.payment_id);
+  check('refunding one of two duplicate purchases is auto-approved', ok(firstDupRefund) && firstDupRefund.json.status === 'approved', brief(firstDupRefund));
+  await waitFor(() => inbox(duplicate.token, 'refund'), (rows) => rows.length >= 1);
+  await sleep(1500); // the revoke (if any) is asynchronous: give it time to land before checking it didn't
+  check('the learner keeps access while the other purchase stands', (await entitlement(duplicate, firstCourse.id)) === 'active', await entitlement(duplicate, firstCourse.id));
+  const secondDupRefund = await refundOf(duplicate, dupB.payment_id);
+  check('refunding the other purchase is auto-approved too', ok(secondDupRefund) && secondDupRefund.json.status === 'approved', brief(secondDupRefund));
+  const afterBoth = await waitFor(() => entitlement(duplicate, firstCourse.id), (s) => s === 'refunded');
+  check('refunding the last purchase revokes access', afterBoth === 'refunded', afterBoth);
+
+  // ---- two refunds of the two duplicates at once: no deadlock, access ends once ----
+  const doubleRefunder = await newLearner(admin, 'double-refund');
+  const dups = await buyTwice(doubleRefunder, secondCourse);
+  const together = await Promise.all(dups.map((d) => refundOf(doubleRefunder, d.payment_id)));
+  check('both simultaneous refunds answer 2xx (no deadlock)', together.every(ok) && together.every((r) => r.json.status === 'approved'), together.map(brief).join('; '));
+  const afterTogether = await waitFor(() => entitlement(doubleRefunder, secondCourse.id), (s) => s === 'refunded');
+  check('the simultaneous refunds end access', afterTogether === 'refunded', afterTogether);
+
+  // ---- a pay request opened by two payers is credited to the one who paid (P2-47) ----
+  const asker = await newLearner(admin, 'asker');
+  const [payerOne, payerTwo] = [await newLearner(admin, 'payer-one'), await newLearner(admin, 'payer-two')];
+  const request = must(await call('/pay-requests', { method: 'POST', token: asker.token, body: { course_id: thirdCourse.id, payer_email: payerOne.email } }), 'pay request');
+  const token = request.pay_url.split('/pay/')[1];
+  const oneCheckout = must(await call(`/pay-requests/${token}/pay`, { method: 'POST', token: payerOne.token, body: {} }), 'payer one opens');
+  must(await call(`/pay-requests/${token}/pay`, { method: 'POST', token: payerTwo.token, body: {} }), 'payer two opens');
+  const paidOne = await mockComplete(oneCheckout.tx_ref);
+  check("payer one's checkout confirms", paidOne.json?.reason === 'confirmed', brief(paidOne));
+  const sponsorRow = await waitFor(
+    async () => sql(`SELECT status, sponsor_id FROM financial.sponsorships WHERE id = ${uuid(request.sponsorship_id)}`)[0],
+    (row) => row?.[0] === 'granted',
+  );
+  check('the granted request names the payer who paid', sponsorRow?.[0] === 'granted' && sponsorRow?.[1] === payerOne.id, JSON.stringify(sponsorRow));
+  const late = await call(`/pay-requests/${token}/pay`, { method: 'POST', token: payerTwo.token, body: {} });
+  check('a later call on the paid request → 400 with no checkout', late.status === 400 && !late.json?.checkout_url, brief(late));
+
   if (failures) {
     console.error(`\n${failures} check(s) failed`);
     process.exit(1);

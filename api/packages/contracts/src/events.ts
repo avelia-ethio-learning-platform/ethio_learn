@@ -300,6 +300,12 @@ export interface RefundDecisionPayload {
   course_title: string;
   amount_etb: number;
   reason: string;
+  /**
+   * RefundApproved only: the learner still holds the course another way (a
+   * second confirmed purchase or a granted sponsorship), so access stays.
+   * Absent from older publishers: treat as false.
+   */
+  access_kept?: boolean;
 }
 
 /** Emitted when a refund lands in the manual-review band and needs an admin. */

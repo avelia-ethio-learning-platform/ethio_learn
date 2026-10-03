@@ -281,7 +281,9 @@ export class NotificationService implements OnModuleInit {
       // and never crossed an admin's desk, but they still move money.
       this.inbox({ role: Role.PLATFORM_ADMIN, type: 'refund', title: 'Refund approved', body: `${p.amount_etb} ETB refunded for "${p.course_title}".`, link: '/admin' });
       this.deliver('RefundApproved', p.learner_id, p.learner_email, 'Your refund has been processed',
-        layout('Refund processed', html`<p>Your refund of ${p.amount_etb} ETB for "${p.course_title}" was approved. Access to the course has been revoked.</p>`));
+        layout('Refund processed', p.access_kept
+          ? html`<p>Your refund of ${p.amount_etb} ETB for "${p.course_title}" was approved.</p>`
+          : html`<p>Your refund of ${p.amount_etb} ETB for "${p.course_title}" was approved. Access to the course has been revoked.</p>`));
     });
 
     this.bus.subscribe<RefundDecisionPayload>('RefundDenied', (p) => {

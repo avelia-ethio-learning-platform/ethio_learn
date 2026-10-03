@@ -40,14 +40,14 @@ describe('FinancialController bank transfer', () => {
 
   it('answers 201 with the payment for a new transfer', async () => {
     const t = controller(true);
-    await expect(t.controller.bankTransfer({ id: 'adm' } as never, dto as never, t.res as never)).resolves.toBe(t.payment);
+    await expect(t.controller.bankTransfer({ id: 'adm' } as never, dto as never, t.res as never)).resolves.toEqual({ ...t.payment, replayed: false });
     expect(t.payments.recordBankTransfer).toHaveBeenCalledWith('adm', dto);
     expect(t.res.status).toHaveBeenCalledWith(201);
   });
 
   it('answers 200 with the existing payment on an exact replay', async () => {
     const t = controller(false);
-    await expect(t.controller.bankTransfer({ id: 'adm' } as never, dto as never, t.res as never)).resolves.toBe(t.payment);
+    await expect(t.controller.bankTransfer({ id: 'adm' } as never, dto as never, t.res as never)).resolves.toEqual({ ...t.payment, replayed: true });
     expect(t.res.status).toHaveBeenCalledWith(200);
   });
 });

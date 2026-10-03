@@ -4,7 +4,7 @@ import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import { EntitlementStatus, PaymentStatus, RefundDecisionPayload, RefundRequestedPayload, RefundStatus, Role } from '@ethiopialearn/contracts';
 import { PaymentMethod, PaymentPurpose } from '@ethiopialearn/contracts';
-import { Payment, RefundRequest } from './entities';
+import { Payment, RefundRequest, Sponsorship } from './entities';
 import { GrowthService } from './growth.service';
 
 const REFUND_WINDOW_DAYS = 7; // spec §10.4
@@ -12,6 +12,9 @@ const DAY_MS = 86_400_000;
 const ALREADY_OPEN = 'A refund is already open for this payment';
 /** A payment already in a payout is refunded by support: there is no clawback from the educator here. */
 const PAID_OUT = 'This payment has already been paid out to the educator. Contact support from Help to request a refund.';
+
+/** An approval that refunded its payment: credits voided, and whether the learner keeps the course another way. */
+type Approval = { voided: number; access_kept: boolean };
 
 /** When the payment was confirmed (COALESCE(webhook_received_at, created_at)): the clock of the refund window and of its credits' hold. */
 const purchasedAt = (p: Payment): Date => p.webhook_received_at ?? p.created_at;
@@ -123,6 +126,10 @@ export class RefundService {
     }
 
     const filed = await this.dataSource.transaction(async (m) => {
+      // The ordered lock comes before the mark: the mark locks this payment,
+      // and taking the other duplicates' locks after it would be out of order
+      // (two refunds of two duplicates at once would deadlock).
+      await this.lockCoursePayments(m, payment);
       // UPDATE through query() resolves to [rows, rowCount].
       const [, marked]: [unknown[], number] = await m.query(
         `UPDATE ${this.paymentsTable(m)} SET refund_requested_at = now() WHERE id = $1 AND status = 'confirmed' AND payout_id IS NULL AND refund_requested_at IS NULL`,
@@ -131,13 +138,13 @@ export class RefundService {
       // Nothing written yet, so the transaction just ends; why is worked out below.
       if (marked !== 1) return null;
       const refund = await this.file(m.getRepository(RefundRequest), draft);
-      const voided = decision === RefundStatus.APPROVED ? await this.approveWith(m, refund, payment) : null;
-      return { refund, voided };
+      const approved = decision === RefundStatus.APPROVED ? await this.approveWith(m, refund, payment) : null;
+      return { refund, approved };
     });
     if (!filed) throw await this.unmarkable(paymentId);
 
-    const { refund, voided } = filed;
-    if (decision === RefundStatus.APPROVED) await this.finalizeApproval(refund, payment, voided);
+    const { refund, approved } = filed;
+    if (decision === RefundStatus.APPROVED) await this.finalizeApproval(refund, payment, approved);
     // Manual-review band: a platform admin must decide — notify them.
     else await this.emitRequested(refund, payment);
     return { refund_id: refund.id, status: refund.status, rule };
@@ -162,14 +169,14 @@ export class RefundService {
       const decided = await m.getRepository(RefundRequest).update({ id: refund.id, status: RefundStatus.PENDING }, decision);
       // Another decision got in first. Nothing written, so the transaction just ends.
       if (decided.affected !== 1) return { decided: false as const };
-      if (approve) return { decided: true as const, voided: await this.approveWith(m, refund, payment) };
+      if (approve) return { decided: true as const, approved: await this.approveWith(m, refund, payment) };
       await m.query(`UPDATE ${this.paymentsTable(m)} SET refund_requested_at = NULL WHERE id = $1`, [payment.id]);
-      return { decided: true as const, voided: null };
+      return { decided: true as const, approved: null };
     });
     if (!outcome.decided) throw new BadRequestException('Already decided');
     Object.assign(refund, decision);
 
-    if (approve) await this.finalizeApproval(refund, payment, outcome.voided);
+    if (approve) await this.finalizeApproval(refund, payment, outcome.approved);
     else await this.emitDecision('RefundDenied', refund, payment);
     return refund;
   }
@@ -217,14 +224,27 @@ export class RefundService {
    *   the whole decision back (a legacy request filed before the mark).
    * - A payment no longer confirmed for another reason is left alone, and so
    *   are its credits: the decision stands, and nothing is announced.
-   * Returns how many credits were voided, or null when nothing was refunded.
+   * - Access is kept when the learner still holds the course another way: a
+   *   second confirmed course payment for it (a duplicate purchase), or a
+   *   granted sponsorship (gift, pay request or bulk seat). The learner's
+   *   course payments are locked first, so two refunds of two duplicates
+   *   decide one after the other and exactly one of them revokes.
+   * Returns how many credits were voided and whether access is kept, or null
+   * when nothing was refunded.
    */
-  private async approveWith(m: EntityManager, refund: RefundRequest, payment: Payment): Promise<number | null> {
+  private async approveWith(m: EntityManager, refund: RefundRequest, payment: Payment): Promise<Approval | null> {
+    const held = await this.lockCoursePayments(m, payment);
     const [, flipped]: [unknown[], number] = await m.query(
       `UPDATE ${this.paymentsTable(m)} SET status = 'refunded' WHERE id = $1 AND status = 'confirmed' AND payout_id IS NULL`,
       [payment.id],
     );
-    if (flipped === 1) return this.growth.voidPurchaseCredits(m, payment.id);
+    if (flipped === 1) {
+      const voided = await this.growth.voidPurchaseCredits(m, payment.id);
+      const access_kept =
+        held.some((p) => p.id !== payment.id) ||
+        (await m.getRepository(Sponsorship).count({ where: { recipient_user_id: payment.learner_id, course_id: payment.course_id, status: 'granted' } })) > 0;
+      return { voided, access_kept };
+    }
     const current = await m.getRepository(Payment).findOne({ where: { id: payment.id } });
     if (current?.payout_id) {
       this.logger.warn(`refund ${refund.id}: payment ${payment.id} is already in payout ${current.payout_id}, so it goes to support`);
@@ -234,15 +254,32 @@ export class RefundService {
     return null;
   }
 
-  /** After the approval commits: RefundApproved (which revokes access) goes out only for the approval that refunded the payment. */
-  private async finalizeApproval(refund: RefundRequest, payment: Payment, voided: number | null) {
-    if (voided === null) return;
+  /**
+   * The learner's confirmed course payments for this course, locked in id
+   * order (one order for every refund, so two of them can't deadlock). A
+   * row a concurrent refund flipped is re-checked after the wait and drops
+   * out. Gifts the learner bought for others are another purpose.
+   */
+  private lockCoursePayments(m: EntityManager, payment: Payment): Promise<Payment[]> {
+    return m.getRepository(Payment).find({
+      where: { learner_id: payment.learner_id, course_id: payment.course_id, purpose: PaymentPurpose.COURSE, status: PaymentStatus.CONFIRMED },
+      order: { id: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+  }
+
+  /** After the approval commits: RefundApproved goes out only for the approval that refunded the payment. Enrollment revokes access unless `access_kept`. */
+  private async finalizeApproval(refund: RefundRequest, payment: Payment, approved: Approval | null) {
+    if (approved === null) return;
+    const { voided, access_kept } = approved;
     payment.status = PaymentStatus.REFUNDED;
     // TODO(spec-open-question): initiate the actual Chapa refund API call here
     // when live credentials are configured; ledger + entitlement revocation
     // (via RefundApproved) are the authoritative MVP behavior.
-    await this.emitDecision('RefundApproved', refund, payment);
-    this.logger.log(`refund approved for payment ${payment.id} (${refund.decision_rule}); ${voided} pending credit(s) voided`);
+    await this.emitDecision('RefundApproved', refund, payment, access_kept);
+    this.logger.log(
+      `refund approved for payment ${payment.id} (${refund.decision_rule}); ${voided} pending credit(s) voided; access ${access_kept ? 'kept' : 'revoked'}`,
+    );
   }
 
   private paymentsTable(m: EntityManager): string {
@@ -270,7 +307,7 @@ export class RefundService {
     this.logger.log(`refund ${refund.id} awaiting admin decision (${refund.decision_rule})`);
   }
 
-  private async emitDecision(event: 'RefundApproved' | 'RefundDenied', refund: RefundRequest, payment: Payment) {
+  private async emitDecision(event: 'RefundApproved' | 'RefundDenied', refund: RefundRequest, payment: Payment, access_kept?: boolean) {
     let learnerEmail = '';
     try {
       const learner = await this.internal.get<{ email: string }>(internalPath`/api/v1/internal/users/${payment.learner_id}`);
@@ -288,6 +325,7 @@ export class RefundService {
       course_title: payment.course_title,
       amount_etb: Number(payment.amount_etb),
       reason: refund.decision_rule,
+      ...(access_kept === undefined ? {} : { access_kept }),
     });
   }
 }

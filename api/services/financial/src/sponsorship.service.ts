@@ -106,10 +106,7 @@ export class SponsorshipService implements OnModuleInit {
       `gift ${s.id}`,
       () => this.sponsorships.delete({ id: s.id, status: 'pending_payment' }),
     );
-    if (!session.confirmed) {
-      s.payment_id = session.payment_id;
-      await this.sponsorships.save(s);
-    }
+    if (!session.confirmed) await this.sponsorships.update({ id: s.id, status: 'pending_payment' }, { payment_id: session.payment_id });
     return { ...session, sponsorship_id: s.id };
   }
 
@@ -197,17 +194,18 @@ export class SponsorshipService implements OnModuleInit {
     if (s.source !== 'pay_request') throw new NotFoundException('Request not found');
     if (s.status === 'granted') throw new BadRequestException('This request has already been paid');
     if (s.status !== 'requested' && s.status !== 'pending_payment') throw new BadRequestException(`Request is ${s.status}`);
+    // Every write below is conditional on the request still being open: a
+    // grant (another payer's payment) can land at any await, and a stale
+    // write must not reopen or cancel it.
+    const open = { id: s.id, status: In(['requested', 'pending_payment']) };
     if (s.recipient_user_id && (await this.entitled(s.recipient_user_id, s.course_id))) {
-      s.status = 'cancelled';
-      await this.sponsorships.save(s);
+      await this.sponsorships.update(open, { status: 'cancelled' });
       throw new BadRequestException('The learner already has access to this course');
     }
     const course = await this.paidCourse(s.course_id);
     const me = await this.user(ctx.id);
-    s.sponsor_id = ctx.id;
-    s.sponsor_name = me.name;
-    s.status = 'pending_payment';
-    await this.sponsorships.save(s);
+    const mine = { status: 'pending_payment' as const, sponsor_id: ctx.id, sponsor_name: me.name };
+    if ((await this.sponsorships.update(open, mine)).affected !== 1) throw await this.closedRequest(s.id);
 
     // Refused: back to requested with no sponsor (sponsor_name is NOT NULL; '' as when it was asked).
     // Only while it is still this payer's and no checkout is attached: another payer's checkout stays.
@@ -231,11 +229,20 @@ export class SponsorshipService implements OnModuleInit {
           { status: 'requested', sponsor_id: null, sponsor_name: '' },
         ),
     );
-    if (!session.confirmed) {
-      s.payment_id = session.payment_id;
-      await this.sponsorships.save(s);
+    // Paid by someone else meanwhile: this checkout is left pending (it
+    // expires like any abandoned one) and its URL is not handed out.
+    if (!session.confirmed && (await this.sponsorships.update(open, { ...mine, payment_id: session.payment_id })).affected !== 1) {
+      this.logger.warn(`pay request ${s.id}: closed during checkout, payment ${session.payment_id} left unattached`);
+      throw await this.closedRequest(s.id);
     }
     return { ...session, sponsorship_id: s.id };
+  }
+
+  /** The 400 for a pay request that is no longer open, read after a conditional write matched nothing. */
+  private async closedRequest(id: string): Promise<BadRequestException> {
+    const now = await this.sponsorships.findOne({ where: { id } });
+    if (!now || now.status === 'granted' || now.status === 'pending_claim') return new BadRequestException('This request has already been paid');
+    return new BadRequestException(`Request is ${now.status}`);
   }
 
   // ---- Bulk purchases ----------------------------------------------------
@@ -293,10 +300,7 @@ export class SponsorshipService implements OnModuleInit {
       `bulk purchase ${order.id}`,
       () => this.bulk.delete({ id: order.id, status: 'pending_payment' }),
     );
-    if (!session.confirmed) {
-      order.payment_id = session.payment_id;
-      await this.bulk.save(order);
-    }
+    if (!session.confirmed) await this.bulk.update({ id: order.id, status: 'pending_payment' }, { payment_id: session.payment_id });
     return { ...session, bulk_purchase_id: order.id };
   }
 
@@ -418,11 +422,14 @@ export class SponsorshipService implements OnModuleInit {
 
     if (s.status !== 'granted' && s.status !== 'pending_claim') {
       const recipientId = s.recipient_user_id ?? (await this.userByEmail(s.recipient_email))?.id ?? null;
+      // The sponsor is whoever paid: on a pay request several payers can have
+      // opened checkouts, and the row may name a later one.
+      const payer = s.sponsor_id === payment.learner_id ? {} : { sponsor_id: payment.learner_id, sponsor_name: (await this.user(payment.learner_id)).name };
       await this.sponsorships.update(
         { id, status: Not(In(['granted', 'pending_claim'])) },
         recipientId
-          ? { status: 'granted', granted_at: new Date(), payment_id: payment.id, recipient_user_id: recipientId }
-          : { status: 'pending_claim', payment_id: payment.id },
+          ? { status: 'granted', granted_at: new Date(), payment_id: payment.id, recipient_user_id: recipientId, ...payer }
+          : { status: 'pending_claim', payment_id: payment.id, ...payer },
       );
       s = (await this.sponsorships.findOne({ where: { id } }))!;
     }

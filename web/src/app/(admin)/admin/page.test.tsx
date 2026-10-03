@@ -293,6 +293,14 @@ describe('Admin payments: record a bank transfer', () => {
     expect(transferCalls()).toEqual([]);
   });
 
+  it('says so when the transfer was already recorded (a replay creates no payment)', async () => {
+    await pickLearnerAndCourse({ '/admin/payments/bank-transfer': { id: 'pay-1', replayed: true } });
+    fireEvent.change(screen.getByLabelText('Bank reference'), { target: { value: 'FT-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mark bank transfer' }));
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark as paid' }));
+    expect(await screen.findByText('Already recorded: bank reference FT-1 was marked before, so no new payment was created.')).toBeTruthy();
+  });
+
   it.each([
     [409, 'This learner already owns the course'],
     [503, "Couldn't check enrollment. Try again."],

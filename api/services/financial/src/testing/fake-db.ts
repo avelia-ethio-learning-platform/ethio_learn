@@ -120,7 +120,8 @@ export class FakeRepo {
   }
 
   create = jest.fn((x: Row) => ({ ...x }));
-  find = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, 'ASC' | 'DESC'>; take?: number }) =>
+  // `lock` (FOR UPDATE) is accepted and ignored: there is no isolation to model here.
+  find = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, 'ASC' | 'DESC'>; take?: number; lock?: unknown }) =>
     this.select(opts).map((r) => ({ ...r })),
   );
   findOne = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, 'ASC' | 'DESC'> }) => {
