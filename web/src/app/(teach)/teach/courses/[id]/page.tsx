@@ -17,10 +17,13 @@ import { SectionsAndLessons } from './sections-editor';
 import { StructureGenerator } from './structure-generator';
 import { LessonUploadsProvider, ThumbnailUploader, useActiveLessonUploads, WAIT_FOR_UPLOAD } from './video-upload';
 import { COURSE_IN_REVIEW, editState, REVISION_IN_REVIEW, type ReviewFeedbackView, type WorkingCourse } from './working';
+import { formatDate, formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 const S3_PUBLIC_URL = process.env.NEXT_PUBLIC_S3_PUBLIC_URL ?? 'http://localhost:9000/ethiopialearn';
 
 function ManageCourse({ courseId, generate }: { courseId: string; generate: boolean }) {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [message, setMessage] = useState('');
@@ -107,7 +110,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
             {live && !revisionInReview && course.has_pending_changes && <span className="badge-warn">unpublished changes</span>}
             <span>
               {course.pricing_type}
-              {course.pricing_type !== 'free' && course.price_etb ? ` · ${course.price_etb} ETB` : ''}
+              {course.pricing_type !== 'free' && course.price_etb ? ` · ${formatETB(course.price_etb, locale)}` : ''}
               {reviews?.average_rating ? ` · ★ ${reviews.average_rating} (${reviews.review_count})` : ''}
             </span>
           </p>
@@ -225,11 +228,11 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
           <ul className="mt-2 space-y-2 text-sm">
             {pendingProjects.map((p) => (
               <li key={p.attempt_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
-                <span>Submitted {new Date(p.submitted_at).toLocaleString()}</span>
+                <span>Submitted {formatDate(p.submitted_at, locale, 'datetime')}</span>
                 <span className="flex gap-2">
                   {p.download_url && <a className="font-medium text-brand-600 hover:underline" href={p.download_url} target="_blank">Download</a>}
-                  <button className="font-medium text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => review(p.attempt_id, true)}>Pass</button>
-                  <button className="font-medium text-red-500 hover:underline" onClick={() => review(p.attempt_id, false)}>Fail</button>
+                  <button className="font-medium text-emerald-700 hover:underline dark:text-emerald-400" onClick={() => review(p.attempt_id, true)}>Pass</button>
+                  <button className="font-medium text-red-600 dark:text-red-400 hover:underline" onClick={() => review(p.attempt_id, false)}>Fail</button>
                 </span>
               </li>
             ))}
@@ -246,12 +249,13 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
  *  course itself, so the educator sees the comments without hunting in
  *  notifications. */
 function ReviewFeedback({ feedback }: { feedback: ReviewFeedbackView }) {
+  const { locale } = useT();
   const map: Record<string, { tone: string; label: string }> = {
     coach: {
       tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
       label: '📝 Changes requested by our quality team',
     },
-    flag: { tone: 'border-red-400/40 bg-red-500/10 text-red-500 dark:text-red-300', label: '🚩 Your course was flagged in review' },
+    flag: { tone: 'border-red-400/40 bg-red-500/10 text-red-600 dark:text-red-300', label: '🚩 Your course was flagged in review' },
     institution_reject: {
       tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
       label: '↩️ Sent back by your institution',
@@ -262,12 +266,12 @@ function ReviewFeedback({ feedback }: { feedback: ReviewFeedbackView }) {
     },
     // A rejected update of a live course: its staged changes were discarded, the course itself is unchanged.
     reject: {
-      tone: 'border-red-400/40 bg-red-500/10 text-red-500 dark:text-red-300',
+      tone: 'border-red-400/40 bg-red-500/10 text-red-600 dark:text-red-300',
       label: '⛔ Your update was not approved — its changes were discarded',
     },
   };
   const meta = map[feedback.action] ?? { tone: 'text-gray-600', label: 'Reviewer feedback' };
-  const when = feedback.reviewed_at ? new Date(feedback.reviewed_at).toLocaleString() : '';
+  const when = feedback.reviewed_at ? formatDate(feedback.reviewed_at, locale, 'datetime') : '';
   return (
     <div className={`rounded-2xl border px-4 py-3 text-sm ${meta.tone}`}>
       <div className="flex items-center justify-between gap-2">
@@ -284,6 +288,7 @@ function ReviewFeedback({ feedback }: { feedback: ReviewFeedbackView }) {
 }
 
 function LearnerFeedback({ reviews }: { reviews: any }) {
+  const { locale } = useT();
   return (
     <div className="card">
       <div className="flex items-center justify-between">
@@ -298,8 +303,8 @@ function LearnerFeedback({ reviews }: { reviews: any }) {
         <ul className="mt-3 space-y-2">
           {reviews.reviews.map((r: any) => (
             <li key={r.id} className="border-t pt-2 text-sm first:border-0 first:pt-0">
-              <p className="text-amber-500">{'★'.repeat(r.rating)}<span className="text-gray-300">{'★'.repeat(5 - r.rating)}</span>
-                <span className="ml-2 text-xs text-gray-400">{new Date(r.created_at).toLocaleDateString()}</span>
+              <p className="text-amber-700 dark:text-amber-400">{'★'.repeat(r.rating)}<span className="text-gray-500">{'★'.repeat(5 - r.rating)}</span>
+                <span className="ml-2 text-xs text-gray-500">{formatDate(r.created_at, locale)}</span>
               </p>
               {r.comment && <p className="mt-1 text-gray-700">{r.comment}</p>}
             </li>
@@ -314,7 +319,7 @@ function AppealBox({ courseId, onDone }: { courseId: string; onDone: (m: string)
   const [note, setNote] = useState('');
   return (
     <div className="card !border-red-400/40 bg-gradient-to-br from-red-500/10 to-transparent">
-      <h2 className="font-bold text-red-500">This course was flagged</h2>
+      <h2 className="font-bold text-red-600 dark:text-red-400">This course was flagged</h2>
       <p className="mt-1 text-sm text-gray-600">Explain the changes you made or why it should be reconsidered. It will go back to the review queue.</p>
       <textarea className="input mt-2" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Your appeal…" />
       <button
@@ -415,10 +420,10 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
               {a.type.replace('_', ' ')} · pass ≥ {a.pass_score}
               {a.is_required ? ' · required' : ''}
             </span>
-            {a.state === 'pending' && <span className="badge-warn !text-[10px]">pending review</span>}
+            {a.state === 'pending' && <span className="badge-warn ">pending review</span>}
           </li>
         ))}
-        {!assessments?.length && <li className="text-gray-400">None yet — certificates issue on lesson completion alone.</li>}
+        {!assessments?.length && <li className="text-gray-500">None yet — certificates issue on lesson completion alone.</li>}
       </ul>
 
       <div className="mt-3 space-y-3 border-t pt-3">
@@ -445,14 +450,14 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
               <div key={qi} className="glass-secondary rounded-xl p-3">
                 <div className="flex items-center gap-2">
                   <input className="input flex-1 text-sm" value={q.prompt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, prompt: e.target.value } : x)))} placeholder="Question prompt" />
-                  <button className="text-xs text-red-500" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}>✕</button>
+                  <button className="text-xs text-red-600 dark:text-red-400" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}>✕</button>
                 </div>
                 <div className="mt-1 space-y-1">
                   {q.options.map((opt, oi) => (
                     <div key={oi} className="flex items-center gap-2">
                       <input type="radio" name={`correct-${qi}`} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
                       <input className="input flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} />
-                      <button className="text-xs text-red-500" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}>✕</button>
+                      <button className="text-xs text-red-600 dark:text-red-400" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: Math.min(x.correct_index, x.options.length - 2) } : x)))}>✕</button>
                     </div>
                   ))}
                   <button className="text-xs text-brand-600" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: [...x.options, ''] } : x)))}>+ option</button>

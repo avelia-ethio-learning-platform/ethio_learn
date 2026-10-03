@@ -2,6 +2,7 @@
 // with no import from api/, so this mirrors CourseCategory in
 // api/packages/contracts/src/enums.ts — keep the two in sync when adding a
 // category. `icon` is an emoji used by cards/filters for a bit of visual life.
+// The label helper is `categoryLabel` in lib/labels.ts, with the other enum labels.
 
 export interface CategoryMeta {
   value: string;
@@ -29,11 +30,6 @@ export const COURSE_CATEGORIES: CategoryMeta[] = [
 ];
 
 const BY_VALUE = new Map(COURSE_CATEGORIES.map((c) => [c.value, c]));
-
-/** Human-readable label for any stored category value (unknown → "Other"). */
-export function categoryLabel(value: string | null | undefined): string {
-  return (value && BY_VALUE.get(value)?.label) || 'Other';
-}
 
 /** Emoji for a category value (unknown → the "Other" sparkle). */
 export function categoryIcon(value: string | null | undefined): string {

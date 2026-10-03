@@ -53,6 +53,8 @@
   --gray-800: 30 41 59;
   --gray-900: 15 23 42;
 
+  color-scheme: light;
+
   --shadow-glass: 0 1px 8px rgba(59, 130, 246, 0.05);
   --shadow-elevated: 0 2px 12px rgba(59, 130, 246, 0.07);
   --shadow-floating: 0 4px 20px rgba(59, 130, 246, 0.09);
@@ -63,6 +65,8 @@
 }
 
 .dark {
+  color-scheme: dark;
+
   --background: #0f172a;
   --background-secondary: #1e293b;
   --background-tertiary: #334155;
@@ -122,6 +126,12 @@
     @apply bg-background font-sans text-foreground antialiased;
     overflow-x: clip;
     transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* Keyboard focus ring for everything; .input keeps its own ring (below). */
+  :focus-visible {
+    outline: 2px solid rgb(var(--brand-600));
+    outline-offset: 2px;
   }
 
   ::selection {
@@ -199,7 +209,8 @@
 
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    /* blue-700 to blue-600: white text stays above 4.5:1 across the whole gradient. */
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
     transition: transform 0.15s var(--ease-out-expo), box-shadow 0.15s var(--ease-out-expo), filter 0.15s ease;
   }
@@ -236,15 +247,22 @@
   }
 
   .input {
-    @apply block w-full rounded-xl px-3.5 py-2.5 text-sm text-foreground placeholder:text-gray-400;
+    @apply block w-full rounded-xl px-3.5 py-2.5 text-sm text-foreground placeholder:text-gray-500;
     background: var(--input-background);
     border: 1px solid var(--border);
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
   }
-  .input:focus {
+  .input:focus,
+  .input:focus-visible {
     outline: none;
     border-color: rgb(var(--brand-500));
     box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  /* Native option lists follow the theme (they ignore the input's own background). */
+  select.input option {
+    background: var(--background);
+    color: var(--foreground);
   }
 
   .label {
@@ -266,7 +284,8 @@
   }
   .pill-active {
     @apply inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold text-white transition-all duration-200;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    /* Same stops as .btn, for the same reason. */
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
     border: 1px solid transparent;
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
   }
@@ -277,7 +296,7 @@
   }
   .badge-success {
     @apply badge;
-    color: #059669;
+    color: #047857;
     background: rgba(16, 185, 129, 0.12);
     border: 1px solid rgba(16, 185, 129, 0.25);
   }
@@ -295,7 +314,7 @@
   }
   .badge-danger {
     @apply badge;
-    color: #dc2626;
+    color: #b91c1c;
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.25);
   }

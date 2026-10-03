@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/hooks';
 import { COURSE_CATEGORIES } from '@/lib/categories';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface Prefs {
   new_course_categories: string[];
@@ -53,7 +54,8 @@ function PreferencesForm() {
   const [updatesEmail, setUpdatesEmail] = useState(true);
   const [progressEmail, setProgressEmail] = useState(true);
   const [inactivityEmail, setInactivityEmail] = useState(true);
-  const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [saving, setSaving] = useState(false);
+  const [status, setOk, , clearStatus] = useFormStatus();
 
   useEffect(() => {
     if (!data) return;
@@ -66,7 +68,7 @@ function PreferencesForm() {
   }, [data]);
 
   const toggleCat = (value: string) => {
-    setStatus('idle');
+    clearStatus();
     setCats((prev) => {
       const next = new Set(prev);
       next.has(value) ? next.delete(value) : next.add(value);
@@ -76,7 +78,8 @@ function PreferencesForm() {
 
   const save = async () => {
     if (!userId) return;
-    setStatus('saving');
+    setSaving(true);
+    clearStatus();
     await api(`/notification-preferences/${userId}`, {
       method: 'PUT',
       body: {
@@ -88,7 +91,8 @@ function PreferencesForm() {
         inactivity_emails: inactivityEmail,
       },
     });
-    setStatus('saved');
+    setSaving(false);
+    setOk('Preferences saved.');
   };
 
   const followCount = data?.new_course_instructor_ids?.length ?? 0;
@@ -114,7 +118,7 @@ function PreferencesForm() {
                 onClick={() => toggleCat(c.value)}
                 aria-pressed={on}
                 className={`rounded-full border px-3 py-1.5 text-sm transition active:scale-95 ${
-                  on ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-brand-400'
+                  on ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-200 bg-card text-gray-700 hover:border-brand-400'
                 }`}
               >
                 <span aria-hidden>{c.icon}</span> {c.label}
@@ -127,15 +131,15 @@ function PreferencesForm() {
 
       <section className="card mt-4 divide-y">
         <h2 className="pb-1 text-sm font-semibold text-gray-900">How you hear about them</h2>
-        <Toggle checked={inApp} onChange={(v) => { setInApp(v); setStatus('idle'); }} label="In-app notifications" hint="Show new-course alerts in your notification bell." />
-        <Toggle checked={email} onChange={(v) => { setEmail(v); setStatus('idle'); }} label="Email" hint="Send a short email when a matching course launches." />
+        <Toggle checked={inApp} onChange={(v) => { setInApp(v); clearStatus(); }} label="In-app notifications" hint="Show new-course alerts in your notification bell." />
+        <Toggle checked={email} onChange={(v) => { setEmail(v); clearStatus(); }} label="Email" hint="Send a short email when a matching course launches." />
       </section>
 
       <section className="card mt-4 divide-y">
         <h2 className="pb-1 text-sm font-semibold text-gray-900">Emails about courses you&apos;re taking</h2>
-        <Toggle checked={updatesEmail} onChange={(v) => { setUpdatesEmail(v); setStatus('idle'); }} label="Course updates" hint="When an instructor adds or changes major content in a course you're enrolled in." />
-        <Toggle checked={progressEmail} onChange={(v) => { setProgressEmail(v); setStatus('idle'); }} label="Progress milestones" hint="A short cheer at 50% and 75% — in-app milestones always show." />
-        <Toggle checked={inactivityEmail} onChange={(v) => { setInactivityEmail(v); setStatus('idle'); }} label="Reminders when you go quiet" hint="One email if you haven't studied for two weeks. In-app nudges still appear after a week." />
+        <Toggle checked={updatesEmail} onChange={(v) => { setUpdatesEmail(v); clearStatus(); }} label="Course updates" hint="When an instructor adds or changes major content in a course you're enrolled in." />
+        <Toggle checked={progressEmail} onChange={(v) => { setProgressEmail(v); clearStatus(); }} label="Progress milestones" hint="A short cheer at 50% and 75% — in-app milestones always show." />
+        <Toggle checked={inactivityEmail} onChange={(v) => { setInactivityEmail(v); clearStatus(); }} label="Reminders when you go quiet" hint="One email if you haven't studied for two weeks. In-app nudges still appear after a week." />
       </section>
 
       <section className="card mt-4 flex items-center justify-between">
@@ -148,11 +152,11 @@ function PreferencesForm() {
         <Link href="/educators" className="text-sm font-medium text-brand-700 hover:underline">Browse educators →</Link>
       </section>
 
-      <div className="mt-5 flex items-center gap-3">
-        <button onClick={save} disabled={isLoading || status === 'saving'} className="btn">
-          {status === 'saving' ? 'Saving…' : 'Save preferences'}
+      <div className="mt-5 space-y-3">
+        <button onClick={save} disabled={isLoading || saving} className="btn">
+          {saving ? 'Saving…' : 'Save preferences'}
         </button>
-        {status === 'saved' && <span className="text-sm text-green-600">✓ Saved</span>}
+        <FormStatus status={status} />
       </div>
     </div>
   );

@@ -29,6 +29,7 @@ vi.mock('@/lib/upload', async (importOriginal) => ({
   ResumableUpload: FakeUpload,
 }));
 vi.mock('next/navigation', () => ({
+  usePathname: () => '/teach/courses/c1',
   useParams: () => ({ id: 'c1' }),
   useSearchParams: () => new URLSearchParams(search.value),
   useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn() }),

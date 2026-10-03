@@ -42,6 +42,28 @@ describe('Accept invite (set a password)', () => {
     expect(apiMock).toHaveBeenCalledWith('/auth/accept-invite', { method: 'POST', auth: false, body: { token: 'tok', new_password: 'Strong-passw0rd' } });
   });
 
+  it('names the invited role in words, not as a raw value', async () => {
+    respondWith('institution_admin', 0);
+    render(<AcceptInvitePage />);
+    expect((await screen.findByText('Institution admin')).tagName).toBe('STRONG');
+    expect(document.body.textContent).not.toMatch(/institution_admin|institution admin/);
+  });
+
+  it('a weak password after a server error clears the stale server error', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/auth/invite/tok') return { email: 'new@x.et', name: 'New Person', role: 'educator' };
+      throw new Error('This invite has expired');
+    });
+    await setPassword();
+    expect(await screen.findByText('This invite has expired')).toBeTruthy();
+
+    const input = screen.getByLabelText('Choose a password');
+    fireEvent.change(input, { target: { value: 'aaaaaaaa' } });
+    fireEvent.click(screen.getByRole('button', { name: /set password/i }));
+    expect(await screen.findByText(/at least 3 of/)).toBeTruthy();
+    expect(screen.queryByText('This invite has expired')).toBeNull();
+  });
+
   it('sends staff to their home as before', async () => {
     respondWith('quality_officer', 0);
     await setPassword();

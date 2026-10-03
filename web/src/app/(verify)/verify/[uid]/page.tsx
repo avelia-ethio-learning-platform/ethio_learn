@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { BadgeCheck, ShieldX } from 'lucide-react';
 import { serverApi } from '@/lib/server-api';
 import { WakingUp } from '@/components/WakingUp';
+import { formatDate } from '@/lib/format';
+import { assessmentTypeLabel } from '@/lib/labels';
 
 interface Verification {
   valid: boolean;
@@ -36,7 +38,7 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
               <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-500">
                 <BadgeCheck className="h-8 w-8" />
               </span>
-              <h1 className="text-2xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400">Valid certificate</h1>
+              <h1 className="text-2xl font-extrabold tracking-tight text-emerald-700 dark:text-emerald-400">Valid certificate</h1>
               <dl className="mt-8 space-y-4 text-left">
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-wider text-gray-500">Learner</dt>
@@ -55,23 +57,23 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
                 </div>
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-wider text-gray-500">Issued</dt>
-                  <dd className="mt-0.5 text-foreground">{result.issued_at ? new Date(result.issued_at).toDateString() : '—'}</dd>
+                  <dd className="mt-0.5 text-foreground">{result.issued_at ? formatDate(result.issued_at, 'en') : '—'}</dd>
                 </div>
                 {result.assessment_badges && result.assessment_badges.length > 0 && (
                   <div>
                     <dt className="text-xs font-semibold uppercase tracking-wider text-gray-500">Assessments passed</dt>
-                    <dd className="mt-0.5 capitalize text-foreground">{result.assessment_badges.join(', ').replace(/_/g, ' ')}</dd>
+                    <dd className="mt-0.5 text-foreground">{result.assessment_badges.map(assessmentTypeLabel).join(', ')}</dd>
                   </div>
                 )}
               </dl>
-              <p className="mt-8 break-all text-xs text-gray-400">Certificate ID: {params.uid}</p>
+              <p className="mt-8 break-all text-xs text-gray-500">Certificate ID: {params.uid}</p>
             </>
           ) : (
             <>
-              <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/15 text-red-500">
+              <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/15 text-red-600 dark:text-red-400">
                 <ShieldX className="h-8 w-8" />
               </span>
-              <h1 className="text-2xl font-extrabold tracking-tight text-red-500">Not a valid certificate</h1>
+              <h1 className="text-2xl font-extrabold tracking-tight text-red-600 dark:text-red-400">Not a valid certificate</h1>
               <p className="mt-3 text-sm leading-relaxed text-gray-500">
                 This certificate ID does not exist, has been invalidated, or failed the tamper check.
               </p>

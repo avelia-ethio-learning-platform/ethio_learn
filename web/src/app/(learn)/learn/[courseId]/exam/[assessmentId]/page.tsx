@@ -6,6 +6,9 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { ProctorEngine, ProctorStatus, Violation, VIOLATION_LABELS } from '@/lib/proctor';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface ExamQuestion {
   index: number;
@@ -47,6 +50,7 @@ interface ProctorReport {
 type Phase = 'preflight' | 'exam' | 'done';
 
 function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: string }) {
+  const { locale } = useT();
   const router = useRouter();
   const { data: assessments } = useQuery({
     queryKey: ['assessments', courseId],
@@ -61,7 +65,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
   const [banner, setBanner] = useState<{ text: string; key: number } | null>(null);
   const [proctorStatus, setProctorStatus] = useState<ProctorStatus>({ camera: 'off', faceModel: 'loading', faces: null });
   const [agreed, setAgreed] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [report, setReport] = useState<ProctorReport | null>(null);
@@ -86,6 +90,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
     async (opts: { terminated?: boolean; reason?: string } = {}) => {
       if (endedRef.current) return;
       endedRef.current = true;
+      clearStatus();
       setSubmitting(true);
       engineRef.current?.stop();
       const current = attemptRef.current;
@@ -113,7 +118,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
       setSubmitting(false);
       setPhase('done');
     },
-    [],
+    [clearStatus, setError],
   );
 
   const handleViolationRef = useRef<(v: Violation) => Promise<void>>(async () => {});
@@ -163,7 +168,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
   handleViolationRef.current = handleViolation;
 
   const start = async () => {
-    setError('');
+    clearStatus();
     try {
       const res = await api<StartedAttempt>(`/assessments/${assessmentId}/attempts`, { method: 'POST' });
       attemptRef.current = res;
@@ -214,6 +219,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
 
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
+  const renderPhase = () => {
   // ---------- PREFLIGHT ----------
   if (phase === 'preflight') {
     const cameraReady = !proctored || proctorStatus.camera === 'on';
@@ -251,13 +257,12 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
               </div>
             </>
           ) : (
-            <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">This quiz is not proctored. Answer every question, then submit.</p>
+            <p className="rounded-lg bg-background-secondary p-3 text-sm text-gray-700">This quiz is not proctored. Answer every question, then submit.</p>
           )}
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
             I understand the exam rules{proctored ? ' and consent to camera monitoring during the exam' : ''}.
           </label>
-          {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-2">
             <button className="btn" disabled={!agreed || !cameraReady || (proctored && modelState === 'loading')} onClick={start}>
               Start exam
@@ -275,7 +280,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
     return (
       <div className="page-shell max-w-2xl space-y-4">
         {result ? (
-          <div className={`card border-2 ${terminated ? 'border-red-300 bg-red-50' : result.passed ? 'border-green-300 bg-green-50' : 'border-amber-300'}`}>
+          <div className={`card border-2 ${terminated ? 'border-red-300 bg-red-50' : result.passed ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/40' : 'border-amber-300 dark:border-amber-700'}`}>
             {terminated ? (
               <>
                 <h1 className="text-xl font-bold text-red-800">🚫 Exam ended by proctoring</h1>
@@ -285,14 +290,14 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
               <>
                 <h1 className="text-xl font-bold">{result.passed ? '🎉 Passed' : 'Not passed yet'}</h1>
                 <p className="mt-1 text-3xl font-bold">{result.score}%</p>
-                {result.flagged && <p className="mt-1 text-sm text-amber-700">⚠️ This attempt has proctoring flags — see the report below.</p>}
+                {result.flagged && <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">⚠️ This attempt has proctoring flags — see the report below.</p>}
               </>
             )}
           </div>
         ) : (
           <div className="card">
-            <p className="text-sm text-red-600">{error || 'Submitting…'}</p>
-            {error && <button className="btn mt-2" disabled={submitting} onClick={() => void endExam()}>Try submitting again</button>}
+            {status?.tone !== 'error' && <p className="text-sm text-gray-500">Submitting…</p>}
+            {status?.tone === 'error' && <button className="btn mt-2" disabled={submitting} onClick={() => void endExam()}>Try submitting again</button>}
           </div>
         )}
 
@@ -337,12 +342,12 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={e.screenshot_url} alt={`Flag ${i + 1} snapshot`} className="h-20 w-28 shrink-0 rounded object-cover" />
                   ) : (
-                    <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded bg-gray-100 text-xs text-gray-400">no image</div>
+                    <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded bg-gray-100 text-xs text-gray-500">no image</div>
                   )}
                   <div className="text-sm">
                     <p className="font-medium">{VIOLATION_LABELS[e.type] ?? e.type}</p>
                     <p className="text-gray-600">{e.description}</p>
-                    <p className="mt-0.5 text-xs text-gray-400">{new Date(e.at).toLocaleString()}</p>
+                    <p className="mt-0.5 text-xs text-gray-500">{formatDate(e.at, locale, 'datetime')}</p>
                   </div>
                 </li>
               ))}
@@ -364,7 +369,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
   return (
     <div className="page-shell max-w-3xl select-none">
       {/* sticky exam header, below the fixed site header */}
-      <div className="sticky top-24 z-20 -mx-2 mb-4 flex items-center justify-between gap-3 rounded-b-xl border-b bg-white/95 px-4 py-2 shadow-sm backdrop-blur">
+      <div className="sticky top-24 z-20 -mx-2 mb-4 flex items-center justify-between gap-3 rounded-b-xl border-b bg-card px-4 py-2 shadow-sm backdrop-blur">
         <div className="text-sm font-semibold">{answered}/{attempt?.questions.length} answered</div>
         <div className="flex items-center gap-2 text-xs">
           {Object.entries(warnings).map(([t, n]) => (
@@ -376,20 +381,22 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
         </div>
       </div>
 
-      {banner && (
-        <div key={banner.key} className="mb-4 animate-pulse rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm font-medium text-amber-900">
-          {banner.text}
-        </div>
-      )}
+      <div role="alert">
+        {banner && (
+          <div key={banner.key} className="mb-4 animate-pulse rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm font-medium text-amber-900">
+            {banner.text}
+          </div>
+        )}
+      </div>
 
       <div className="space-y-4 pb-24">
         {attempt?.questions.map((q) => (
           <div key={q.index} className="card">
-            <p className="text-sm font-medium">
-              {q.index + 1}. {q.prompt} <span className="text-xs font-normal text-gray-400">({q.points} pt{q.points !== 1 ? 's' : ''}{q.kind === 'written' ? ' · written, AI-graded' : ''})</span>
+            <p id={`prompt-${q.index}`} className="text-sm font-medium">
+              {q.index + 1}. {q.prompt} <span className="text-xs font-normal text-gray-500">({q.points} pt{q.points !== 1 ? 's' : ''}{q.kind === 'written' ? ' · written, AI-graded' : ''})</span>
             </p>
             {q.kind === 'mcq' ? (
-              <div className="mt-2 space-y-1">
+              <div role="radiogroup" aria-labelledby={`prompt-${q.index}`} className="mt-2 space-y-1">
                 {q.options?.map((opt, j) => (
                   <label key={j} className="flex cursor-pointer items-center gap-2 rounded p-1 text-sm hover:bg-gray-50">
                     <input
@@ -404,6 +411,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
               </div>
             ) : (
               <textarea
+                aria-labelledby={`prompt-${q.index}`}
                 className="input mt-2 select-text"
                 rows={5}
                 placeholder="Write your answer in your own words… (paste is disabled)"
@@ -423,12 +431,22 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
       {proctored && (
         <div className="fixed bottom-4 right-4 z-30 overflow-hidden rounded-xl border-2 border-white shadow-lg">
           <video ref={setVideoEl} muted playsInline className="h-24 w-32 bg-gray-900 object-cover" />
-          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-[10px] font-semibold text-white ${proctorStatus.faces === 1 ? 'bg-green-600' : 'bg-red-600'}`}>
+          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-xs font-semibold text-white ${proctorStatus.faces === 1 ? 'bg-green-700' : 'bg-red-600'}`}>
             {proctorStatus.faceModel !== 'ready' ? 'REC' : proctorStatus.faces === 1 ? '● OK' : proctorStatus.faces === 0 ? '● NO FACE' : `● ${proctorStatus.faces} FACES`}
           </div>
         </div>
       )}
     </div>
+  );
+  };
+
+  return (
+    <>
+      {renderPhase()}
+      <div className="mx-auto max-w-2xl px-4">
+        <FormStatus status={status} />
+      </div>
+    </>
   );
 }
 
@@ -447,10 +465,10 @@ interface StudyPlan {
 function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean }) {
   const [plan, setPlan] = useState<StudyPlan | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const load = async () => {
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       setPlan(await api<StudyPlan>(`/attempts/${attemptId}/study-plan`, { slow: true }));
     } catch (err) {
@@ -466,7 +484,7 @@ function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean 
         <button className="btn mt-3" disabled={busy} onClick={load}>
           {busy ? 'Building your plan…' : 'Get my study plan'}
         </button>
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <FormStatus status={status} />
       </div>
     );
   }
@@ -476,13 +494,13 @@ function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean 
       <p className="mt-1 text-sm text-gray-700">{plan.summary}</p>
       <ol className="mt-3 space-y-2">
         {plan.plan.map((item, i) => (
-          <li key={i} className="rounded-lg bg-white p-3 text-sm dark:bg-slate-900">
+          <li key={i} className="rounded-lg bg-card p-3 text-sm">
             <p className="font-semibold text-foreground">{i + 1}. {item.focus}</p>
             <p className="mt-0.5 text-gray-600">{item.reason}</p>
           </li>
         ))}
       </ol>
-      {!plan.ai_live && <p className="mt-2 text-xs text-gray-400">Offline coach — set a valid GROQ_API_KEY for AI-tailored plans.</p>}
+      {!plan.ai_live && <p className="mt-2 text-xs text-gray-500">Offline coach — set a valid GROQ_API_KEY for AI-tailored plans.</p>}
     </div>
   );
 }

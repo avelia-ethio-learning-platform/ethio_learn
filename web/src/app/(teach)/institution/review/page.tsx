@@ -9,6 +9,8 @@ import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { CHIP_CLASS, diffChips, type RevisionDiffSummary } from '@/lib/qa';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 const QUEUE_KEY = ['institution-review'];
 
@@ -59,7 +61,7 @@ function ReviewQueue() {
             <div className="skeleton h-40 w-full" />
           </div>
         ) : isError ? (
-          <div className="card flex flex-col items-center gap-3 py-10 text-center text-sm text-red-500">
+          <div className="card flex flex-col items-center gap-3 py-10 text-center text-sm text-red-600 dark:text-red-400">
             Could not load the review queue.
             <button className="btn-secondary" onClick={() => refetch()}>
               Try again
@@ -78,6 +80,7 @@ function ReviewQueue() {
 }
 
 function ReviewRow({ row, onDecided }: { row: InstitutionQueueRow; onDecided: (message: string) => void }) {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const uid = useId();
   const [notes, setNotes] = useState('');
@@ -123,8 +126,8 @@ function ReviewRow({ row, onDecided }: { row: InstitutionQueueRow; onDecided: (m
       <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
         <UserRound className="h-3.5 w-3.5 text-brand-400" />
         Created by <span className="font-semibold text-foreground">{row.instructor_name || 'Unknown instructor'}</span>
-        {row.instructor_email && <span className="break-all text-gray-400">({row.instructor_email})</span>}
-        {isRevision && row.submitted_at && <span>· submitted {new Date(row.submitted_at).toLocaleDateString()}</span>}
+        {row.instructor_email && <span className="break-all text-gray-500">({row.instructor_email})</span>}
+        {isRevision && row.submitted_at && <span>· submitted {formatDate(row.submitted_at, locale)}</span>}
       </p>
 
       {isRevision ? (
@@ -179,7 +182,7 @@ function ReviewRow({ row, onDecided }: { row: InstitutionQueueRow; onDecided: (m
         <p className="mt-2 text-xs text-gray-500">Sending an update back keeps the instructor&apos;s edits so they can fix and resubmit them.</p>
       )}
       {error && (
-        <p role="alert" className="mt-3 text-sm font-medium text-red-500">
+        <p role="alert" className="mt-3 text-sm font-medium text-red-600 dark:text-red-400">
           {error}
         </p>
       )}

@@ -1,9 +1,9 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Providers } from '@/components/Providers';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
-import { THEME_INIT_SCRIPT } from '@/lib/theme-script';
+import { THEME_COLOR_DARK, THEME_COLOR_LIGHT, THEME_INIT_SCRIPT } from '@/lib/theme-script';
 import { SITE_URL } from '@/lib/server-api';
 
 export const metadata: Metadata = {
@@ -22,8 +22,14 @@ export const metadata: Metadata = {
     description: 'Educator-first online learning marketplace for Ethiopia with verifiable certificates.',
   },
   robots: { index: true, follow: true },
-  manifest: '/manifest.webmanifest',
-  icons: { icon: '/icon.svg' },
+  twitter: { card: 'summary_large_image' },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: THEME_COLOR_LIGHT },
+    { media: '(prefers-color-scheme: dark)', color: THEME_COLOR_DARK },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -32,13 +38,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* Apply saved theme before paint to avoid a flash of the wrong mode */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <meta name="theme-color" content="#0f766e" />
       </head>
       <body>
         <Providers>
           <Header />
           {/* pt-28 clears the fixed header on every page */}
-          <main className="min-h-screen pt-28">{children}</main>
+          <main id="main" tabIndex={-1} className="min-h-screen pt-28 focus:outline-none">{children}</main>
           <Footer />
         </Providers>
       </body>

@@ -8,7 +8,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   api: (...args: unknown[]) => apiMock(...args),
 }));
 vi.mock('@/lib/wake', () => ({ wakeServices }));
-vi.mock('@/lib/hooks', () => ({ useAuth: () => ({ user: null, ready: true }) }));
+let auth: { user: { id: string; role: string } | null; ready: boolean } = { user: null, ready: true };
+vi.mock('@/lib/hooks', () => ({ useAuth: () => auth }));
 vi.mock('next/navigation', () => ({
   useParams: () => ({ token: 't1' }),
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
@@ -39,6 +40,7 @@ function renderPage() {
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
+  auth = { user: null, ready: true };
   apiMock.mockReset();
   wakeServices.mockReset();
 });
@@ -87,5 +89,19 @@ describe('Pay-request page', () => {
     renderPage();
     expect((await screen.findByRole('status')).textContent).toMatch(/waking up the server/i);
     expect(screen.queryByText('Request not found')).toBeNull();
+  });
+
+  it('a failed payment is announced as an alert', async () => {
+    auth = { user: { id: 'u2', role: 'learner' }, ready: true };
+    apiMock.mockImplementation(async (path: string, opts?: { method?: string }) => {
+      if (opts?.method === 'POST') throw new Error('Chapa is unavailable right now');
+      if (path === '/wallet') return { balance_etb: 0 };
+      return request;
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /with Chapa/ }));
+    const alert = screen.getByRole('alert');
+    await vi.waitFor(() => expect(alert.textContent).toBe('Chapa is unavailable right now'));
+    expect(alert.querySelector('.badge-danger')).not.toBeNull();
   });
 });

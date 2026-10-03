@@ -5,6 +5,10 @@ import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface CommentRow {
   id: string;
@@ -51,14 +55,14 @@ export function CommentsSection({ courseId }: { courseId: string }) {
   });
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
 
   const tree = useMemo(() => buildTree(rows ?? []), [rows]);
   const count = rows?.filter((r) => !r.deleted).length ?? 0;
 
   const post = async (body: string, parentId?: string) => {
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       await api(`/courses/${courseId}/comments`, { method: 'POST', body: { body, ...(parentId ? { parent_id: parentId } : {}) } });
       setDraft('');
@@ -87,15 +91,20 @@ export function CommentsSection({ courseId }: { courseId: string }) {
 
       {ready && user ? (
         <div className="mt-3">
-          <textarea
-            className="input"
-            rows={2}
-            placeholder="Ask a question or share something with the class…"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
+          <Field label="Add a comment">
+            {(ids) => (
+              <textarea
+                {...ids}
+                className="input"
+                rows={2}
+                placeholder="Ask a question or share something with the class…"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+            )}
+          </Field>
           <div className="mt-1 flex items-center justify-between">
-            {error ? <p className="text-xs text-red-600">{error}</p> : <span />}
+            <FormStatus status={status} />
             <button className="btn text-sm" disabled={busy || draft.trim().length === 0} onClick={() => void post(draft)}>
               Post comment
             </button>
@@ -108,7 +117,7 @@ export function CommentsSection({ courseId }: { courseId: string }) {
       )}
 
       <div className="mt-4 space-y-4">
-        {tree.length === 0 && <p className="text-sm text-gray-400">No comments yet — start the conversation.</p>}
+        {tree.length === 0 && <p className="text-sm text-gray-500">No comments yet — start the conversation.</p>}
         {tree.map((node) => (
           <CommentItem key={node.id} node={node} me={user?.id} myRole={user?.role} onReply={post} onDelete={remove} depth={0} />
         ))}
@@ -132,6 +141,7 @@ function CommentItem({
   onDelete: (id: string) => void;
   depth: number;
 }) {
+  const { locale } = useT();
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
@@ -142,13 +152,13 @@ function CommentItem({
     <div className={depth > 0 ? 'ml-4 border-l-2 border-gray-100 pl-3 sm:ml-6 sm:pl-4' : ''}>
       <div className="text-sm">
         {node.deleted ? (
-          <p className="italic text-gray-400">[comment removed]</p>
+          <p className="italic text-gray-500">[comment removed]</p>
         ) : (
           <>
             <p>
               <span className="font-medium">{node.author_name}</span>
-              {badge && <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700">{badge}</span>}
-              <span className="ml-2 text-xs text-gray-400">{new Date(node.created_at).toLocaleString()}</span>
+              {badge && <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-700">{badge}</span>}
+              <span className="ml-2 text-xs text-gray-500">{formatDate(node.created_at, locale, 'datetime')}</span>
             </p>
             <p className="mt-0.5 whitespace-pre-wrap text-gray-800">{node.body}</p>
           </>
@@ -165,14 +175,14 @@ function CommentItem({
             </Link>
           )}
           {canDelete && (
-            <button className="text-red-500 hover:underline" onClick={() => onDelete(node.id)}>
+            <button className="text-red-600 dark:text-red-400 hover:underline" onClick={() => onDelete(node.id)}>
               Delete
             </button>
           )}
         </div>
         {replying && (
           <div className="mt-2">
-            <textarea className="input" rows={2} autoFocus placeholder={`Reply to ${node.author_name}…`} value={reply} onChange={(e) => setReply(e.target.value)} />
+            <textarea className="input" rows={2} autoFocus aria-label={`Reply to ${node.author_name}`} placeholder={`Reply to ${node.author_name}…`} value={reply} onChange={(e) => setReply(e.target.value)} />
             <button
               className="btn-secondary mt-1 text-xs"
               disabled={busy || reply.trim().length === 0}

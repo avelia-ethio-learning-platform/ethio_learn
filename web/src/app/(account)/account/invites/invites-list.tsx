@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, MailOpen } from 'lucide-react';
 import { api, refreshSession } from '@/lib/api';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 export interface InstitutionInvite {
   id: string;
@@ -20,6 +22,7 @@ export const INVITES_QUERY_KEY = ['institution-invites'];
  * made here with the institution named; nothing changes on the account before.
  */
 export function InvitesList() {
+  const { locale } = useT();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
@@ -50,7 +53,7 @@ export function InvitesList() {
   if (!invites?.length) {
     return (
       <div className="card flex flex-col items-center gap-3 py-12 text-center">
-        <MailOpen className="h-8 w-8 text-gray-400" />
+        <MailOpen className="h-8 w-8 text-gray-500" />
         <p className="text-sm text-gray-500">No pending invitations.</p>
         <Link href="/dashboard" className="text-sm font-semibold text-brand-600 hover:underline">
           Back to my learning
@@ -72,7 +75,7 @@ export function InvitesList() {
               <Building2 className="h-4 w-4 shrink-0 text-brand-500" /> {invite.institution.name}
             </h2>
             <p className="mt-1 text-sm text-gray-500">
-              Invited you to teach with them on {new Date(invite.invited_at).toLocaleDateString()}. If you accept, you become their instructor:
+              Invited you to teach with them on {formatDate(invite.invited_at, locale)}. If you accept, you become their instructor:
               new courses you create go through their review. Your enrollments and existing courses are unchanged.
             </p>
           </div>

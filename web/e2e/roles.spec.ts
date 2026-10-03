@@ -7,7 +7,7 @@ test.describe('institution admin', () => {
 
   test('gets no create-course form on /teach/new (the API refuses institutions)', async ({ page }) => {
     await page.goto('/teach/new');
-    await expect(page.getByText(/This area is for/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: "This page isn't available for your account" })).toBeVisible();
     await expect(page.locator('main form')).toHaveCount(0);
   });
 
@@ -27,6 +27,6 @@ test.describe('educator', () => {
   test('gets the create-course form on /teach/new', async ({ page }) => {
     await page.goto('/teach/new');
     await expect(page.locator('main form')).toBeVisible();
-    await expect(page.getByText(/This area is for/)).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: "This page isn't available for your account" })).toHaveCount(0);
   });
 });

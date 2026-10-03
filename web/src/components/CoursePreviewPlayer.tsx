@@ -78,7 +78,7 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
         <video ref={videoRef} controls className="aspect-video w-full" />
       </div>
       {playing && <p className="mt-3 text-sm font-semibold text-foreground">Now playing: {playing}</p>}
-      {error && <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">{error}</p>}
+      {error && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{error}</p>}
       <ul className="mt-4 space-y-1">
         {previewLessons.map((l) => (
           <li key={l.id}>
@@ -88,7 +88,7 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
             >
               <PlayCircle className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
               <span className="min-w-0 flex-1 truncate">{l.title}</span>
-              <span className="max-w-[40%] shrink-0 truncate text-xs text-gray-400">({l.section})</span>
+              <span className="max-w-[40%] shrink-0 truncate text-xs text-gray-500">({l.section})</span>
             </button>
           </li>
         ))}

@@ -8,11 +8,14 @@ import { RequireRole } from '@/components/RequireRole';
 import { RoleHomeBackButton } from '@/components/BackButton';
 import { PageHeader, PageShell } from '@/components/PageChrome';
 import { Bars } from '@/components/Bars';
+import { formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 // Matches the API's cap on `course_ids` for the enrollment funnel.
 const MAX_ANALYTICS_COURSES = 25;
 
 function AnalyticsPage() {
+  const { locale } = useT();
   const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
   const ids = useMemo(() => (courses ?? []).map((c) => c.id).slice(0, MAX_ANALYTICS_COURSES), [courses]);
   const { data: revenue } = useQuery({ queryKey: ['payee-analytics'], queryFn: () => api<any>('/payouts/analytics') });
@@ -32,7 +35,7 @@ function AnalyticsPage() {
   }, [funnel]);
 
   const stats = [
-    { icon: TrendingUp, label: 'Revenue (gross)', value: `${revenue?.total_gross_etb ?? 0} ETB`, hint: `net ${revenue?.total_net_etb ?? 0} ETB after the 20% platform fee` },
+    { icon: TrendingUp, label: 'Revenue (gross)', value: `${formatETB(revenue?.total_gross_etb ?? 0, locale)}`, hint: `net ${formatETB(revenue?.total_net_etb ?? 0, locale)} after the 20% platform fee` },
     { icon: Users, label: 'Learners enrolled', value: totals.enrolled, hint: `${totals.active7} active in the last 7 days` },
     { icon: Star, label: 'Completion rate', value: totals.enrolled ? `${Math.round((totals.completed / totals.enrolled) * 100)}%` : '—', hint: `${totals.completed} finished` },
   ];
@@ -60,7 +63,7 @@ function AnalyticsPage() {
                 </span>
               </div>
               <p className="gradient-text-blue mt-2 text-3xl font-extrabold">{s.value}</p>
-              <p className="mt-1 text-xs text-gray-400">{s.hint}</p>
+              <p className="mt-1 text-xs text-gray-500">{s.hint}</p>
             </div>
           ))}
         </section>
@@ -108,19 +111,19 @@ function AnalyticsPage() {
                     <td className="px-5 py-3 font-medium text-foreground">{c.course_title}</td>
                     <td className="px-3 py-3 text-right">{c.enrolled}</td>
                     <td className="px-3 py-3 text-right">
-                      {c.completed} <span className="text-xs text-gray-400">({c.completion_rate}%)</span>
+                      {c.completed} <span className="text-xs text-gray-500">({c.completion_rate}%)</span>
                     </td>
                     <td className="px-3 py-3 text-right">{c.avg_progress_percent}%</td>
                     <td className="px-3 py-3 text-right">{c.active_last_30d}</td>
                     <td className="px-3 py-3 text-right">{c.never_started}</td>
                     <td className="px-3 py-3 text-right">{course?.rating_avg ? `★ ${Number(course.rating_avg).toFixed(1)} (${course.rating_count})` : '—'}</td>
-                    <td className="px-5 py-3 text-right">{rev ? `${rev.gross_etb} ETB` : '0 ETB'}</td>
+                    <td className="px-5 py-3 text-right">{formatETB(rev?.gross_etb ?? 0, locale)}</td>
                   </tr>
                 );
               })}
               {!funnel?.length && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-gray-400">
+                  <td colSpan={8} className="px-5 py-8 text-center text-gray-500">
                     Publish a course to see analytics here.
                   </td>
                 </tr>
