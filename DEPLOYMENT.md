@@ -142,6 +142,85 @@ In this order. Steps 1, 2, 4 and 5 touch Neon or Render and are for the owner to
 
 **Rolling back:** revert the merge and redeploy. The previous code synchronizes again, which only undoes the index changes; the `migrations` tables stay behind, unused. Restore from the Neon branch only if data itself went wrong. **Before deploying the migrations again**, delete the `IndexTuning` rows (`DELETE FROM "<schema>"."migrations" WHERE name LIKE 'IndexTuning%'` in each of the 7 schemas). Otherwise they still read as done, nothing reruns, and production keeps the old indexes. The baselines stay recorded, which is correct, since every table is still there.
 
+### Phase 6c: money integrity checks and rollback
+
+Both parts are for the owner to run against production (the Neon SQL editor, or `psql '<production url>'`). Production is off-limits to development sessions.
+
+**Before merging: read-only checks.** Every statement only selects. They use only columns that exist before 6c, so they run against production as it is now. Nothing acts on the results: each list is for you to decide on.
+
+```sql
+-- 1. Refunded purchases that kept their cashback or referral reward (history).
+--    A referral reward belongs to the purchase whose confirmation granted it.
+SELECT p.id AS payment_id, p.learner_id, p.course_title, p.amount_etb,
+       t.kind, t.user_id AS credited_to, t.amount_etb AS credit_etb, t.created_at AS credited_at
+FROM financial.payments p
+JOIN financial.wallet_transactions t ON t.kind = 'cashback' AND t.reference = p.id::text
+WHERE p.status = 'refunded'
+UNION ALL
+SELECT p.id, p.learner_id, p.course_title, p.amount_etb, t.kind, t.user_id, t.amount_etb, t.created_at
+FROM financial.payments p
+JOIN financial.referrals r ON r.referred_user_id = p.learner_id AND r.status = 'rewarded'
+JOIN financial.wallet_transactions t ON t.kind = 'referral_reward' AND t.reference = r.id::text
+WHERE p.status = 'refunded'
+  AND r.rewarded_at BETWEEN p.webhook_received_at - interval '1 minute' AND p.webhook_received_at + interval '1 minute'
+ORDER BY credited_at;
+
+-- 2. Payments with a pending refund that are already in a payout (support cases).
+SELECT r.id AS refund_request_id, r.created_at AS requested_at, p.id AS payment_id, p.payout_id, p.amount_etb
+FROM financial.refund_requests r
+JOIN financial.payments p ON p.id = r.payment_id
+WHERE r.status = 'pending' AND p.payout_id IS NOT NULL
+ORDER BY r.created_at;
+
+-- 3. Pending refunds: the payments the migration marks with refund_requested_at.
+SELECT count(*) AS pending_refunds FROM financial.refund_requests WHERE status = 'pending';
+
+-- 4. (A1) Chapa course payments still pending after 48 h whose learner has the course.
+--    Each may be a confirmation the abandoned-checkout reminder reverted. The
+--    likeliest have nudged_at set and no other confirmed payment for the course.
+SELECT p.id AS payment_id, p.chapa_tx_ref, p.learner_id, p.course_id, p.amount_etb, p.created_at, p.nudged_at,
+       EXISTS (SELECT 1 FROM financial.payments q
+               WHERE q.learner_id = p.learner_id AND q.course_id = p.course_id AND q.status = 'confirmed') AS has_confirmed_payment
+FROM financial.payments p
+JOIN enrollment.enrollments e ON e.learner_id = p.learner_id AND e.course_id = p.course_id
+WHERE p.method = 'chapa' AND p.purpose = 'course' AND p.status = 'pending'
+  AND p.created_at < now() - interval '48 hours'
+  AND e.entitlement_status = 'active'
+ORDER BY p.created_at;
+
+-- 5. (A1) Coupons whose uses exceed their confirmed payments. An inflated count
+--    closes a coupon early; correcting uses is your call.
+SELECT c.code, c.uses, c.max_uses, count(p.id) AS confirmed_payments
+FROM financial.coupons c
+LEFT JOIN financial.payments p ON p.coupon_code = c.code AND p.status = 'confirmed'
+GROUP BY c.id, c.code, c.uses, c.max_uses
+HAVING c.uses > count(p.id)
+ORDER BY c.code;
+```
+
+**Rolling back:** revert the code and keep the columns; the previous code ignores them. **Before reverting**, release every pending credit into its owner's balance, because the previous code reads only `balance_etb` and the learners would lose them. That includes credits whose purchase has a refund under review, which the previous code never held back either. The transaction is safe while 6c is serving: the app releases a credit only from `pending`, under the same row lock, so each credit moves once. Run the preview, then the transaction, then revert. Once the revert is live, run both again to catch credits earned in between. A second run releases only what is still pending.
+
+```sql
+-- Preview: what the release moves.
+SELECT count(*) AS pending_credits, count(DISTINCT user_id) AS owners, COALESCE(sum(amount_etb), 0) AS total_etb
+FROM financial.wallet_transactions WHERE state = 'pending';
+
+BEGIN;
+WITH released AS (
+  UPDATE financial.wallet_transactions SET state = 'available'
+  WHERE state = 'pending'
+  RETURNING user_id, amount_etb
+), totals AS (
+  SELECT user_id, sum(amount_etb) AS amount_etb FROM released GROUP BY user_id
+)
+INSERT INTO financial.wallets AS w (user_id, balance_etb)
+SELECT user_id, amount_etb FROM totals
+ON CONFLICT (user_id) DO UPDATE SET balance_etb = w.balance_etb + EXCLUDED.balance_etb, updated_at = now();
+COMMIT;
+```
+
+`INSERT 0 <n>` is the number of wallets credited, and the preview then shows no pending credits.
+
 ## Scaling & operations
 
 - Services are stateless → scale horizontally behind the gateway; use PgBouncer for Postgres connection pooling under load.
