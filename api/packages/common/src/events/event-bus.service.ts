@@ -3,6 +3,7 @@ import * as amqp from 'amqplib';
 import { randomUUID } from 'crypto';
 import { EventEnvelope, EventType } from '@ethiopialearn/contracts';
 import { envInt, envOrLocalDefault } from '../config/env';
+import { redactEmails } from '../logging/redact';
 import { currentContext, requestContext, requestIdFrom } from '../context';
 
 export const EVENTS_EXCHANGE = 'ethiopialearn.events';
@@ -523,8 +524,9 @@ function backoffMs(attempt: number): number {
   return Math.round(base * (0.8 + Math.random() * 0.4));
 }
 
+/** An error's message for a log line or the `x-last-error` header: a provider's rejection can quote the recipient. */
 function errorText(err: unknown): string {
-  return String((err as Error)?.message ?? err).slice(0, 500);
+  return redactEmails(String((err as Error)?.message ?? err)).slice(0, 500);
 }
 
 function waitForDrain(channel: amqp.Channel, ms: number, label: string): Promise<void> {

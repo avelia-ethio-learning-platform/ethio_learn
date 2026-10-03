@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { currentEvent, env, EventBusService, InternalHttpClient, internalPath, PeerNotFoundError } from '@ethiopialearn/common';
+import { currentEvent, env, EventBusService, InternalHttpClient, internalPath, maskEmail, PeerNotFoundError, redactEmails } from '@ethiopialearn/common';
 import { courseCategoryLabel } from '@ethiopialearn/contracts';
 import {
   AssessmentResultPayload,
@@ -715,7 +715,7 @@ export class NotificationService implements OnModuleInit {
     }
     const eventId = currentEvent()?.event_id ?? null;
     if (eventId && (await this.log.exists({ where: { event_id: eventId, recipient: to, event_type: eventType, status: 'sent' } }))) {
-      this.logger.log(`${eventType} to ${to} already sent for event ${eventId}`);
+      this.logger.log(`${eventType} to ${maskEmail(to)} already sent for event ${eventId}`);
       return;
     }
     let messageId: string;
@@ -723,7 +723,7 @@ export class NotificationService implements OnModuleInit {
       ({ message_id: messageId } = await this.email.send({ to, subject, html }));
     } catch (err) {
       const reason = ((err as Error).message || String(err)).slice(0, 500);
-      this.logger.error(`email failed for ${eventType} -> ${to} via ${this.email.name}: ${reason}`);
+      this.logger.error(`email failed for ${eventType} (user ${userId ?? 'none'}) -> ${maskEmail(to)} via ${this.email.name}: ${redactEmails(reason)}`);
       await this.log.save(
         this.log.create({ user_id: userId, event_type: eventType, channel: 'email', recipient: to, subject, status: 'failed', provider_message_id: null, error: reason, event_id: eventId }),
       );

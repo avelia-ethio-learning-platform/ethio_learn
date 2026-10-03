@@ -440,7 +440,7 @@ export class PaymentService {
     } catch (err) {
       const fallback = env('CHAPA_FALLBACK_EMAIL', '');
       if (fallback && fallback !== customerEmail && /validation\.email|valid email/i.test((err as Error).message)) {
-        this.logger.warn(`Chapa rejected customer email "${customerEmail}"; retrying with fallback "${fallback}"`);
+        this.logger.warn(`payment ${payment.id}: Chapa rejected the customer email; retrying with the fallback address`);
         return (await this.chapa.initialize({ ...initOpts, email: fallback })).checkout_url;
       }
       throw err;

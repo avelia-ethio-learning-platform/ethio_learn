@@ -51,6 +51,16 @@ describe('InternalHttpClient.get', () => {
     expect(init.headers['x-internal-token']).toBe('test-internal-token');
   });
 
+  it('logs a failed call with the path redacted, and throws without it', async () => {
+    const warn = jest.spyOn((client as unknown as { logger: { warn(msg: string): void } }).logger, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValue({ ok: false, status: 503, headers: new Headers(), text: async () => '' });
+    const error = await client.get<never>(internalPath`/api/v1/internal/users/by-email/${'abebe@example.com'}`).catch((err: Error) => err);
+
+    expect(warn).toHaveBeenCalledWith('internal GET /api/v1/internal/users/by-email/[email] failed (503)');
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).not.toContain('abebe');
+  });
+
   it("forwards the current request's id, and sends none outside a request", async () => {
     const path = internalPath`/api/v1/internal/lessons/${'abc'}`;
     await requestContext.run({ request_id: '0b6f3c1e-5d2a-4f8e-9c71-2a4d6e8f0b13' }, () => client.get(path));

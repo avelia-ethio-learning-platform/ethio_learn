@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { envOrLocalDefault } from '../config/env';
 import { currentContext } from '../context';
+import { redactPath } from '../logging/redact';
 import { PeerAsleepError, PeerNotFoundError, PeerUnavailableError } from './internal-errors';
 
 /** A path built by `internalPath`; `get()` accepts nothing else. */
@@ -64,7 +65,7 @@ export class InternalHttpClient {
     }
     // Bounded timeout so a slow/stuck peer can't tie up this service's request
     // handlers under load. Node's fetch (undici) already keep-alives connections.
-    // Messages and logs never carry the path: it can hold an email address.
+    // Messages never carry the path, and logs only its redacted form: it can hold an email address.
     const headers: Record<string, string> = { 'x-internal-token': process.env.INTERNAL_API_TOKEN ?? '' };
     const requestId = currentContext()?.request_id;
     if (requestId) headers['x-request-id'] = requestId;
@@ -84,11 +85,11 @@ export class InternalHttpClient {
         res = await attempt();
       }
     } catch (err) {
-      this.logger.warn(`internal GET failed (${(err as Error).name}), path length ${path.length}`);
+      this.logger.warn(`internal GET ${redactPath(path)} failed (${(err as Error).name})`);
       throw new PeerUnavailableError();
     }
     if (!res.ok) {
-      this.logger.warn(`internal GET failed (${res.status}), path length ${path.length}`);
+      this.logger.warn(`internal GET ${redactPath(path)} failed (${res.status})`);
       if (res.status === 404) throw new PeerNotFoundError('Not found');
       if (res.status === 429) {
         const text = await res.text().catch(() => '');

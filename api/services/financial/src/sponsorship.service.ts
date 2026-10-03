@@ -473,7 +473,7 @@ export class SponsorshipService implements OnModuleInit {
       await this.grant(s);
       n += 1;
     }
-    if (n) this.logger.log(`claimed ${n} sponsored seat(s) for ${email}`);
+    if (n) this.logger.log(`claimed ${n} sponsored seat(s) for user ${userId}`);
     return n;
   }
 

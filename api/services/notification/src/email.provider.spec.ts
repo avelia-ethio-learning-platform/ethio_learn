@@ -97,6 +97,15 @@ describe('BrevoApiEmailProvider', () => {
     jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 'unauthorized', message: 'Sender not valid' }), { status: 400 }));
     await expect(new BrevoApiEmailProvider().send(msg)).rejects.toThrow(/Brevo rejected the email \(400 unauthorized\): Sender not valid/);
   });
+
+  it("logs Brevo's failure body without the recipient address it quotes", async () => {
+    process.env.BREVO_API_KEY = 'xkeysib-test';
+    const provider = new BrevoApiEmailProvider();
+    const error = jest.spyOn((provider as unknown as { logger: { error(m: string): void } }).logger, 'error').mockImplementation(() => undefined);
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 'invalid_parameter', message: 'email x@y.et is not valid' }), { status: 400 }));
+    await expect(provider.send(msg)).rejects.toThrow();
+    expect(error).toHaveBeenCalledWith('brevo send failed (400): {"code":"invalid_parameter","message":"email [email] is not valid"}');
+  });
 });
 
 describe('POST /admin/notifications/test-email', () => {

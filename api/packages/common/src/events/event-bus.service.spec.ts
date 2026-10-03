@@ -539,6 +539,26 @@ describe('EventBusService request context (Phase 9d)', () => {
     expect(JSON.parse(broker.published[0].body).metadata.correlation_id).toBe(requestId);
   });
 
+  it("keeps a recipient address in a handler's error out of the retry and park logs and the x-last-error header", async () => {
+    const broker = new FakeBroker();
+    const logged: string[] = [];
+    const logger = (bus as unknown as { logger: Record<'warn' | 'error', (msg: string) => void> }).logger;
+    jest.spyOn(logger, 'warn').mockImplementation((msg: string) => void logged.push(msg));
+    jest.spyOn(logger, 'error').mockImplementation((msg: string) => void logged.push(msg));
+    bus.subscribe('CourseCompleted', () => {
+      throw new Error('550 5.1.1 <abebe@example.com>: Recipient address rejected');
+    });
+    await started();
+    broker.deliver('quality.events', envelope());
+    broker.deliver('quality.events', envelope(), { 'x-attempts': 4 });
+    await until(() => broker.channel.ack.mock.calls.length === 2, 'both acks');
+
+    expect(logged.filter((m) => m.includes('Recipient address rejected'))).toHaveLength(2);
+    expect(logged.join('\n')).not.toContain('abebe');
+    expect(logged.join('\n')).toContain('<[email]>');
+    expect(broker.sentTo('quality.events.parked')[0].headers['x-last-error']).toBe('550 5.1.1 <[email]>: Recipient address rejected');
+  });
+
   it('connects outside the request whose publish started the connection', async () => {
     const broker = new FakeBroker();
     const contexts: (RequestContext | undefined)[] = [];

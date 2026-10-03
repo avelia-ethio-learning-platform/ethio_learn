@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import * as nodemailer from 'nodemailer';
-import { env, envBool, envInt } from '@ethiopialearn/common';
+import { env, envBool, envInt, maskEmail, redactEmails } from '@ethiopialearn/common';
 
 export interface EmailMessage {
   to: string;
@@ -57,7 +57,7 @@ export class BrevoApiEmailProvider implements EmailProvider {
     });
     const body = (await res.json().catch(() => ({}))) as { messageId?: string; message?: string; code?: string };
     if (!res.ok || !body.messageId) {
-      this.logger.error(`brevo send failed (${res.status}): ${JSON.stringify(body)}`);
+      this.logger.error(`brevo send failed (${res.status}): ${redactEmails(JSON.stringify(body))}`);
       throw new Error(`Brevo rejected the email (${res.status}${body.code ? ` ${body.code}` : ''}): ${body.message ?? 'no details'}`);
     }
     return { message_id: body.messageId };
@@ -87,7 +87,7 @@ export class ResendEmailProvider implements EmailProvider {
     });
     const body = (await res.json()) as { id?: string; message?: string };
     if (!res.ok || !body.id) {
-      this.logger.error(`resend send failed: ${JSON.stringify(body)}`);
+      this.logger.error(`resend send failed: ${redactEmails(JSON.stringify(body))}`);
       throw new Error(`Email send failed: ${body.message ?? res.status}`);
     }
     return { message_id: body.id };
@@ -103,7 +103,7 @@ export class ConsoleEmailProvider implements EmailProvider {
   async send(message: EmailMessage): Promise<{ message_id: string }> {
     const id = uuidv4();
     this.logger.log(
-      `\n──── EMAIL (dev console provider) ────\nTo: ${message.to}\nSubject: ${message.subject}\n${message.html
+      `\n──── EMAIL (dev console provider) ────\nTo: ${maskEmail(message.to)}\nSubject: ${message.subject}\n${message.html
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()}\n──────────────────────────────────────`,
