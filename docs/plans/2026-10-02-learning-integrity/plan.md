@@ -183,12 +183,12 @@ Phase 2 pattern; entities updated so `db:check` stays at 0.
 - **Lesson create, update and the sections payload (course):** accept an optional `video_duration_seconds` (int > 0). It is cleared when the video changes without a new value.
 
 ## Steps
-- [ ] 1. Branch per the base rule. Remove this folder's line from `.git/info/exclude` and commit the folder.
-- [ ] 2. Migrations and entity changes. `db:check` at 0 on a fresh and an existing local DB. Revert round-trips with `-t none`.
-- [ ] 3. Course: the new field in the DTOs, `updateLesson`'s clear rule, `createLesson`, `insertSection`, the `staging.ts` approval loop, `mergedLesson` and the canonical hash (decision 1), with course unit tests. The internal lesson endpoint fields. Then enrollment: the progress rule, `started_at` (and its reset in `onRevisionApplied`), and `/complete` with `retry_after_seconds`, decisions 1–3, with enrollment unit tests.
+- [x] 1. Branch per the base rule. Remove this folder's line from `.git/info/exclude` and commit the folder.
+- [x] 2. Migrations and entity changes. `db:check` at 0 on a fresh and an existing local DB. Revert round-trips with `-t none`.
+- [x] 3. Course: the new field in the DTOs, `updateLesson`'s clear rule, `createLesson`, `insertSection`, the `staging.ts` approval loop, `mergedLesson` and the canonical hash (decision 1), with course unit tests. The internal lesson endpoint fields. Then enrollment: the progress rule, `started_at` (and its reset in `onRevisionApplied`), and `/complete` with `retry_after_seconds`, decisions 1–3, with enrollment unit tests.
 - [ ] 4. Web, with vitest: the duration probe in `video-upload.tsx` on both upload paths; the learn page's final position, the 409 message and one retry after `retry_after_seconds`; `/complete` on a video lesson through `api()`, not the queue.
-- [ ] 5. Attempt start under the lock, reuse for every type, limits, viva question guard, decisions 5–6, with outcomes unit tests.
-- [ ] 6. Submit claim and `breakdown` withholding, decisions 7–8, with tests. The teach form shows the limit fields for every type.
+- [x] 5. Attempt start under the lock, reuse for every type, limits, viva question guard, decisions 5–6, with outcomes unit tests.
+- [x] 6. Submit claim and `breakdown` withholding, decisions 7–8, with tests. The teach form shows the limit fields for every type.
 - [ ] 7. Project size signing and submit check, decisions 9–10, with tests. The project picker comes before the start, and the start sends `file_size`.
 - [ ] 8. Update the scripts (decision 4). Add `scripts/e2e-learning.mjs` to CI right after e2e-payments, so Build web still sits between the e2e scripts and Playwright and the login limiter refills (Phase 5's order). Reuse its tokens: one login per role. It checks:
   - 5 parallel quiz starts → one attempt id;
@@ -250,3 +250,37 @@ Production steps belong to the user, or to a session only on the user's explicit
 - **New default limits on viva and project** may stop a few learners mid-course. The educator can raise them in the form, and rollout step 1 counts the affected learners.
 
 ## Progress and deviations (implementer)
+
+Executed with subagent-driven development: one implementer per task, then a task review, then a fix round where needed. Commits are on `fix/learning-integrity`.
+
+- **Step 1:** done (8b030cb).
+- **Step 2:** done (8977ed1). `db:check` is at 0 on a fresh DB and after the backfill. The backfill sets `started_at = updated_at − duration_seconds`. The revert round-trips with `-t none` for all three migrations.
+- **Step 3:** done.
+  - Course: 4d6c4e3, 21c67aa, 6125abb.
+  - Enrollment: 98a140c.
+  - Origin/main was merged in after 6c landed (3e72a3b).
+- **Step 4:** the duration probe is done on both upload paths (1ecf677). The learn-page part (final position, the 409 message, one retry, `/complete` through `api()`) waits for 7b. 7b (#27) rewrites the learn page, so it goes in after `git merge origin/main`.
+- **Step 5:** done (1af1615, a854ab0).
+- **Step 6:** done.
+  - Submit claim and `breakdown`: 32d6ed1, 94c08b9.
+  - Teach form limits for every type: f1abd7b.
+- **Step 7:** the API part is done (1f63f1d): `file_size` signing, the submit HEAD and size check, and the storage `deleteObject`. The project picker before Start waits for 7b, because 7b edits `assessments-panel.tsx`.
+- **Step 8:** waits for 7b, because 7b edits `demo-seed.mjs` and `ci.yml`.
+
+Deviations and rulings (the plan left these open, or the review surfaced them):
+- **Deploy skew:** an internal lesson response without `has_video` is treated as a lesson without video. A course service older than 6b, during the deploy window, would otherwise 409 every text lesson.
+- **Old duplicate open attempts:** an open attempt is reused only if it was created after every finished attempt of that learner and assessment. Older open rows from before this change are ignored: never reused, closed or counted. Without this rule, a learner with a duplicate open row left over from before the change could replay it after passing, skipping the pass check, the limits and the cooldown. Found in the task review.
+- **Start refusals are thrown after commit.** The start transaction returns a refusal and the service throws it after commit, so an expired quiz attempt's close still persists before the refusal (today's behaviour).
+- **Old project rows without a key:** a reused open project attempt with no `file_key` (from before this change) gets one inside the transaction.
+- **Duplicate submit:** a sequential duplicate submit also answers 409 `Attempt already submitted.` (it was 400), the same answer the concurrent loser gets. The proctor-event check keeps its 400.
+- **Refusal messages:** viva and project refusals use the quiz texts with "assessment" in place of "quiz"; quizzes keep today's exact texts.
+- **Project start texts:** a missing size gives `Choose your project file first.`; a size above the cap gives `Project files can be up to 50 MB.` (start and submit).
+- **Storage:** `@ethiopialearn/storage` gains a minimal `deleteObject(key)` for decision 10.
+- **Multipart duration:** a failed duration follow-up PUT is silent. The upload ends as done and the lesson stays unmeasured.
+- **`proctorReport`:** it returns `breakdown: null` to the learner while retries remain (the shape it already used); the submit response omits the field.
+
+Gate: not run yet (step 9). Each task ran `pnpm -C api build`, `typecheck` and `test` (the last api run: 64 suites, 1202 tests) or `pnpm -C web typecheck` and `test` (55 files, 488 tests).
+
+### In flight / next step
+- Waiting for 7b (#27) to merge. Then: `git merge origin/main`, the learn page and the project picker (steps 4 and 7, web), the scripts and CI (step 8), the full gate (step 9), a final whole-branch review, then code review round 1 with ethio-reviewer (base: origin/main after the merge).
+- Phase 6d (`2026-10-03-sponsor-refund-integrity`) is queued to start once 6b's code review is APPROVED.
