@@ -22,7 +22,7 @@ interface Notif {
 }
 
 export function NotificationBell() {
-  const { locale } = useT();
+  const { locale, t } = useT();
   const { user, ready } = useAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -63,7 +63,7 @@ export function NotificationBell() {
         ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
         className="glass-secondary relative flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
-        aria-label="Notifications"
+        aria-label={count > 0 ? `Notifications, ${count} ${t('unread')}` : 'Notifications'}
         aria-expanded={open}
         aria-controls={panelId}
       >
@@ -117,7 +117,7 @@ export function NotificationBell() {
                 <button
                   key={n.id}
                   onClick={() => openNotif(n)}
-                  className={`block w-full px-4 py-3 text-left text-sm transition-colors hover:bg-brand-500/5 ${n.read ? '' : 'bg-brand-500/10'}`}
+                  className={`block w-full px-4 py-3 text-left text-sm transition-colors hover:bg-brand-500/5 focus-visible:outline-offset-[-2px] ${n.read ? '' : 'bg-brand-500/10'}`}
                   style={{ borderBottom: '1px solid var(--border)' }}
                 >
                   <p className="flex items-start gap-2 font-medium text-foreground">

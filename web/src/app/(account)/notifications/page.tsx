@@ -57,7 +57,7 @@ function NotificationsList() {
                 }
                 if (n.link) router.push(n.link);
               }}
-              className={`block w-full px-5 py-4 text-left transition-colors hover:bg-brand-500/5 ${n.read ? '' : 'bg-brand-500/10'}`}
+              className={`block w-full px-5 py-4 text-left transition-colors hover:bg-brand-500/5 focus-visible:outline-offset-[-2px] ${n.read ? '' : 'bg-brand-500/10'}`}
               style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
             >
               <p className={`flex items-start gap-2 text-sm text-foreground ${n.read ? '' : 'font-semibold'}`}>

@@ -134,7 +134,6 @@ export const dictionaries = {
     footer_platform: 'Platform',
     footer_browse: 'Browse courses',
     footer_verify: 'Verify a certificate',
-    footer_dashboard: 'My dashboard',
     footer_become: 'Become an educator',
     footer_institution: 'Institution portal',
     footer_payments: 'Payments secured by Chapa',
@@ -146,6 +145,8 @@ export const dictionaries = {
     footer_made_with: 'Made with',
     footer_for_ethiopia: 'for Ethiopia',
     back_to_top: 'Back to top',
+    unread: 'unread',
+    switch_language: 'Switch language',
     lang_name: 'አማርኛ',
   },
   am: {
@@ -271,7 +272,6 @@ export const dictionaries = {
     footer_platform: 'መድረክ',
     footer_browse: 'ኮርሶችን ያስሱ',
     footer_verify: 'ሰርተፍኬት ያረጋግጡ',
-    footer_dashboard: 'የእኔ ዳሽቦርድ',
     footer_become: 'አስተማሪ ይሁኑ',
     footer_institution: 'የተቋም ፖርታል',
     footer_payments: 'ክፍያዎች በቻፓ የተጠበቁ',
@@ -283,6 +283,8 @@ export const dictionaries = {
     footer_made_with: 'በፍቅር የተሰራ',
     footer_for_ethiopia: 'ለኢትዮጵያ',
     back_to_top: 'ወደ ላይ ተመለስ',
+    unread: 'ያልተነበቡ',
+    switch_language: 'ቋንቋ ቀይር',
     lang_name: 'English',
   },
 } as const;

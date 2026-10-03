@@ -10,7 +10,7 @@ import { roleHome, roleHomeLabel } from '@/lib/safe-next';
 /** Site footer, adapted from the template's Footer to EthiopiaLearn's pages. */
 export function Footer() {
   const { t } = useT();
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
 
   const columns = [
     {
@@ -32,8 +32,10 @@ export function Footer() {
     },
     {
       title: t('footer_platform'),
-      links: [
-        ...(user
+      // Empty until auth is known, like the Header, so signed-in users never see Log in flash.
+      links: !ready
+        ? []
+        : user
           ? [
               { label: roleHomeLabel(user.role), href: roleHome(user.role) },
               { label: t('account'), href: '/account' },
@@ -41,12 +43,15 @@ export function Footer() {
           : [
               { label: t('login'), href: '/login' },
               { label: t('signup'), href: '/signup' },
-            ]),
-      ],
+            ],
     },
   ];
 
-  const scrollTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+  // A jump, not a glide, for anyone who asked for less motion (CSS scroll-behavior doesn't cover scrollTo options).
+  const scrollTop = () => {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+  };
 
   return (
     <footer className="relative mt-24 overflow-hidden">
