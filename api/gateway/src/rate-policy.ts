@@ -6,7 +6,8 @@ import { matchPath } from './request-path';
  * function (no express types) so it is trivially unit-testable.
  *
  * Buckets (per-minute caps, all overridable via env — see main.ts):
- *  - auth-strict      credential endpoints (login/signup/reset…): brute-force target, keyed by IP
+ *  - auth-strict      credential endpoints (login/signup/reset…): brute-force target, keyed by IP;
+ *                     also resend-verification, which sends email
  *  - auth             the rest of /auth (refresh, …), keyed by IP
  *  - ai               endpoints that call the LLM — expensive, keyed by user
  *  - community-write  comments + DMs — spam target, keyed by user; also the
@@ -38,7 +39,7 @@ export const DEFAULT_LIMITS_PER_MIN: Record<RatePolicy, number> = {
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 const AUTH_STRICT =
-  /^\/api\/v1\/auth\/(login|signup|verify-email|accept-invite|reset-password(\/confirm)?)$/;
+  /^\/api\/v1\/auth\/(login|signup|verify-email|resend-verification|accept-invite|reset-password(\/confirm)?)$/;
 const AI_ENDPOINTS = /^\/api\/v1\/courses\/generate-structure$|^\/api\/v1\/assessments\/generate$|^\/api\/v1\/courses\/[^/]+\/chat$/;
 // GET endpoints that still hit the LLM (study coach). Chat history GETs do not.
 const AI_GET = /^\/api\/v1\/attempts\/[^/]+\/study-plan$/;
