@@ -265,7 +265,7 @@ export function Header() {
                 <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
                   <div className="flex items-center gap-2">
                     <LanguageToggle />
-                    <ThemeToggle />
+                    <ThemeToggle placement="up" />
                   </div>
                   {ready && !user ? (
                     <div className="flex items-center gap-2">

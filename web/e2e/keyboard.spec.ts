@@ -62,6 +62,61 @@ test.describe('375 px', () => {
     await expect(burger).toBeFocused();
   });
 
+  test('the theme menu inside the mobile menu opens fully on screen, not clipped by the panel', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Menu' }).click();
+    const panel = page.getByTestId('mobile-menu-panel');
+    await expect(panel).toBeVisible();
+    // Wait for the menu's 250 ms height reveal: until it ends, the wrapper clips the panel itself.
+    await expect
+      .poll(() =>
+        panel.evaluate((el) => {
+          const wrapper = el.parentElement!;
+          return getComputedStyle(wrapper).opacity === '1' && Math.abs(wrapper.getBoundingClientRect().height - el.getBoundingClientRect().height) < 1;
+        }),
+      )
+      .toBe(true);
+
+    const trigger = panel.getByRole('button', { name: 'Theme' });
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const menu = page.locator(`[id="${await trigger.getAttribute('aria-controls')}"]`);
+    await expect(menu).toBeVisible();
+    // Measure at rest, after the 150 ms scale/fade.
+    await expect
+      .poll(() =>
+        menu.evaluate((el) => {
+          const s = getComputedStyle(el);
+          return s.opacity === '1' && (s.transform === 'none' || s.transform === 'matrix(1, 0, 0, 1, 0, 0)');
+        }),
+      )
+      .toBe(true);
+
+    const box = (await menu.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(box.height, 'menu height').toBeGreaterThan(0);
+    expect(box.x, 'left edge').toBeGreaterThanOrEqual(0);
+    expect(box.y, 'top edge').toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, 'right edge').toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height, 'bottom edge').toBeLessThanOrEqual(viewport.height);
+
+    // toBeVisible() and the box ignore an ancestor's overflow clipping, so check
+    // that each option is what the browser actually hits at its centre.
+    for (const name of ['Light', 'Dark', 'System']) {
+      const option = menu.getByRole('button', { name });
+      const b = (await option.boundingBox())!;
+      const hit = await option.evaluate(
+        (el, [x, y]) => el.contains(document.elementFromPoint(x, y)),
+        [b.x + b.width / 2, b.y + b.height / 2] as [number, number],
+      );
+      expect(hit, `the ${name} option is on screen, not clipped`).toBe(true);
+    }
+
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  });
+
   test.describe('signed in', () => {
     test.use({ storageState: authFile('learner') });
 
