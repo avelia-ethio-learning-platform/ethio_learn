@@ -24,11 +24,11 @@ One plan, one branch and one PR per phase. Each phase runs through the team work
 | 5 | Web P0 fixes and a browser E2E harness | P0-09 (code part), P0-11 to P0-18, P1-30, P1-58 | M | impl / plan-review | done (#22) |
 | 6a | Security hardening I: platform | P0-19, P1-01, P1-05, P1-11, P1-13 | L | impl / review | done (#24) |
 | 6c | Money integrity II | P1-59, P1-60, P1-61, P1-62, P2-42, P2-46 | L | impl / review | done (#26) |
-| 6b | Security hardening II: learning integrity | P1-04, P1-09, P1-10 | L | impl / review | planned |
-| 6d | Money integrity III: pay-request writes, refunds of duplicate purchases | P1-63, P2-47, 6c review nits N1–N3 | L | impl / review | planned |
+| 6b | Security hardening II: learning integrity | P1-04, P1-09, P1-10 | L | impl / review | done (#28) |
+| 6d | Money integrity III: pay-request writes, refunds of duplicate purchases | P1-63, P2-47, 6c review nits N1–N3 | L | impl / review | done (#30) |
 | 7a | UI foundations and accessibility | P1-33, P1-37, P1-38, P1-40, P1-43, P1-45, P1-47 (bell panel), P1-48 to P1-52, P1-53 (titles, robots, site OG image), P1-54, P1-57, P2-23, P2-24, P2-27, P2-29 (shared chrome), P2-33, P2-40 | M (web only) | planner / plan-review | done (#25) |
 | 7b | Public and learner pages | P1-32, P1-34, P1-35, P1-36, P1-39, P2-22, P2-25, P2-30, P2-32, P2-35 | M (web and one auth endpoint) | planner / plan-review | done (#27) |
-| 8 | UI polish II: role dashboards (two PRs, 8a and 8b) | P1-41, P1-42, P1-44, P1-46, P1-47 (rest), the role-page parts of P1-43, P1-45 and P1-48, P2-38, P2-39, P2-41, member "Leave institution" | M | planner (8a), impl (8b) / plan-review | 8a in progress |
+| 8 | UI polish II: role dashboards (two PRs, 8a and 8b) | P1-41, P1-42, P1-44, P1-46, P1-47 (rest), the role-page parts of P1-43, P1-45 and P1-48, P2-38, P2-39, P2-41, member "Leave institution" | M | planner (8a), impl (8b) / plan-review | 8a done (#29), 8b in progress |
 | 9a | Event bus resilience and safe consumers | P1-15, P1-16, P1-20 | L | impl / review | planned |
 | 9b | Transactional outbox | P1-17 | L | impl / review | planned |
 | 9c | Outbound calls, scheduled jobs and status codes | P0-09 (ops part: jobs on sleeping instances), P1-18, P1-19, P1-23, P2-03 (rest), P2-15 | L | impl / review | planned |
