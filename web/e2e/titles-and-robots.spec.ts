@@ -28,7 +28,7 @@ const ROUTES: [string, string, boolean][] = [
   ['/messages', 'Messages', true],
   ['/account', 'Your account', true],
   ['/account/password', 'Change password', true],
-  ['/account/invites', 'Invitations', true],
+  ['/account/invites', 'Institutions', true],
   ['/notifications', 'Notifications', true],
   ['/notifications/preferences', 'Notification preferences', true],
   [`/learn/${UNKNOWN_ID}`, 'Learn', true],

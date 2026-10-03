@@ -166,6 +166,23 @@ for (const theme of THEMES) {
       });
     });
 
+    test.describe('admin console', () => {
+      test.use({ storageState: authFile('platform_admin') });
+
+      // Split in two: each tab scan waits for its data and the reveals, and six together are close to the 30 s timeout.
+      test('analytics, payments, users', async ({ page }) => {
+        for (const tab of ['analytics', 'payments', 'users']) {
+          await scanVisit(page, `/admin?tab=${tab}`, theme);
+        }
+      });
+
+      test('coupons, wallet, broadcast', async ({ page }) => {
+        for (const tab of ['coupons', 'wallet', 'broadcast']) {
+          await scanVisit(page, `/admin?tab=${tab}`, theme);
+        }
+      });
+    });
+
     test.describe('learner pages', () => {
       test.use({ storageState: authFile('learner') });
 

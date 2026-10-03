@@ -517,3 +517,29 @@ describe('RefundService: access is kept when the learner holds the course anothe
     expect(published('RefundDenied')[0][1]).not.toHaveProperty('access_kept');
   });
 });
+
+describe('RefundService.listPending', () => {
+  const admin = { id: 'adm-1', role: 'platform_admin', email: 'a@e.et' } as never;
+
+  it('carries the payment amount and course title, from one payments query', async () => {
+    const { service, payments } = setup({ progress: 35, confirmedDaysAgo: 2 });
+    await service.request(ctx, 'pay-1', 'not what I expected');
+    const find = jest.spyOn(payments, 'find');
+    find.mockClear(); // request() already called find (the course-payment lock)
+    const rows = await service.listPending(admin);
+    expect(rows).toEqual([expect.objectContaining({ payment_id: 'pay-1', reason: 'not what I expected', amount_etb: '500.00', course_title: 'Course' })]);
+    expect(find).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives null for a missing payment and skips the query when nothing is pending', async () => {
+    const { service, payments, refunds } = setup({ progress: 35, confirmedDaysAgo: 2 });
+    await service.request(ctx, 'pay-1', 'x');
+    payments.rows.length = 0;
+    await expect(service.listPending(admin)).resolves.toEqual([expect.objectContaining({ amount_etb: null, course_title: null })]);
+    refunds.rows.length = 0;
+    const find = jest.spyOn(payments, 'find');
+    find.mockClear();
+    await expect(service.listPending(admin)).resolves.toEqual([]);
+    expect(find).not.toHaveBeenCalled();
+  });
+});

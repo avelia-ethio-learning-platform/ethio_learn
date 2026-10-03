@@ -148,6 +148,8 @@ export const dictionaries = {
     unread: 'unread',
     switch_language: 'Switch language',
     lang_name: 'አማርኛ',
+    cancel: 'Cancel',
+    confirm: 'Confirm',
   },
   am: {
     skip_to_content: 'ወደ ዋናው ይዘት ዝለል',
@@ -286,6 +288,8 @@ export const dictionaries = {
     unread: 'ያልተነበቡ',
     switch_language: 'ቋንቋ ቀይር',
     lang_name: 'English',
+    cancel: 'ሰርዝ',
+    confirm: 'አረጋግጥ',
   },
 } as const;
 

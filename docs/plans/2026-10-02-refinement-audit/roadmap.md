@@ -27,8 +27,8 @@ One plan, one branch and one PR per phase. Each phase runs through the team work
 | 6b | Security hardening II: learning integrity | P1-04, P1-09, P1-10 | L | impl / review | planned |
 | 6d | Money integrity III: pay-request writes, refunds of duplicate purchases | P1-63, P2-47, 6c review nits N1–N3 | L | impl / review | planned |
 | 7a | UI foundations and accessibility | P1-33, P1-37, P1-38, P1-40, P1-43, P1-45, P1-47 (bell panel), P1-48 to P1-52, P1-53 (titles, robots, site OG image), P1-54, P1-57, P2-23, P2-24, P2-27, P2-29 (shared chrome), P2-33, P2-40 | M (web only) | planner / plan-review | done (#25) |
-| 7b | Public and learner pages | P1-32, P1-34, P1-35, P1-36, P1-39, P2-22, P2-25, P2-30, P2-32, P2-35 | M (web and one auth endpoint) | impl / plan-review | planned |
-| 8 | UI polish II: role dashboards (two PRs, 8a and 8b) | P1-41, P1-42, P1-44, P1-46, P1-47 (rest), the role-page parts of P1-43, P1-45 and P1-48, P2-38, P2-39, P2-41, member "Leave institution" | M | impl / plan-review | planned |
+| 7b | Public and learner pages | P1-32, P1-34, P1-35, P1-36, P1-39, P2-22, P2-25, P2-30, P2-32, P2-35 | M (web and one auth endpoint) | planner / plan-review | done (#27) |
+| 8 | UI polish II: role dashboards (two PRs, 8a and 8b) | P1-41, P1-42, P1-44, P1-46, P1-47 (rest), the role-page parts of P1-43, P1-45 and P1-48, P2-38, P2-39, P2-41, member "Leave institution" | M | planner (8a), impl (8b) / plan-review | 8a in progress |
 | 9a | Event bus resilience and safe consumers | P1-15, P1-16, P1-20 | L | impl / review | planned |
 | 9b | Transactional outbox | P1-17 | L | impl / review | planned |
 | 9c | Outbound calls, scheduled jobs and status codes | P0-09 (ops part: jobs on sleeping instances), P1-18, P1-19, P1-23, P2-03 (rest), P2-15 | L | impl / review | planned |
@@ -38,6 +38,8 @@ One plan, one branch and one PR per phase. Each phase runs through the team work
 | 11a | CI/CD gates and repo hygiene | P0-09 (ops docs), P1-24, P1-26, P1-28, P2-16 to P2-21 | M | impl / plan-review | planned |
 | 11b | Auth transport and tests for the high-risk paths | P1-07, P1-29 | L | impl / review | planned |
 | 11c | Dependencies and Next 15 | P1-08 | M | impl / plan-review | planned |
+| 12a | Motion system, shared primitives, shell, Home and Explore | user request (2026-10-03): calmer, consistent motion and UI polish | M (web only) | impl / plan-review | planned |
+| 12b | Motion and polish: course page, checkout, learner path, certificates, dashboards | same request | M (web only) | impl / plan-review | planned |
 
 The rows are in build order: 6c goes before 6b. When a phase merges, its row's status becomes `done (#PR)` and its `plan.md` status becomes `done`.
 
@@ -51,6 +53,8 @@ Remaining P2s are picked up opportunistically inside the phase that touches the 
 - **2026-10-02 and 2026-10-03:** for the same reason, phase 8 ships as two PRs (8a, 8b), phase 9 was split into 9a–9e and phase 11 into 11a–11c.
 - **2026-10-03:** 6a gained P0-19, found during Phase 5.
 - **2026-10-03:** 6d was added for two money gaps found in the Phase 6c code review (P1-63, P2-47) plus its three nits, so 6c didn't grow mid-review. It goes after 6b.
+- **2026-10-03:** 7b merged (#27). The planner implements 8a in the web worktree while ethio-impl runs 6b and 6d.
+- **2026-10-03:** phase 12 (motion and UI polish, the user's request) was added after 11c, at the user's choice, so it builds on Phase 10's `LazyMotion` and 11c's Next 15 instead of redoing them. It ships as 12a and 12b, with a before/after for the user between them.
 
 ## User decisions (2026-10-02 check-in)
 - **Hosting:** stay on the free tier (Render free for the API, Vercel for web). So P0-09 is handled in code: fetch timeouts, ISR where possible, a friendly "waking up" state, and crons triggered by an external free scheduler instead of in-process timers on sleeping instances.

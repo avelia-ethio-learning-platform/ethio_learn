@@ -1,17 +1,55 @@
 'use client';
 
-/** Tiny dependency-free bar chart (CSS only). */
-export function Bars({ data, format = (v: number) => String(v) }: { data: { label: string; value: number }[]; format?: (v: number) => string }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
+import { EmptyRows } from './EmptyRows';
+
+/** "1.2K": the drawn value must not force the column wider; the screen-reader text keeps the full figure. */
+const compact = (v: number, locale: string) => new Intl.NumberFormat(locale === 'am' ? 'am-ET' : 'en-GB', { notation: 'compact', maximumFractionDigits: 1 }).format(v);
+
+/**
+ * Tiny dependency-free bar chart (CSS only). Each `label` is a "YYYY-MM" month.
+ * Months and values are drawn; a screen reader gets "October 2026: 1,200 ETB" per month.
+ */
+export function Bars({
+  data,
+  format = (v: number) => String(v),
+  title = 'Chart',
+  empty = 'Nothing to show yet',
+}: {
+  data: { label: string; value: number }[];
+  format?: (v: number) => string;
+  /** The chart's accessible name. */
+  title?: string;
+  /** Shown instead of bars when every value is zero. */
+  empty?: string;
+}) {
+  const { locale } = useT();
+  if (data.every((d) => d.value <= 0)) return <EmptyRows label={empty} />;
+  const max = Math.max(...data.map((d) => d.value));
   return (
-    <div className="flex h-36 items-end gap-1.5">
-      {data.map((d) => (
-        <div key={d.label} className="group flex flex-1 flex-col items-center justify-end gap-1">
-          <span className="text-xs font-semibold text-gray-500 opacity-0 transition group-hover:opacity-100">{format(d.value)}</span>
-          <div className="w-full rounded-t-md bg-brand-500/80 transition group-hover:bg-brand-600" style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }} title={`${d.label}: ${format(d.value)}`} />
-          <span className="text-xs text-gray-500">{d.label.slice(5)}</span>
-        </div>
-      ))}
-    </div>
+    <ul aria-label={title} className="flex h-36 items-stretch gap-1.5">
+      {data.map((d) => {
+        const first = new Date(`${d.label}-01T00:00:00Z`);
+        const month = formatDate(first, locale, 'month');
+        return (
+          <li key={d.label} className="flex min-w-0 flex-1 flex-col items-center gap-1" title={`${d.label}: ${format(d.value)}`}>
+            <span className="sr-only">
+              {formatDate(first, locale, 'month-year')}: {format(d.value)}
+            </span>
+            <span aria-hidden="true" className="h-4 whitespace-nowrap text-xs font-semibold text-gray-600">
+              {d.value > 0 ? compact(d.value, locale) : ''}
+            </span>
+            <div aria-hidden="true" className="flex w-full flex-1 items-end">
+              {d.value > 0 && <div className="w-full rounded-t-md bg-brand-500/80" style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }} />}
+            </div>
+            <span aria-hidden="true" className="text-xs leading-tight text-gray-500">
+              {month}
+              {d.label.endsWith('-01') && <span className="block text-center">{d.label.slice(0, 4)}</span>}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

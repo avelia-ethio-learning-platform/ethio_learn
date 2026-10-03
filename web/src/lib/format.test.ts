@@ -4,6 +4,11 @@ import { formatDate, formatETB } from './format';
 const D = '2026-03-05T12:00:00Z';
 
 describe('formatDate', () => {
+  it('month styles give the short month and the long month with year', () => {
+    expect(formatDate('2026-10-01T00:00:00Z', 'en', 'month')).toBe('Oct');
+    expect(formatDate('2026-10-01T00:00:00Z', 'en', 'month-year')).toBe('October 2026');
+  });
+
   it('uses day-month order in en', () => {
     const s = formatDate(D, 'en');
     expect(s).toMatch(/^5 Mar 2026$/);

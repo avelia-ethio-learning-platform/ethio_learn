@@ -187,7 +187,12 @@ export class RefundService {
 
   async listPending(ctx: UserContext) {
     if (ctx.role !== Role.PLATFORM_ADMIN) throw new ForbiddenException();
-    return this.refunds.find({ where: { status: RefundStatus.PENDING }, order: { created_at: 'ASC' } });
+    const rows = await this.refunds.find({ where: { status: RefundStatus.PENDING }, order: { created_at: 'ASC' } });
+    if (!rows.length) return [];
+    const payments = await this.payments.find({ where: { id: In(rows.map((r) => r.payment_id)) } });
+    const byId = new Map(payments.map((p) => [p.id, p]));
+    // Amount and course name let the approve dialog say what is being refunded.
+    return rows.map((r) => ({ ...r, amount_etb: byId.get(r.payment_id)?.amount_etb ?? null, course_title: byId.get(r.payment_id)?.course_title ?? null }));
   }
 
   /** Inserts the request row. A concurrent open request for the payment trips the unique index: ALREADY_OPEN. */
