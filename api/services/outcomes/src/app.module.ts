@@ -12,7 +12,7 @@ import { OutcomesInternalController } from './internal.controller';
   imports: [
     TypeOrmModule.forRoot(buildTypeOrmOptions(SCHEMA, entities, migrations)),
     TypeOrmModule.forFeature(entities),
-    EventBusModule.forRoot({ serviceName: 'outcomes' }),
+    EventBusModule.forRoot({ serviceName: 'outcomes', outbox: true }),
   ],
   controllers: [OutcomesController, OutcomesInternalController, HealthController],
   providers: [AssessmentService, CertificateService, InternalHttpClient, S3StorageProvider],

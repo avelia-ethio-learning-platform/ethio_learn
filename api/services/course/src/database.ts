@@ -1,6 +1,6 @@
 import { Course, CourseChangeLog, CourseChatMessage, CourseKnowledge, CourseRevision, Lesson, Section } from './entities';
 import { UploadSession } from './upload-session.entity';
-import { ProcessedEvent } from '@ethiopialearn/common';
+import { OutboxEvent, ProcessedEvent } from '@ethiopialearn/common';
 import { migrations } from './migrations';
 
 /**
@@ -8,5 +8,5 @@ import { migrations } from './migrations';
  * TypeORM CLI data source (src/data-source.ts) and `pnpm -C api db:check`.
  */
 export const SCHEMA = 'course';
-export const entities = [Course, Section, Lesson, CourseChangeLog, CourseKnowledge, CourseChatMessage, CourseRevision, UploadSession, ProcessedEvent];
+export const entities = [Course, Section, Lesson, CourseChangeLog, CourseKnowledge, CourseChatMessage, CourseRevision, UploadSession, ProcessedEvent, OutboxEvent];
 export { migrations };

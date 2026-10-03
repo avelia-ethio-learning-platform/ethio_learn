@@ -2,6 +2,9 @@ import { createHmac } from 'crypto';
 import { QueryFailedError } from 'typeorm';
 import { CertificateService } from './certificate.service';
 
+// No spec here checks the QR image; a real one costs about 300 ms per certificate.
+jest.mock('qrcode', () => ({ toBuffer: jest.fn().mockResolvedValue(Buffer.from('png')) }));
+
 const SECRET = 'test-cert-secret';
 
 function certRow(uid: string, signature: string, invalidated = false) {
@@ -86,7 +89,11 @@ describe('CertificateService.verify (public tamper check, spec §9.4)', () => {
 describe('CertificateService.issue: a redelivered completion (P1-16)', () => {
   beforeEach(() => {
     process.env.CERT_SIGNING_SECRET = SECRET;
+    // These specs are about the save, not the PDF: a real render made the race spec
+    // time out at 5 s under the full suite.
+    jest.spyOn(CertificateService.prototype as never, 'renderPdf').mockResolvedValue(Buffer.from('%PDF') as never);
   });
+  afterEach(() => jest.restoreAllMocks());
 
   const completion = {
     enrollment_id: 'enr-1', learner_id: 'u1', learner_email: 'l@e.et', learner_name: 'Learner',
