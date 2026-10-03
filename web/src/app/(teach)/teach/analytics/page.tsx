@@ -8,6 +8,8 @@ import { RequireRole } from '@/components/RequireRole';
 import { RoleHomeBackButton } from '@/components/BackButton';
 import { PageHeader, PageShell } from '@/components/PageChrome';
 import { Bars } from '@/components/Bars';
+import { EmptyRows } from '@/components/EmptyRows';
+import { PanelError } from '@/components/PanelError';
 import { formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 
@@ -16,14 +18,19 @@ const MAX_ANALYTICS_COURSES = 25;
 
 function AnalyticsPage() {
   const { locale } = useT();
-  const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
+  const coursesQ = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
+  const courses = coursesQ.data;
   const ids = useMemo(() => (courses ?? []).map((c) => c.id).slice(0, MAX_ANALYTICS_COURSES), [courses]);
-  const { data: revenue } = useQuery({ queryKey: ['payee-analytics'], queryFn: () => api<any>('/payouts/analytics') });
-  const { data: funnel } = useQuery({
+  const revenueQ = useQuery({ queryKey: ['payee-analytics'], queryFn: () => api<any>('/payouts/analytics') });
+  const revenue = revenueQ.data;
+  const funnelQ = useQuery({
     queryKey: ['enrollment-analytics', ids.join(',')],
     queryFn: () => api<any[]>(`/enrollments/analytics?course_ids=${ids.join(',')}`),
     enabled: ids.length > 0,
   });
+  const funnel = funnelQ.data;
+  // Courses loaded and there are none: nothing to wait for, so show the empty state, not a skeleton.
+  const noCourses = courses?.length === 0;
 
   const totals = useMemo(() => {
     const f = funnel ?? [];
@@ -71,12 +78,31 @@ function AnalyticsPage() {
         <section className="grid gap-4 md:grid-cols-2">
           <div className="card">
             <p className="text-sm font-bold text-foreground">Revenue by month (ETB)</p>
-            {revenue ? <Bars data={revenue.by_month.map((m: any) => ({ label: m.month, value: m.gross_etb }))} /> : <div className="skeleton mt-3 h-36" />}
+            {revenueQ.isError ? (
+              <PanelError panel="revenue" onRetry={revenueQ.refetch} />
+            ) : revenue ? (
+              <Bars
+                title="Revenue by month"
+                empty="No revenue in the last 12 months"
+                format={(v) => formatETB(v, locale)}
+                data={revenue.by_month.map((m: any) => ({ label: m.month, value: m.gross_etb }))}
+              />
+            ) : (
+              <div className="skeleton mt-3 h-36" />
+            )}
           </div>
           <div className="card">
             <p className="text-sm font-bold text-foreground">New enrollments by month</p>
-            {funnel ? (
+            {noCourses ? (
+              <EmptyRows label="Publish a course to see analytics" />
+            ) : coursesQ.isError ? (
+              <PanelError panel="your courses" onRetry={coursesQ.refetch} />
+            ) : funnelQ.isError ? (
+              <PanelError panel="enrollments" onRetry={funnelQ.refetch} />
+            ) : funnel ? (
               <Bars
+                title="New enrollments by month"
+                empty="No new enrollments in the last 12 months"
                 data={(funnel[0]?.enrollments_by_month ?? []).map((m: any, i: number) => ({
                   label: m.month,
                   value: funnel.reduce((s, c) => s + (c.enrollments_by_month[i]?.count ?? 0), 0),
@@ -88,7 +114,7 @@ function AnalyticsPage() {
           </div>
         </section>
 
-        <section className="card !p-0 overflow-hidden">
+        <section className="card !p-0 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wider text-gray-500">
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
@@ -121,10 +147,24 @@ function AnalyticsPage() {
                   </tr>
                 );
               })}
-              {!funnel?.length && (
+              {(noCourses || funnel?.length === 0) && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-gray-500">
-                    Publish a course to see analytics here.
+                  <td colSpan={8}>
+                    <EmptyRows label="Publish a course to see analytics" />
+                  </td>
+                </tr>
+              )}
+              {(coursesQ.isError || funnelQ.isError) && (
+                <tr>
+                  <td colSpan={8} className="px-5 py-4">
+                    <PanelError panel="course analytics" onRetry={coursesQ.isError ? coursesQ.refetch : funnelQ.refetch} />
+                  </td>
+                </tr>
+              )}
+              {!noCourses && !funnel && !coursesQ.isError && !funnelQ.isError && (
+                <tr>
+                  <td colSpan={8} className="px-5 py-4">
+                    <div className="skeleton h-8" />
                   </td>
                 </tr>
               )}
