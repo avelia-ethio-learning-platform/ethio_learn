@@ -1,6 +1,6 @@
 # Phase 8: UI polish II, role dashboards
 
-Status: 8a in progress (ethio-planner, `feat/role-dashboards-a`); 8b queued. Approved in round 1; split into 8a and 8b (see "Split" below); drift check (2026-10-03) folded in
+Status: done. Merged to main via PR #29 (8a, `fdd7ec2`) and PR #31 (8b, `f8e70bc`), 2026-10-03.
 Size: M (sessions: 3 — ethio-impl implements, ethio-plan-review reviews plan and code)
 Base branch: the tip of the stack when this phase starts. With one implementer the order is 5 → 6a → 6c → 6b → 7a → 7b → 8, so that is `feat/public-learner-pages`, or `origin/main` if 7b has merged by then. This phase needs 7a's primitives (`Field`, `FormStatus`, `useFormStatus`, `labels.ts`, `format.ts`, `use-dismiss.ts`), 6a's "Uses per learner" coupon field and 6c's "Bank reference" field, so it can't start earlier. · Feature branches: `feat/role-dashboards-a` (8a) from that base, then `feat/role-dashboards-b` (8b) from `feat/role-dashboards-a`
 Roadmap: phase 8 · Findings: P1-41, P1-42, P1-44, P1-46, P1-47 (everything except the bell panel, which 7a fixes), the role-page parts of P1-43, P1-45 and P1-48; P2-38, P2-39, P2-41; the member-initiated "Leave institution" deferred from Phase 3 (plan-review N3). Picked up because they touch the same files: the role-page parts of P2-29 (editor tap targets), P2-35 (emoji status icons), P2-36 (`btn-danger`, `btn-sm` only) and P2-37 (debounced admin searches).

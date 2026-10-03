@@ -12,8 +12,6 @@ coverage/
 /storage/
 # dev-server pidfiles/logs from scripts/start-*.sh
 .devlogs/
-./HANDOFF.md
-./PRODUCT_ROADMAP.md
 # personal Claude Code permissions (each developer has their own)
 .claude/settings.local.json
 # audit evidence: screenshots are large; audit.md describes unfixed
