@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
-import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CertificateUidPipe, CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { AssessmentType, Role } from '@ethiopialearn/contracts';
 import { AssessmentService } from './assessment.service';
 import { CertificateService } from './certificate.service';
@@ -124,7 +124,7 @@ export class OutcomesController {
   @Post('assessments/:id/attempts')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  startAttempt(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  startAttempt(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.assessmentService.startAttempt(ctx, id);
   }
 
@@ -138,14 +138,14 @@ export class OutcomesController {
   @Put('attempts/:id/submit')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  submit(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: SubmitAttemptDto) {
+  submit(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: SubmitAttemptDto) {
     return this.assessmentService.submitAttempt(ctx, id, dto);
   }
 
   @Put('attempts/:id/review')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  review(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ReviewAttemptDto) {
+  review(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: ReviewAttemptDto) {
     return this.assessmentService.reviewAttempt(ctx, id, dto.passed);
   }
 
@@ -154,7 +154,7 @@ export class OutcomesController {
   @Post('attempts/:id/proctor-events')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  proctorEvent(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ProctorEventDto) {
+  proctorEvent(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: ProctorEventDto) {
     return this.assessmentService.recordProctorEvent(ctx, id, dto);
   }
 
@@ -162,14 +162,14 @@ export class OutcomesController {
   @Get('attempts/:id/study-plan')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  studyPlan(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  studyPlan(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.assessmentService.studyPlan(ctx, id);
   }
 
   @Get('attempts/:id/proctor-report')
   @UseGuards(RolesGuard)
   @Roles()
-  proctorReport(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  proctorReport(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.assessmentService.proctorReport(ctx, id);
   }
 
@@ -177,14 +177,14 @@ export class OutcomesController {
   @Get('courses/:id/attempts')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN, Role.QUALITY_OFFICER)
-  courseAttempts(@CurrentUser() ctx: UserContext, @Param('id') courseId: string) {
+  courseAttempts(@CurrentUser() ctx: UserContext, @UuidParam('id') courseId: string) {
     return this.assessmentService.courseAttempts(ctx, courseId);
   }
 
   @Get('courses/:id/pending-projects')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  pendingProjects(@CurrentUser() ctx: UserContext, @Param('id') courseId: string) {
+  pendingProjects(@CurrentUser() ctx: UserContext, @UuidParam('id') courseId: string) {
     return this.assessmentService.pendingProjects(ctx, courseId);
   }
 
@@ -200,19 +200,19 @@ export class OutcomesController {
   @Get('me/certificates/:id/download')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  download(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  download(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.certificateService.downloadUrl(ctx.id, id);
   }
 
   /** [PUBLIC] spec §4.3: GET /certificates/:uid */
   @Get('certificates/:uid')
-  certificate(@Param('uid') uid: string) {
+  certificate(@Param('uid', new CertificateUidPipe()) uid: string) {
     return this.certificateService.verify(uid);
   }
 
   /** [PUBLIC] spec §9.4: GET /verify/:certificate_uid */
   @Get('verify/:uid')
-  verify(@Param('uid') uid: string) {
+  verify(@Param('uid', new CertificateUidPipe()) uid: string) {
     return this.certificateService.verify(uid);
   }
 }

@@ -1,8 +1,8 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Post, Put, UseGuards } from '@nestjs/common';
 import { IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
-import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { COURSE_CATEGORIES, Role } from '@ethiopialearn/contracts';
 import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
 import { InboxNotification, NotificationLog, NotificationPreference } from './entities';
@@ -115,7 +115,7 @@ export class NotificationController {
 
   @Post('notifications/:id/read')
   @Roles()
-  async markRead(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  async markRead(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     await this.inbox
       .createQueryBuilder()
       .update(InboxNotification)
@@ -149,7 +149,7 @@ export class NotificationController {
 
   @Get('notification-preferences/:userId')
   @Roles()
-  async getPrefs(@CurrentUser() ctx: UserContext, @Param('userId') userId: string) {
+  async getPrefs(@CurrentUser() ctx: UserContext, @UuidParam('userId') userId: string) {
     this.assertSelfOrAdmin(ctx, userId);
     const row = await this.prefs.findOne({ where: { user_id: userId } });
     return prefView(row, userId);
@@ -158,7 +158,7 @@ export class NotificationController {
   /** Partial update: only the fields present in the body change. */
   @Put('notification-preferences/:userId')
   @Roles()
-  async putPrefs(@CurrentUser() ctx: UserContext, @Param('userId') userId: string, @Body() dto: PreferencesDto) {
+  async putPrefs(@CurrentUser() ctx: UserContext, @UuidParam('userId') userId: string, @Body() dto: PreferencesDto) {
     this.assertSelfOrAdmin(ctx, userId);
     const current = (await this.prefs.findOne({ where: { user_id: userId } })) ?? this.prefs.create({ user_id: userId });
     if (dto.marketing_opt_out !== undefined) current.marketing_opt_out = dto.marketing_opt_out;
@@ -178,7 +178,7 @@ export class NotificationController {
   /** Follow: add the instructor to my new-course-alert list. Returns follow state. */
   @Post('notifications/follow/:instructorId')
   @Roles()
-  async follow(@CurrentUser() ctx: UserContext, @Param('instructorId', ParseUUIDPipe) instructorId: string) {
+  async follow(@CurrentUser() ctx: UserContext, @UuidParam('instructorId') instructorId: string) {
     const row = (await this.prefs.findOne({ where: { user_id: ctx.id } })) ?? this.prefs.create({ user_id: ctx.id });
     row.new_course_instructor_ids = uniq([...(row.new_course_instructor_ids ?? []), instructorId]);
     await this.prefs.save(row);
@@ -187,7 +187,7 @@ export class NotificationController {
 
   @Post('notifications/unfollow/:instructorId')
   @Roles()
-  async unfollow(@CurrentUser() ctx: UserContext, @Param('instructorId') instructorId: string) {
+  async unfollow(@CurrentUser() ctx: UserContext, @UuidParam('instructorId') instructorId: string) {
     const row = await this.prefs.findOne({ where: { user_id: ctx.id } });
     if (row) {
       row.new_course_instructor_ids = (row.new_course_instructor_ids ?? []).filter((id) => id !== instructorId);
@@ -199,7 +199,7 @@ export class NotificationController {
   /** Is the current user following this instructor? (drives the follow button) */
   @Get('notifications/following/:instructorId')
   @Roles()
-  async isFollowing(@CurrentUser() ctx: UserContext, @Param('instructorId') instructorId: string) {
+  async isFollowing(@CurrentUser() ctx: UserContext, @UuidParam('instructorId') instructorId: string) {
     const row = await this.prefs.findOne({ where: { user_id: ctx.id } });
     return { following: (row?.new_course_instructor_ids ?? []).includes(instructorId) };
   }

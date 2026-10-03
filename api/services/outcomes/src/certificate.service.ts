@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import PDFDocument = require('pdfkit');
 import * as QRCode from 'qrcode';
-import { env, EventBusService, InternalHttpClient } from '@ethiopialearn/common';
+import { env, EventBusService, InternalHttpClient, internalPath } from '@ethiopialearn/common';
 import {
   AssessmentResultPayload,
   CertificateIssuedPayload,
@@ -41,7 +41,7 @@ export class CertificateService implements OnModuleInit {
     this.bus.subscribe<AssessmentResultPayload>('AssessmentPassed', async (p) => {
       // Lessons must also be complete (spec §10.1 completion definition).
       const enrollment = await this.internal.get<{ lessons_complete: boolean }>(
-        `/api/v1/internal/enrollments/${p.enrollment_id}`,
+        internalPath`/api/v1/internal/enrollments/${p.enrollment_id}`,
       );
       if (!enrollment.lessons_complete) return;
       if (!(await this.allRequiredAssessmentsPassed(p.course_id, p.learner_id))) return;

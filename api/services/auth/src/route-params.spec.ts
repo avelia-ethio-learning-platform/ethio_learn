@@ -1,0 +1,16 @@
+import { MODULE_METADATA } from '@nestjs/common/constants';
+import { unpipedRouteParams } from '@ethiopialearn/common';
+import { AppModule } from './app.module';
+
+/**
+ * Regression guard: every `@Param` on a controller this service registers must carry a
+ * ParseUUIDPipe or a token/uid pipe, so a non-uuid is a 400 before any service code runs.
+ */
+describe('auth route params', () => {
+  it('validates every route param', () => {
+    const controllers: Function[] = Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AppModule);
+    expect(controllers.length).toBeGreaterThan(0);
+    // users/by-email/:email is a free-text email address (the internal route is token-guarded).
+    expect(unpipedRouteParams(controllers, ['InternalController.userByEmail(:email)'])).toEqual([]);
+  });
+});

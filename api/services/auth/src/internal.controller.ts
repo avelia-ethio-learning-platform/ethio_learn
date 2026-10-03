@@ -1,7 +1,7 @@
 import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { InternalGuard } from '@ethiopialearn/common';
+import { InternalGuard, UuidParam } from '@ethiopialearn/common';
 import { EducatorProfile, Institution, InstitutionInstructor, User } from './entities';
 
 /**
@@ -28,7 +28,7 @@ export class InternalController {
   }
 
   @Get('users/:id')
-  async user(@Param('id') id: string) {
+  async user(@UuidParam('id') id: string) {
     const user = await this.users.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     return { id: user.id, name: user.name, email: user.email, role: user.role };
@@ -40,7 +40,7 @@ export class InternalController {
    * routes nothing). Submit notifications use the course's own institution.
    */
   @Get('users/:id/institution')
-  async userInstitution(@Param('id') id: string) {
+  async userInstitution(@UuidParam('id') id: string) {
     const membership = await this.instructors.findOne({ where: { user_id: id, status: 'active' } });
     if (!membership) return { institution_id: null, institution_admin_user_id: null, institution_name: null };
     const institution = await this.institutions.findOne({ where: { id: membership.institution_id } });
@@ -52,7 +52,7 @@ export class InternalController {
   }
 
   @Get('educators/:id')
-  async educator(@Param('id') id: string) {
+  async educator(@UuidParam('id') id: string) {
     const user = await this.users.findOne({ where: { id } });
     if (!user) throw new NotFoundException('Educator not found');
     const profile = await this.educatorProfiles.findOne({ where: { user_id: id } });
@@ -67,14 +67,14 @@ export class InternalController {
   }
 
   @Get('institutions/by-owner/:userId')
-  async institutionByOwner(@Param('userId') userId: string) {
+  async institutionByOwner(@UuidParam('userId') userId: string) {
     const institution = await this.institutions.findOne({ where: { owner_user_id: userId } });
     if (!institution) throw new NotFoundException('No institution for this user');
     return { id: institution.id, name: institution.name };
   }
 
   @Get('institutions/:id')
-  async institution(@Param('id') id: string) {
+  async institution(@UuidParam('id') id: string) {
     const institution = await this.institutions.findOne({ where: { id } });
     if (!institution) throw new NotFoundException('Institution not found');
     const owner = await this.users.findOne({ where: { id: institution.owner_user_id } });

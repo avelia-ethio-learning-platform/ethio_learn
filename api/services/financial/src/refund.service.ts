@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { EventBusService, InternalHttpClient, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import { PaymentStatus, RefundDecisionPayload, RefundRequestedPayload, RefundStatus, Role } from '@ethiopialearn/contracts';
 import { PaymentMethod, PaymentPurpose } from '@ethiopialearn/contracts';
 import { Payment, RefundRequest } from './entities';
@@ -41,7 +41,7 @@ export class RefundService {
       enrollment_id: string | null;
       enrolled_at: string | null;
       progress_percent: number;
-    }>(`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${payment.course_id}`);
+    }>(internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${payment.course_id}`);
 
     let rule = '';
     let decision: RefundStatus = RefundStatus.PENDING;
@@ -53,7 +53,7 @@ export class RefundService {
 
     if (entitlement.enrollment_id) {
       const outcomes = await this.internal.get<{ certificate_issued: boolean; assessment_passed: boolean }>(
-        `/api/v1/internal/enrollments/${entitlement.enrollment_id}/outcomes-status`,
+        internalPath`/api/v1/internal/enrollments/${entitlement.enrollment_id}/outcomes-status`,
       );
       if (outcomes.certificate_issued) {
         decision = RefundStatus.DENIED;
@@ -155,7 +155,7 @@ export class RefundService {
   private async emitRequested(refund: RefundRequest, payment: Payment) {
     let learnerEmail = '';
     try {
-      const learner = await this.internal.get<{ email: string }>(`/api/v1/internal/users/${payment.learner_id}`);
+      const learner = await this.internal.get<{ email: string }>(internalPath`/api/v1/internal/users/${payment.learner_id}`);
       learnerEmail = learner.email;
     } catch {
       /* enrichment best-effort */
@@ -176,7 +176,7 @@ export class RefundService {
   private async emitDecision(event: 'RefundApproved' | 'RefundDenied', refund: RefundRequest, payment: Payment) {
     let learnerEmail = '';
     try {
-      const learner = await this.internal.get<{ email: string }>(`/api/v1/internal/users/${payment.learner_id}`);
+      const learner = await this.internal.get<{ email: string }>(internalPath`/api/v1/internal/users/${payment.learner_id}`);
       learnerEmail = learner.email;
     } catch {
       /* enrichment best-effort */

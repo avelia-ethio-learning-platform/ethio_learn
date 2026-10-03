@@ -112,6 +112,8 @@ jobs:
         run: node scripts/e2e-institution.mjs
       - name: Exactly-once payments (concurrent confirmations, payouts)
         run: node scripts/e2e-payments.mjs
+      - name: Security hardening (internal paths, password change, email caps, coupons, pay links)
+        run: node scripts/e2e-security.mjs
       # Built with the stack up, so the prerendered home page has the seeded
       # courses. Takes over a minute, which also lets the login limiter refill.
       - name: Build web

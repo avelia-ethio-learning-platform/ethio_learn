@@ -271,15 +271,20 @@ function ReferralCard() {
   const { data } = useQuery({ queryKey: ['referral'], queryFn: () => api<any>('/referrals/me') });
   const [emails, setEmails] = useState('');
   const [message, setMessage] = useState('');
-  const [status, setOk, setError, clearStatus] = useFormStatus();
+  const [status, setOk, setError, clearStatus, setInfo] = useFormStatus();
   const [copied, setCopied] = useState(false);
   const invite = async (e: FormEvent) => {
     e.preventDefault();
     clearStatus();
     const list = emails.split(/[\s,;]+/).filter(Boolean);
     try {
-      const res = await api<{ sent: number }>('/referrals/invite', { method: 'POST', body: { emails: list, message: message || undefined } });
-      setOk(`Sent ${res.sent} invitation${res.sent === 1 ? '' : 's'}.`);
+      const res = await api<{ invited: number }>('/referrals/invite', { method: 'POST', body: { emails: list, message: message || undefined } });
+      if (res.invited === 0) {
+        // Nothing went out: a polite note, not a success.
+        setInfo('No new invitations sent: these people already have an account or were invited recently.');
+      } else {
+        setOk(`Sent ${res.invited} invitation${res.invited === 1 ? '' : 's'}.`);
+      }
       setEmails('');
     } catch (err) {
       setError((err as Error).message);

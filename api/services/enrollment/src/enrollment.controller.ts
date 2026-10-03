@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { IsNumber, IsUUID, Min } from 'class-validator';
-import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
+import { AnalyticsQuery } from './analytics-query.dto';
 import { EnrollmentService } from './enrollment.service';
 
 class EnrollDto {
@@ -50,10 +51,8 @@ export class EnrollmentController {
   @Get('enrollments/analytics')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  analytics(@CurrentUser() ctx: UserContext, @Query('course_ids') courseIds = '') {
-    const ids = courseIds.split(',').map((s) => s.trim()).filter(Boolean);
-    if (!ids.length) throw new BadRequestException('course_ids is required (comma-separated)');
-    return this.service.analytics(ctx, ids);
+  analytics(@CurrentUser() ctx: UserContext, @Query() query: AnalyticsQuery) {
+    return this.service.analytics(ctx, query.course_ids);
   }
 
   @Get('admin/enrollments/analytics')
@@ -66,42 +65,42 @@ export class EnrollmentController {
   @Get('enrollments/:id')
   @UseGuards(RolesGuard)
   @Roles()
-  detail(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  detail(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.detail(ctx, id);
   }
 
   @Get('enrollments/:id/progress')
   @UseGuards(RolesGuard)
   @Roles()
-  progress(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  progress(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.progressDetail(ctx, id);
   }
 
   @Post('progress/lessons/:lessonId/complete')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  complete(@CurrentUser() ctx: UserContext, @Param('lessonId') lessonId: string) {
+  complete(@CurrentUser() ctx: UserContext, @UuidParam('lessonId') lessonId: string) {
     return this.service.completeLesson(ctx, lessonId);
   }
 
   @Post('progress/lessons/:lessonId/video')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  saveVideo(@CurrentUser() ctx: UserContext, @Param('lessonId') lessonId: string, @Body() dto: VideoProgressDto) {
+  saveVideo(@CurrentUser() ctx: UserContext, @UuidParam('lessonId') lessonId: string, @Body() dto: VideoProgressDto) {
     return this.service.saveVideoProgress(ctx, lessonId, dto.position_seconds, dto.duration_seconds);
   }
 
   @Post('enrollments/:id/changelog-seen')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  changelogSeen(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  changelogSeen(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.markChangelogSeen(ctx, id);
   }
 
   @Get('enrollments/:id/video-progress')
   @UseGuards(RolesGuard)
   @Roles()
-  videoProgress(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  videoProgress(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.videoProgressDetail(ctx, id);
   }
 }
@@ -118,13 +117,13 @@ export class EnrollmentInternalController {
   }
 
   @Get('enrollments/:id')
-  byId(@Param('id') id: string) {
+  byId(@UuidParam('id') id: string) {
     return this.service.internalById(id);
   }
 
   /** Active learners of a course (audience for course-update notifications). */
   @Get('courses/:id/learners')
-  learners(@Param('id') courseId: string) {
+  learners(@UuidParam('id') courseId: string) {
     return this.service.learnersForCourse(courseId);
   }
 }

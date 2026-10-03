@@ -16,12 +16,18 @@ export function CouponManager() {
   const queryClient = useQueryClient();
   const { data: coupons } = useQuery({ queryKey: ['coupons'], queryFn: () => api<any[]>('/coupons') });
   const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses'), enabled: !isAdmin });
-  const [form, setForm] = useState({ code: '', kind: 'percent', value: 20, course_id: '', max_uses: '', expires_at: '', note: '' });
+  const [form, setForm] = useState({ code: '', kind: 'percent', value: 20, course_id: '', max_uses: '', max_uses_per_user: '', expires_at: '', note: '' });
   const [status, setStatus] = useState('');
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
     setStatus('');
+    // Blank means a learner may use the code any number of times.
+    const perLearner = form.max_uses_per_user.trim() ? Number(form.max_uses_per_user) : undefined;
+    if (perLearner !== undefined && (!Number.isInteger(perLearner) || perLearner < 1)) {
+      setStatus('Uses per learner must be a whole number of at least 1.');
+      return;
+    }
     try {
       await api('/coupons', {
         method: 'POST',
@@ -31,6 +37,7 @@ export function CouponManager() {
           value: Number(form.value),
           course_id: form.course_id || undefined,
           max_uses: form.max_uses ? Number(form.max_uses) : undefined,
+          max_uses_per_user: perLearner,
           expires_at: form.expires_at || undefined,
           note: form.note || undefined,
         },
@@ -68,6 +75,16 @@ export function CouponManager() {
           <input type="number" min={1} className="input flex-1" value={form.value} onChange={(e) => setForm({ ...form, value: +e.target.value })} />
         </div>
         <input type="number" min={1} className="input" placeholder="Max uses (blank = unlimited)" value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: e.target.value })} />
+        <input
+          type="number"
+          min={1}
+          step={1}
+          className="input"
+          aria-label="Uses per learner"
+          placeholder="Uses per learner (blank = unlimited)"
+          value={form.max_uses_per_user}
+          onChange={(e) => setForm({ ...form, max_uses_per_user: e.target.value })}
+        />
         <input type="date" className="input" value={form.expires_at} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} />
         <input className="input" placeholder="Note, e.g. 'Scholarship — Addis Coding Academy'" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} maxLength={200} />
         <div className="flex items-center gap-3 sm:col-span-2">
@@ -90,6 +107,7 @@ export function CouponManager() {
               <p className="text-xs text-gray-500">
                 {c.kind === 'percent' ? `${c.value}% off` : `${formatETB(c.value, locale)} off`} · {c.course_id ? 'one course' : 'all courses'} · used {c.uses}
                 {c.max_uses ? `/${c.max_uses}` : ''}
+                {c.max_uses_per_user ? ` · ${c.max_uses_per_user} per learner` : ''}
                 {c.expires_at ? ` · expires ${formatDate(c.expires_at, locale)}` : ''}
                 {c.note ? ` · ${c.note}` : ''}
               </p>

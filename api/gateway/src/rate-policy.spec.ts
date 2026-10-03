@@ -10,6 +10,15 @@ describe('rate-limit policy classification', () => {
     expect(classifyRequest('POST', '/api/v1/auth/accept-invite')).toBe('auth-strict');
   });
 
+  it('puts the two profile routes that check the password in the strict bucket', () => {
+    expect(classifyRequest('PUT', '/api/v1/profiles/password')).toBe('auth-strict');
+    expect(classifyRequest('DELETE', '/api/v1/profiles/me')).toBe('auth-strict');
+    expect(classifyRequest('PUT', '/api/v1/PROFILES/password/')).toBe('auth-strict');
+    // Reading or editing the profile is an ordinary request.
+    expect(classifyRequest('GET', '/api/v1/profiles/me')).toBe('general');
+    expect(classifyRequest('PUT', '/api/v1/profiles/me')).toBe('write');
+  });
+
   it('keeps token refresh out of the strict bucket (fires every 15 min legitimately)', () => {
     expect(classifyRequest('POST', '/api/v1/auth/refresh')).toBe('auth');
     expect(classifyRequest('POST', '/api/v1/auth/logout')).toBe('auth');
@@ -35,6 +44,14 @@ describe('rate-limit policy classification', () => {
 
   it('puts the public support form in the spam bucket', () => {
     expect(classifyRequest('POST', '/api/v1/support/contact')).toBe('community-write');
+  });
+
+  it('puts the coupon check in the spam bucket, so codes cannot be enumerated', () => {
+    expect(classifyRequest('GET', '/api/v1/coupons/validate')).toBe('community-write');
+    expect(classifyRequest('GET', '/api/v1/COUPONS/validate/')).toBe('community-write');
+    // Managing coupons is not the check.
+    expect(classifyRequest('GET', '/api/v1/coupons')).toBe('general');
+    expect(classifyRequest('POST', '/api/v1/coupons')).toBe('write');
   });
 
   it('limits payment initiation separately', () => {

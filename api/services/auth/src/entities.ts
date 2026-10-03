@@ -150,6 +150,8 @@ export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
 @Index('IDX_institution_instructors_institution_id_user_id', ['institution_id', 'user_id'], { unique: true })
 // One routing institution per instructor; also serves the internal lookup.
 @Index('IDX_institution_instructors_active_user_id', ['user_id'], { unique: true, where: `status = 'active'` })
+// Invite cap: invitations per institution per day.
+@Index('IDX_institution_instructors_institution_id_invited_at', ['institution_id', 'invited_at'])
 export class InstitutionInstructor {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -174,6 +176,10 @@ export class InstitutionInstructor {
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
+
+  /** Set on every invite and re-invite; the daily cap counts it. Defaults to now() for new rows. */
+  @Column({ type: 'timestamptz', nullable: true, default: () => 'now()' })
+  invited_at: Date | null;
 
   /** Set when the user accepts; null for an invitation never accepted. */
   @Column({ type: 'timestamptz', nullable: true })

@@ -9,7 +9,8 @@ import { matchPath } from './request-path';
  *  - auth-strict      credential endpoints (login/signup/reset…): brute-force target, keyed by IP
  *  - auth             the rest of /auth (refresh, …), keyed by IP
  *  - ai               endpoints that call the LLM — expensive, keyed by user
- *  - community-write  comments + DMs — spam target, keyed by user
+ *  - community-write  comments + DMs — spam target, keyed by user; also the
+ *                     coupon check, so codes can't be enumerated
  *  - payment-initiate payment session creation, keyed by user
  *  - write            any other mutation, keyed by user (falls back to IP)
  *  - general          everything, keyed by user/IP — always applied on top
@@ -41,6 +42,9 @@ const AUTH_STRICT =
 const AI_ENDPOINTS = /^\/api\/v1\/courses\/generate-structure$|^\/api\/v1\/assessments\/generate$|^\/api\/v1\/courses\/[^/]+\/chat$/;
 // GET endpoints that still hit the LLM (study coach). Chat history GETs do not.
 const AI_GET = /^\/api\/v1\/attempts\/[^/]+\/study-plan$/;
+// The coupon check answers whether a code exists, so it is a GET with the
+// comment/DM cap: enough for a learner applying codes, too few to enumerate them.
+const COUPON_VALIDATE = /^\/api\/v1\/coupons\/validate$/;
 const COMMUNITY_WRITE = /^\/api\/v1\/(comments|messages)\b|^\/api\/v1\/courses\/[^/]+\/comments$/;
 // Public support contact form — spam target, keyed by IP via the same bucket.
 const SUPPORT = /^\/api\/v1\/support\/contact$/;
@@ -48,6 +52,9 @@ const SUPPORT = /^\/api\/v1\/support\/contact$/;
 const PAYMENT_INITIATE = /^\/api\/v1\/(payments\/initiate|wallet\/topup|gifts|bulk-purchases|pay-requests\/[^/]+\/pay)$/;
 // Invitations by email are a spam vector — same bucket as comments/DMs.
 const INVITES = /^\/api\/v1\/(referrals\/invite|pay-requests|bulk-purchases\/[^/]+\/assign|institutions\/[^/]+\/instructors)$/;
+// Routes that verify the current password: a guessing target for anyone at an
+// unlocked session, so they share the login bucket (keyed by IP).
+const PASSWORD_CHECK = /^(PUT \/api\/v1\/profiles\/password|DELETE \/api\/v1\/profiles\/me)$/;
 // Chapa calls the webhook — throttling it could drop legitimate payment
 // confirmations, so it stays on the general bucket only.
 const WEBHOOK = /^\/api\/v1\/payments\/webhook\//;
@@ -66,8 +73,10 @@ export function classifyRequest(method: string, rawPath: string): RatePolicy {
   // The study-plan READ calls the LLM, so it belongs in the AI bucket even
   // though it is a GET (chat history GETs do NOT call the model — only POSTs do).
   if (AI_GET.test(path)) return 'ai';
+  if (COUPON_VALIDATE.test(path)) return 'community-write';
   if (!MUTATING.has(m)) return 'general';
   if (WEBHOOK.test(path)) return 'general';
+  if (PASSWORD_CHECK.test(`${m} ${path}`)) return 'auth-strict';
   if (AI_ENDPOINTS.test(path)) return 'ai';
   if (COMMUNITY_WRITE.test(path) || SUPPORT.test(path) || INVITES.test(path)) return 'community-write';
   if (PAYMENT_INITIATE.test(path)) return 'payment-initiate';

@@ -11,7 +11,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import { AiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import {
   CourseAppealSubmittedPayload,
@@ -591,7 +591,7 @@ export class QualityService implements OnModuleInit {
 
   async addReview(ctx: UserContext, courseId: string, rating: number, comment?: string) {
     const entitlement = await this.internal.get<{ entitlement_status: string; progress_percent: number }>(
-      `/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${courseId}`,
+      internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${courseId}`,
     );
     if (entitlement.entitlement_status !== 'active' || entitlement.progress_percent < 20) {
       throw new ForbiddenException('Complete at least 20% of the course before reviewing');
@@ -644,7 +644,7 @@ export class QualityService implements OnModuleInit {
 
     let publishedCourses = 0;
     try {
-      const res = await this.internal.get<{ published_count: number }>(`/api/v1/internal/owners/${payeeId}/published-count`);
+      const res = await this.internal.get<{ published_count: number }>(internalPath`/api/v1/internal/owners/${payeeId}/published-count`);
       publishedCourses = res.published_count;
     } catch {
       /* course service unavailable — keep 0 */

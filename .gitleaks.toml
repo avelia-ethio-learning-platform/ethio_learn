@@ -23,6 +23,8 @@ regexes = [
   '''re_xxxx''',
   '''Password123!''', # documented demo seed password
   '''Strong-passw0rd''', # made-up password in web unit tests
+  '''Wrong-passw0rd''', # made-up wrong current password in the password-change spec and e2e-security
+  '''ABCDEFGHJKLMNPQRSTUVWXYZ23456789''', # pay-request token alphabet in e2e-security, not a key
   '''dev-webhook-secret''',
   '''minioadmin''',
   '''ethiopialearn:ethiopialearn''', # local dev postgres dsn

@@ -1,6 +1,6 @@
 # Phase 3: Access control and exploitable web holes
 
-Status: implemented, code review APPROVED (round 2); waiting for the user to approve push and PR
+Status: done. Merged to main via PR #20 (merge `04590af`, 2026-10-03).
 Size: L (sessions: 4 — ethio-impl implements, ethio-reviewer reviews code)
 Base branch: `origin/main` once Phase 2 (`feat/schema-migrations`) has merged; until then branch from `feat/schema-migrations` and rebase. · Feature branch: `fix/access-control`
 Roadmap: [../2026-10-02-refinement-audit/roadmap.md](../2026-10-02-refinement-audit/roadmap.md) (this phase replaces the roadmap's "backend security and money integrity" row; payments move to Phase 4) · Findings: P0-03, P0-01, P0-02, P0-10, P1-02

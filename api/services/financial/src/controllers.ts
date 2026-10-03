@@ -1,7 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, RawBodyRequest, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query, RawBodyRequest, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
-import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { PaymentService } from './payment.service';
 import { RefundService } from './refund.service';
@@ -119,7 +119,7 @@ export class FinancialController {
   @Get('payments/:id')
   @UseGuards(RolesGuard)
   @Roles()
-  payment(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  payment(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.paymentService.detail(ctx, id);
   }
 
@@ -149,7 +149,7 @@ export class FinancialController {
   @Post('refunds/:id/decide')
   @UseGuards(RolesGuard)
   @Roles(Role.PLATFORM_ADMIN)
-  decideRefund(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: RefundDecisionDto) {
+  decideRefund(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: RefundDecisionDto) {
     return this.refundService.decide(ctx.id, id, dto.action === 'approve');
   }
 
@@ -183,7 +183,7 @@ export class FinancialController {
   @Post('payouts/:id/release')
   @UseGuards(RolesGuard)
   @Roles(Role.PLATFORM_ADMIN)
-  release(@Param('id') id: string) {
+  release(@UuidParam('id') id: string) {
     return this.payoutService.release(id);
   }
 
