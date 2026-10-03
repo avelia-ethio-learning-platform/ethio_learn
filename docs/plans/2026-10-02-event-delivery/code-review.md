@@ -93,3 +93,34 @@ Round 2 will check B1 and S1–S2, if fixed, review only `fa06f83..<new head>` p
 - **N3: taken.** `EVENT_RETRY_DELAY_MS` is rounded to whole seconds when it's read, so the queue name and the TTL always agree (60400 → `retry.60s` with TTL 60000). `.env.example` says so, and a new spec covers it.
 - **Tests:** `a6f2dd2`: api build ok; jest 1333 passed, 1 skipped; typecheck ok.
 - **Stack gate:** the full stack gate passed on the code as at `fa06f83` (plan.md, steps 9–11), including both drills. The drills weren't rerun on `a6f2dd2`; 9b's stack gate reruns them on top of these fixes.
+
+## Round 2 (2026-10-03) · Verdict: APPROVED (one should-fix to land before the push: a flaky spec, a one-line change)
+Reviewed `fa06f83..b9be57f`: the fixes in `a6f2dd2`, plus `scripts/e2e-retry-drill.mjs`.
+- **B1: resolved.**
+  - `forEachRecipient` catches per recipient, notifies everyone else, logs the count, then rethrows the first error, so the retry runs the deduped recipients again as no-ops.
+  - Both fan-outs use it, and an early `continue` became `return` inside the callback.
+  - The specs cover recipient 2 of 3 failing, recipient 3 notified, and a retry that sends only to recipient 2.
+- **S1: resolved.**
+  - `kick()` leaves an open connection alone, and a failed reopen still closes the connection, whose `close` kicks the supervisor.
+  - The supervisor's own loop still checks `isConnected()`. During the first connect `supervising` is set, so `connection` being set before the channel is ready changes nothing there.
+  - The spec covers `die()` → `publish()` → one connection.
+- **S2: resolved.**
+  - `userInfo` returns empty only for `-> 404`, which matches `InternalHttpClient`'s message (`internal-client.ts:77`), and throws otherwise.
+  - It runs inside the per-recipient catch in the fan-outs.
+  - Having one rule for every caller is fine. The retries cover a cold start, and the dedupe keeps them safe.
+- **N1–N3: taken.** I checked each change. Rounding the delay to whole seconds when it's read is simpler than renaming the queue.
+- **`e2e-retry-drill.mjs`:** local only, not in CI. It restarts notification and uses `docker compose exec` against the stack DB and broker. It touches nothing shared.
+
+**New should-fix:**
+- **S3. `certificate.service.spec.ts` "two deliveries racing past the existence check…" is flaky under the full suite.** The spec was added in round 1 (`8bd28dd`).
+  - Two real PDF renders run in parallel inside jest's default 5 s timeout.
+  - In my runs at `b9be57f`, the full `pnpm -C api test` failed 2 of 5 times. The one failure I inspected was this test's 5 s timeout. The other failing run had 2 failures I didn't capture; please run the suite a few times after the fix to check that they're gone too. The other 3 runs were green: 1333 passed, 1 skipped.
+  - **Scenario:** CI's jest step on a loaded runner goes red at random and blocks the merge.
+  - **Fix:** give the test a 20 s timeout (`it(…, async () => {…}, 20_000)`), or stub the PDF render in that describe.
+  - A follow-up commit with only this change needs no new review round. Just tell me the sha.
+
+**Gate (my run, review worktree at `b9be57f`, lockfile unchanged):** api build and typecheck clean. jest: 3 of 5 runs green, with 1333 passed and 1 skipped; the other 2 failed, one of them on S3's timeout (see S3). The stack gate and the drills were run by impl on `fa06f83`, and 9b's stack gate reruns them on these fixes. The fixes are notification and bus logic that the unit specs cover, so that's fine.
+
+### Round 2 response (impl, 15a7834)
+- **S3: fixed.** Stubbing the PDF render alone didn't do it: under the full suite the race spec still timed out once in 5 runs. Per-test timings showed the cost is mostly the real QR code (`QRCode.toBuffer`, about 300 ms per certificate alone, far more on a loaded runner); the render was about 200 ms of the 880. The spec file now mocks `qrcode`, and the issue describe stubs `renderPdf`. No spec here checks either image. The race spec takes 13 ms, down from 881 ms.
+- **Runs after the fix:** `pnpm -C api test` 5 of 5 green (1333 passed, 1 skipped), run while other builds were going on the same machine. No other spec failed in any of them, so the other failing run's 2 failures didn't show up again.
