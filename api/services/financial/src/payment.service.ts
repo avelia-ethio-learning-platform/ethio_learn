@@ -23,7 +23,7 @@ import {
   PricingType,
   Role,
 } from '@ethiopialearn/contracts';
-import { CHAPA_PROVIDER, ChapaProvider, ChapaVerification, chapaMode, MockChapaProvider } from './chapa.provider';
+import { CHAPA_PROVIDER, ChapaProvider, ChapaUnavailableError, ChapaVerification, chapaMode, MockChapaProvider } from './chapa.provider';
 import { Payment, PLATFORM_PAYEE_ID } from './entities';
 import { CouponQuote, couponUnavailable, GrowthService, WalletCredit } from './growth.service';
 
@@ -477,7 +477,14 @@ export class PaymentService {
     if (payment.status === PaymentStatus.REFUNDED) return { processed: true, reason: 'no change — payment was refunded' };
 
     // Step 5: the webhook's claim grants nothing, success or failure — ask Chapa directly.
-    const verification = await this.chapa.verify(payment.chapa_tx_ref);
+    let verification: ChapaVerification;
+    try {
+      verification = await this.chapa.verify(payment.chapa_tx_ref);
+    } catch (err) {
+      if (!(err instanceof ChapaUnavailableError)) throw err;
+      this.logger.warn(`webhook for ${payment.chapa_tx_ref}: chapa unreachable, not verified`);
+      return { processed: false, reason: 'provider unreachable' };
+    }
     return this.applyVerification(payment, verification, 'webhook');
   }
 
@@ -498,7 +505,13 @@ export class PaymentService {
     if (!payment) throw new NotFoundException('Payment not found');
     const payable = payment.status === PaymentStatus.PENDING || (payment.status === PaymentStatus.FAILED && !!payment.chapa_checkout_url);
     if (payable && chapaMode() === 'live') {
-      const verification = await this.chapa.verify(payment.chapa_tx_ref);
+      let verification: ChapaVerification;
+      try {
+        verification = await this.chapa.verify(payment.chapa_tx_ref);
+      } catch (err) {
+        if (!(err instanceof ChapaUnavailableError)) throw err;
+        return { ...this.publicView(payment), provider_unreachable: true };
+      }
       await this.applyVerification(payment, verification, 'reconcile');
       // Report the row as it is now, whichever path (webhook, sweep, this call) settled it.
       return this.publicView((await this.payments.findOne({ where: { id: payment.id } })) ?? payment);
@@ -543,6 +556,10 @@ export class PaymentService {
         const verification = await this.chapa.verify(payment.chapa_tx_ref);
         await this.applyVerification(payment, verification, 'sweep');
       } catch (err) {
+        if (err instanceof ChapaUnavailableError) {
+          this.logger.warn('chapa unreachable, sweep stopped');
+          break;
+        }
         this.logger.warn(`sweep: could not verify ${payment.chapa_tx_ref}: ${(err as Error).message}`);
       }
     }

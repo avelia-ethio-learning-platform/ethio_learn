@@ -3,7 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import { BrokerPublishError, PeerNotFoundError, PeerUnavailableError } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, PaymentStatus } from '@ethiopialearn/contracts';
-import { MockChapaProvider } from './chapa.provider';
+import { ChapaUnavailableError, MockChapaProvider } from './chapa.provider';
 import { Coupon, Payment, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
@@ -261,6 +261,34 @@ describe('PaymentService.handleWebhook: confirming and failing', () => {
     t.chapa.verify.mockResolvedValue({ status: 'failed', amount: null, currency: null });
     t.bus.publish.mockRejectedValue(new Error('broker down'));
     await expect(t.service.handleWebhook(failedBody, signed(failedBody))).resolves.toEqual({ processed: true, reason: 'failed' });
+  });
+});
+
+describe('PaymentService: Chapa unreachable', () => {
+  it('a webhook answers with a non-401 outcome and changes nothing', async () => {
+    const t = setup();
+    t.seed();
+    t.chapa.verify.mockRejectedValue(new ChapaUnavailableError());
+    const result = await t.service.handleWebhook(successBody, signed(successBody));
+    expect(result).toEqual({ processed: false, reason: 'provider unreachable' });
+    expect(result.reason).not.toBe('invalid signature');
+    expect(t.row().status).toBe(PaymentStatus.PENDING);
+  });
+
+  it('a webhook still rethrows other verify errors', async () => {
+    const t = setup();
+    t.seed();
+    t.chapa.verify.mockRejectedValue(new Error('boom'));
+    await expect(t.service.handleWebhook(successBody, signed(successBody))).rejects.toThrow('boom');
+  });
+
+  it('reconcile reports provider_unreachable with the unchanged payment', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.seed();
+    t.chapa.verify.mockRejectedValue(new ChapaUnavailableError());
+    const view = await t.service.reconcile({ id: 'u1' } as never, 'TX-TEST');
+    expect(view).toMatchObject({ status: PaymentStatus.PENDING, provider_unreachable: true });
   });
 });
 
@@ -805,6 +833,17 @@ describe('PaymentService.sweepPendingPayments', () => {
     await t.service.sweepPendingPayments();
     expect(t.row().status).toBe(PaymentStatus.PENDING);
     expect(t.bus.publishConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('stops the batch at the first ChapaUnavailableError', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.seed({ id: 'pay-1', chapa_tx_ref: 'TX-1' });
+    t.seed({ id: 'pay-2', chapa_tx_ref: 'TX-2' });
+    t.seed({ id: 'pay-3', chapa_tx_ref: 'TX-3' });
+    t.chapa.verify.mockRejectedValue(new ChapaUnavailableError());
+    await t.service.sweepPendingPayments();
+    expect(t.chapa.verify).toHaveBeenCalledTimes(1);
   });
 
   it('does nothing in mock mode', async () => {

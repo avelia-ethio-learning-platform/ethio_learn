@@ -283,6 +283,18 @@ describe('coupon checkout: the per-user limit', () => {
   });
 });
 
+describe('coupon checkout: the fallback email', () => {
+  it('retries once with CHAPA_FALLBACK_EMAIL when Chapa rejects the customer email', async () => {
+    process.env.CHAPA_FALLBACK_EMAIL = 'fallback@example.com';
+    const t = setup();
+    t.coupon();
+    t.chapa.initialize.mockRejectedValueOnce(new BadRequestException('Payment gateway rejected the request: {"email":["validation.email"]}'));
+    await expect(t.buy()).resolves.toMatchObject({ checkout_url: expect.any(String) });
+    expect(t.chapa.initialize).toHaveBeenCalledTimes(2);
+    expect(t.chapa.initialize.mock.calls[1][0]).toMatchObject({ email: 'fallback@example.com' });
+  });
+});
+
 describe('coupon checkout: every failure after the insert releases the hold', () => {
   it('a failed Chapa open fails the row and frees the use, with no failure notice', async () => {
     const t = setup();
