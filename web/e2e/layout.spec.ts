@@ -72,6 +72,8 @@ test.describe('no sideways overflow at 375 px', () => {
       expect(enrollments.length, 'the seeded learner is enrolled (scripts/demo-seed.mjs)').toBeGreaterThan(0);
       await page.goto(`/learn/${enrollments[0].course_id}`);
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      // An h1 also shows on "not enrolled" and "not found": make sure the player itself rendered.
+      await expect(page.getByRole('button', { name: /^(Start lesson 1|Resume: )/ })).toBeVisible();
       expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
     });
   });
@@ -90,6 +92,8 @@ test.describe('at 1440 px', () => {
     expect(await page.evaluate(() => window.scrollY), 'the page scrolled').toBeGreaterThan(300);
     // top-28 = 112 px from the viewport top while it sticks.
     await expect.poll(async () => Math.round((await card.boundingBox())!.y)).toBe(112);
+    // The phone-only bottom bar stays hidden at this width.
+    await expect(page.locator('.fixed.bottom-0.lg\\:hidden')).toBeHidden();
   });
 });
 

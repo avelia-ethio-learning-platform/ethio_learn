@@ -1,6 +1,6 @@
 # Phase 6a: Security hardening I, platform
 
-Status: approved (round 3); amendment A1 (anonymous pay-link read, P0-19, 2026-10-03) approved in round 4, with N5–N7 folded in
+Status: done. Merged to main via PR #24 (merge `c82d091`, 2026-10-03).
 Size: L (sessions: 4; ethio-impl implements, ethio-reviewer reviews the code)
 Base branch: `fix/web-p0` (stacked: Phase 5's tip once its two code-review should-fixes are fixed or deferred). Merge `origin/main` back in once #20, Phase 4 and Phase 5 land; see `handoff.md` → Branch. This phase builds on Phase 4's guarded `confirmPayment` (coupon `uses + 1` exactly once) and on Phase 3's membership invites. · Feature branch: `fix/security-platform`
 Roadmap: phase 6, split into 6a (this plan: P1-01, P1-05, P1-11, P1-13) and 6b (`2026-10-02-learning-integrity`: P1-04, P1-09, P1-10), because seven findings across every service would be one unreviewable PR. Amendment A1 adds P0-19, found by ethio-impl during Phase 5. It's a pre-existing auth bug on the same financial controller and route that step 3 already touches.

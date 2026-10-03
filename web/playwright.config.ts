@@ -6,9 +6,10 @@ import { BASE_URL, COLD_PORT, COLD_URL, WEB_PORT } from './e2e/support';
  * with the API stack up and seeded (`pnpm -C api seed`, scripts/demo-seed.mjs).
  *
  * Login budget: the gateway's auth-strict bucket allows 10 calls a minute per
- * IP, and every call here comes from 127.0.0.1. This suite makes 7:
+ * IP, and every call here comes from 127.0.0.1. This suite makes 8:
  * auth.setup.ts logs in once per seeded role (5), refresh.spec.ts logs in on
- * its own (1) and copy.spec.ts signs up (1). Every other spec reuses
+ * its own (1) and copy.spec.ts signs up (1) and resends the verification
+ * email once (1). Every other spec reuses
  * e2e/.auth/<role>.json. A new spec that logs in, signs up, verifies an email,
  * accepts an invite or resets a password spends from the same 10: reuse the
  * stored login instead. CI runs scripts/e2e-smoke.mjs after this suite (it

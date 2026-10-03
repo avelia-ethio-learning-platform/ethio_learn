@@ -51,6 +51,15 @@ describe('Auth forms', () => {
     expect(password.getAttribute('aria-invalid')).toBe('true');
   });
 
+  it('signup: a password the server would refuse (two categories) is refused before any request', async () => {
+    render(<SignupPage />);
+    const password = screen.getByLabelText(/^Password/);
+    fireEvent.change(password, { target: { value: '12345678!' } });
+    fireEvent.submit(password.closest('form')!);
+    expect(await screen.findByText(/at least 3 of/)).toBeTruthy();
+    expect(apiMock).not.toHaveBeenCalledWith('/auth/signup', expect.anything());
+  });
+
   it('signup: a weak password after a server error clears the stale server error', async () => {
     apiMock.mockRejectedValue(new Error('That email is already registered'));
     render(<SignupPage />);

@@ -10,6 +10,7 @@ import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
 import { AuthShell } from '@/components/PageChrome';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { ResendVerification } from '@/components/ResendVerification';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 function SignupForm() {
@@ -29,13 +30,13 @@ function SignupForm() {
   const { t } = useT();
   const [status, , setError, clearStatus] = useFormStatus();
   const [passwordError, setPasswordError] = useState('');
-  const [done, setDone] = useState(false);
+  const [doneEmail, setDoneEmail] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [password, setPassword] = useState('');
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (scorePassword(password).score < 3) {
+    if (!scorePassword(password).ok) {
       // The field error replaces any earlier server error, which no longer applies.
       clearStatus();
       setPasswordError('Password must include at least 3 of: lowercase, uppercase, number, symbol (min 8 chars).');
@@ -51,14 +52,14 @@ function SignupForm() {
         auth: false,
         body: { name: form.get('name'), email: form.get('email'), password: form.get('password'), role: form.get('role') },
       });
-      setDone(true);
+      setDoneEmail(String(form.get('email')));
     } catch (err) {
       setError((err as Error).message);
     }
     setBusy(false);
   };
 
-  if (done) {
+  if (doneEmail !== null) {
     return (
       <AuthShell icon={<MailCheck className="h-6 w-6" />} title="Check your email" subtitle="One more step to activate your account.">
         <div className="text-center">
@@ -69,6 +70,9 @@ function SignupForm() {
             </Link>
             .
           </p>
+          <div className="mt-5">
+            <ResendVerification email={doneEmail} startCooledDown />
+          </div>
         </div>
       </AuthShell>
     );

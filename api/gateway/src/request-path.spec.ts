@@ -38,6 +38,7 @@ describe('rate-limit buckets for path variants', () => {
     ['/api/v1/auth/login', 'auth-strict'],
     ['/api/v1/auth/signup', 'auth-strict'],
     ['/api/v1/auth/reset-password/confirm', 'auth-strict'],
+    ['/api/v1/auth/resend-verification', 'auth-strict'],
     ['/api/v1/courses/generate-structure', 'ai'],
     ['/api/v1/assessments/generate', 'ai'],
     ['/api/v1/courses/c1/chat', 'ai'],

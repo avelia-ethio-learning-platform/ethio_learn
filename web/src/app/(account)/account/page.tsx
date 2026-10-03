@@ -9,6 +9,7 @@ import { api, setAuth } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
+import { PanelError } from '@/components/PanelError';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { roleLabel } from '@/lib/labels';
@@ -18,7 +19,7 @@ import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 function AccountPage() {
   const { locale } = useT();
   const queryClient = useQueryClient();
-  const { data: me, isLoading } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
+  const { data: me, isLoading, isError, refetch } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
   const [status, setOk, setError, clearStatus] = useFormStatus();
 
   if (isLoading) {
@@ -31,7 +32,19 @@ function AccountPage() {
       </PageShell>
     );
   }
-  if (!me) return null;
+  // Not `isError`: a failed background refetch keeps `me`, and the form (with what was typed) must stay.
+  if (!me) {
+    return (
+      <PageShell>
+        <div className="mx-auto max-w-2xl">
+          <h1 className="sr-only">Account settings</h1>
+          <div className="card !rounded-3xl">
+            <PanelError panel="your account" onRetry={refetch} />
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
 
   const save = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();

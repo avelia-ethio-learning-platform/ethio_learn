@@ -11,7 +11,7 @@ test('a course page says the server is waking up, not 404', async ({ page, reque
   expect(res?.status()).toBe(200);
   await expect(page.getByRole('status')).toContainText("We're waking up the server");
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
-  await expect(page.getByText('Page not found')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: "We couldn't find that page" })).toHaveCount(0);
 });
 
 test('a certificate page says the server is waking up, not "invalid"', async ({ page, request }) => {

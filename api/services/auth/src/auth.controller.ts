@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 import { parse } from 'cookie';
 import { AuthService } from './auth.service';
 import { clearRefreshCookie, REFRESH_COOKIE, setRefreshCookie } from './refresh-cookie';
-import { AcceptInviteDto, GoogleSignInDto, LoginDto, ResetPasswordConfirmDto, ResetPasswordDto, SignupDto } from './dto';
+import { AcceptInviteDto, GoogleSignInDto, LoginDto, ResendVerificationDto, ResetPasswordConfirmDto, ResetPasswordDto, SignupDto } from './dto';
 
 /** All endpoints here are [PUBLIC] — the gateway allowlists them. */
 @Controller('auth')
@@ -20,6 +20,13 @@ export class AuthController {
   @HttpCode(200)
   verifyEmail(@Query('token') token: string) {
     return this.auth.verifyEmail(token);
+  }
+
+  /** A fresh verification link. The same 200 whatever the account's state, so it never reveals one. */
+  @Post('resend-verification')
+  @HttpCode(200)
+  resendVerification(@Body() dto: ResendVerificationDto) {
+    return this.auth.resendVerification(dto.email);
   }
 
   @Post('login')

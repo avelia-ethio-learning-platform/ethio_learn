@@ -64,6 +64,18 @@ describe('Accept invite (set a password)', () => {
     expect(screen.queryByText('This invite has expired')).toBeNull();
   });
 
+  it('refuses a password with only two categories before any request', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/auth/invite/tok') return { email: 'new@x.et', name: 'New Person', role: 'educator' };
+      throw new Error('should not be called');
+    });
+    render(<AcceptInvitePage />);
+    fireEvent.change(await screen.findByLabelText('Choose a password'), { target: { value: '12345678!' } });
+    fireEvent.click(screen.getByRole('button', { name: /set password/i }));
+    expect(await screen.findByText(/at least 3 of/)).toBeTruthy();
+    expect(apiMock).not.toHaveBeenCalledWith('/auth/accept-invite', expect.anything());
+  });
+
   it('sends staff to their home as before', async () => {
     respondWith('quality_officer', 0);
     await setPassword();

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpenCheck, LoaderCircle, MessageCircleQuestion, Send, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
+import { PanelError } from '@/components/PanelError';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface Message {
@@ -20,7 +21,7 @@ interface Message {
  * When the material does not cover a question it says so — never invents.
  */
 export function TutorPanel({ courseId }: { courseId: string }) {
-  const { data: history } = useQuery({ queryKey: ['tutor', courseId], queryFn: () => api<Message[]>(`/courses/${courseId}/chat`), retry: false });
+  const { data: history, isError: historyError, refetch: refetchHistory } = useQuery({ queryKey: ['tutor', courseId], queryFn: () => api<Message[]>(`/courses/${courseId}/chat`), retry: false });
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
@@ -67,6 +68,11 @@ export function TutorPanel({ courseId }: { courseId: string }) {
         </span>
         <span className="text-xs text-gray-500">{open ? 'Hide' : messages.length ? `${messages.filter((m) => m.role === 'user').length} question${messages.length === 2 ? '' : 's'} so far` : 'Answers come from this course only'}</span>
       </button>
+      {historyError && (
+        <div className="px-5 pb-4">
+          <PanelError panel="the tutor chat" onRetry={refetchHistory} />
+        </div>
+      )}
       {open && (
         <div className="px-5 pb-5">
           <div className="max-h-96 space-y-3 overflow-y-auto rounded-xl bg-brand-500/5 p-3 text-sm">

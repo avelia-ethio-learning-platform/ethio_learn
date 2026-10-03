@@ -120,11 +120,15 @@
   html {
     scroll-behavior: smooth;
     overflow-x: clip;
+    /* Keep focused and scrolled-to elements clear of the course page's mobile buy bar. */
+    scroll-padding-bottom: var(--buy-bar-h, 0px);
   }
 
   body {
     @apply bg-background font-sans text-foreground antialiased;
     overflow-x: clip;
+    /* The course page's mobile buy bar sets --buy-bar-h while it is showing, so it never covers the footer. */
+    padding-bottom: var(--buy-bar-h, 0px);
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 
@@ -351,18 +355,6 @@
     border: 1px solid var(--border);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-  }
-
-  .skeleton {
-    @apply rounded-xl;
-    background: linear-gradient(
-      90deg,
-      rgba(59, 130, 246, 0.06) 25%,
-      rgba(59, 130, 246, 0.14) 50%,
-      rgba(59, 130, 246, 0.06) 75%
-    );
-    background-size: 800px 100%;
-    animation: shimmer 1.6s linear infinite;
   }
 }
 
