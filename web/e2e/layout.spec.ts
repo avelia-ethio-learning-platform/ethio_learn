@@ -60,6 +60,7 @@ test.describe('no sideways overflow at 375 px', () => {
     test('teaching dashboard', async ({ page }) => {
       await page.goto('/teach');
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      await page.waitForLoadState('networkidle'); // measure once the panels have loaded
       expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
     });
 
@@ -74,6 +75,7 @@ test.describe('no sideways overflow at 375 px', () => {
     test('course editor', async ({ page, request }) => {
       await page.goto(`/teach/courses/${await ownCourseId(request)}`);
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      await page.waitForLoadState('networkidle'); // measure once the panels have loaded
       expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
     });
   });
@@ -84,6 +86,7 @@ test.describe('no sideways overflow at 375 px', () => {
     test('/institution', async ({ page }) => {
       await page.goto('/institution');
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      await page.waitForLoadState('networkidle'); // measure once the panels have loaded
       expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
     });
   });
@@ -94,6 +97,7 @@ test.describe('no sideways overflow at 375 px', () => {
     test('/admin', async ({ page }) => {
       await page.goto('/admin');
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      await page.waitForLoadState('networkidle'); // measure once the panels have loaded
       expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
     });
   });

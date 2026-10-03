@@ -75,7 +75,7 @@ function AnalyticsPage() {
           ))}
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2">
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="card">
             <p className="text-sm font-bold text-foreground">Revenue by month (ETB)</p>
             {revenueQ.isError ? (

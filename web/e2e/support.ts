@@ -68,10 +68,23 @@ export async function firstCourseId(request: APIRequestContext): Promise<string>
 }
 
 /** The seeded educator's own course (a draft when there is one), for the editor at /teach/courses/{id}. */
+/** One of the seeded educator's draft courses; the seed publishes its courses, so a draft is created when there is none. */
 export async function ownCourseId(request: APIRequestContext): Promise<string> {
   const courses = await apiGet<{ id: string; status: string }[]>(request, '/courses', 'educator');
-  expect(courses.length, 'the seeded educator has a course (scripts/demo-seed.mjs)').toBeGreaterThan(0);
-  return (courses.find((c) => c.status === 'draft') ?? courses[0]).id;
+  const draft = courses.find((c) => c.status === 'draft');
+  if (draft) return draft.id;
+  const res = await request.post(`${API_URL}/api/v1/courses`, {
+    headers: { Authorization: `Bearer ${tokenFor('educator')}` },
+    data: {
+      title: 'Draft for the e2e checks',
+      description: 'A draft course the browser checks open in the editor.',
+      category: 'programming',
+      language: 'en',
+      pricing_type: 'free',
+    },
+  });
+  expect(res.ok(), `POST /courses → ${res.status()}`).toBe(true);
+  return ((await res.json()) as { id: string }).id;
 }
 
 export async function learnerCertificateUid(request: APIRequestContext): Promise<string> {
