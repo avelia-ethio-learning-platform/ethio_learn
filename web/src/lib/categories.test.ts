@@ -36,3 +36,17 @@ describe('category data', () => {
     }
   });
 });
+
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+describe('cover contrast', () => {
+  it('keeps white text at or above 4.5:1 on every group colour', () => {
+    for (const [group, color] of Object.entries(GROUP_COLORS)) {
+      const ratio = 1.05 / (luminance(color) + 0.05);
+      expect(ratio, group).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});

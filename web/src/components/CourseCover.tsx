@@ -40,7 +40,7 @@ export function CourseCover({
       style={{ backgroundColor: GROUP_COLORS[meta.group] }}
       {...(decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': `${title}, ${meta.label}` })}
     >
-      <p className={`flex flex-wrap items-center gap-x-2 text-xs font-semibold text-white/80 ${s.labels}`}>
+      <p className={`flex flex-wrap items-center gap-x-2 text-xs font-semibold text-white ${s.labels}`}>
         <span className="uppercase tracking-wider">{meta.label}</span>
         <span aria-hidden>·</span>
         <span lang="am">{meta.am}</span>
