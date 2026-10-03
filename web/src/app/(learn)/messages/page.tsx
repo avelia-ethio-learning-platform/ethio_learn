@@ -137,7 +137,7 @@ function Messenger() {
             <input
               className="input w-full"
               aria-label="Find someone by name or email"
-              placeholder="🔍 Find someone (name or email)…"
+              placeholder="Find someone (name or email)…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -199,7 +199,7 @@ function Messenger() {
                   </div>
                 ))}
                 {conversation && conversation.messages.length === 0 && (
-                  <p className="text-center text-xs text-gray-500">Say hello 👋</p>
+                  <p className="text-center text-xs text-gray-500">Say hello</p>
                 )}
                 <div ref={bottomRef} />
               </div>

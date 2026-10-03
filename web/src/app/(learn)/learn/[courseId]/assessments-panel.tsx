@@ -63,7 +63,7 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
       const feedback = res.feedback ? ` · ${res.feedback}` : '';
       // A score that did not pass is not a success: it goes out politely, in the warning colours.
       if (res.pending_review) setOk('Submitted — your educator will review it.');
-      else if (res.passed) setOk(`Score: ${res.score} — PASSED 🎉${feedback}`);
+      else if (res.passed) setOk(`Score: ${res.score} — PASSED${feedback}`);
       else setInfo(`Score: ${res.score} — not passed yet${feedback}`);
       setActive(null);
       await queryClient.invalidateQueries({ queryKey: ['attempts', courseId] });

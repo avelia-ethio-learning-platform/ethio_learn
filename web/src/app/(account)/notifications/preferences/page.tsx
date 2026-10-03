@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { COURSE_CATEGORIES } from '@/lib/categories';
@@ -122,7 +123,7 @@ function PreferencesForm() {
                 }`}
               >
                 <span aria-hidden>{c.icon}</span> {c.label}
-                {on && <span className="ml-1" aria-hidden>✓</span>}
+                {on && <Check className="ml-1 inline h-3.5 w-3.5" aria-hidden="true" />}
               </button>
             );
           })}

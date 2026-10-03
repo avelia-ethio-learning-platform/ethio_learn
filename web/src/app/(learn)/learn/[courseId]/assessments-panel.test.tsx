@@ -54,7 +54,7 @@ describe('AssessmentsPanel results', () => {
     respondWith({ score: 90, passed: true });
     await takeQuiz();
     const status = screen.getByRole('status');
-    await waitFor(() => expect(status.textContent).toBe('Score: 90 — PASSED 🎉'));
+    await waitFor(() => expect(status.textContent).toBe('Score: 90 — PASSED'));
     expect(status.querySelector('.badge-success')).not.toBeNull();
   });
 });

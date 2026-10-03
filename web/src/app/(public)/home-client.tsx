@@ -17,6 +17,7 @@ import {
   Sparkles,
   Wallet,
   Zap,
+  SearchX,
 } from 'lucide-react';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
 import { COURSE_CATEGORIES } from '@/lib/categories';
@@ -244,7 +245,7 @@ export function HomeClient({
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
             >
-              <p className="text-4xl">🔎</p>
+              <SearchX className="mx-auto h-10 w-10 text-gray-500" aria-hidden="true" />
               <p className="mt-3 text-lg font-medium text-foreground">{t('no_courses')}</p>
               <p className="mt-2 text-sm text-gray-500">
                 <Link className="font-semibold text-brand-600 hover:underline" href="/signup?role=educator">
