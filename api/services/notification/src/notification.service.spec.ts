@@ -549,3 +549,25 @@ describe('NotificationService: wallet credited', () => {
     ]);
   });
 });
+
+describe('RefundApproved email (P1-63)', () => {
+  const payload = (extra: Record<string, unknown> = {}) => ({
+    refund_request_id: 'r1', payment_id: 'p1', tx_ref: 'TX', learner_id: 'u1', learner_email: 'l@e.et',
+    course_id: 'c1', course_title: 'Soil Science', amount_etb: 500, reason: 'auto', ...extra,
+  });
+
+  it('says access was revoked when it was', async () => {
+    const t = setup();
+    await t.emit('RefundApproved', payload());
+    const [mail] = t.emails();
+    expect(mail.html).toContain('Access to the course has been revoked.');
+  });
+
+  it('leaves the revocation out when access was kept', async () => {
+    const t = setup();
+    await t.emit('RefundApproved', payload({ access_kept: true }));
+    const [mail] = t.emails();
+    expect(mail.html).toContain('was approved.');
+    expect(mail.html).not.toMatch(/revoked/);
+  });
+});

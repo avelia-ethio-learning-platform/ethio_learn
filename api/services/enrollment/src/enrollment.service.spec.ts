@@ -473,6 +473,42 @@ describe('EnrollmentService: completion is published once', () => {
   });
 });
 
+describe('EnrollmentService: RefundApproved (P1-63)', () => {
+  const refund = (extra: Record<string, unknown> = {}) => ({ refund_request_id: 'r1', payment_id: 'p1', learner_id: 'u1', course_id: 'c1', ...extra });
+  const handler = (bus: { subscribe: jest.Mock }) =>
+    bus.subscribe.mock.calls.find(([type]) => type === 'RefundApproved')![1] as (p: unknown) => Promise<void>;
+
+  it('keeps access when financial says the learner holds the course another way', async () => {
+    const { service, bus, enrollments } = setup();
+    service.onModuleInit();
+    await handler(bus)(refund({ access_kept: true }));
+    expect(enrollments.update).not.toHaveBeenCalled();
+    expect(enrollments.save).not.toHaveBeenCalled();
+  });
+
+  it.each([['absent (an older financial)', {}], ['false', { access_kept: false }]])(
+    'revokes with a conditional update on an active row when the flag is %s',
+    async (_label, extra) => {
+      const { service, bus, enrollments } = setup();
+      service.onModuleInit();
+      await handler(bus)(refund(extra));
+      expect(enrollments.update).toHaveBeenCalledWith(
+        { learner_id: 'u1', course_id: 'c1', entitlement_status: EntitlementStatus.ACTIVE },
+        { entitlement_status: EntitlementStatus.REFUNDED },
+      );
+      expect(enrollments.save).not.toHaveBeenCalled();
+    },
+  );
+
+  it('an already refunded row stays refunded: the update matches nothing', async () => {
+    const { service, bus, enrollments } = setup({ entitlement: EntitlementStatus.REFUNDED });
+    enrollments.update.mockResolvedValue({ affected: 0 });
+    service.onModuleInit();
+    await expect(handler(bus)(refund())).resolves.toBeUndefined();
+    expect(enrollments.save).not.toHaveBeenCalled();
+  });
+});
+
 type Row = { id: string; learner_id: string; course_id: string; entitlement_status: EntitlementStatus; completed_at: Date | null };
 
 /**

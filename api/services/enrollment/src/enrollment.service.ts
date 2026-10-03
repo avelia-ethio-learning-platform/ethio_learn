@@ -562,12 +562,23 @@ export class EnrollmentService implements OnModuleInit {
     return this.enrollments.save(enrollment);
   }
 
+  /**
+   * A refunded payment ends access unless financial says the learner still
+   * holds the course another way (a second purchase or a granted
+   * sponsorship). The revoke only flips an active row, and writes nothing
+   * else, so it can't put back stale progress.
+   */
   private async revokeFromRefund(p: RefundDecisionPayload) {
-    const enrollment = await this.enrollments.findOne({ where: { learner_id: p.learner_id, course_id: p.course_id } });
-    if (!enrollment) return;
-    enrollment.entitlement_status = EntitlementStatus.REFUNDED;
-    await this.enrollments.save(enrollment);
-    this.logger.log(`entitlement refunded: enrollment ${enrollment.id}`);
+    const ids = `learner ${p.learner_id}, course ${p.course_id}, payment ${p.payment_id}`;
+    if (p.access_kept) {
+      this.logger.log(`refund keeps access (another purchase or sponsorship): ${ids}`);
+      return;
+    }
+    const { affected } = await this.enrollments.update(
+      { learner_id: p.learner_id, course_id: p.course_id, entitlement_status: EntitlementStatus.ACTIVE },
+      { entitlement_status: EntitlementStatus.REFUNDED },
+    );
+    this.logger.log(`entitlement refunded: ${ids}, affected ${affected ?? 0}`);
   }
 
   /**
