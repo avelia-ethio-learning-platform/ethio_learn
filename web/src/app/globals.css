@@ -209,7 +209,8 @@
 
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    /* blue-700 to blue-600: white text stays above 4.5:1 across the whole gradient. */
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
     transition: transform 0.15s var(--ease-out-expo), box-shadow 0.15s var(--ease-out-expo), filter 0.15s ease;
   }
@@ -283,7 +284,8 @@
   }
   .pill-active {
     @apply inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold text-white transition-all duration-200;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    /* Same stops as .btn, for the same reason. */
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
     border: 1px solid transparent;
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
   }
