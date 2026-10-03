@@ -155,6 +155,10 @@ async function main() {
   // ---- password change ----
   const pw = await newLearner(admin, 'pw');
   const sessionB = await login(pw.email, PASSWORD);
+  check('session B got a refresh cookie at login', Boolean(sessionB.cookie));
+  const bBefore = await call('/auth/refresh', { method: 'POST', cookie: sessionB.cookie });
+  check('session B refreshes before the password change → 200', bBefore.status === 200 && Boolean(bBefore.refreshCookie), brief(bBefore));
+  const bCookie = bBefore.refreshCookie ?? sessionB.cookie; // refreshing may rotate the cookie
   const noCurrent = await call('/profiles/password', { method: 'PUT', token: pw.token, body: { new_password: CHANGED_PASSWORD } });
   check('password change without the current password → 400', noCurrent.status === 400 && /Current password is required\./.test(message(noCurrent)), brief(noCurrent));
   const wrong = await call('/profiles/password', { method: 'PUT', token: pw.token, body: { new_password: CHANGED_PASSWORD, current_password: 'Wrong-passw0rd-x' } });
@@ -166,7 +170,7 @@ async function main() {
   check('the response set a refresh cookie', Boolean(changed.refreshCookie));
   const refreshed = await call('/auth/refresh', { method: 'POST', cookie: changed.refreshCookie });
   check('the new refresh cookie refreshes the session', refreshed.status === 200 && typeof refreshed.json?.access_token === 'string', brief(refreshed));
-  const revoked = await call('/auth/refresh', { method: 'POST', cookie: sessionB.cookie });
+  const revoked = await call('/auth/refresh', { method: 'POST', cookie: bCookie });
   check("another session's refresh token is revoked → 401", revoked.status === 401, brief(revoked));
   const relogin = await call('/auth/login', { method: 'POST', body: { email: pw.email, password: CHANGED_PASSWORD } });
   check('login with the new password → 200', relogin.status === 200, brief(relogin));
