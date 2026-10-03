@@ -9,6 +9,7 @@ export * from './logging/json-logger';
 export * from './logging/redact';
 export * from './events/run-once';
 export * from './events/outbox';
+export * from './events/stable-event-id';
 export * from './auth/user-context';
 export * from './auth/roles.guard';
 export * from './auth/internal.guard';
