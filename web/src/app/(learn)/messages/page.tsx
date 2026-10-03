@@ -190,9 +190,9 @@ function Messenger() {
               <div className="flex-1 space-y-2 overflow-y-auto p-4">
                 {conversation?.messages.map((m) => (
                   <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${m.mine ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                    <div className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${m.mine ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-900'}`}>
                       <p className="whitespace-pre-wrap">{m.body}</p>
-                      <p className={`mt-0.5 text-right text-xs ${m.mine ? 'text-brand-100' : 'text-gray-500'}`}>
+                      <p className={`mt-0.5 text-right text-xs ${m.mine ? 'text-blue-100' : 'text-gray-500'}`}>
                         {formatDate(m.created_at, locale, 'datetime')}
                       </p>
                     </div>

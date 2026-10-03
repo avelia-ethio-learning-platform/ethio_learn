@@ -78,7 +78,7 @@ export function TutorPanel({ courseId }: { courseId: string }) {
             )}
             {messages.map((m) => (
               <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${m.role === 'user' ? 'bg-brand-600 text-white' : 'bg-card text-foreground shadow-sm'}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-card text-foreground shadow-sm'}`}>
                   <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
                   {m.role === 'assistant' && m.sources.length > 0 && (
                     <p className="mt-2 flex flex-wrap items-center gap-1 text-xs text-gray-500">

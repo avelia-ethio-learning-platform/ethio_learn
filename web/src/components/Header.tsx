@@ -197,7 +197,7 @@ export function Header() {
                   title={t('account')}
                   className="glass-secondary flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-gray-700 shadow-glass transition-colors hover:text-brand-600"
                 >
-                  <span className="gradient-bg-blue flex h-6 w-6 items-center justify-center rounded-lg text-xs font-bold text-white">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-blue-700 to-blue-600 text-xs font-bold text-white">
                     {user.name.charAt(0).toUpperCase()}
                   </span>
                   <span className="max-w-[90px] truncate">{user.name.split(' ')[0]}</span>
