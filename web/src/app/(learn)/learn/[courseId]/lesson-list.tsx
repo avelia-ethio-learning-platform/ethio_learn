@@ -104,6 +104,7 @@ export function LessonList({
                           )}
                           <span className="min-w-0">
                             <span className="block truncate">{lesson.title}</span>
+                            {done && <span className="sr-only">Completed</span>}
                             {!done && watched > 0 && (
                               <span className="mt-1 block h-1 w-24 overflow-hidden rounded-full bg-gray-200">
                                 <span className="block h-full bg-brand-500" style={{ width: `${watched}%` }} />

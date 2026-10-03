@@ -35,6 +35,7 @@ interface Routes {
   videoProgress?: unknown;
   progress?: unknown;
   certificates?: unknown;
+  assessments?: unknown;
 }
 function route(r: Routes) {
   const answer = async (v: unknown) => {
@@ -48,7 +49,8 @@ function route(r: Routes) {
     if (path === '/enrollments/e1/progress') return answer(r.progress ?? { completed_lessons: [], progress_percent: 0, completed_at: null, changelog_seen_at: null });
     if (path === '/me/certificates') return answer(r.certificates ?? []);
     if (path === '/courses/c1/changelog') return [];
-    if (path.startsWith('/assessments') || path.startsWith('/attempts')) return [];
+    if (path.startsWith('/assessments')) return answer(r.assessments ?? []);
+    if (path.startsWith('/attempts')) return [];
     return {};
   });
 }
@@ -145,6 +147,16 @@ describe('lesson player', () => {
   });
 });
 
+describe('lesson list', () => {
+  it('a finished lesson is announced as Completed, not just shown with an icon', async () => {
+    route({ progress: { completed_lessons: [{ lesson_id: 'l1' }], progress_percent: 33, completed_at: null, changelog_seen_at: null } });
+    renderPage();
+    const soil = (await screen.findByText('Soil')).closest('button')!;
+    expect(soil.textContent).toContain('Completed');
+    expect(screen.getByText('Seeds').closest('button')!.textContent).not.toContain('Completed');
+  });
+});
+
 describe('completion', () => {
   const done = { completed_lessons: [], progress_percent: 100, completed_at: '2026-01-01T00:00:00Z', changelog_seen_at: null };
 
@@ -157,11 +169,54 @@ describe('completion', () => {
     expect(container.textContent).not.toContain('🎉');
   });
 
-  it('without one: says what is missing and links to the assessments', async () => {
-    route({ progress: done, certificates: [{ id: 'x', course_id: 'other', verify_url: '/verify/no' }] });
+  it('without one and a required assessment unpassed: says what is missing and links to the assessments', async () => {
+    route({ progress: done, assessments: [{ id: 'a1', type: 'quiz', is_required: true, pass_score: 70 }], certificates: [{ id: 'x', course_id: 'other', verify_url: '/verify/no' }] });
     renderPage();
     expect(await screen.findByText(/You've finished the lessons\. Pass the remaining assessments/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Go to assessments' }).getAttribute('href')).toBe('#assessments');
     expect(screen.queryByRole('link', { name: 'View certificate' })).toBeNull();
+  });
+
+  it('without one and no assessments left: says the certificate is being prepared, with no link', async () => {
+    route({ progress: done });
+    renderPage();
+    expect(await screen.findByText('Your certificate is being prepared…')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Go to assessments' })).toBeNull();
+  });
+
+  it('keeps asking until the certificate arrives, then stops', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      route({ progress: done });
+      const base = apiMock.getMockImplementation()!;
+      let issued = false;
+      apiMock.mockImplementation(async (path: string, ...rest: unknown[]) =>
+        path === '/me/certificates' ? (issued ? [{ id: 'k1', course_id: 'c1', verify_url: '/verify/abc' }] : []) : base(path, ...rest),
+      );
+      renderPage();
+      expect(await screen.findByText('Your certificate is being prepared…')).toBeTruthy();
+      issued = true;
+      await vi.advanceTimersByTimeAsync(5100);
+      expect(await screen.findByRole('link', { name: 'View certificate' })).toBeTruthy();
+      const calls = () => apiMock.mock.calls.filter(([p]) => p === '/me/certificates').length;
+      const before = calls();
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(calls()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a failed Download shows a message instead of throwing', async () => {
+    route({ progress: done, certificates: [{ id: 'k1', course_id: 'c1', verify_url: '/verify/abc' }] });
+    const base = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation(async (path: string, ...rest: unknown[]) => {
+      if (path === '/me/certificates/k1/download') throw new Error('boom');
+      return base(path, ...rest);
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Download' }));
+    expect(await screen.findByText('Could not start the download. Please try again.')).toBeTruthy();
+    expect(screen.getByText('Could not start the download. Please try again.').getAttribute('role')).toBe('alert');
   });
 });
