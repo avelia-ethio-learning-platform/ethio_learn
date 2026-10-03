@@ -7,6 +7,8 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface CommentRow {
   id: string;
@@ -53,14 +55,14 @@ export function CommentsSection({ courseId }: { courseId: string }) {
   });
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
 
   const tree = useMemo(() => buildTree(rows ?? []), [rows]);
   const count = rows?.filter((r) => !r.deleted).length ?? 0;
 
   const post = async (body: string, parentId?: string) => {
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       await api(`/courses/${courseId}/comments`, { method: 'POST', body: { body, ...(parentId ? { parent_id: parentId } : {}) } });
       setDraft('');
@@ -89,15 +91,20 @@ export function CommentsSection({ courseId }: { courseId: string }) {
 
       {ready && user ? (
         <div className="mt-3">
-          <textarea
-            className="input"
-            rows={2}
-            placeholder="Ask a question or share something with the class…"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
+          <Field label="Add a comment">
+            {(ids) => (
+              <textarea
+                {...ids}
+                className="input"
+                rows={2}
+                placeholder="Ask a question or share something with the class…"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+            )}
+          </Field>
           <div className="mt-1 flex items-center justify-between">
-            {error ? <p className="text-xs text-red-600">{error}</p> : <span />}
+            <FormStatus status={status} />
             <button className="btn text-sm" disabled={busy || draft.trim().length === 0} onClick={() => void post(draft)}>
               Post comment
             </button>
@@ -175,7 +182,7 @@ function CommentItem({
         </div>
         {replying && (
           <div className="mt-2">
-            <textarea className="input" rows={2} autoFocus placeholder={`Reply to ${node.author_name}…`} value={reply} onChange={(e) => setReply(e.target.value)} />
+            <textarea className="input" rows={2} autoFocus aria-label={`Reply to ${node.author_name}`} placeholder={`Reply to ${node.author_name}…`} value={reply} onChange={(e) => setReply(e.target.value)} />
             <button
               className="btn-secondary mt-1 text-xs"
               disabled={busy || reply.trim().length === 0}

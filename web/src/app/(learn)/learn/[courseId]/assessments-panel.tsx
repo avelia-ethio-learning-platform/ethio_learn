@@ -6,6 +6,10 @@ import { CheckCircle2, ClipboardCheck, FileUp, Mic, Play } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatBytes, putFile, type UploadState } from '@/lib/upload';
 import { UploadProgress } from '@/components/UploadProgress';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+
+const TYPE_LABEL: Record<AssessmentSummary['type'], string> = { quiz: 'Quiz', ai_viva: 'AI viva', project: 'Project' };
 
 interface AssessmentSummary {
   id: string;
@@ -23,26 +27,26 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
   });
   const { data: attempts } = useQuery({ queryKey: ['attempts', courseId], queryFn: () => api<any[]>(`/attempts/mine?course_id=${courseId}`) });
   const [active, setActive] = useState<any | null>(null);
-  const [message, setMessage] = useState('');
+  const [status, setOk, setError, clearStatus] = useFormStatus();
 
   if (!assessments?.length) return null;
 
   const passed = (assessmentId: string) => attempts?.some((a) => a.assessment_id === assessmentId && a.passed);
 
   const start = async (assessment: AssessmentSummary) => {
-    setMessage('');
+    clearStatus();
     try {
       const res = await api<any>(`/assessments/${assessment.id}/attempts`, { method: 'POST' });
       setActive({ ...res, assessment });
     } catch (err) {
-      setMessage((err as Error).message);
+      setError((err as Error).message);
     }
   };
 
   const finish = async (body: Record<string, unknown>) => {
     try {
       const res = await api<any>(`/attempts/${active.attempt_id}/submit`, { method: 'PUT', body });
-      setMessage(
+      setOk(
         res.pending_review
           ? 'Submitted — your educator will review it.'
           : `Score: ${res.score} — ${res.passed ? 'PASSED 🎉' : 'not passed yet'}${res.feedback ? ` · ${res.feedback}` : ''}`,
@@ -50,7 +54,7 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
       setActive(null);
       await queryClient.invalidateQueries({ queryKey: ['attempts', courseId] });
     } catch (err) {
-      setMessage((err as Error).message);
+      setError((err as Error).message);
     }
   };
 
@@ -65,8 +69,8 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
       <ul className="mt-3 space-y-2 text-sm">
         {assessments.map((a) => (
           <li key={a.id} className="glass-secondary flex items-center justify-between gap-3 rounded-xl px-4 py-2.5">
-            <span className="capitalize text-foreground">
-              {a.type.replace('_', ' ')}{' '}
+            <span className="text-foreground">
+              {TYPE_LABEL[a.type] ?? a.type}{' '}
               {a.is_required && <span className="text-xs font-normal text-gray-500">(required for certificate)</span>}
             </span>
             {passed(a.id) ? (
@@ -74,14 +78,16 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
                 <CheckCircle2 className="h-3 w-3" /> Passed
               </span>
             ) : (
-              <button className="btn-secondary !px-3 !py-1 !text-xs" onClick={() => start(a)}>
+              <button className="btn-secondary !px-3 !py-1 !text-xs" aria-label={`Start ${TYPE_LABEL[a.type] ?? a.type}`} onClick={() => start(a)}>
                 <Play className="h-3 w-3" /> Start
               </button>
             )}
           </li>
         ))}
       </ul>
-      {message && <p className="mt-3 text-sm font-medium text-brand-600">{message}</p>}
+      <div className="mt-3">
+        <FormStatus status={status} />
+      </div>
 
       {active?.assessment.type === 'quiz' && <QuizForm attempt={active} onSubmit={finish} />}
       {active?.assessment.type === 'ai_viva' && <VivaForm attempt={active} onSubmit={finish} />}
@@ -95,10 +101,10 @@ function QuizForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => v
   return (
     <div className="mt-4 space-y-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
       {attempt.questions.map((q: any, i: number) => (
-        <div key={i}>
-          <p className="text-sm font-semibold text-foreground">
+        <fieldset key={i}>
+          <legend className="text-sm font-semibold text-foreground">
             {i + 1}. {q.prompt}
-          </p>
+          </legend>
           <div className="mt-2 space-y-1.5">
             {q.options.map((opt: string, j: number) => (
               <label
@@ -119,7 +125,7 @@ function QuizForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => v
               </label>
             ))}
           </div>
-        </div>
+        </fieldset>
       ))}
       <button className="btn" disabled={answers.includes(-1)} onClick={() => onSubmit({ answers })}>
         Submit quiz
@@ -136,7 +142,11 @@ function VivaForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => v
         <Mic className="h-4 w-4 text-brand-500" /> Viva question (AI-graded):
       </p>
       <p className="mt-2 text-sm leading-relaxed text-gray-600">{attempt.question}</p>
-      <textarea className="input mt-3" rows={5} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer in your own words…" />
+      <div className="mt-3">
+        <Field label="Your answer">
+          {(ids) => <textarea {...ids} className="input" rows={5} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer in your own words…" />}
+        </Field>
+      </div>
       <button className="btn mt-3" disabled={answer.trim().length < 10} onClick={() => onSubmit({ answer })}>
         Submit answer
       </button>
@@ -148,49 +158,56 @@ function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) =
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [progress, setProgress] = useState<{ fileName: string; state: UploadState } | null>(null);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   return (
     <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
       <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <FileUp className="h-4 w-4 text-brand-500" /> Project submission
       </p>
       {attempt.instructions && <p className="mt-2 text-sm leading-relaxed text-gray-600">{attempt.instructions}</p>}
-      <input
-        type="file"
-        disabled={uploading}
-        className="mt-3 block w-full text-sm text-gray-500 file:mr-3 file:cursor-pointer file:rounded-xl file:border-0 file:bg-brand-500/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand-600 hover:file:bg-brand-500/20"
-        onChange={async (e) => {
-          const input = e.currentTarget;
-          const file = input.files?.[0];
-          if (!file) return;
-          setError('');
-          setUploaded(false);
-          setProgress(null);
-          if (file.size > attempt.max_bytes) {
-            setError(`This file is ${formatBytes(file.size)}; the limit is ${formatBytes(attempt.max_bytes)}. Compress it or upload a smaller file.`);
-            input.value = '';
-            return;
-          }
-          setUploading(true);
-          try {
-            // The signed URL comes from the attempt; only a 2xx from storage means the file is there.
-            await putFile(attempt.upload_url, file, {
-              contentType: 'application/octet-stream',
-              onState: (state) => setProgress({ fileName: file.name, state }),
-            });
-            setUploaded(true);
-          } catch (err) {
-            setProgress(null);
-            setError((err as Error).message);
-            // Clear the picker so choosing the same file again fires onChange.
-            input.value = '';
-          } finally {
-            setUploading(false);
-          }
-        }}
-      />
+      <div className="mt-3">
+        <Field label="Project file">
+          {(ids) => (
+            <input
+              {...ids}
+              type="file"
+              disabled={uploading}
+              className="block w-full text-sm text-gray-500 file:mr-3 file:cursor-pointer file:rounded-xl file:border-0 file:bg-brand-500/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand-600 hover:file:bg-brand-500/20"
+              onChange={async (e) => {
+                const input = e.currentTarget;
+                const file = input.files?.[0];
+                if (!file) return;
+                clearStatus();
+                setUploaded(false);
+                setProgress(null);
+                if (file.size > attempt.max_bytes) {
+                  setError(`This file is ${formatBytes(file.size)}; the limit is ${formatBytes(attempt.max_bytes)}. Compress it or upload a smaller file.`);
+                  input.value = '';
+                  return;
+                }
+                setUploading(true);
+                try {
+                  // The signed URL comes from the attempt; only a 2xx from storage means the file is there.
+                  await putFile(attempt.upload_url, file, {
+                    contentType: 'application/octet-stream',
+                    onState: (state) => setProgress({ fileName: file.name, state }),
+                  });
+                  setUploaded(true);
+                } catch (err) {
+                  setProgress(null);
+                  setError((err as Error).message);
+                  // Clear the picker so choosing the same file again fires onChange.
+                  input.value = '';
+                } finally {
+                  setUploading(false);
+                }
+              }}
+            />
+          )}
+        </Field>
+      </div>
       {progress && <UploadProgress fileName={progress.fileName} state={progress.state} />}
-      {error && <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
+      <FormStatus status={status} />
       <button className="btn mt-3" disabled={!uploaded || uploading} onClick={() => onSubmit({ file_key: attempt.file_key })}>
         {uploading ? 'Uploading…' : 'Submit project'}
       </button>

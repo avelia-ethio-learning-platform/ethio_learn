@@ -7,6 +7,8 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { roleLabel } from '@/lib/labels';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface ThreadView {
   thread_id: string;
@@ -32,6 +34,8 @@ const ROLE_LABEL: Record<string, string> = {
   platform_admin: 'Admin',
 };
 
+const peerRole = (role: string) => ROLE_LABEL[role] ?? roleLabel(role);
+
 function Messenger() {
   const { locale } = useT();
   const { user, ready } = useAuth();
@@ -41,7 +45,7 @@ function Messenger() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const openedTo = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -95,7 +99,7 @@ function Messenger() {
   }
 
   const openWith = async (recipientId: string) => {
-    setError('');
+    clearStatus();
     setSearch('');
     try {
       const t = await api<ThreadView>('/messages/threads', { method: 'POST', body: { recipient_id: recipientId } });
@@ -124,7 +128,7 @@ function Messenger() {
     <div className="page-shell">
       <h1 className="text-xl font-bold">Messages</h1>
       <p className="text-sm text-gray-500">Talk directly with instructors, learners and platform staff.</p>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      <FormStatus status={status} />
 
       <div className="mt-4 flex min-h-[60vh] flex-col gap-4 md:flex-row">
         {/* thread list + people search */}
@@ -132,6 +136,7 @@ function Messenger() {
           <div className="relative">
             <input
               className="input w-full"
+              aria-label="Find someone by name or email"
               placeholder="🔍 Find someone (name or email)…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -141,7 +146,7 @@ function Messenger() {
                 {found.map((p) => (
                   <button key={p.id} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => void openWith(p.id)}>
                     <span>{p.name}</span>
-                    <span className="text-xs text-gray-500">{ROLE_LABEL[p.role] ?? p.role}</span>
+                    <span className="text-xs text-gray-500">{peerRole(p.role)}</span>
                   </button>
                 ))}
               </div>
@@ -160,10 +165,10 @@ function Messenger() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{t.peer.name}</span>
-                    {t.unread > 0 && <span className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white">{t.unread}</span>}
+                    {t.unread > 0 && <span aria-label={`${t.unread} unread`} className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white">{t.unread}</span>}
                   </div>
                   <p className="truncate text-xs text-gray-500">
-                    <span className="text-gray-500">{ROLE_LABEL[t.peer.role] ?? t.peer.role} · </span>
+                    <span className="text-gray-500">{peerRole(t.peer.role)} · </span>
                     {t.last_preview || 'No messages yet'}
                   </p>
                 </button>
@@ -180,7 +185,7 @@ function Messenger() {
             <>
               <div className="border-b px-4 py-2">
                 <p className="text-sm font-semibold">{conversation?.thread.peer.name ?? '…'}</p>
-                <p className="text-xs text-gray-500">{ROLE_LABEL[conversation?.thread.peer.role ?? ''] ?? conversation?.thread.peer.role}</p>
+                <p className="text-xs text-gray-500">{conversation ? peerRole(conversation.thread.peer.role) : ''}</p>
               </div>
               <div className="flex-1 space-y-2 overflow-y-auto p-4">
                 {conversation?.messages.map((m) => (
@@ -201,6 +206,7 @@ function Messenger() {
               <div className="flex gap-2 border-t p-3">
                 <textarea
                   className="input flex-1"
+                  aria-label="Message"
                   rows={1}
                   placeholder="Write a message…"
                   value={draft}

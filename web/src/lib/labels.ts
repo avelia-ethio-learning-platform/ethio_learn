@@ -1,7 +1,7 @@
 import { COURSE_CATEGORIES } from './categories';
 
 /** `under_review` -> `Under review`. The fallback for any value without a curated label. */
-function sentenceCase(value: string): string {
+export function sentenceCase(value: string): string {
   const s = value.replace(/_/g, ' ').trim();
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 }

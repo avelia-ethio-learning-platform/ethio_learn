@@ -8,6 +8,7 @@ import { RequireRole } from '@/components/RequireRole';
 import { ProctorEngine, ProctorStatus, Violation, VIOLATION_LABELS } from '@/lib/proctor';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface ExamQuestion {
   index: number;
@@ -64,7 +65,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
   const [banner, setBanner] = useState<{ text: string; key: number } | null>(null);
   const [proctorStatus, setProctorStatus] = useState<ProctorStatus>({ camera: 'off', faceModel: 'loading', faces: null });
   const [agreed, setAgreed] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [report, setReport] = useState<ProctorReport | null>(null);
@@ -166,7 +167,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
   handleViolationRef.current = handleViolation;
 
   const start = async () => {
-    setError('');
+    clearStatus();
     try {
       const res = await api<StartedAttempt>(`/assessments/${assessmentId}/attempts`, { method: 'POST' });
       attemptRef.current = res;
@@ -217,6 +218,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
 
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
+  const renderPhase = () => {
   // ---------- PREFLIGHT ----------
   if (phase === 'preflight') {
     const cameraReady = !proctored || proctorStatus.camera === 'on';
@@ -260,7 +262,6 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
             <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
             I understand the exam rules{proctored ? ' and consent to camera monitoring during the exam' : ''}.
           </label>
-          {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-2">
             <button className="btn" disabled={!agreed || !cameraReady || (proctored && modelState === 'loading')} onClick={start}>
               Start exam
@@ -294,8 +295,8 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
           </div>
         ) : (
           <div className="card">
-            <p className="text-sm text-red-600">{error || 'Submitting…'}</p>
-            {error && <button className="btn mt-2" disabled={submitting} onClick={() => void endExam()}>Try submitting again</button>}
+            {status?.tone !== 'error' && <p className="text-sm text-gray-500">Submitting…</p>}
+            {status?.tone === 'error' && <button className="btn mt-2" disabled={submitting} onClick={() => void endExam()}>Try submitting again</button>}
           </div>
         )}
 
@@ -379,20 +380,22 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
         </div>
       </div>
 
-      {banner && (
-        <div key={banner.key} className="mb-4 animate-pulse rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm font-medium text-amber-900">
-          {banner.text}
-        </div>
-      )}
+      <div role="alert">
+        {banner && (
+          <div key={banner.key} className="mb-4 animate-pulse rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm font-medium text-amber-900">
+            {banner.text}
+          </div>
+        )}
+      </div>
 
       <div className="space-y-4 pb-24">
         {attempt?.questions.map((q) => (
           <div key={q.index} className="card">
-            <p className="text-sm font-medium">
+            <p id={`prompt-${q.index}`} className="text-sm font-medium">
               {q.index + 1}. {q.prompt} <span className="text-xs font-normal text-gray-500">({q.points} pt{q.points !== 1 ? 's' : ''}{q.kind === 'written' ? ' · written, AI-graded' : ''})</span>
             </p>
             {q.kind === 'mcq' ? (
-              <div className="mt-2 space-y-1">
+              <div role="radiogroup" aria-labelledby={`prompt-${q.index}`} className="mt-2 space-y-1">
                 {q.options?.map((opt, j) => (
                   <label key={j} className="flex cursor-pointer items-center gap-2 rounded p-1 text-sm hover:bg-gray-50">
                     <input
@@ -407,6 +410,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
               </div>
             ) : (
               <textarea
+                aria-labelledby={`prompt-${q.index}`}
                 className="input mt-2 select-text"
                 rows={5}
                 placeholder="Write your answer in your own words… (paste is disabled)"
@@ -433,6 +437,16 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
       )}
     </div>
   );
+  };
+
+  return (
+    <>
+      {renderPhase()}
+      <div className="mx-auto max-w-2xl px-4">
+        <FormStatus status={status} />
+      </div>
+    </>
+  );
 }
 
 interface StudyPlan {
@@ -450,10 +464,10 @@ interface StudyPlan {
 function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean }) {
   const [plan, setPlan] = useState<StudyPlan | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const load = async () => {
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       setPlan(await api<StudyPlan>(`/attempts/${attemptId}/study-plan`, { slow: true }));
     } catch (err) {
@@ -469,7 +483,7 @@ function StudyCoach({ attemptId, passed }: { attemptId: string; passed: boolean 
         <button className="btn mt-3" disabled={busy} onClick={load}>
           {busy ? 'Building your plan…' : 'Get my study plan'}
         </button>
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <FormStatus status={status} />
       </div>
     );
   }
