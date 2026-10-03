@@ -9,6 +9,7 @@ import { fakeDb, Row } from './testing/fake-db';
 
 const FULLY_USED = 'This coupon has been fully used.';
 const ALREADY_USED = "You've already used this coupon.";
+const REPLACED = 'A newer checkout for this purchase replaced this one.';
 const HELD_BY_YOU = /^This coupon is held by another checkout you started\. Finish paying it, or try again after \d{2}:\d{2}\.$/;
 
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000);
@@ -358,6 +359,32 @@ describe('coupon checkout: retries of the same purchase', () => {
     expect(t.coupons.rows[0].uses).toBe(1);
   });
 
+  it('a Chapa checkout superseded by a double-click while Chapa answers is refused with a 409 and its URL is never handed out', async () => {
+    const t = setup();
+    t.coupon();
+    let second: Awaited<ReturnType<typeof t.buy>> | undefined;
+    t.chapa.initialize.mockImplementationOnce(async (o: { tx_ref: string }) => {
+      // The second click takes the coupon lock while Chapa is still answering
+      // the first: the first row has no URL yet, so the second supersedes it.
+      second = await t.buy();
+      return { checkout_url: `https://checkout.example/${o.tx_ref}` };
+    });
+
+    const err = await t.buy().then(
+      () => {
+        throw new Error('expected the superseded checkout to be refused');
+      },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).message).toBe(REPLACED);
+    const first = t.payments.rows.find((p) => p.id !== second!.payment_id)!;
+    expect(first.status).toBe(PaymentStatus.FAILED);
+    expect(first.chapa_checkout_url ?? null).toBeNull();
+    expect(t.row(second!.payment_id)).toMatchObject({ status: PaymentStatus.PENDING, chapa_checkout_url: second!.checkout_url });
+    expect(t.published('PaymentFailed')).toHaveLength(0);
+  });
+
   it('a confirmation takes the coupon lock before it claims the payment, the order a checkout uses', async () => {
     process.env.CHAPA_MODE = 'live';
     const t = setup();
@@ -370,6 +397,68 @@ describe('coupon checkout: retries of the same purchase', () => {
     expect(t.coupons.findOne).toHaveBeenCalledWith({ where: { code: 'HALF' }, lock: { mode: 'pessimistic_write' } });
     const claim = t.payments.update.mock.calls.findIndex(([, patch]) => patch.status === PaymentStatus.CONFIRMED);
     expect(t.coupons.findOne.mock.invocationCallOrder[0]).toBeLessThan(t.payments.update.mock.invocationCallOrder[claim]);
+  });
+});
+
+describe('coupon checkout: a superseded checkout paid late, checked from the return page', () => {
+  /** A course checkout with a live Chapa URL, then superseded by a retry after a price change. */
+  const superseded = async (t: ReturnType<typeof setup>) => {
+    const first = await t.buy();
+    t.course.price_etb = 600;
+    await t.buy();
+    expect(t.row(first.payment_id)).toMatchObject({ status: PaymentStatus.FAILED, chapa_checkout_url: first.checkout_url });
+    return first;
+  };
+
+  it('reconcile verifies it and confirms it when Chapa says paid, counting the use once', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.coupon({ max_uses: null });
+    const first = await superseded(t);
+
+    await expect(t.service.reconcile(ME, first.tx_ref)).resolves.toMatchObject({ id: first.payment_id, status: PaymentStatus.CONFIRMED });
+    expect(t.chapa.verify).toHaveBeenCalledWith(first.tx_ref);
+    expect(t.row(first.payment_id).status).toBe(PaymentStatus.CONFIRMED);
+    expect(t.coupons.rows[0].uses).toBe(1);
+
+    // The return page checks again: already confirmed, nothing happens twice.
+    await expect(t.service.reconcile(ME, first.tx_ref)).resolves.toMatchObject({ status: PaymentStatus.CONFIRMED });
+    expect(t.chapa.verify).toHaveBeenCalledTimes(1);
+    expect(t.coupons.rows[0].uses).toBe(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it.each([
+    ['failed', { status: 'failed', amount: null, currency: null }],
+    ['still pending', { status: 'pending', amount: null, currency: null }],
+    ['paid a different amount', { status: 'success', amount: 1, currency: 'ETB' }],
+  ])('reconcile verifies it and leaves it failed, with no notice, when Chapa says it %s', async (_, verification) => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.coupon({ max_uses: null });
+    const first = await superseded(t);
+    t.chapa.verify.mockResolvedValue(verification);
+
+    await expect(t.service.reconcile(ME, first.tx_ref)).resolves.toMatchObject({ id: first.payment_id, status: PaymentStatus.FAILED });
+    expect(t.chapa.verify).toHaveBeenCalledWith(first.tx_ref);
+    expect(t.row(first.payment_id).status).toBe(PaymentStatus.FAILED);
+    expect(t.coupons.rows[0].uses).toBe(0);
+    expect(t.published('PaymentFailed')).toHaveLength(0);
+    expect(t.published('PaymentConfirmed')).toHaveLength(0);
+  });
+
+  it.each([
+    ['a checkout that failed before Chapa opened it', { method: PaymentMethod.CHAPA }],
+    ['a wallet attempt', { method: PaymentMethod.WALLET }],
+    ['a 100% coupon attempt', { method: PaymentMethod.COUPON, amount_etb: '0.00' }],
+  ])('reconcile never asks Chapa about a failed row without a checkout URL: %s', async (_, over) => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.coupon({ max_uses: null });
+    const p = t.hold({ learner_id: 'u1', status: PaymentStatus.FAILED, chapa_checkout_url: null, ...over });
+
+    await expect(t.service.reconcile(ME, p.chapa_tx_ref)).resolves.toMatchObject({ id: p.id, status: PaymentStatus.FAILED });
+    expect(t.chapa.verify).not.toHaveBeenCalled();
   });
 });
 

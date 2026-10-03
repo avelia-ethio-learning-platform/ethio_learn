@@ -86,6 +86,9 @@ const INSTANT_SOURCES: ReadonlySet<ConfirmSource> = new Set(['wallet', 'coupon']
 type CheckoutFailReason = 'superseded' | 'wallet_insufficient' | 'checkout_open_failed' | 'error';
 const SILENT_FAIL_REASONS: ReadonlySet<string> = new Set<CheckoutFailReason>(['superseded', 'wallet_insufficient', 'checkout_open_failed']);
 
+/** 409 for a checkout whose row a retry of the same purchase superseded before it could be returned. */
+const REPLACED_BY_RETRY = 'A newer checkout for this purchase replaced this one.';
+
 /** HH:MM in Addis Ababa, for "try again after" in a coupon refusal. */
 const HOLD_ENDS_AT = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Addis_Ababa', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
@@ -276,9 +279,16 @@ export class PaymentService {
       reason = 'checkout_open_failed';
       const checkoutUrl = await this.openChapaCheckout(payment, input);
       reason = 'error';
-      // Only the URL: a save() would write back the status this request read,
-      // undoing a supersede by a retry that ran while Chapa was answering.
-      await this.payments.update({ id: payment.id }, { chapa_checkout_url: checkoutUrl });
+      // Only the URL, and only onto a row still pending. A retry of the same
+      // purchase (a double-click) may have superseded this row while Chapa
+      // was answering; the retry's checkout is then the live one, and this
+      // URL is never handed out. (A save() would also write back the status
+      // this request read, undoing that supersede.)
+      const saved = await this.payments.update({ id: payment.id, status: PaymentStatus.PENDING }, { chapa_checkout_url: checkoutUrl });
+      if (saved.affected !== 1) {
+        this.logger.log(`payment ${payment.id} (${payment.chapa_tx_ref}): replaced while Chapa opened its checkout; the checkout was not returned`);
+        throw new ConflictException(REPLACED_BY_RETRY);
+      }
       payment.chapa_checkout_url = checkoutUrl;
       return result(checkoutUrl, false);
     } catch (err) {
@@ -374,7 +384,7 @@ export class PaymentService {
    */
   private async settleInstantly(payment: Payment, source: 'coupon' | 'wallet'): Promise<void> {
     if (await this.confirmPayment(payment, source)) return;
-    throw new ConflictException('A newer checkout for this purchase replaced this one.');
+    throw new ConflictException(REPLACED_BY_RETRY);
   }
 
   /** Fails a checkout's row after an error, which releases its coupon hold. A failure here is logged; the hold then lapses. */
@@ -463,13 +473,21 @@ export class PaymentService {
 
   /**
    * Learner-triggered fallback for a payment stuck pending (webhook delayed or
-   * undeliverable). The browser's word grants NOTHING: the server asks Chapa's
-   * verify API directly and applies exactly the same rules as the webhook path.
+   * undeliverable), or a failed Chapa checkout paid late, such as one a retry
+   * superseded. The browser's word grants NOTHING: the server asks Chapa's
+   * verify API directly and applies exactly the same rules as the webhook path
+   * (a failed row only ever becomes confirmed; a failed or pending answer
+   * leaves it as it is, with no second notice).
+   *
+   * A failed row is checked only when it has a checkout URL. Without one
+   * (wallet, 100% coupon, or a checkout that failed before Chapa opened it)
+   * there was never anything to pay.
    */
   async reconcile(ctx: UserContext, txRef: string) {
     const payment = await this.payments.findOne({ where: { chapa_tx_ref: txRef, learner_id: ctx.id } });
     if (!payment) throw new NotFoundException('Payment not found');
-    if (payment.status === PaymentStatus.PENDING && chapaMode() === 'live') {
+    const payable = payment.status === PaymentStatus.PENDING || (payment.status === PaymentStatus.FAILED && !!payment.chapa_checkout_url);
+    if (payable && chapaMode() === 'live') {
       const verification = await this.chapa.verify(payment.chapa_tx_ref);
       await this.applyVerification(payment, verification, 'reconcile');
       // Report the row as it is now, whichever path (webhook, sweep, this call) settled it.
