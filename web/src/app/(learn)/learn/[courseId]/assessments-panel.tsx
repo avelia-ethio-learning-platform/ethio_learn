@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ClipboardCheck, FileUp, Mic, Play } from 'lucide-react';
 import { api } from '@/lib/api';
-import { formatBytes, putFile, type UploadState } from '@/lib/upload';
+import { putFile, type UploadState } from '@/lib/upload';
 import { UploadProgress } from '@/components/UploadProgress';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
@@ -168,7 +168,9 @@ function VivaForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => v
   );
 }
 
-function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => void }) {
+function ProjectForm({ attempt: opened, onSubmit }: { attempt: any; onSubmit: (b: any) => void }) {
+  // The open attempt from Start; choosing a file asks again with its size and gets a URL signed for it.
+  const [attempt, setAttempt] = useState<any>(opened);
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [progress, setProgress] = useState<{ fileName: string; state: UploadState } | null>(null);
@@ -194,15 +196,12 @@ function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) =
                 clearStatus();
                 setUploaded(false);
                 setProgress(null);
-                if (file.size > attempt.max_bytes) {
-                  setError(`This file is ${formatBytes(file.size)}; the limit is ${formatBytes(attempt.max_bytes)}. Compress it or upload a smaller file.`);
-                  input.value = '';
-                  return;
-                }
                 setUploading(true);
                 try {
-                  // The signed URL comes from the attempt; only a 2xx from storage means the file is there.
-                  await putFile(attempt.upload_url, file, {
+                  const next = await api<any>(`/assessments/${attempt.assessment.id}/attempts`, { method: 'POST', body: { file_size: file.size } });
+                  setAttempt({ ...next, assessment: attempt.assessment });
+                  // Only a 2xx from storage means the file is there.
+                  await putFile(next.upload_url, file, {
                     contentType: 'application/octet-stream',
                     onState: (state) => setProgress({ fileName: file.name, state }),
                   });
