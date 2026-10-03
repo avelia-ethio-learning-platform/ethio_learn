@@ -255,3 +255,15 @@ ethio-impl, worktree `../ethi0-11a`, branch `chore/ci-gates` (from origin/main; 
   - web typecheck, test: 76 files, 663 passed; web build OK;
   - `docker build`: gateway 2 m 19 s, 347 MB; web 3 m 15 s, 299 MB. Both cold after the lockfile change.
   - e2e and Playwright are left to CI on the draft PR: nothing in this branch changes runtime code (one comment), and the stack is held for Phase 10.
+- **Step 9, CI on draft PR #32:**
+  - **First run (`220e2c0`), all green:**
+    - `secret-scan` 13 s, `api` 52 s, `web` 1 m 57 s, `e2e` 12 m 03 s, `lint` 40 s, `audit` 14 s;
+    - the nine `docker-build (<image>)` jobs, 30 s to 1 m 16 s, in the separate "Docker build" workflow;
+    - the job names match the ruleset's five contexts.
+  - **Lint gate:** the scratch commit `69997d8` added one `any`, and `lint` **failed** (exit 1, printing the findings). It was reverted in `1398c81`, and `lint` passes again.
+  - **Audit (bug found and fixed):**
+    - the scratch commit also set `--audit-level low`, and `audit` still reported both audit steps as success with no warning, although the log listed many high advisories (axios, multer, nodemailer, brace-expansion…);
+    - **cause:** `pnpm audit … | tee` under the default `bash -e` has no `pipefail`, so tee's exit 0 hid audit's exit code;
+    - **fix `fe89fca`:** `shell: bash` (`-eo pipefail`) on both audit steps;
+    - **on `1398c81`, at level high:** the `audit` check concludes **success**, with `warning: pnpm audit (api)` and `warning: pnpm audit (web)` annotations and the findings in the job summary;
+    - this is P1-08's backlog for 11c.
