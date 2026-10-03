@@ -5,24 +5,25 @@ import {
   Delete,
   Get,
   NotFoundException,
-  Param,
-  ParseUUIDPipe,
   Post,
   Put,
   Query,
+  Res,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Response } from 'express';
 import * as bcrypt from 'bcryptjs';
-import { CurrentUser, EventBusService, InternalHttpClient, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, EventBusService, InternalHttpClient, internalPath, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role, UserStatus } from '@ethiopialearn/contracts';
 import { AuditLog, appendAudit } from './audit';
 import { AuthService, generateTempPassword } from './auth.service';
 import { EducatorProfile, Institution, User } from './entities';
 import { AddInstructorDto, ChangePasswordDto, CreateEducatorProfileDto, CreateInstitutionDto, DeleteAccountDto, MembershipStatusDto, UpdateProfileDto } from './dto';
 import { MembershipService } from './membership.service';
+import { setRefreshCookie } from './refresh-cookie';
 
 @Controller()
 @UseGuards(RolesGuard)
@@ -41,8 +42,14 @@ export class ProfilesController {
   /** First-login / self-service password change. */
   @Put('profiles/password')
   @Roles()
-  changePassword(@CurrentUser() ctx: UserContext, @Body() dto: ChangePasswordDto) {
-    return this.auth.changePassword(ctx.id, dto.new_password);
+  async changePassword(
+    @CurrentUser() ctx: UserContext,
+    @Body() dto: ChangePasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { refresh_token, ...body } = await this.auth.changePassword(ctx.id, dto);
+    setRefreshCookie(res, refresh_token, this.auth.refreshCookieMaxAge());
+    return body;
   }
 
   /**
@@ -75,7 +82,7 @@ export class ProfilesController {
     }
     if (publishedOwnerId) {
       try {
-        const res = await this.internal.get<{ published_count: number }>(`/api/v1/internal/owners/${publishedOwnerId}/published-count`);
+        const res = await this.internal.get<{ published_count: number }>(internalPath`/api/v1/internal/owners/${publishedOwnerId}/published-count`);
         if (res.published_count > 0) {
           throw new BadRequestException(
             `You still have ${res.published_count} published course(s). Unpublish or archive them before deleting your account.`,
@@ -129,6 +136,7 @@ export class ProfilesController {
       role: user.role,
       phone: user.phone,
       email_verified: !!user.email_verified_at,
+      has_password: !!user.password_hash,
       created_at: user.created_at,
       educator_profile: educatorProfile,
       institution,
@@ -212,13 +220,13 @@ export class ProfilesController {
   /** Invite someone to teach; nothing changes on their account until they accept. */
   @Post('institutions/:id/instructors')
   @Roles(Role.INSTITUTION_ADMIN)
-  addInstructor(@CurrentUser() ctx: UserContext, @Param('id', ParseUUIDPipe) institutionId: string, @Body() dto: AddInstructorDto) {
+  addInstructor(@CurrentUser() ctx: UserContext, @UuidParam('id') institutionId: string, @Body() dto: AddInstructorDto) {
     return this.memberships.invite(ctx, institutionId, dto);
   }
 
   @Get('institutions/:id/instructors')
   @Roles(Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  listInstructors(@CurrentUser() ctx: UserContext, @Param('id', ParseUUIDPipe) institutionId: string) {
+  listInstructors(@CurrentUser() ctx: UserContext, @UuidParam('id') institutionId: string) {
     return this.memberships.list(ctx, institutionId);
   }
 
@@ -227,8 +235,8 @@ export class ProfilesController {
   @Roles(Role.INSTITUTION_ADMIN)
   setInstructorStatus(
     @CurrentUser() ctx: UserContext,
-    @Param('id', ParseUUIDPipe) institutionId: string,
-    @Param('membershipId', ParseUUIDPipe) membershipId: string,
+    @UuidParam('id') institutionId: string,
+    @UuidParam('membershipId') membershipId: string,
     @Body() dto: MembershipStatusDto,
   ) {
     return this.memberships.setStatus(ctx, institutionId, membershipId, dto);
@@ -242,13 +250,13 @@ export class ProfilesController {
 
   @Post('profiles/me/institution-invites/:id/accept')
   @Roles()
-  acceptInstitutionInvite(@CurrentUser() ctx: UserContext, @Param('id', ParseUUIDPipe) membershipId: string) {
+  acceptInstitutionInvite(@CurrentUser() ctx: UserContext, @UuidParam('id') membershipId: string) {
     return this.memberships.accept(ctx.id, membershipId);
   }
 
   @Post('profiles/me/institution-invites/:id/decline')
   @Roles()
-  declineInstitutionInvite(@CurrentUser() ctx: UserContext, @Param('id', ParseUUIDPipe) membershipId: string) {
+  declineInstitutionInvite(@CurrentUser() ctx: UserContext, @UuidParam('id') membershipId: string) {
     return this.memberships.decline(ctx.id, membershipId);
   }
 }

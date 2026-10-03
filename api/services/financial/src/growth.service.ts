@@ -1,11 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, MoreThan, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
-import { env, envInt, EventBusService, InternalHttpClient, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { dailyCapExceeded, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, ReferralInviteSentPayload, Role, WalletCreditedPayload } from '@ethiopialearn/contracts';
 import { Coupon, CouponKind, Payment, Referral, ReferralCode, Wallet, WalletTransaction, WalletTxKind } from './entities';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I confusion
 
 export function randomCode(length: number): string {
@@ -35,6 +36,17 @@ export interface CouponQuote {
 }
 
 /**
+ * Why a coupon can't be applied at all right now (unknown, deactivated or
+ * expired), or null. The quote and the checkout's re-check under the coupon
+ * lock give the same answer.
+ */
+export function couponUnavailable(coupon: Coupon | null): string | null {
+  if (!coupon || !coupon.active) return 'This coupon code is not valid';
+  if (coupon.expires_at && coupon.expires_at.getTime() < Date.now()) return 'This coupon has expired';
+  return null;
+}
+
+/**
  * Coupons, the prepaid wallet, and referrals. All three feed the checkout in
  * PaymentService: a coupon lowers the price, the wallet can settle it, and a
  * confirmed purchase pays cashback + the referrer's reward back into wallets.
@@ -58,7 +70,16 @@ export class GrowthService {
 
   async createCoupon(
     ctx: UserContext,
-    dto: { code?: string; kind: CouponKind; value: number; course_id?: string | null; max_uses?: number | null; expires_at?: string | null; note?: string },
+    dto: {
+      code?: string;
+      kind: CouponKind;
+      value: number;
+      course_id?: string | null;
+      max_uses?: number | null;
+      max_uses_per_user?: number | null;
+      expires_at?: string | null;
+      note?: string;
+    },
   ) {
     const code = (dto.code?.trim().toUpperCase() || randomCode(8)).replace(/[^A-Z0-9-]/g, '');
     if (code.length < 4 || code.length > 32) throw new BadRequestException('Code must be 4–32 letters/digits');
@@ -71,11 +92,11 @@ export class GrowthService {
     if (ctx.role !== Role.PLATFORM_ADMIN) {
       // Educators/institutions can only discount their own courses — and never platform-wide.
       if (!courseId) throw new BadRequestException('Pick one of your courses for this coupon');
-      const course = await this.internal.get<{ owner_id: string }>(`/api/v1/internal/courses/${courseId}`);
+      const course = await this.internal.get<{ owner_id: string }>(internalPath`/api/v1/internal/courses/${courseId}`);
       const ownerIds = await this.ownerIdsFor(ctx);
       if (!ownerIds.includes(course.owner_id)) throw new ForbiddenException('Not your course');
     } else if (courseId) {
-      await this.internal.get(`/api/v1/internal/courses/${courseId}`); // 404 if bogus
+      await this.internal.get(internalPath`/api/v1/internal/courses/${courseId}`); // 404 if bogus
     }
 
     const expires = dto.expires_at ? new Date(dto.expires_at) : null;
@@ -90,6 +111,7 @@ export class GrowthService {
         created_by: ctx.id,
         creator_role: ctx.role,
         max_uses: dto.max_uses && dto.max_uses > 0 ? Math.floor(dto.max_uses) : null,
+        max_uses_per_user: dto.max_uses_per_user && dto.max_uses_per_user > 0 ? Math.floor(dto.max_uses_per_user) : null,
         expires_at: expires,
         note: (dto.note ?? '').slice(0, 200),
       }),
@@ -119,9 +141,10 @@ export class GrowthService {
     const list = Math.max(0, Number(listPrice.toFixed(2)));
     if (!code?.trim()) return { coupon: null, list_price_etb: list, discount_etb: 0, amount_due_etb: list };
     const coupon = await this.coupons.findOne({ where: { code: code.trim().toUpperCase() } });
-    if (!coupon || !coupon.active) throw new BadRequestException('This coupon code is not valid');
-    if (coupon.expires_at && coupon.expires_at.getTime() < Date.now()) throw new BadRequestException('This coupon has expired');
-    if (coupon.max_uses != null && coupon.uses >= coupon.max_uses) throw new BadRequestException('This coupon has been fully used');
+    const unavailable = couponUnavailable(coupon);
+    if (unavailable || !coupon) throw new BadRequestException(unavailable);
+    // Open checkouts count too, but only under the coupon lock at checkout (PaymentService).
+    if (coupon.max_uses != null && coupon.uses >= coupon.max_uses) throw new BadRequestException('This coupon has been fully used.');
     if (coupon.course_id && coupon.course_id !== courseId) throw new BadRequestException('This coupon is for a different course');
 
     const value = Number(coupon.value);
@@ -132,7 +155,7 @@ export class GrowthService {
 
   /** Public-facing quote for the checkout UI (no coupon internals leaked). */
   async previewCoupon(code: string, courseId: string) {
-    const course = await this.internal.get<{ price_etb: number | null; pricing_type: string }>(`/api/v1/internal/courses/${courseId}`);
+    const course = await this.internal.get<{ price_etb: number | null; pricing_type: string }>(internalPath`/api/v1/internal/courses/${courseId}`);
     if (!course.price_etb) throw new BadRequestException('This course is free — no coupon needed');
     const q = await this.quote(courseId, course.price_etb, code);
     return {
@@ -145,8 +168,18 @@ export class GrowthService {
   }
 
   /**
-   * Called once per CONFIRMED payment, inside its confirmation — usage is never
-   * counted at checkout start.
+   * Locks the coupon row (SELECT … FOR UPDATE) in the caller's transaction.
+   * Checkouts and confirmations of one coupon take it first, so they queue
+   * here and always lock in the same order (coupon, then payment).
+   */
+  lockCoupon(m: EntityManager, code: string): Promise<Coupon | null> {
+    return m.getRepository(Coupon).findOne({ where: { code }, lock: { mode: 'pessimistic_write' } });
+  }
+
+  /**
+   * Called once per CONFIRMED payment, inside its confirmation. A checkout
+   * holds a use while it is open (PaymentService), but `uses` only counts
+   * confirmations.
    */
   async recordCouponUse(code: string | null, manager?: EntityManager) {
     if (!code) return;
@@ -161,6 +194,7 @@ export class GrowthService {
       value: Number(c.value),
       course_id: c.course_id,
       max_uses: c.max_uses,
+      max_uses_per_user: c.max_uses_per_user,
       uses: c.uses,
       expires_at: c.expires_at,
       active: c.active && !(c.expires_at && c.expires_at.getTime() < Date.now()) && !(c.max_uses != null && c.uses >= c.max_uses),
@@ -286,7 +320,7 @@ export class GrowthService {
 
   /** Admin: manual balance adjustment (support credits, corrections). */
   async adminAdjust(adminId: string, userId: string, amount: number, note: string) {
-    await this.internal.get(`/api/v1/internal/users/${userId}`); // 404 if no such user
+    await this.internal.get(internalPath`/api/v1/internal/users/${userId}`); // 404 if no such user
     const ref = `admin:${adminId}`;
     const balance = amount >= 0
       ? await this.credit(userId, amount, 'admin_adjust', ref, note || 'Adjustment by support')
@@ -338,39 +372,69 @@ export class GrowthService {
     };
   }
 
-  /** Invite people by email as learners / educators; existing accounts get a "log in" variant. */
+  /**
+   * Invite people by email as learners / educators. Only new addresses are
+   * emailed: not an existing account, not already invited by this referrer, and
+   * not invited by anyone in the last 7 days. The response carries just the
+   * count, so it can't be used to learn who has an account.
+   */
   async invite(ctx: UserContext, emails: string[], message: string, roleHint: string) {
     const clean = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)))].slice(0, 20);
     if (!clean.length) throw new BadRequestException('Provide at least one valid email');
+
+    // Per account: a rolling 24 h allowance, filled in request order. Checked
+    // first so a caller at the cap costs no account lookups.
+    const cap = envInt('REFERRAL_INVITES_PER_DAY', 20);
+    const sentToday = await this.referrals.count({ where: { referrer_id: ctx.id, created_at: MoreThan(new Date(Date.now() - DAY_MS)) } });
+    const remaining = cap - sentToday;
+    if (remaining <= 0) {
+      this.logger.warn(`Referral invite cap hit: user ${ctx.id} POST /referrals/invite`);
+      throw dailyCapExceeded('referral invites');
+    }
+
+    // New addresses first: not me, not an account, not already invited by this referrer.
+    const alreadyMine = new Set(
+      (await this.referrals.find({ where: { referrer_id: ctx.id, referred_email: In(clean) } })).map((r) => r.referred_email),
+    );
+    const fresh: string[] = [];
+    for (const email of clean) {
+      if (email === ctx.email?.toLowerCase() || alreadyMine.has(email)) continue;
+      try {
+        await this.internal.get(internalPath`/api/v1/internal/users/by-email/${email}`);
+        continue; // an existing account: nothing to send
+      } catch {
+        fresh.push(email);
+      }
+    }
+
+    // Per recipient: one referral email per address per 7 days across all referrers (skipped silently).
+    const recentlyEmailed = fresh.length
+      ? new Set(
+          (await this.referrals.find({ where: { referred_email: In(fresh), created_at: MoreThan(new Date(Date.now() - 7 * DAY_MS)) } })).map(
+            (r) => r.referred_email,
+          ),
+        )
+      : new Set<string>();
+    const candidates = fresh.filter((e) => !recentlyEmailed.has(e));
+
     const code = await this.codeFor(ctx.id);
     const me = await this.userInfo(ctx.id);
     const signupUrl = `${env('WEB_URL', 'http://localhost:3000')}/signup?ref=${code}${roleHint ? `&role=${roleHint}` : ''}`;
-    let sent = 0;
-    for (const email of clean) {
-      if (email === ctx.email?.toLowerCase()) continue;
-      let existing = false;
-      try {
-        await this.internal.get(`/api/v1/internal/users/by-email/${encodeURIComponent(email)}`);
-        existing = true;
-      } catch {
-        existing = false;
-      }
-      if (!existing) {
-        const dup = await this.referrals.findOne({ where: { referrer_id: ctx.id, referred_email: email } });
-        if (!dup) await this.referrals.save(this.referrals.create({ referrer_id: ctx.id, referred_email: email, status: 'invited' }));
-      }
+    let invited = 0;
+    for (const email of candidates.slice(0, remaining)) {
+      await this.referrals.save(this.referrals.create({ referrer_id: ctx.id, referred_email: email, status: 'invited' }));
       await this.bus.publish<ReferralInviteSentPayload>('ReferralInviteSent', {
         referrer_id: ctx.id,
         referrer_name: me.name || 'A friend',
         to_email: email,
         message: (message ?? '').slice(0, 500),
         signup_url: signupUrl,
-        existing_user: existing,
+        existing_user: false,
         role_hint: roleHint,
       });
-      sent += 1;
+      invited += 1;
     }
-    return { sent, code, share_url: signupUrl };
+    return { invited };
   }
 
   /** New account attaches itself to the code it signed up with (idempotent). */
@@ -454,7 +518,7 @@ export class GrowthService {
     const ids = [ctx.id];
     if (ctx.role === Role.INSTITUTION_ADMIN) {
       try {
-        const inst = await this.internal.get<{ id: string }>(`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+        const inst = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
         ids.push(inst.id);
       } catch {
         /* no institution yet */
@@ -465,7 +529,7 @@ export class GrowthService {
 
   private async userInfo(userId: string): Promise<{ email: string; name: string }> {
     try {
-      return await this.internal.get<{ email: string; name: string }>(`/api/v1/internal/users/${userId}`);
+      return await this.internal.get<{ email: string; name: string }>(internalPath`/api/v1/internal/users/${userId}`);
     } catch {
       return { email: '', name: '' };
     }

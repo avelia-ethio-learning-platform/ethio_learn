@@ -265,8 +265,12 @@ function ReferralCard() {
     setStatus('');
     const list = emails.split(/[\s,;]+/).filter(Boolean);
     try {
-      const res = await api<{ sent: number }>('/referrals/invite', { method: 'POST', body: { emails: list, message: message || undefined } });
-      setStatus(`Sent ${res.sent} invitation${res.sent === 1 ? '' : 's'}.`);
+      const res = await api<{ invited: number }>('/referrals/invite', { method: 'POST', body: { emails: list, message: message || undefined } });
+      setStatus(
+        res.invited === 0
+          ? 'No new invitations sent: these people already have an account or were invited recently.'
+          : `Sent ${res.invited} invitation${res.invited === 1 ? '' : 's'}.`,
+      );
       setEmails('');
     } catch (err) {
       setStatus((err as Error).message);

@@ -9,7 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { randomInt, randomUUID } from 'crypto';
-import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import { aiFallbackNote, AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import {
   AssessmentResultPayload,
@@ -380,7 +380,7 @@ export class AssessmentService implements OnModuleInit {
     }
 
     if (assessment.type === AssessmentType.AI_VIVA) {
-      const course = await this.internal.get<{ title: string }>(`/api/v1/internal/courses/${assessment.course_id}`);
+      const course = await this.internal.get<{ title: string }>(internalPath`/api/v1/internal/courses/${assessment.course_id}`);
       const question = await this.ai.generateVivaQuestion(course.title, assessment.config.topic_context ?? course.title);
       attempt.detail = { question };
       await this.attempts.save(attempt);
@@ -504,7 +504,7 @@ export class AssessmentService implements OnModuleInit {
     let courseTitle = '';
     if (questions.some((q) => q?.kind === 'written')) {
       try {
-        courseTitle = (await this.internal.get<{ title: string }>(`/api/v1/internal/courses/${assessment.course_id}`)).title;
+        courseTitle = (await this.internal.get<{ title: string }>(internalPath`/api/v1/internal/courses/${assessment.course_id}`)).title;
       } catch {
         /* grading proceeds without it */
       }
@@ -671,7 +671,7 @@ export class AssessmentService implements OnModuleInit {
     const names = new Map<string, { name: string; email: string }>();
     for (const learnerId of new Set(rows.map((r) => r.learner_id))) {
       try {
-        const u = await this.internal.get<{ name: string; email: string }>(`/api/v1/internal/users/${learnerId}`);
+        const u = await this.internal.get<{ name: string; email: string }>(internalPath`/api/v1/internal/users/${learnerId}`);
         names.set(learnerId, { name: u.name, email: u.email });
       } catch {
         names.set(learnerId, { name: 'Unknown learner', email: '' });
@@ -710,7 +710,7 @@ export class AssessmentService implements OnModuleInit {
     attempt.passed = passed;
     attempt.score = passed ? 100 : 0;
     await this.attempts.save(attempt);
-    const learner = await this.internal.get<{ email: string }>(`/api/v1/internal/users/${attempt.learner_id}`);
+    const learner = await this.internal.get<{ email: string }>(internalPath`/api/v1/internal/users/${attempt.learner_id}`);
     await this.publishResult(assessment, attempt, learner.email);
     return { attempt_id: attempt.id, passed };
   }
@@ -787,9 +787,9 @@ export class AssessmentService implements OnModuleInit {
     let courseTitle = 'this course';
     let outline: string[] = [];
     try {
-      const course = await this.internal.get<{ title: string }>(`/api/v1/internal/courses/${assessment.course_id}`);
+      const course = await this.internal.get<{ title: string }>(internalPath`/api/v1/internal/courses/${assessment.course_id}`);
       courseTitle = course.title;
-      outline = (await this.internal.get<{ outline: string[] }>(`/api/v1/internal/courses/${assessment.course_id}/outline`)).outline;
+      outline = (await this.internal.get<{ outline: string[] }>(internalPath`/api/v1/internal/courses/${assessment.course_id}/outline`)).outline;
     } catch (err) {
       this.logger.warn(`study plan: outline lookup failed: ${(err as Error).message}`);
     }
@@ -812,15 +812,15 @@ export class AssessmentService implements OnModuleInit {
     let educatorId = '';
     let educatorName = '';
     try {
-      const learner = await this.internal.get<{ name: string }>(`/api/v1/internal/users/${attempt.learner_id}`);
+      const learner = await this.internal.get<{ name: string }>(internalPath`/api/v1/internal/users/${attempt.learner_id}`);
       learnerName = learner.name;
       const course = await this.internal.get<{ title: string; owner_id: string; owner_type: string }>(
-        `/api/v1/internal/courses/${assessment.course_id}`,
+        internalPath`/api/v1/internal/courses/${assessment.course_id}`,
       );
       courseTitle = course.title;
       educatorId = course.owner_id;
       const path = course.owner_type === 'institution' ? 'institutions' : 'educators';
-      const owner = await this.internal.get<{ name: string }>(`/api/v1/internal/${path}/${course.owner_id}`);
+      const owner = await this.internal.get<{ name: string }>(internalPath`/api/v1/internal/${path}/${course.owner_id}`);
       educatorName = owner.name;
     } catch (err) {
       this.logger.warn(`enrichment failed for assessment result: ${(err as Error).message}`);
@@ -884,7 +884,7 @@ export class AssessmentService implements OnModuleInit {
   }
 
   private courseRef(courseId: string): Promise<CourseRef> {
-    return this.internal.get<CourseRef>(`/api/v1/internal/courses/${courseId}`);
+    return this.internal.get<CourseRef>(internalPath`/api/v1/internal/courses/${courseId}`);
   }
 
   /**
@@ -898,7 +898,7 @@ export class AssessmentService implements OnModuleInit {
     if (course.owner_id === ctx.id || course.created_by === ctx.id) return true;
     if (ctx.role !== Role.INSTITUTION_ADMIN) return false;
     try {
-      const institution = await this.internal.get<{ id: string }>(`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+      const institution = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
       // Institution-owned courses carry the institution id as owner_id (owner_type 'institution').
       return institution.id === course.institution_id || institution.id === course.owner_id;
     } catch {
@@ -940,7 +940,7 @@ export class AssessmentService implements OnModuleInit {
 
   private async entitlement(learnerId: string, courseId: string): Promise<EntitlementInfo> {
     const info = await this.internal.get<EntitlementInfo>(
-      `/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`,
+      internalPath`/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`,
     );
     if (info.entitlement_status !== EntitlementStatus.ACTIVE || !info.enrollment_id) {
       throw new ForbiddenException('No active entitlement for this course');

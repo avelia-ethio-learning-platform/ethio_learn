@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
-import { InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import { AiAssessor, createAiAssessor, MockAiAssessor, TutorChunk } from '@ethiopialearn/ai';
 import { CourseStatus, EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { Course, CourseChangeLog, CourseChatMessage, CourseKnowledge, Lesson, Section } from './entities';
@@ -283,7 +283,7 @@ export class CourseExtrasService {
 
   private async assertCanChat(ctx: UserContext, course: Course) {
     if (ctx.id === course.created_by || ctx.role === Role.PLATFORM_ADMIN || ctx.role === Role.QUALITY_OFFICER) return;
-    const e = await this.internal.get<{ entitlement_status: string }>(`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${course.id}`);
+    const e = await this.internal.get<{ entitlement_status: string }>(internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${course.id}`);
     if (e.entitlement_status !== EntitlementStatus.ACTIVE) throw new ForbiddenException('Enroll in the course to use the tutor');
   }
 
@@ -294,7 +294,7 @@ export class CourseExtrasService {
     if (course.created_by === ctx.id || course.owner_id === ctx.id) return course;
     if (ctx.role === Role.INSTITUTION_ADMIN && course.institution_id) {
       try {
-        const inst = await this.internal.get<{ id: string }>(`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+        const inst = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
         if (inst.id === course.institution_id) return course;
       } catch {
         /* fall through */

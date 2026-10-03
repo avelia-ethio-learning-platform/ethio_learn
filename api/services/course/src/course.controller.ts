@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CurrentUser, InternalHttpClient, Roles, RolesGuard, UserContext, userFromRequest } from '@ethiopialearn/common';
+import { CurrentUser, InternalHttpClient, internalPath, Roles, RolesGuard, UserContext, userFromRequest, UuidParam } from '@ethiopialearn/common';
 import { CourseStatus, EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
 import { CourseService, mergedLesson } from './course.service';
@@ -162,12 +162,12 @@ export class CourseController {
 
   /** [PUBLIC] Educator profile: bio + published courses + rating aggregates. */
   @Get('educators/:id/profile')
-  educatorProfile(@Param('id') id: string) {
+  educatorProfile(@UuidParam('id') id: string) {
     return this.service.educatorProfile(id);
   }
 
   @Get('courses/:id')
-  publicDetail(@Param('id') id: string, @Req() req: any) {
+  publicDetail(@UuidParam('id') id: string, @Req() req: any) {
     return this.service.publicDetail(id, userFromRequest(req));
   }
 
@@ -177,7 +177,7 @@ export class CourseController {
   @Get('courses/:id/working')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  working(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  working(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.working(ctx, id);
   }
 
@@ -198,63 +198,63 @@ export class CourseController {
   @Put('courses/:id')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  update(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: UpdateCourseDto) {
+  update(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: UpdateCourseDto) {
     return this.service.update(ctx, id, dto);
   }
 
   @Post('courses/:id/submit')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  submit(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  submit(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.submit(ctx, id);
   }
 
   @Post('courses/:id/withdraw')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  withdraw(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  withdraw(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.withdraw(ctx, id);
   }
 
   @Post('courses/:id/unpublish')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  unpublish(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  unpublish(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.unpublishOwn(ctx, id);
   }
 
   @Post('courses/:id/republish')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  republish(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  republish(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.republishOwn(ctx, id);
   }
 
   @Post('courses/:id/appeal')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  appeal(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: AppealDto) {
+  appeal(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: AppealDto) {
     return this.service.appeal(ctx, id, dto.note);
   }
 
   @Post('courses/:id/duplicate')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  duplicate(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  duplicate(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.duplicate(ctx, id);
   }
 
   @Post('courses/:id/archive')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  archiveOwn(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  archiveOwn(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.archiveOwn(ctx, id);
   }
 
   @Post('courses/:id/restore')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN)
-  restoreOwn(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  restoreOwn(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.restoreOwn(ctx, id);
   }
 
@@ -282,7 +282,7 @@ export class CourseController {
   @Post('institution/courses/:id/decision')
   @UseGuards(RolesGuard)
   @Roles(Role.INSTITUTION_ADMIN)
-  async institutionDecide(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: InstitutionDecisionDto) {
+  async institutionDecide(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: InstitutionDecisionDto) {
     const course = await this.service.institutionCourseOrThrow(ctx, id);
     // A first-time submission is decided on the course itself; a live course's
     // staged update is decided on its open revision.
@@ -294,14 +294,14 @@ export class CourseController {
   @Post('institution/courses/:id/unlist')
   @UseGuards(RolesGuard)
   @Roles(Role.INSTITUTION_ADMIN)
-  institutionUnlist(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  institutionUnlist(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.institutionTransition(ctx, id, 'unlist');
   }
 
   @Post('institution/courses/:id/restore')
   @UseGuards(RolesGuard)
   @Roles(Role.INSTITUTION_ADMIN)
-  institutionRestore(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  institutionRestore(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.institutionTransition(ctx, id, 'restore');
   }
 
@@ -316,35 +316,35 @@ export class CourseController {
   @Put('lessons/:id')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  updateLesson(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: UpdateLessonDto) {
+  updateLesson(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: UpdateLessonDto) {
     return this.service.updateLesson(ctx, id, dto);
   }
 
   @Delete('lessons/:id')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  deleteLesson(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  deleteLesson(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.deleteLesson(ctx, id);
   }
 
   @Put('sections/:id')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  updateSection(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: UpdateSectionDto) {
+  updateSection(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: UpdateSectionDto) {
     return this.service.updateSection(ctx, id, dto);
   }
 
   @Delete('sections/:id')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  deleteSection(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  deleteSection(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.deleteSection(ctx, id);
   }
 
   @Post('courses/:id/sections')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  addSection(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: SectionInputDto) {
+  addSection(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: SectionInputDto) {
     return this.service.addSection(ctx, id, dto);
   }
 
@@ -352,14 +352,14 @@ export class CourseController {
   @Post('courses/:id/apply-structure')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  applyStructure(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ApplyStructureDto) {
+  applyStructure(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: ApplyStructureDto) {
     return this.service.applyStructure(ctx, id, dto.sections);
   }
 
   @Post('sections/:id/lessons')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  addLesson(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: LessonInputDto) {
+  addLesson(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: LessonInputDto) {
     return this.service.addLesson(ctx, id, dto);
   }
 
@@ -373,7 +373,7 @@ export class CourseController {
   @Get('lessons/:id/stream-url')
   @UseGuards(RolesGuard)
   @Roles()
-  async streamUrl(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Query('version') version?: string) {
+  async streamUrl(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Query('version') version?: string) {
     const { lesson, section, course } = await this.service.lessonWithCourse(id);
     const privileged = await this.service.isStaffFor(ctx, course);
     // A lesson added inside an unapproved revision does not exist for learners.
@@ -391,7 +391,7 @@ export class CourseController {
       // Server-side entitlement verification with Enrollment & Progress.
       try {
         const res = await this.internal.get<{ entitlement_status: string }>(
-          `/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${course.id}`,
+          internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${course.id}`,
         );
         allowed = res.entitlement_status === EntitlementStatus.ACTIVE;
       } catch {
@@ -424,14 +424,14 @@ export class CourseController {
   // ---- Change log (learners see it; owners write it) ----
 
   @Get('courses/:id/changelog')
-  changelog(@Param('id') id: string) {
+  changelog(@UuidParam('id') id: string) {
     return this.extras.listChangelog(id);
   }
 
   @Post('courses/:id/changelog')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  postChangelog(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ChangelogDto) {
+  postChangelog(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: ChangelogDto) {
     return this.extras.postChangelog(ctx, id, dto.summary);
   }
 
@@ -440,21 +440,21 @@ export class CourseController {
   @Get('courses/:id/knowledge')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  listKnowledge(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  listKnowledge(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.extras.listKnowledge(ctx, id);
   }
 
   @Post('courses/:id/knowledge')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  addKnowledge(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: KnowledgeDto) {
+  addKnowledge(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: KnowledgeDto) {
     return this.service.addKnowledge(ctx, id, dto.title, dto.text);
   }
 
   @Post('courses/:id/knowledge/reindex')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  reindex(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  reindex(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.extras.reindexOwned(ctx, id);
   }
 
@@ -466,7 +466,7 @@ export class CourseController {
   @Delete('courses/:id/knowledge/:title')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  deleteKnowledge(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Param('title') title: string, @Query('state') state?: string) {
+  deleteKnowledge(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Param('title') title: string, @Query('state') state?: string) {
     if (state !== undefined && state !== 'live' && state !== 'pending') {
       throw new BadRequestException("state must be 'live' or 'pending' (or left out to remove the pending copy first)");
     }
@@ -478,21 +478,21 @@ export class CourseController {
   @Post('courses/:id/chat')
   @UseGuards(RolesGuard)
   @Roles()
-  ask(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: ChatDto) {
+  ask(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: ChatDto) {
     return this.extras.ask(ctx, id, dto.question);
   }
 
   @Get('courses/:id/chat')
   @UseGuards(RolesGuard)
   @Roles()
-  chatHistory(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  chatHistory(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.extras.chatHistory(ctx, id);
   }
 
   @Get('courses/:id/chat/insights')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  chatInsights(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  chatInsights(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.extras.chatInsights(ctx, id);
   }
 
@@ -508,21 +508,21 @@ export class CourseController {
   @Post('admin/courses/:id/unlist')
   @UseGuards(RolesGuard)
   @Roles(Role.PLATFORM_ADMIN)
-  unlist(@Param('id') id: string) {
+  unlist(@UuidParam('id') id: string) {
     return this.service.adminTransition(id, 'unlist');
   }
 
   @Post('admin/courses/:id/restore')
   @UseGuards(RolesGuard)
   @Roles(Role.PLATFORM_ADMIN)
-  restore(@Param('id') id: string) {
+  restore(@UuidParam('id') id: string) {
     return this.service.adminTransition(id, 'restore');
   }
 
   @Post('admin/courses/:id/archive')
   @UseGuards(RolesGuard)
   @Roles(Role.PLATFORM_ADMIN)
-  archive(@Param('id') id: string) {
+  archive(@UuidParam('id') id: string) {
     return this.service.adminTransition(id, 'archive');
   }
 }

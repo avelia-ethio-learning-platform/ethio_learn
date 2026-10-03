@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import { EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { CourseComment, DmMessage, DmThread, InboxNotification } from './entities';
 
@@ -57,7 +57,7 @@ export class CommunityService {
     // Course must exist (also fetches metadata for the notification link).
     let course: { title: string; owner_id: string; created_by: string };
     try {
-      course = await this.internal.get(`/api/v1/internal/courses/${courseId}`);
+      course = await this.internal.get(internalPath`/api/v1/internal/courses/${courseId}`);
     } catch {
       throw new NotFoundException('Course not found');
     }
@@ -66,7 +66,7 @@ export class CommunityService {
     // always post (the course educator answering their learners is the point).
     if (ctx.role === Role.LEARNER) {
       const ent = await this.internal.get<{ entitlement_status: string }>(
-        `/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${courseId}`,
+        internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${courseId}`,
       );
       if (ent.entitlement_status !== EntitlementStatus.ACTIVE) {
         throw new ForbiddenException('Enroll in the course to join the discussion');
@@ -148,7 +148,7 @@ export class CommunityService {
     if (recipientId === ctx.id) throw new BadRequestException('You cannot message yourself');
     let recipient: { name: string; role: string };
     try {
-      recipient = await this.internal.get(`/api/v1/internal/users/${recipientId}`);
+      recipient = await this.internal.get(internalPath`/api/v1/internal/users/${recipientId}`);
     } catch {
       throw new NotFoundException('Recipient not found');
     }
@@ -241,7 +241,7 @@ export class CommunityService {
 
   private async userName(id: string): Promise<string> {
     try {
-      return (await this.internal.get<{ name: string }>(`/api/v1/internal/users/${id}`)).name;
+      return (await this.internal.get<{ name: string }>(internalPath`/api/v1/internal/users/${id}`)).name;
     } catch {
       return 'Member';
     }

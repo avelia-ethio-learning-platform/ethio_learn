@@ -11,7 +11,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import {
   CourseInstitutionReviewedPayload,
   CourseReviewWithdrawnPayload,
@@ -704,7 +704,7 @@ export class RevisionService implements OnModuleInit {
   /** Pending assessments from the outcomes service. `ok: false` (logged) when it could not be asked — callers fail closed. */
   private async fetchPendingAssessments(courseId: string): Promise<{ ok: boolean; items: unknown[] }> {
     try {
-      const rows = await this.internal.get<unknown[]>(`/api/v1/internal/courses/${courseId}/pending-assessments`);
+      const rows = await this.internal.get<unknown[]>(internalPath`/api/v1/internal/courses/${courseId}/pending-assessments`);
       return { ok: true, items: Array.isArray(rows) ? rows : [] };
     } catch (err) {
       this.logger.warn(`pending assessments for course ${courseId} unavailable: ${(err as Error).message}`);
@@ -717,7 +717,7 @@ export class RevisionService implements OnModuleInit {
     await Promise.all(
       [...new Set(userIds)].map(async (id) => {
         try {
-          out.set(id, await this.internal.get<{ name: string; email: string }>(`/api/v1/internal/users/${id}`));
+          out.set(id, await this.internal.get<{ name: string; email: string }>(internalPath`/api/v1/internal/users/${id}`));
         } catch {
           /* best-effort — the caller shows a placeholder */
         }

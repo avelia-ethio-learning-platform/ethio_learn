@@ -15,13 +15,14 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, PayRequestTokenPipe, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
+import { CouponValidateQuery } from './coupon-validate-query.dto';
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
 import { SponsorshipService } from './sponsorship.service';
 
-class CreateCouponDto {
+export class CreateCouponDto {
   @IsOptional()
   @IsString()
   @MaxLength(32)
@@ -42,6 +43,12 @@ class CreateCouponDto {
   @IsInt()
   @Min(1)
   max_uses?: number;
+
+  /** How many times one learner may use the code; absent means unlimited. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  max_uses_per_user?: number;
 
   @IsOptional()
   @IsString()
@@ -195,15 +202,15 @@ export class GrowthController {
 
   @Post('coupons/:id/deactivate')
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  deactivate(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  deactivate(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.growth.deactivateCoupon(ctx, id);
   }
 
   /** Learner previews a code at checkout: "SAVE20 → 20% off, pay 400 ETB". */
   @Get('coupons/validate')
   @Roles()
-  validate(@Query('code') code: string, @Query('course_id') courseId: string) {
-    return this.growth.previewCoupon(code ?? '', courseId ?? '');
+  validate(@Query() query: CouponValidateQuery) {
+    return this.growth.previewCoupon(query.code ?? '', query.course_id);
   }
 
   // ---- Wallet ----
@@ -260,15 +267,9 @@ export class GrowthController {
     return this.sponsorships.createPayRequest(ctx, dto);
   }
 
-  /** [PUBLIC] landing data for the "someone asked you to pay" page. */
-  @Get('pay-requests/:token')
-  payRequestPublic(@Param('token') token: string) {
-    return this.sponsorships.payRequestPublic(token);
-  }
-
   @Post('pay-requests/:token/pay')
   @Roles()
-  pay(@CurrentUser() ctx: UserContext, @Param('token') token: string, @Body() dto: PayDto) {
+  pay(@CurrentUser() ctx: UserContext, @Param('token', new PayRequestTokenPipe()) token: string, @Body() dto: PayDto) {
     return this.sponsorships.payRequest(ctx, token, dto);
   }
 
@@ -306,7 +307,7 @@ export class GrowthController {
 
   @Post('bulk-purchases/:id/assign')
   @Roles()
-  assign(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: AssignDto) {
+  assign(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: AssignDto) {
     return this.sponsorships.assignSeats(ctx, id, dto.emails);
   }
 

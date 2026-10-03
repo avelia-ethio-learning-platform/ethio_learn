@@ -8,7 +8,7 @@ import Redis from 'ioredis';
 import { env, EventBusService } from '@ethiopialearn/common';
 import { PasswordResetRequestedPayload, Role, UserRegisteredPayload, UserStatus } from '@ethiopialearn/contracts';
 import { EmailVerification, InstitutionInstructor, PasswordReset, User } from './entities';
-import { LoginDto, SignupDto } from './dto';
+import { ChangePasswordDto, LoginDto, SignupDto } from './dto';
 
 /** Generate a strong one-time password for invited staff / instructors. */
 export function generateTempPassword(): string {
@@ -109,13 +109,7 @@ export class AuthService {
     if (!user.email_verified_at) {
       throw new UnauthorizedException('Email not verified. Check your inbox for the verification link.');
     }
-    const refreshToken = await this.issueRefreshToken(user.id);
-    return {
-      access_token: this.signAccessToken(user),
-      expires_in: ACCESS_TOKEN_TTL_SECONDS,
-      refresh_token: refreshToken,
-      user: this.publicUser(user),
-    };
+    return this.startSession(user);
   }
 
   /**
@@ -241,13 +235,28 @@ export class AuthService {
     return { message: 'Reset email sent if account exists' };
   }
 
-  /** Authenticated password change (used for first-login and normal changes). */
-  async changePassword(userId: string, newPassword: string): Promise<{ message: string }> {
-    await this.users.update(userId, { password_hash: await bcrypt.hash(newPassword, 10), must_change_password: false });
-    // Security: a password change signs the account out everywhere. The caller
-    // gets a fresh session; every other refresh token is revoked.
+  /**
+   * Authenticated password change (used for first-login and normal changes).
+   * The current password is required once an account has one, except on the
+   * first-login path (the user holds a one-time password) and for Google-only
+   * accounts (no password yet; the session is the proof).
+   */
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.users.findOne({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Invalid session');
+    // A suspended or banned account must not mint a fresh session from a still-valid token.
+    this.assertActive(user);
+    if (user.password_hash && !user.must_change_password) {
+      if (!dto.current_password) throw new BadRequestException('Current password is required.');
+      if (!(await bcrypt.compare(dto.current_password, user.password_hash))) {
+        throw new UnauthorizedException('Current password is incorrect.');
+      }
+    }
+    await this.users.update(userId, { password_hash: await bcrypt.hash(dto.new_password, 10), must_change_password: false });
+    // Security: a password change signs the account out everywhere. Revoke
+    // first, then issue the caller a fresh session so its token survives.
     await this.revokeAllSessions(userId);
-    return { message: 'Password changed.' };
+    return this.startSession({ ...user, must_change_password: false });
   }
 
   /**
@@ -321,7 +330,8 @@ export class AuthService {
     }
     record.used_at = new Date();
     await this.resets.save(record);
-    await this.users.update(record.user_id, { password_hash: await bcrypt.hash(newPassword, 10) });
+    // The user just proved they own the email, so a pending first-login change is satisfied.
+    await this.users.update(record.user_id, { password_hash: await bcrypt.hash(newPassword, 10), must_change_password: false });
     // A reset is often triggered by "my account was compromised" — kill every
     // existing session so an attacker holding an old refresh token is locked out.
     await this.revokeAllSessions(record.user_id);
@@ -359,6 +369,17 @@ export class AuthService {
     }
     await this.redis.del(setKey);
     return tokens.length;
+  }
+
+  /** The login-shaped session: access token, refresh token (the controller puts it in a cookie) and public user. */
+  private async startSession(user: User) {
+    const refreshToken = await this.issueRefreshToken(user.id);
+    return {
+      access_token: this.signAccessToken(user),
+      expires_in: ACCESS_TOKEN_TTL_SECONDS,
+      refresh_token: refreshToken,
+      user: this.publicUser(user),
+    };
   }
 
   private async issueRefreshToken(userId: string): Promise<string> {

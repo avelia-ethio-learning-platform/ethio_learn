@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpStatus, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { FindOperator, QueryFailedError } from 'typeorm';
 import { UserContext } from '@ethiopialearn/common';
@@ -15,6 +15,7 @@ function matches(row: Row, where: Row = {}): boolean {
   return Object.entries(where).every(([key, want]) => {
     if (want instanceof FindOperator) {
       if (want.type === 'in') return (want.value as unknown[]).includes(row[key]);
+      if (want.type === 'moreThan') return row[key] != null && row[key] > (want.value as Date);
       throw new Error(`memRepo: unsupported operator ${want.type}`);
     }
     return (row[key] ?? null) === (want ?? null);
@@ -221,6 +222,72 @@ describe('MembershipService.invite', () => {
     await expect(t.svc.invite(IA2, 'inst1', { email: 'lrn1@x.et' })).rejects.toThrow(ForbiddenException);
     expect(t.users.findOne).not.toHaveBeenCalled();
     expect(t.members.rows).toEqual([]);
+  });
+  describe('daily invite cap', () => {
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000);
+    const OLD_ENV = process.env.INSTITUTION_INVITES_PER_DAY;
+    afterEach(() => {
+      if (OLD_ENV === undefined) delete process.env.INSTITUTION_INVITES_PER_DAY;
+      else process.env.INSTITUTION_INVITES_PER_DAY = OLD_ENV;
+    });
+
+    it('stamps invited_at on a new invitation', async () => {
+      const t = setup();
+      const res = await t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' });
+      expect(t.memberRow(res.membership.id).invited_at).toBeInstanceOf(Date);
+    });
+
+    it('answers 429 at the cap, counting only this institution and the last 24 h, and changes nothing', async () => {
+      process.env.INSTITUTION_INVITES_PER_DAY = '2';
+      const t = setup([
+        membership('m1', 'inst1', 'lrn2', 'invited', { invited_at: hoursAgo(1) }),
+        membership('m2', 'inst1', 'qo1', 'declined', { invited_at: hoursAgo(23) }),
+        membership('m3', 'inst1', 'edu1', 'removed', { invited_at: hoursAgo(30) }), // outside the window
+        membership('m4', 'inst2', 'edu1', 'invited', { invited_at: hoursAgo(1) }), // another institution
+      ]);
+      const err = await t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' }).catch((e) => e);
+      expect(err.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+      expect(err.message).toBe("You've reached today's limit for instructor invites. Try again tomorrow.");
+      expect(t.members.rows).toHaveLength(4);
+      expect(t.bus.publish).not.toHaveBeenCalled();
+      // Another institution still has room.
+      await expect(t.svc.invite(IA2, 'inst2', { email: 'lrn1@x.et' })).resolves.toBeDefined();
+    });
+
+    it('also checks a re-invite against the cap', async () => {
+      process.env.INSTITUTION_INVITES_PER_DAY = '1';
+      const t = setup([membership('m1', 'inst1', 'lrn1', 'invited', { invited_at: hoursAgo(2) })]);
+      await expect(t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' })).rejects.toMatchObject({ status: 429 });
+    });
+
+    it('re-invites within 24 h of the last invite without a second email, and refreshes invited_at', async () => {
+      const t = setup([membership('m1', 'inst1', 'lrn1', 'invited', { invited_at: hoursAgo(3) })]);
+      const before = t.memberRow('m1').invited_at;
+      const res = await t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' });
+      expect(res.membership).toMatchObject({ id: 'm1', status: 'invited' });
+      expect(t.bus.publish).not.toHaveBeenCalled();
+      expect(t.memberRow('m1').invited_at.getTime()).toBeGreaterThan(before.getTime());
+    });
+
+    it('re-sends once the last invite is more than 24 h old', async () => {
+      const t = setup([membership('m1', 'inst1', 'lrn1', 'declined', { invited_at: hoursAgo(25) })]);
+      await t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' });
+      expect(t.published('InstructorInvited')).toHaveLength(1);
+    });
+
+    it('invite, cancel, re-invite within a day: one email in total, and the re-invite counts toward the cap', async () => {
+      process.env.INSTITUTION_INVITES_PER_DAY = '2';
+      const t = setup();
+      const first = await t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' });
+      expect(t.published('InstructorInvited')).toHaveLength(1);
+      await t.svc.setStatus(IA1, 'inst1', first.membership.id, { status: 'removed' } as never);
+      const again = await t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' });
+      expect(again.membership).toMatchObject({ id: first.membership.id, status: 'invited' });
+      expect(t.published('InstructorInvited')).toHaveLength(1);
+      // The re-invite stamped invited_at again; with one row stamped now, a second address still fits, a third does not.
+      await t.svc.invite(IA1, 'inst1', { email: 'lrn2@x.et' });
+      await expect(t.svc.invite(IA1, 'inst1', { email: 'edu1@x.et' })).rejects.toMatchObject({ status: 429 });
+    });
   });
 });
 

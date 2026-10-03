@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import { aiFallbackNote, AiAssessor, CourseStructureOrigin, createAiAssessor, GeneratedSection, MockAiAssessor } from '@ethiopialearn/ai';
 import {
   CourseCategory,
@@ -751,7 +751,7 @@ export class CourseService implements OnModuleInit {
    */
   async institutionAdminId(institutionId: string): Promise<string | null> {
     try {
-      const inst = await this.internal.get<{ owner_user_id?: string }>(`/api/v1/internal/institutions/${institutionId}`);
+      const inst = await this.internal.get<{ owner_user_id?: string }>(internalPath`/api/v1/internal/institutions/${institutionId}`);
       return inst.owner_user_id ?? null;
     } catch {
       return null;
@@ -761,7 +761,7 @@ export class CourseService implements OnModuleInit {
   private async resolveInstitution(userId: string) {
     try {
       return await this.internal.get<{ institution_id: string | null; institution_admin_user_id: string | null; institution_name: string | null }>(
-        `/api/v1/internal/users/${userId}/institution`,
+        internalPath`/api/v1/internal/users/${userId}/institution`,
       );
     } catch {
       return null;
@@ -769,7 +769,7 @@ export class CourseService implements OnModuleInit {
   }
 
   async myInstitutionId(ctx: UserContext): Promise<string> {
-    const inst = await this.internal.get<{ id: string }>(`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+    const inst = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
     return inst.id;
   }
 
@@ -802,7 +802,7 @@ export class CourseService implements OnModuleInit {
     await Promise.all(
       ids.map(async (id) => {
         try {
-          authors.set(id, await this.internal.get<{ name: string; email: string }>(`/api/v1/internal/users/${id}`));
+          authors.set(id, await this.internal.get<{ name: string; email: string }>(internalPath`/api/v1/internal/users/${id}`));
         } catch {
           /* best-effort — fall back to placeholders below */
         }
@@ -1143,7 +1143,7 @@ export class CourseService implements OnModuleInit {
     for (const r of rows) {
       let name = 'Educator';
       try {
-        name = (await this.internal.get<{ name: string }>(`/api/v1/internal/users/${r.educator_id}`)).name;
+        name = (await this.internal.get<{ name: string }>(internalPath`/api/v1/internal/users/${r.educator_id}`)).name;
       } catch {
         /* keep placeholder */
       }
@@ -1173,13 +1173,13 @@ export class CourseService implements OnModuleInit {
     let bio: string | null = null;
     let expertise: string | null = null;
     try {
-      name = (await this.internal.get<{ name: string }>(`/api/v1/internal/users/${educatorId}`)).name;
+      name = (await this.internal.get<{ name: string }>(internalPath`/api/v1/internal/users/${educatorId}`)).name;
     } catch {
       /* placeholder name */
     }
     try {
       const profile = await this.internal.get<{ bio?: string; expertise_area?: string }>(
-        `/api/v1/internal/educators/${educatorId}`,
+        internalPath`/api/v1/internal/educators/${educatorId}`,
       );
       bio = profile.bio ?? null;
       expertise = profile.expertise_area ?? null;
@@ -1238,7 +1238,7 @@ export class CourseService implements OnModuleInit {
     // educator's profile and open a direct message.
     let instructorName = '';
     try {
-      instructorName = (await this.internal.get<{ name: string }>(`/api/v1/internal/users/${course.created_by}`)).name;
+      instructorName = (await this.internal.get<{ name: string }>(internalPath`/api/v1/internal/users/${course.created_by}`)).name;
     } catch {
       /* course page renders without it */
     }
@@ -1329,7 +1329,7 @@ export class CourseService implements OnModuleInit {
 
   private async pendingAssessmentCount(courseId: string): Promise<number> {
     try {
-      const rows = await this.internal.get<unknown[]>(`/api/v1/internal/courses/${courseId}/pending-assessments`);
+      const rows = await this.internal.get<unknown[]>(internalPath`/api/v1/internal/courses/${courseId}/pending-assessments`);
       return Array.isArray(rows) ? rows.length : 0;
     } catch (err) {
       // Outcomes may be asleep on the free tier; the rest of the page still works.
@@ -1497,7 +1497,7 @@ export class CourseService implements OnModuleInit {
   private async resolveOwner(ctx: UserContext): Promise<{ ownerId: string; ownerType: OwnerType }> {
     if (ctx.role === Role.INSTITUTION_ADMIN) {
       try {
-        const institution = await this.internal.get<{ id: string }>(`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+        const institution = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
         return { ownerId: institution.id, ownerType: OwnerType.INSTITUTION };
       } catch {
         throw new BadRequestException('Create your institution profile before creating courses');
@@ -1509,10 +1509,10 @@ export class CourseService implements OnModuleInit {
   async ownerContact(course: Course): Promise<{ email: string; name: string }> {
     try {
       if (course.owner_type === OwnerType.INSTITUTION) {
-        const inst = await this.internal.get<{ email: string; name: string }>(`/api/v1/internal/institutions/${course.owner_id}`);
+        const inst = await this.internal.get<{ email: string; name: string }>(internalPath`/api/v1/internal/institutions/${course.owner_id}`);
         return { email: inst.email, name: inst.name };
       }
-      const educator = await this.internal.get<{ email: string; name: string }>(`/api/v1/internal/educators/${course.owner_id}`);
+      const educator = await this.internal.get<{ email: string; name: string }>(internalPath`/api/v1/internal/educators/${course.owner_id}`);
       return { email: educator.email, name: educator.name };
     } catch (err) {
       this.logger.warn(`could not resolve owner contact for course ${course.id}: ${(err as Error).message}`);

@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Check, Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { OwnerType, PaymentMethod, PaymentPurpose, PaymentStatus, PayoutStatus, RefundStatus, SponsorshipSource } from '@ethiopialearn/contracts';
 
 /**
@@ -14,6 +14,10 @@ export const PLATFORM_PAYEE_ID = '00000000-0000-0000-0000-000000000000';
 @Index('IDX_payments_confirmed_unpaid_payee_id', ['payee_id'], { where: `status = 'confirmed' AND payout_id IS NULL` })
 // The re-publish cron: confirmed payments whose access events aren't acknowledged yet.
 @Index('IDX_payments_effects_pending_webhook_received_at', ['webhook_received_at'], { where: `status = 'confirmed' AND effects_completed_at IS NULL` })
+// Coupon holds and per-user counts: payments carrying a coupon that are still pending or confirmed.
+@Index('IDX_payments_coupon_code_created_at', ['coupon_code', 'created_at'], {
+  where: `coupon_code IS NOT NULL AND status IN ('pending', 'confirmed')`,
+})
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -201,6 +205,7 @@ export type CouponKind = 'percent' | 'amount';
  * Uses are counted on CONFIRMED payments, never on checkout starts.
  */
 @Entity({ name: 'coupons' })
+@Check('CHK_coupons_max_uses_per_user', 'max_uses_per_user IS NULL OR max_uses_per_user > 0')
 export class Coupon {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -229,6 +234,10 @@ export class Coupon {
 
   @Column({ type: 'int', nullable: true })
   max_uses: number | null;
+
+  /** null = no per-user limit. */
+  @Column({ type: 'int', nullable: true })
+  max_uses_per_user: number | null;
 
   @Column({ type: 'int', default: 0 })
   uses: number;
@@ -301,6 +310,11 @@ export type SponsorshipStatus = 'requested' | 'pending_payment' | 'pending_claim
  * progress — a sponsor can see how far each recipient has got.
  */
 @Entity({ name: 'sponsorships' })
+// Daily caps: gifts per sponsor, pay requests per requester (recipient_user_id)
+// and per payer email (organization_name, lowercased on write).
+@Index('IDX_sponsorships_source_sponsor_id_created_at', ['source', 'sponsor_id', 'created_at'])
+@Index('IDX_sponsorships_source_recipient_user_id_created_at', ['source', 'recipient_user_id', 'created_at'])
+@Index('IDX_sponsorships_pay_request_organization_name_created_at', ['organization_name', 'created_at'], { where: `source = 'pay_request'` })
 export class Sponsorship {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -421,6 +435,9 @@ export type ReferralStatus = 'invited' | 'signed_up' | 'rewarded';
 @Entity({ name: 'referrals' })
 // One referral per referred account.
 @Index('IDX_referrals_referred_user_id_unique', ['referred_user_id'], { unique: true, where: 'referred_user_id IS NOT NULL' })
+// Daily caps per referrer and per invited email (lowercased on write).
+@Index('IDX_referrals_referrer_id_created_at', ['referrer_id', 'created_at'])
+@Index('IDX_referrals_referred_email_created_at', ['referred_email', 'created_at'])
 export class Referral {
   @PrimaryGeneratedColumn('uuid')
   id: string;

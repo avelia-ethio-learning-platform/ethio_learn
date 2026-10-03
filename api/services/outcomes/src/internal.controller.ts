@@ -1,7 +1,7 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { InternalGuard } from '@ethiopialearn/common';
+import { InternalGuard, UuidParam } from '@ethiopialearn/common';
 import { AssessmentService } from './assessment.service';
 import { AssessmentAttempt, Certificate } from './entities';
 
@@ -16,7 +16,7 @@ export class OutcomesInternalController {
   ) {}
 
   @Get('enrollments/:id/outcomes-status')
-  async outcomesStatus(@Param('id') enrollmentId: string) {
+  async outcomesStatus(@UuidParam('id') enrollmentId: string) {
     const certificate = await this.certificates.findOne({ where: { enrollment_id: enrollmentId } });
     const passedAttempt = await this.attempts.findOne({ where: { enrollment_id: enrollmentId, passed: true } });
     return {
@@ -27,7 +27,7 @@ export class OutcomesInternalController {
 
   /** Assessments staged on a live course, with answer keys, for the quality officer's revision diff. */
   @Get('courses/:id/pending-assessments')
-  pendingAssessments(@Param('id') courseId: string) {
+  pendingAssessments(@UuidParam('id') courseId: string) {
     return this.assessmentService.pendingForReview(courseId);
   }
 }

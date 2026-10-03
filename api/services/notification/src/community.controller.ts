@@ -1,6 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post, UseGuards } from '@nestjs/common';
 import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
-import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { CommunityService } from './community.service';
 
 class AddCommentDto {
@@ -32,21 +32,21 @@ export class CommunityController {
 
   /** [PUBLIC] read the discussion under a course. */
   @Get('courses/:id/comments')
-  list(@Param('id') courseId: string) {
+  list(@UuidParam('id') courseId: string) {
     return this.service.listComments(courseId);
   }
 
   @Post('courses/:id/comments')
   @UseGuards(RolesGuard)
   @Roles()
-  add(@CurrentUser() ctx: UserContext, @Param('id') courseId: string, @Body() dto: AddCommentDto) {
+  add(@CurrentUser() ctx: UserContext, @UuidParam('id') courseId: string, @Body() dto: AddCommentDto) {
     return this.service.addComment(ctx, courseId, dto.body, dto.parent_id);
   }
 
   @Delete('comments/:id')
   @UseGuards(RolesGuard)
   @Roles()
-  remove(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  remove(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.deleteComment(ctx, id);
   }
 
@@ -76,14 +76,14 @@ export class CommunityController {
   @Get('messages/threads/:id')
   @UseGuards(RolesGuard)
   @Roles()
-  messages(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  messages(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.service.threadMessages(ctx, id);
   }
 
   @Post('messages/threads/:id')
   @UseGuards(RolesGuard)
   @Roles()
-  send(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: SendMessageDto) {
+  send(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: SendMessageDto) {
     return this.service.sendMessage(ctx, id, dto.body);
   }
 }

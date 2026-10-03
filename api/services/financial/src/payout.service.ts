@@ -3,7 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { envInt, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { envInt, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import {
   FraudFlagPayload,
   OwnerType,
@@ -230,7 +230,7 @@ export class PayoutService implements OnModuleInit {
   async resolvePayeeId(ctx: UserContext): Promise<string> {
     if (ctx.role === Role.INSTITUTION_ADMIN) {
       try {
-        const inst = await this.internal.get<{ id: string }>(`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+        const inst = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
         return inst.id;
       } catch {
         return ctx.id;
@@ -245,7 +245,7 @@ export class PayoutService implements OnModuleInit {
     if (payeeType !== OwnerType.EDUCATOR) return STANDARD_HOLD_DAYS;
     try {
       // Quality & Trust owns educator_trust_tiers — read the authoritative tier.
-      const res = await this.internal.get<{ tier: TrustTier }>(`/api/v1/internal/educators/${payeeId}/trust-tier`);
+      const res = await this.internal.get<{ tier: TrustTier }>(internalPath`/api/v1/internal/educators/${payeeId}/trust-tier`);
       return res.tier === TrustTier.NEW ? NEW_EDUCATOR_HOLD_DAYS : STANDARD_HOLD_DAYS;
     } catch {
       return NEW_EDUCATOR_HOLD_DAYS; // unknown educator → conservative
@@ -271,7 +271,7 @@ export class PayoutService implements OnModuleInit {
     let payeeEmail = '';
     try {
       const path = payout.payee_type === OwnerType.INSTITUTION ? 'institutions' : 'educators';
-      const payee = await this.internal.get<{ email: string }>(`/api/v1/internal/${path}/${payout.payee_id}`);
+      const payee = await this.internal.get<{ email: string }>(internalPath`/api/v1/internal/${path}/${payout.payee_id}`);
       payeeEmail = payee.email;
     } catch {
       /* best effort */

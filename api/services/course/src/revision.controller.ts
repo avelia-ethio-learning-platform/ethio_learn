@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
-import { CurrentUser, Roles, RolesGuard, UserContext } from '@ethiopialearn/common';
+import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { RevisionService } from './revision.service';
 
@@ -26,28 +26,28 @@ export class RevisionController {
   @Get('courses/:id/revisions/current/diff')
   @UseGuards(RolesGuard)
   @Roles()
-  currentDiff(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  currentDiff(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.revisions.currentDiff(ctx, id);
   }
 
   @Post('courses/:id/revisions/submit')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  submit(@CurrentUser() ctx: UserContext, @Param('id') id: string, @Body() dto: SubmitRevisionDto) {
+  submit(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Body() dto: SubmitRevisionDto) {
     return this.revisions.submit(ctx, id, dto);
   }
 
   @Post('courses/:id/revisions/withdraw')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  withdraw(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  withdraw(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.revisions.withdraw(ctx, id);
   }
 
   @Post('courses/:id/revisions/discard')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN)
-  discard(@CurrentUser() ctx: UserContext, @Param('id') id: string) {
+  discard(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
     return this.revisions.discard(ctx, id);
   }
 }

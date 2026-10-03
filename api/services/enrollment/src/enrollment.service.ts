@@ -9,7 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
 import { In, IsNull, LessThan, MoreThan, Repository } from 'typeorm';
-import { envInt, EventBusService, InternalHttpClient, UserContext } from '@ethiopialearn/common';
+import { envInt, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import {
   CourseCompletedPayload,
   CourseProgressMilestonePayload,
@@ -75,7 +75,7 @@ export class EnrollmentService implements OnModuleInit {
 
   /** Direct enrollment — FREE courses only. Paid/freemium go through the payment flow (spec §4.3). */
   async enrollFree(ctx: UserContext, courseId: string) {
-    const course = await this.internal.get<CourseInfo>(`/api/v1/internal/courses/${courseId}`);
+    const course = await this.internal.get<CourseInfo>(internalPath`/api/v1/internal/courses/${courseId}`);
     if (course.status !== 'published') throw new NotFoundException('Course not available');
     if (course.pricing_type !== PricingType.FREE) {
       throw new BadRequestException('This course requires payment — use POST /payments/initiate');
@@ -211,7 +211,7 @@ export class EnrollmentService implements OnModuleInit {
    * learners, so progress on it is refused until the revision goes live.
    */
   private async liveLesson(lessonId: string): Promise<{ course_id: string }> {
-    const lesson = await this.internal.get<{ course_id: string; live?: boolean }>(`/api/v1/internal/lessons/${lessonId}`);
+    const lesson = await this.internal.get<{ course_id: string; live?: boolean }>(internalPath`/api/v1/internal/lessons/${lessonId}`);
     if (lesson.live === false) throw new NotFoundException('Lesson not available yet');
     return lesson;
   }
@@ -307,7 +307,7 @@ export class EnrollmentService implements OnModuleInit {
     for (const courseId of ids) {
       let course: CourseInfo;
       try {
-        course = await this.internal.get<CourseInfo>(`/api/v1/internal/courses/${courseId}`);
+        course = await this.internal.get<CourseInfo>(internalPath`/api/v1/internal/courses/${courseId}`);
       } catch {
         continue;
       }
@@ -318,7 +318,7 @@ export class EnrollmentService implements OnModuleInit {
       const completed = active.filter((r) => !!r.completed_at);
       let lessonCount = 0;
       try {
-        lessonCount = (await this.internal.get<{ lesson_ids: string[] }>(`/api/v1/internal/courses/${courseId}/lesson-ids`)).lesson_ids.length;
+        lessonCount = (await this.internal.get<{ lesson_ids: string[] }>(internalPath`/api/v1/internal/courses/${courseId}/lesson-ids`)).lesson_ids.length;
       } catch {
         lessonCount = 0;
       }
@@ -497,7 +497,7 @@ export class EnrollmentService implements OnModuleInit {
 
   /** Completes every unfinished active enrollment on the course that has now done all live lessons. */
   private async recheckCompletions(courseId: string, revisionId: string) {
-    const { lesson_ids } = await this.internal.get<{ lesson_ids: string[] }>(`/api/v1/internal/courses/${courseId}/lesson-ids`);
+    const { lesson_ids } = await this.internal.get<{ lesson_ids: string[] }>(internalPath`/api/v1/internal/courses/${courseId}/lesson-ids`);
     if (lesson_ids.length === 0) return;
     let completed = 0;
     let afterId: string | null = null;
@@ -556,14 +556,14 @@ export class EnrollmentService implements OnModuleInit {
     let educatorName = '';
     try {
       if (!name || !email) {
-        const user = await this.internal.get<{ name: string; email: string }>(`/api/v1/internal/users/${enrollment.learner_id}`);
+        const user = await this.internal.get<{ name: string; email: string }>(internalPath`/api/v1/internal/users/${enrollment.learner_id}`);
         name = name || user.name;
         email = email || user.email;
       }
       const cached = await this.courseCache.findOne({ where: { course_id: enrollment.course_id } });
       if (cached) {
         const path = cached.owner_type === 'institution' ? 'institutions' : 'educators';
-        const owner = await this.internal.get<{ name: string }>(`/api/v1/internal/${path}/${cached.owner_id}`);
+        const owner = await this.internal.get<{ name: string }>(internalPath`/api/v1/internal/${path}/${cached.owner_id}`);
         educatorName = owner.name;
       }
     } catch (err) {
@@ -586,7 +586,7 @@ export class EnrollmentService implements OnModuleInit {
     if (enrollment.completed_at) return false;
     const lesson_ids =
       lessonIds ??
-      (await this.internal.get<{ lesson_ids: string[] }>(`/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`)).lesson_ids;
+      (await this.internal.get<{ lesson_ids: string[] }>(internalPath`/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`)).lesson_ids;
     if (lesson_ids.length === 0) return false;
     const done = await this.progress.count({ where: { enrollment_id: enrollment.id, lesson_id: In(lesson_ids) } });
     if (done < lesson_ids.length) return false;
@@ -603,16 +603,16 @@ export class EnrollmentService implements OnModuleInit {
     let educatorName = '';
     let courseTitle = '';
     try {
-      const user = await this.internal.get<{ name: string; email: string }>(`/api/v1/internal/users/${enrollment.learner_id}`);
+      const user = await this.internal.get<{ name: string; email: string }>(internalPath`/api/v1/internal/users/${enrollment.learner_id}`);
       learnerName = user.name;
       learnerEmail = learnerEmail || user.email;
       const course = await this.internal.get<{ title: string; owner_id: string; owner_type: string }>(
-        `/api/v1/internal/courses/${enrollment.course_id}`,
+        internalPath`/api/v1/internal/courses/${enrollment.course_id}`,
       );
       courseTitle = course.title;
       educatorId = course.owner_id;
       const path = course.owner_type === 'institution' ? 'institutions' : 'educators';
-      const owner = await this.internal.get<{ name: string }>(`/api/v1/internal/${path}/${course.owner_id}`);
+      const owner = await this.internal.get<{ name: string }>(internalPath`/api/v1/internal/${path}/${course.owner_id}`);
       educatorName = owner.name;
     } catch (err) {
       this.logger.warn(`enrichment failed for CourseCompleted: ${(err as Error).message}`);
@@ -636,7 +636,7 @@ export class EnrollmentService implements OnModuleInit {
   private async progressPercent(enrollment: Enrollment): Promise<number> {
     try {
       const { lesson_ids } = await this.internal.get<{ lesson_ids: string[] }>(
-        `/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`,
+        internalPath`/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`,
       );
       if (lesson_ids.length === 0) return 0;
       // Only count lessons that still exist (an educator may have removed some).
@@ -651,7 +651,7 @@ export class EnrollmentService implements OnModuleInit {
     const ids = [ctx.id];
     if (ctx.role === Role.INSTITUTION_ADMIN) {
       try {
-        const inst = await this.internal.get<{ id: string }>(`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+        const inst = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
         ids.push(inst.id);
       } catch {
         /* no institution yet */
