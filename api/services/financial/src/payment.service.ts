@@ -557,8 +557,8 @@ export class PaymentService {
    * nudged) and never saved: a save would write this run's stale `pending`
    * back over a confirmation that landed in the meantime. Only the run that
    * claims a row sends its reminder, so each payment gets at most one. The
-   * claim comes before the learner lookup: a failing lookup loses that one
-   * reminder rather than sending two.
+   * claim comes before the publish: a publish that fails after the claim
+   * loses that one reminder, and ends the run, rather than sending two.
    */
   @Cron('15 * * * *')
   async nudgeAbandonedCheckouts(): Promise<void> {
