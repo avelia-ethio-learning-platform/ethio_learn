@@ -184,7 +184,7 @@ Acceptance criteria:
   vitest: parity; `LocaleNotice` shows on `/teach` in Amharic mode and not on `/courses`; `lang` is set by the init script. Playwright: in Amharic mode the signup page has no ASCII-letter text nodes except brand names, emails and placeholders listed in an allowlist.
 - [x] 7. SEO (decision 8): the site-URL build guard, canonicals, sitemap entries, the canonical Playwright check.
 - [x] 8. Screenshots: the new-learner path in Amharic at 375 and 1440, plus the English-only notice, into `screenshots/after-phase10/` (git-ignored).
-- [ ] 9. Full gate:
+- [x] 9. Full gate:
   - `pnpm -C web typecheck && pnpm -C web test && pnpm -C web build`;
   - the Playwright suite (enforced CSP), following Phase 5's build order;
   - `pnpm -C api test` untouched.
@@ -260,7 +260,7 @@ Shared by all: 87.7 kB, then 87.8 kB at the gate. The Amharic dictionary is a se
 - **Step 9** gate on `ab82bf4` plus fixes, fresh `el_10_e2e` stack, clean-env build with the wake URL as in CI:
   - typecheck clean; vitest 82 files, 692 tests; `next build` ok;
   - Playwright 128 passed, 2 skipped (Google without a client id; `admin.spec` "Next shows the second page", which skips itself); no CSP violation;
-  - `pnpm -C api test`: see the line below;
+  - `pnpm -C api test`: 67 suites, 1281 tests, 1 skipped (no api change in this phase);
   - no lint step yet (11a hasn't merged).
 
   The first gate run after the merge failed 4 tests, all fixed:
