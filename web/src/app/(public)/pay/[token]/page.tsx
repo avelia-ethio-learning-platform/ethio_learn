@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/hooks';
 import { retryWhileWaking } from '@/lib/query-client';
 import { AuthShell } from '@/components/PageChrome';
 import { WakingUp } from '@/components/WakingUp';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 
@@ -31,7 +32,7 @@ export default function PayRequestPage() {
   const router = useRouter();
   const { user, ready } = useAuth();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const { data, isLoading, error: loadError, refetch } = useQuery({
     queryKey: ['pay-request', token],
     queryFn: () => api<PayRequest>(`/pay-requests/${token}`, { auth: false }),
@@ -42,7 +43,7 @@ export default function PayRequestPage() {
 
   const pay = async (useWallet: boolean) => {
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       const res = await api<{ checkout_url: string | null; confirmed: boolean }>(`/pay-requests/${token}/pay`, { method: 'POST', body: useWallet ? { use_wallet: true } : {} });
       if (res.confirmed) {
@@ -106,7 +107,7 @@ export default function PayRequestPage() {
             <p className="text-center text-xs text-gray-500">Telebirr, CBE Birr and 18+ Ethiopian banks via Chapa. You&apos;ll be able to follow their progress from your dashboard.</p>
           </>
         )}
-        {error && <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
+        <FormStatus status={status} />
       </div>
     </AuthShell>
   );

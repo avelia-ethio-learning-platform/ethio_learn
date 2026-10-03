@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, setAuth } from '@/lib/api';
 import { roleHome, safeNext } from '@/lib/safe-next';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 const GSI_SRC = 'https://accounts.google.com/gsi/client';
@@ -48,14 +49,14 @@ function loadGsi(): Promise<void> {
 export function GoogleSignInButton({ next }: { next?: string | null }) {
   const router = useRouter();
   const ref = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
 
   useEffect(() => {
     if (!CLIENT_ID || !ref.current) return;
     let cancelled = false;
 
     const onCredential = async (resp: { credential: string }) => {
-      setError('');
+      clearStatus();
       try {
         const res = await api<{ access_token: string; user: any }>('/auth/google', {
           method: 'POST',
@@ -86,7 +87,7 @@ export function GoogleSignInButton({ next }: { next?: string | null }) {
       .catch(() => setError('Could not load Google sign-in'));
 
     return () => { cancelled = true; };
-  }, [next, router]);
+  }, [next, router, setError, clearStatus]);
 
   if (!CLIENT_ID) return null;
 
@@ -96,7 +97,7 @@ export function GoogleSignInButton({ next }: { next?: string | null }) {
         <span className="h-px flex-1 bg-gray-200" /> or <span className="h-px flex-1 bg-gray-200" />
       </div>
       <div ref={ref} className="flex justify-center" />
-      {error && <p className="text-center text-sm text-red-600">{error}</p>}
+      <FormStatus status={status} />
     </div>
   );
 }

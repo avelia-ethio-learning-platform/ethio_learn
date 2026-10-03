@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpenCheck, LoaderCircle, MessageCircleQuestion, Send, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface Message {
   id: string;
@@ -23,7 +24,7 @@ export function TutorPanel({ courseId }: { courseId: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const [open, setOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -39,7 +40,7 @@ export function TutorPanel({ courseId }: { courseId: string }) {
     const q = question.trim();
     if (!q || busy) return;
     setBusy(true);
-    setError('');
+    clearStatus();
     setQuestion('');
     setMessages((m) => [...m, { id: `u-${Date.now()}`, role: 'user', content: q, sources: [], not_covered: false }]);
     try {
@@ -102,7 +103,9 @@ export function TutorPanel({ courseId }: { courseId: string }) {
               <Send className="h-4 w-4" />
             </button>
           </form>
-          {error && <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
+          <div className="mt-2">
+            <FormStatus status={status} />
+          </div>
         </div>
       )}
     </div>
