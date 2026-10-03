@@ -1,14 +1,18 @@
 import { createHmac } from 'crypto';
 import { ForbiddenException } from '@nestjs/common';
+import { QueryFailedError } from 'typeorm';
 import { BrokerPublishError } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, PaymentStatus } from '@ethiopialearn/contracts';
 import { MockChapaProvider } from './chapa.provider';
 import { Coupon, Payment, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
-import { fakeDb, Row } from './testing/fake-db';
+import { fakeDb, Row, uniqueViolation } from './testing/fake-db';
 
 const SECRET = 'test-webhook-secret-0123456789';
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Purchase credits are held for the 7-day refund window plus an hour. */
+const HOLD_MS = 7 * DAY_MS + 60 * 60 * 1000;
 
 function sign(raw: Buffer | string, secret = SECRET): string {
   return createHmac('sha256', secret).update(raw).digest('hex');
@@ -298,8 +302,8 @@ describe('PaymentService: exactly-once confirmation under races (P0-04)', () => 
     await Promise.all([t.service.handleWebhook(successBody, signed(successBody)), t.service.handleWebhook(successBody, signed(successBody))]);
 
     expect(t.published('PaymentConfirmed')).toHaveLength(1);
-    expect(t.walletRows('cashback')).toHaveLength(1);
-    expect(t.balance('u1')).toBe(25);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ amount_etb: '25.00', state: 'pending', payment_id: 'pay-1' })]);
+    expect(t.balance('u1')).toBe(0); // pending until the refund window has passed
     expect(t.db.repo(Coupon).rows[0].uses).toBe(1);
   });
 
@@ -310,6 +314,66 @@ describe('PaymentService: exactly-once confirmation under races (P0-04)', () => 
     await Promise.all([t.service.handleWebhook(successBody, signed(successBody)), t.service.handleWebhook(successBody, signed(successBody))]);
     expect(t.walletRows('referral_reward')).toHaveLength(1);
     expect(t.walletRows('referral_reward')[0].note).toContain('Learner made their first purchase');
+  });
+});
+
+describe('PaymentService: purchase credits are held until the refund window has passed', () => {
+  const learner = { id: 'u1', role: 'learner', email: 'u1@x.et' } as never;
+  /** An earlier Chapa purchase by u1 and its 25 ETB cashback, confirmed at confirmedAt. */
+  const earnCashback = async (t: ReturnType<typeof setup>, confirmedAt: Date) => {
+    const earlier = t.seed({ id: 'pay-0', chapa_tx_ref: 'TX-0', course_id: 'c0', status: PaymentStatus.CONFIRMED, webhook_received_at: confirmedAt });
+    await t.db.dataSource.transaction((m) => t.growth.creditCashback(m as never, earlier as Payment, confirmedAt));
+  };
+
+  it('holds cashback and the referral reward from the confirmation, not from an earlier failure', async () => {
+    const t = setup();
+    t.db.repo(Referral).rows.push({ id: 'ref-1', referrer_id: 'friend', referred_user_id: 'u1', status: 'signed_up', reward_etb: '0' });
+    const failedAt = new Date(Date.now() - 3 * DAY_MS);
+    t.seed({ status: PaymentStatus.FAILED, webhook_received_at: failedAt });
+
+    expect(await t.service.handleWebhook(successBody, signed(successBody))).toEqual({ processed: true, reason: 'confirmed' });
+
+    const confirmedAt: Date = t.row().webhook_received_at;
+    expect(confirmedAt.getTime()).toBeGreaterThan(failedAt.getTime());
+    const availableAt = new Date(confirmedAt.getTime() + HOLD_MS);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ user_id: 'u1', state: 'pending', available_at: availableAt, payment_id: 'pay-1' })]);
+    expect(t.walletRows('referral_reward')).toEqual([
+      expect.objectContaining({ user_id: 'friend', reference: 'ref-1', state: 'pending', available_at: availableAt, payment_id: 'pay-1' }),
+    ]);
+    expect(t.balance('u1')).toBe(0);
+    expect(t.balance('friend')).toBe(0);
+  });
+
+  it('a wallet purchase can spend cashback once it has matured', async () => {
+    const t = setup();
+    await t.growth.credit('u1', 480, 'topup', 'pay-top', 'Wallet top-up');
+    await earnCashback(t, new Date(Date.now() - 8 * DAY_MS));
+
+    const result = await t.service.initiate(learner, 'c1', { use_wallet: true });
+
+    expect(result).toMatchObject({ confirmed: true, amount_etb: 500 });
+    expect(t.balance('u1')).toBe(5);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ state: 'available' })]);
+  });
+
+  it('a wallet purchase cannot spend cashback that is still pending', async () => {
+    const t = setup();
+    await t.growth.credit('u1', 480, 'topup', 'pay-top', 'Wallet top-up');
+    await earnCashback(t, new Date());
+
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).rejects.toThrow('Wallet balance (480.00 ETB) is not enough for 500.00 ETB');
+    expect(t.balance('u1')).toBe(480);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ state: 'pending' })]);
+    expect(t.walletRows('purchase')).toHaveLength(0);
+  });
+
+  it('a top-up still lands in the balance at confirmation, with no hold', async () => {
+    const t = setup();
+    t.seed({ purpose: PaymentPurpose.WALLET_TOPUP });
+    await t.service.handleWebhook(successBody, signed(successBody));
+
+    expect(t.balance('u1')).toBe(500);
+    expect(t.walletRows('topup')).toEqual([expect.objectContaining({ amount_etb: '500.00', state: 'available', available_at: null, payment_id: null })]);
   });
 });
 
@@ -394,10 +458,230 @@ describe('PaymentService: instant settlements go through the same confirmation',
 
   it('a bank transfer recorded by an admin is confirmed through the same path', async () => {
     const t = setup();
-    const payment = await t.service.recordBankTransfer('adm', { learner_id: 'u1', course_id: 'c1' });
-    expect(t.row(payment.id)).toMatchObject({ status: PaymentStatus.CONFIRMED, method: PaymentMethod.BANK_TRANSFER });
+    const { payment, created } = await t.service.recordBankTransfer('adm', { learner_id: 'u1', course_id: 'c1', bank_reference: 'FT-001' });
+    expect(created).toBe(true);
+    expect(t.row(payment.id)).toMatchObject({ status: PaymentStatus.CONFIRMED, method: PaymentMethod.BANK_TRANSFER, chapa_tx_ref: 'bank-FT-001' });
+    expect(t.internal.get).toHaveBeenCalledWith('/api/v1/internal/users/u1');
+    expect(t.internal.get).toHaveBeenCalledWith('/api/v1/internal/entitlements?learner_id=u1&course_id=c1');
     expect(t.published('PaymentConfirmed')).toHaveLength(1);
     expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+});
+
+describe('PaymentService.recordBankTransfer: the bank reference is the idempotency key, and an owned course is refused', () => {
+  const transfer = (over: Partial<{ learner_id: string; course_id: string; bank_reference: string }> = {}) => ({
+    learner_id: 'u1',
+    course_id: 'c1',
+    bank_reference: 'FT-001',
+    ...over,
+  });
+  /** Answers the internal lookups whose path contains `match` with `reply`; the rest keep setup()'s answers. */
+  const answer = (t: ReturnType<typeof setup>, match: string, reply: () => unknown) => {
+    const get = t.internal.get as jest.Mock<Promise<unknown>, [string]>;
+    const base = get.getMockImplementation()!;
+    get.mockImplementation(async (path) => (path.includes(match) ? reply() : base(path)));
+  };
+  /** What InternalHttpClient throws: with the status for a non-2xx answer, without one for a network error. */
+  const failure = (path: string, status?: number) => new Error(`Internal request failed: GET ${path}${status ? ` -> ${status}` : ''}`);
+  const calls = (t: ReturnType<typeof setup>, match: string) => t.internal.get.mock.calls.filter(([path]) => path.includes(match));
+  /** Holds every entitlements lookup until `n` submits have reached it, so they all pass checks 1-4 before any inserts. */
+  const gateEntitlements = (t: ReturnType<typeof setup>, n: number) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let waiting = 0;
+    answer(t, '/entitlements', async () => {
+      if (++waiting === n) release();
+      await gate;
+      return { entitlement_status: 'none' };
+    });
+  };
+
+  it('a replay of the same reference, learner and course returns the same payment, with one confirmation and one cashback', async () => {
+    const t = setup();
+    const first = await t.service.recordBankTransfer('adm', transfer());
+    // By now the grant has landed: the replay is still answered from the recorded payment.
+    answer(t, '/entitlements', () => ({ entitlement_status: 'active' }));
+
+    const again = await t.service.recordBankTransfer('adm', transfer());
+
+    expect(first.created).toBe(true);
+    expect(again).toEqual({ payment: expect.objectContaining({ id: first.payment.id, status: PaymentStatus.CONFIRMED }), created: false });
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ payment_id: first.payment.id, state: 'pending' })]);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it.each([PaymentStatus.PENDING, PaymentStatus.FAILED])('a replay of a transfer left %s confirms it then, once', async (status) => {
+    const t = setup();
+    t.seed({ id: 'pay-b', chapa_tx_ref: 'bank-FT-001', method: PaymentMethod.BANK_TRANSFER, status });
+
+    const replay = await t.service.recordBankTransfer('adm', transfer());
+    await t.service.recordBankTransfer('adm', transfer());
+
+    expect(replay).toEqual({ payment: expect.objectContaining({ id: 'pay-b', status: PaymentStatus.CONFIRMED }), created: false });
+    expect(t.row('pay-b').status).toBe(PaymentStatus.CONFIRMED);
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+    expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+
+  it('a replay of a refunded transfer returns it as it is', async () => {
+    const t = setup();
+    t.seed({ id: 'pay-b', chapa_tx_ref: 'bank-FT-001', method: PaymentMethod.BANK_TRANSFER, status: PaymentStatus.REFUNDED });
+    expect(await t.service.recordBankTransfer('adm', transfer())).toEqual({ payment: expect.objectContaining({ id: 'pay-b', status: PaymentStatus.REFUNDED }), created: false });
+    expect(t.published('PaymentConfirmed')).toHaveLength(0);
+  });
+
+  it('the same reference for another learner or another course is a 409', async () => {
+    const t = setup();
+    await t.service.recordBankTransfer('adm', transfer());
+    for (const other of [transfer({ learner_id: 'u2' }), transfer({ course_id: 'c2' })]) {
+      await expect(t.service.recordBankTransfer('adm', other)).rejects.toMatchObject({ status: 409, message: 'This bank reference is already recorded for another payment.' });
+    }
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('a learner with a confirmed Chapa payment for the course is a 409, even while the entitlement is not active yet', async () => {
+    const t = setup();
+    t.seed({ status: PaymentStatus.CONFIRMED, webhook_received_at: new Date() });
+
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toMatchObject({ status: 409, message: 'This learner already paid for the course' });
+
+    expect(t.internal.get).not.toHaveBeenCalled();
+    expect(t.payments.rows).toHaveLength(1);
+  });
+
+  it('a refunded or unfinished course payment, or a gift the learner bought for someone else, is not a payment for the course', async () => {
+    const t = setup();
+    t.seed({ id: 'refunded', chapa_tx_ref: 'TX-1', status: PaymentStatus.REFUNDED });
+    t.seed({ id: 'failed', chapa_tx_ref: 'TX-2', status: PaymentStatus.FAILED });
+    t.seed({ id: 'gift', chapa_tx_ref: 'TX-3', status: PaymentStatus.CONFIRMED, purpose: PaymentPurpose.GIFT });
+
+    const { payment, created } = await t.service.recordBankTransfer('adm', transfer());
+
+    expect(created).toBe(true);
+    expect(t.row(payment.id).status).toBe(PaymentStatus.CONFIRMED);
+  });
+
+  it('a course the learner owns another way (gift, seat, sponsorship) is a 409', async () => {
+    const t = setup();
+    answer(t, '/entitlements', () => ({ entitlement_status: 'active' }));
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toMatchObject({ status: 409, message: 'This learner already owns the course' });
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it('an entitlement that was refunded does not count as owned', async () => {
+    const t = setup();
+    answer(t, '/entitlements', () => ({ entitlement_status: 'refunded' }));
+    expect((await t.service.recordBankTransfer('adm', transfer())).created).toBe(true);
+  });
+
+  it.each([500, 404, undefined])('an entitlements lookup that fails (%p) is a 503, never a guess', async (status) => {
+    const t = setup();
+    answer(t, '/entitlements', () => {
+      throw failure('/api/v1/internal/entitlements?learner_id=u1&course_id=c1', status);
+    });
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toMatchObject({ status: 503, message: "Couldn't check enrollment. Try again." });
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it('an unknown learner is a 404, and enrollment is not checked', async () => {
+    const t = setup();
+    answer(t, '/internal/users/', () => {
+      throw failure('/api/v1/internal/users/u9', 404);
+    });
+    await expect(t.service.recordBankTransfer('adm', transfer({ learner_id: 'u9' }))).rejects.toMatchObject({ status: 404, message: 'Learner not found' });
+    expect(calls(t, '/entitlements')).toHaveLength(0);
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it.each([500, 503, undefined])('a learner lookup that fails (%p) is a 503', async (status) => {
+    const t = setup();
+    answer(t, '/internal/users/', () => {
+      throw failure('/api/v1/internal/users/u1', status);
+    });
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toMatchObject({ status: 503 });
+    expect(calls(t, '/entitlements')).toHaveLength(0);
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it('two submits of one transfer at once record one payment: the insert that loses re-reads the winner', async () => {
+    const t = setup();
+    gateEntitlements(t, 2);
+
+    const results = await Promise.all([t.service.recordBankTransfer('adm', transfer()), t.service.recordBankTransfer('adm', transfer())]);
+
+    expect(t.payments.save).toHaveBeenCalledTimes(2); // both reached the insert; the unique index refused one
+    expect(t.payments.rows).toHaveLength(1);
+    expect(results.map((r) => r.created).sort()).toEqual([false, true]);
+    expect(results.map((r) => [r.payment.id, r.payment.status])).toEqual([
+      [t.payments.rows[0].id, PaymentStatus.CONFIRMED],
+      [t.payments.rows[0].id, PaymentStatus.CONFIRMED],
+    ]);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+    expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+
+  it('a submit whose twin recorded and confirmed the transfer after its check 1 gets the replay, not "already paid"', async () => {
+    const t = setup();
+    const findOne = t.payments.findOne as jest.Mock;
+    const base = findOne.getMockImplementation()!;
+    let twin!: { payment: Payment; created: boolean };
+    // This submit's check 1 finds nothing; then its twin runs to the end before check 2 reads.
+    findOne.mockImplementationOnce(async (opts) => {
+      const none = await base(opts);
+      twin = await t.service.recordBankTransfer('adm', transfer());
+      return none;
+    });
+
+    const late = await t.service.recordBankTransfer('adm', transfer());
+
+    expect(twin.created).toBe(true);
+    expect(late).toEqual({ payment: expect.objectContaining({ id: twin.payment.id, status: PaymentStatus.CONFIRMED }), created: false });
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+    expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+
+  it('a submit whose twin recorded the transfer and got the course granted before its check 4 gets the replay, not "already owns"', async () => {
+    const t = setup();
+    let twin: Promise<{ payment: Payment; created: boolean }> | undefined;
+    // This submit's lookup lets its twin run to the end first, so the grant has landed; the twin's own lookup comes before any grant.
+    answer(t, '/entitlements', async () => {
+      if (twin) return { entitlement_status: 'none' };
+      twin = t.service.recordBankTransfer('adm', transfer());
+      await twin;
+      return { entitlement_status: 'active' };
+    });
+
+    const late = await t.service.recordBankTransfer('adm', transfer());
+
+    const first = await twin!;
+    expect(first.created).toBe(true);
+    expect(late).toEqual({ payment: expect.objectContaining({ id: first.payment.id, status: PaymentStatus.CONFIRMED }), created: false });
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+    expect(t.walletRows('cashback')).toHaveLength(1);
+  });
+
+  it('a submit that loses the insert to the same reference for another learner is a 409', async () => {
+    const t = setup();
+    gateEntitlements(t, 2);
+
+    const [won, lost] = await Promise.allSettled([t.service.recordBankTransfer('adm', transfer()), t.service.recordBankTransfer('adm', transfer({ learner_id: 'u2' }))]);
+
+    expect(won).toMatchObject({ status: 'fulfilled', value: { created: true } });
+    expect(lost).toMatchObject({ status: 'rejected', reason: { status: 409, message: 'This bank reference is already recorded for another payment.' } });
+    expect(t.payments.save).toHaveBeenCalledTimes(2);
+    expect(t.payments.rows).toEqual([expect.objectContaining({ learner_id: 'u1', status: PaymentStatus.CONFIRMED })]);
+  });
+
+  it('a unique violation with no row behind it is not a replay: it is rethrown', async () => {
+    const t = setup();
+    t.payments.save.mockRejectedValueOnce(uniqueViolation('payments(chapa_tx_ref)'));
+    await expect(t.service.recordBankTransfer('adm', transfer())).rejects.toBeInstanceOf(QueryFailedError);
+    expect(t.published('PaymentConfirmed')).toHaveLength(0);
   });
 });
 
@@ -529,6 +813,151 @@ describe('PaymentService.sweepPendingPayments', () => {
     t.seed();
     await t.service.sweepPendingPayments();
     expect(t.payments.find).not.toHaveBeenCalled();
+  });
+
+  /** A failed Chapa payment whose checkout page was opened, such as one a retry of the same purchase superseded. */
+  const failedCheckout = (t: ReturnType<typeof setup>, over: Row = {}) =>
+    t.seed({ status: PaymentStatus.FAILED, chapa_checkout_url: 'https://checkout.example/old', webhook_received_at: new Date(Date.now() - 5 * 60_000), ...over });
+
+  it('confirms a failed checkout Chapa reports paid, even a superseded one whose retry already settled the purchase', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    failedCheckout(t, { id: 'pay-old', chapa_tx_ref: 'TX-OLD', created_at: new Date(Date.now() - 20 * 60_000) });
+    t.seed({ id: 'pay-new', chapa_tx_ref: 'TX-NEW', status: PaymentStatus.CONFIRMED, chapa_checkout_url: 'https://checkout.example/new', effects_completed_at: new Date() });
+
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify.mock.calls).toEqual([['TX-OLD']]);
+    // Both pages paid: a duplicate purchase, now visible to refunds and support.
+    expect(t.row('pay-old').status).toBe(PaymentStatus.CONFIRMED);
+    expect(t.row('pay-new').status).toBe(PaymentStatus.CONFIRMED);
+    expect(t.published('PaymentConfirmed')).toEqual([['PaymentConfirmed', expect.objectContaining({ payment_id: 'pay-old' }), { correlationId: 'pay-old' }]]);
+  });
+
+  it.each([
+    ['failed', { status: 'failed', amount: null, currency: null }],
+    ['still pending', { status: 'pending', amount: null, currency: null }],
+  ])('leaves a failed checkout failed, with no event, when Chapa reports it %s', async (_, verification) => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    failedCheckout(t);
+    t.chapa.verify.mockResolvedValue(verification);
+
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify).toHaveBeenCalledWith('TX-TEST');
+    expect(t.row().status).toBe(PaymentStatus.FAILED);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.bus.publishConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('never selects a failed checkout Chapa never opened, so a dozen newer ones cannot crowd out a payable one', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    failedCheckout(t, { id: 'payable', chapa_tx_ref: 'TX-PAYABLE', created_at: new Date(Date.now() - 3 * 3600_000) });
+    for (let i = 0; i < 12; i++) {
+      failedCheckout(t, { id: `never-opened-${i}`, chapa_tx_ref: `TX-NEVER-${i}`, chapa_checkout_url: null, created_at: new Date(Date.now() - (5 + i) * 60_000) });
+    }
+    failedCheckout(t, { id: 'too-old', chapa_tx_ref: 'TX-TOO-OLD', created_at: new Date(Date.now() - 25 * 3600_000) });
+
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify.mock.calls).toEqual([['TX-PAYABLE']]);
+    expect(t.row('payable').status).toBe(PaymentStatus.CONFIRMED);
+  });
+
+  it('sweeps pending payments first, then failed checkouts', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    failedCheckout(t, { id: 'failed', chapa_tx_ref: 'TX-FAILED', created_at: new Date(Date.now() - 5 * 60_000) });
+    t.seed({ id: 'pending', chapa_tx_ref: 'TX-PENDING', course_id: 'c2', created_at: new Date(Date.now() - 3 * 3600_000) });
+
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify.mock.calls).toEqual([['TX-PENDING'], ['TX-FAILED']]);
+  });
+});
+
+describe('PaymentService.nudgeAbandonedCheckouts: one reminder, and it never writes the status', () => {
+  /** A course checkout opened 2 h ago and never paid. */
+  const abandoned = (t: ReturnType<typeof setup>) => t.seed({ created_at: new Date(Date.now() - 2 * 3600_000) });
+
+  /** A confirmation (the webhook) lands the first time the job makes the internal call whose path contains `during`. */
+  const confirmDuring = (t: ReturnType<typeof setup>, during: string) => {
+    const get = t.internal.get.getMockImplementation()!;
+    let landed = false;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (!landed && path.includes(during)) {
+        landed = true;
+        await t.service.handleWebhook(successBody, signed(successBody));
+      }
+      return get(path);
+    });
+  };
+
+  it('sends an abandoned course checkout one reminder that links back to the course', async () => {
+    const t = setup();
+    abandoned(t);
+
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toEqual([
+      ['PaymentAbandoned', expect.objectContaining({ payment_id: 'pay-1', learner_email: 'learner@x.et', resume_url: expect.stringMatching(/\/courses\/c1$/) })],
+    ]);
+    expect(t.row()).toMatchObject({ status: PaymentStatus.PENDING, nudged_at: expect.any(Date) });
+  });
+
+  it('a payment confirmed while ownership is checked (before the claim) stays confirmed and gets no reminder', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    abandoned(t);
+    confirmDuring(t, '/entitlements');
+
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toHaveLength(0);
+    expect(t.row().status).toBe(PaymentStatus.CONFIRMED);
+    // Nothing reopened the confirmation, so the sweep has nothing to confirm a second time.
+    await t.service.sweepPendingPayments();
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('a payment confirmed after the claim (while the learner is looked up) stays confirmed; the late reminder still goes out', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    abandoned(t);
+    confirmDuring(t, '/internal/users/');
+
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toHaveLength(1);
+    expect(t.row()).toMatchObject({ status: PaymentStatus.CONFIRMED, nudged_at: expect.any(Date) });
+    await t.service.sweepPendingPayments();
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('a second run sends nothing, even one that overlaps the first', async () => {
+    const t = setup();
+    abandoned(t);
+
+    await Promise.all([t.service.nudgeAbandonedCheckouts(), t.service.nudgeAbandonedCheckouts()]);
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toHaveLength(1);
+  });
+
+  it('a learner who already owns the course gets no reminder; the row is claimed and stays pending', async () => {
+    const t = setup();
+    abandoned(t);
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => (path.includes('/entitlements') ? { entitlement_status: 'active' } : get(path)));
+
+    await t.service.nudgeAbandonedCheckouts();
+    await t.service.nudgeAbandonedCheckouts();
+
+    expect(t.published('PaymentAbandoned')).toHaveLength(0);
+    expect(t.row()).toMatchObject({ status: PaymentStatus.PENDING, nudged_at: expect.any(Date) });
+    expect(t.internal.get.mock.calls.filter(([path]) => path.includes('/entitlements'))).toHaveLength(1);
   });
 });
 

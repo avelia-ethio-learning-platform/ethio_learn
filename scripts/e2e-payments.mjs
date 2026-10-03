@@ -14,6 +14,16 @@
  *   • the webhook refuses an unsigned or chapa-signature-only request (401)
  *   • two concurrent payout runs over backdated payments: at least one payout,
  *     each payment in exactly one, and one disbursement per payout
+ *   • a purchase's cashback is pending and outside the balance; an
+ *     auto-approved refund voids it and leaves the balance alone
+ *   • a matured cashback (backdated) is released once by two concurrent
+ *     wallet reads
+ *   • refund against payout, in sequence: a refund under admin review keeps a
+ *     cleared payment out of a payout run; once denied, the next run claims it
+ *     (the hold and the refund window run 7 days on one clock, so a concurrent
+ *     race on a claimable payment could only be auto-denied)
+ *   • the same bank transfer recorded twice at once: one payment, one cashback
+ *   • a gift refused for a fully used coupon leaves no sponsorship behind
  *
  * Reads and backdates rows through the compose Postgres container's own
  * credentials, never written out here. Usage: node scripts/e2e-payments.mjs
@@ -141,6 +151,25 @@ async function inbox(token, type) {
   return r.filter((n) => n.type === type);
 }
 
+/** A Chapa checkout for the course, confirmed by one mock webhook. Returns the checkout (payment_id, tx_ref). */
+async function buyCourse(learner, course) {
+  const session = must(await call('/payments/initiate', { method: 'POST', token: learner.token, body: { course_id: course.id } }), `initiate ${course.id}`);
+  const confirmed = await mockComplete(session.tx_ref);
+  if (confirmed.json?.reason !== 'confirmed') throw new Error(`mock confirmation of ${session.tx_ref} failed: ${brief(confirmed)}`);
+  return session;
+}
+
+/** Waits for the learner's entitlement to the course to turn active (the access event is asynchronous). */
+async function waitEnrolled(learner, courseId) {
+  const active = (rows) => rows.some((e) => e.course_id === courseId && e.entitlement_status === 'active');
+  const rows = await waitFor(async () => must(await call('/enrollments', { token: learner.token }), 'enrollments'), active);
+  if (!active(rows)) throw new Error(`no active enrollment in ${courseId}`);
+}
+
+/** The spendable balance as stored (a wallet read through the API would release matured credits first). */
+const storedBalance = (userId) => Number(sql(`SELECT COALESCE((SELECT balance_etb FROM financial.wallets WHERE user_id = ${uuid(userId)}), 0)`)[0][0]);
+const sameAmount = (a, b) => Math.abs(Number(a) - Number(b)) < 0.005;
+
 async function main() {
   console.log(`e2e payments against ${API}`);
   const admin = await login('admin@ethiopialearn.et', SEED_PASSWORD);
@@ -164,7 +193,7 @@ async function main() {
   // ---- a paid course, confirmed concurrently ----
   const catalog = must(await call('/search?pricing_type=paid&limit=12'), 'catalog').items ?? [];
   const paid = catalog.filter((c) => Number(c.price_etb) > 0);
-  if (paid.length < 2) throw new Error('need two published paid courses: run scripts/demo-seed.mjs first');
+  if (paid.length < 3) throw new Error('need three published paid courses: run scripts/demo-seed.mjs first');
   const [course, otherCourse] = paid;
   const checkout = must(await call('/payments/initiate', { method: 'POST', token: learner.token, body: { course_id: course.id } }), 'initiate');
   const courseConfirms = await race(RACERS, () => mockComplete(checkout.tx_ref));
@@ -235,6 +264,94 @@ async function main() {
   await sleep(1500);
   const pingCount = await pings();
   check('one disbursement per payout (one PayoutCompleted each)', Number(pingCount) === Number(paidCount), `${pingCount} notifications for ${paidCount} payouts`);
+
+  // New learners and their own purchases from here on, so every run starts
+  // clean. Each learner buys a course once; the courses repeat across learners.
+  const [firstCourse, secondCourse, thirdCourse] = paid;
+
+  // ---- a purchase's cashback is pending until the refund window passes; a refund voids it ----
+  const refunder = await newLearner(admin, 'refunder');
+  const startBalance = must(await call('/wallet', { token: refunder.token }), 'wallet').balance_etb;
+  const refunded = await buyCourse(refunder, firstCourse);
+  wallet = must(await call('/wallet', { token: refunder.token }), 'wallet');
+  const held = wallet.transactions.filter((t) => t.kind === 'cashback' && t.reference === refunded.payment_id);
+  const heldDays = held.length === 1 ? (new Date(held[0].available_at).getTime() - Date.now()) / 86_400_000 : 0;
+  check('the cashback is pending, available in 7 days and an hour', held.length === 1 && held[0].state === 'pending' && heldDays > 7 && heldDays < 7.1, JSON.stringify(held));
+  check('the pending cashback is outside the balance', wallet.balance_etb === startBalance && sameAmount(wallet.pending_etb, held[0]?.amount_etb), `balance ${wallet.balance_etb} (was ${startBalance}), pending ${wallet.pending_etb}`);
+
+  await waitEnrolled(refunder, firstCourse.id);
+  const autoRefund = await call('/refunds', { method: 'POST', token: refunder.token, body: { payment_id: refunded.payment_id, reason: 'e2e: changed my mind' } });
+  check('a refund at 0 % progress is auto-approved', ok(autoRefund) && autoRefund.json.status === 'approved', brief(autoRefund));
+  const voided = sql(`SELECT t.state, p.status FROM financial.wallet_transactions t JOIN financial.payments p ON p.id = t.payment_id WHERE t.payment_id = ${uuid(refunded.payment_id)} AND t.kind = 'cashback'`);
+  check('the refund voids the pending cashback', voided.length === 1 && voided[0][0] === 'void' && voided[0][1] === 'refunded', JSON.stringify(voided));
+  wallet = must(await call('/wallet', { token: refunder.token }), 'wallet');
+  check('the refund leaves the balance unchanged', wallet.balance_etb === startBalance && wallet.pending_etb === 0, `balance ${wallet.balance_etb} (was ${startBalance}), pending ${wallet.pending_etb}`);
+
+  // ---- a matured cashback is released once, even by concurrent wallet reads ----
+  const matured = await buyCourse(refunder, secondCourse);
+  const pendingCashback = sql(`SELECT amount_etb FROM financial.wallet_transactions WHERE payment_id = ${uuid(matured.payment_id)} AND kind = 'cashback' AND state = 'pending'`);
+  check('the second purchase holds one pending cashback', pendingCashback.length === 1, JSON.stringify(pendingCashback));
+  const cashbackEtb = Number(pendingCashback[0]?.[0] ?? 0);
+  sql(`UPDATE financial.wallet_transactions SET available_at = available_at - interval '8 days' WHERE payment_id = ${uuid(matured.payment_id)} AND kind = 'cashback'`);
+  sql(`UPDATE financial.payments SET webhook_received_at = webhook_received_at - interval '8 days' WHERE id = ${uuid(matured.payment_id)}`);
+  const beforeRelease = storedBalance(refunder.id);
+  const reads = await race(2, () => call('/wallet', { token: refunder.token }));
+  check('both concurrent wallet reads answered', reads.every(ok), reads.filter((r) => !ok(r)).map(brief).join('; '));
+  const afterRelease = storedBalance(refunder.id);
+  check('the matured cashback raised the balance exactly once', cashbackEtb > 0 && sameAmount(afterRelease, beforeRelease + cashbackEtb), `before ${beforeRelease}, cashback ${cashbackEtb}, after ${afterRelease}`);
+  const released = sql(`SELECT state FROM financial.wallet_transactions WHERE payment_id = ${uuid(matured.payment_id)} AND kind = 'cashback'`);
+  check('the released cashback row is available', released.length === 1 && released[0][0] === 'available', JSON.stringify(released));
+  wallet = must(await call('/wallet', { token: refunder.token }), 'wallet');
+  check('a later wallet read releases nothing more', sameAmount(wallet.balance_etb, afterRelease) && sameAmount(storedBalance(refunder.id), afterRelease) && wallet.pending_etb === 0, `balance ${wallet.balance_etb}, pending ${wallet.pending_etb}`);
+
+  // ---- refund against payout, in sequence: a refund under review keeps the payment out of payouts ----
+  const reviewer = await newLearner(admin, 'reviewer');
+  const reviewed = await buyCourse(reviewer, thirdCourse);
+  await waitEnrolled(reviewer, thirdCourse.id);
+  const outline = must(await call(`/courses/${thirdCourse.id}`), 'course detail');
+  const lessonIds = (outline.sections ?? []).flatMap((s) => s.lessons ?? []).map((l) => l.id);
+  // About a third of the lessons: inside the 20–50 % band an admin reviews.
+  let progress = null;
+  for (const id of lessonIds.slice(0, Math.ceil(lessonIds.length * 0.3))) {
+    progress = must(await call(`/progress/lessons/${id}/complete`, { method: 'POST', token: reviewer.token }), 'complete lesson');
+  }
+  check('lesson completions put progress in the 20–50 % band', progress?.progress_percent >= 20 && progress?.progress_percent <= 50, `${progress?.progress_percent}% of ${lessonIds.length} lessons`);
+  const review = await call('/refunds', { method: 'POST', token: reviewer.token, body: { payment_id: reviewed.payment_id, reason: 'e2e: refund under review' } });
+  const [[markedAtRequest]] = sql(`SELECT refund_requested_at IS NOT NULL FROM financial.payments WHERE id = ${uuid(reviewed.payment_id)}`);
+  check('an in-window refund at 20–50 % waits for an admin and marks the payment', ok(review) && review.json.status === 'pending' && markedAtRequest === 't', `${brief(review)}; marked ${markedAtRequest}`);
+  // Past the payout hold (14 days for a new educator), on the same clock as the refund window.
+  sql(`UPDATE financial.payments SET webhook_received_at = now() - interval '15 days', created_at = now() - interval '15 days' WHERE id = ${uuid(reviewed.payment_id)}`);
+  const inPayout = () => sql(`SELECT payout_id IS NOT NULL FROM financial.payments WHERE id = ${uuid(reviewed.payment_id)}`)[0][0];
+  must(await call('/payouts/run', { method: 'POST', token: admin.token }), 'payout run');
+  check('a payout run skips the payment while its refund is under review', inPayout() === 'f', `in a payout: ${inPayout()}`);
+  const denial = await call(`/refunds/${review.json?.refund_id}/decide`, { method: 'POST', token: admin.token, body: { action: 'deny' } });
+  const [[markedAfterDenial]] = sql(`SELECT refund_requested_at IS NOT NULL FROM financial.payments WHERE id = ${uuid(reviewed.payment_id)}`);
+  check("the admin's denial clears the payment's refund mark", ok(denial) && denial.json.status === 'denied' && markedAfterDenial === 'f', `${brief(denial)}; marked ${markedAfterDenial}`);
+  must(await call('/payouts/run', { method: 'POST', token: admin.token }), 'payout run');
+  check('the next payout run claims the payment', inPayout() === 't', `in a payout: ${inPayout()}`);
+
+  // ---- the same bank transfer recorded twice at once: one payment ----
+  const bankReference = `E2E-${RUN}`.toUpperCase();
+  const transfer = { learner_id: reviewer.id, course_id: firstCourse.id, bank_reference: bankReference };
+  const transfers = await race(2, () => call('/admin/payments/bank-transfer', { method: 'POST', token: admin.token, body: transfer }));
+  check('one submit records the transfer (201), the other replays it (200)', transfers.map((r) => r.status).sort().join() === '200,201', transfers.map(brief).join('; '));
+  check('both answers carry the same payment', !!transfers[0].json?.id && transfers[0].json.id === transfers[1].json?.id, transfers.map((r) => r.json?.id).join(' vs '));
+  const bankRows = sql(`SELECT id, status FROM financial.payments WHERE chapa_tx_ref = 'bank-${bankReference}'`);
+  check('one payment for the bank reference, confirmed', bankRows.length === 1 && bankRows[0][1] === 'confirmed', JSON.stringify(bankRows));
+  const bankCashback = bankRows.length === 1 ? sql(`SELECT state FROM financial.wallet_transactions WHERE payment_id = ${uuid(bankRows[0][0])} AND kind = 'cashback'`) : [];
+  check('one pending cashback for the transfer', bankCashback.length === 1 && bankCashback[0][0] === 'pending', JSON.stringify(bankCashback));
+
+  // ---- a gift refused for a fully used coupon leaves no sponsorship ----
+  const coupon = must(await call('/coupons', { method: 'POST', token: admin.token, body: { code: `FULL-${RUN}`, kind: 'percent', value: 100, max_uses: 1, note: 'e2e: fully used' } }), 'coupon');
+  const freeBuy = await call('/payments/initiate', { method: 'POST', token: reviewer.token, body: { course_id: secondCourse.id, coupon_code: coupon.code } });
+  const [[uses, maxUses]] = sql(`SELECT uses, max_uses FROM financial.coupons WHERE id = ${uuid(coupon.id)}`);
+  check("a purchase uses up the coupon's only use", ok(freeBuy) && freeBuy.json.confirmed === true && uses === maxUses, `${brief(freeBuy)}; uses ${uses} of ${maxUses}`);
+  const giftCount = () => sql(`SELECT count(*) FROM financial.sponsorships WHERE source = 'gift' AND sponsor_id = ${uuid(refunder.id)}`)[0][0];
+  const giftsBefore = giftCount();
+  const gift = await call('/gifts', { method: 'POST', token: refunder.token, body: { course_id: thirdCourse.id, recipient_email: `giftee-${RUN}@e2e.test`, coupon_code: coupon.code } });
+  check('a gift with the fully used coupon → 400', gift.status === 400 && /fully used/.test(JSON.stringify(gift.json)), brief(gift));
+  const giftsAfter = giftCount();
+  check("the refused gift leaves the sponsor's gift count unchanged", giftsAfter === giftsBefore, `${giftsBefore} → ${giftsAfter}`);
 
   if (failures) {
     console.error(`\n${failures} check(s) failed`);

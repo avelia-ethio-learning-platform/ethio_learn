@@ -10,12 +10,11 @@ import {
   PaymentStatus,
   PayoutPayload,
   PayoutStatus,
-  RefundStatus,
   Role,
   TrustTier,
 } from '@ethiopialearn/contracts';
 import { PaymentPurpose } from '@ethiopialearn/contracts';
-import { Payment, Payout, PayoutHold, PLATFORM_PAYEE_ID, RefundRequest } from './entities';
+import { Payment, Payout, PayoutHold, PLATFORM_PAYEE_ID } from './entities';
 
 const PLATFORM_FEE_RATE = 0.2; // 80/20 split, computed at payout time (spec §0.4)
 const STANDARD_HOLD_DAYS = 7; // spec §10.3
@@ -36,7 +35,6 @@ export class PayoutService implements OnModuleInit {
     @InjectRepository(Payment) private readonly payments: Repository<Payment>,
     @InjectRepository(Payout) private readonly payouts: Repository<Payout>,
     @InjectRepository(PayoutHold) private readonly holds: Repository<PayoutHold>,
-    @InjectRepository(RefundRequest) private readonly refunds: Repository<RefundRequest>,
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
     private readonly dataSource: DataSource,
@@ -79,7 +77,7 @@ export class PayoutService implements OnModuleInit {
    * One payout per payee per run, never two for one payment (P1-14), even when
    * runs overlap (cron, command and admin trigger) or one crashes:
    * - payees are paged with a keyset cursor;
-   * - per payee, the HTTP and refund lookups happen first, then one
+   * - per payee, the HTTP lookups happen first, then one
    *   transaction claims the payments (`payout_id IS NULL` in the UPDATE is
    *   the guarantee) and inserts the payout built from the claimed rows only;
    *   a transaction-scoped advisory lock (the Neon URL is pooled) makes a
@@ -116,7 +114,7 @@ export class PayoutService implements OnModuleInit {
     // Wallet top-ups are platform liabilities, not course revenue — never paid out.
     const candidates = (
       await this.payments.find({
-        where: { payee_id: payeeId, status: PaymentStatus.CONFIRMED, payout_id: IsNull(), purpose: Not(PaymentPurpose.WALLET_TOPUP) },
+        where: { payee_id: payeeId, status: PaymentStatus.CONFIRMED, payout_id: IsNull(), purpose: Not(PaymentPurpose.WALLET_TOPUP), refund_requested_at: IsNull() },
         order: { created_at: 'ASC' },
         take: PAYMENTS_PER_PAYOUT,
       })
@@ -127,12 +125,7 @@ export class PayoutService implements OnModuleInit {
     const holdDays = await this.holdDays(payeeId, candidates[0].payee_type);
     const cleared = candidates.filter((p) => Date.now() - (p.webhook_received_at ?? p.created_at).getTime() >= holdDays * 86_400_000);
     if (!cleared.length) return null;
-    // Pending refund on the payment → hold (spec §10.3).
-    const refunding = new Set(
-      (await this.refunds.find({ where: { payment_id: In(cleared.map((p) => p.id)), status: RefundStatus.PENDING } })).map((r) => r.payment_id),
-    );
-    const ids = cleared.filter((p) => !refunding.has(p.id)).map((p) => p.id);
-    if (!ids.length) return null;
+    const ids = cleared.map((p) => p.id);
     const fraudHolds = await this.holds.count({ where: { payee_id: payeeId } });
 
     const payoutId = uuidv4();
@@ -143,7 +136,8 @@ export class PayoutService implements OnModuleInit {
         return null;
       }
       const payments = m.getRepository(Payment);
-      await payments.update({ id: In(ids), payout_id: IsNull(), status: PaymentStatus.CONFIRMED }, { payout_id: payoutId });
+      // A refund request marks the row; both are UPDATEs of it, so Postgres lets one win and the other match nothing.
+      await payments.update({ id: In(ids), payout_id: IsNull(), status: PaymentStatus.CONFIRMED, refund_requested_at: IsNull() }, { payout_id: payoutId });
       const claimed = await payments.find({ where: { payout_id: payoutId } });
       if (!claimed.length) return null;
 

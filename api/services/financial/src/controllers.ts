@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, Post, Query, RawBodyRequest, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
-import { Request } from 'express';
-import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, RawBodyRequest, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Request, Response } from 'express';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { PaymentService } from './payment.service';
@@ -37,12 +38,18 @@ class ReconcileDto {
   tx_ref: string;
 }
 
-class BankTransferDto {
+export class BankTransferDto {
   @IsUUID()
   learner_id: string;
 
   @IsUUID()
   course_id: string;
+
+  /** The bank's reference for the transfer: the idempotency key, stored as `bank-<REF>`. */
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @IsString()
+  @Matches(/^[A-Z0-9_/-]{3,64}$/, { message: 'bank_reference must be 3-64 characters: letters, digits, "-", "_" or "/"' })
+  bank_reference: string;
 }
 
 class RefundRequestDto {
@@ -192,8 +199,11 @@ export class FinancialController {
   @Post('admin/payments/bank-transfer')
   @UseGuards(RolesGuard)
   @Roles(Role.PLATFORM_ADMIN)
-  bankTransfer(@CurrentUser() ctx: UserContext, @Body() dto: BankTransferDto) {
-    return this.paymentService.recordBankTransfer(ctx.id, dto);
+  async bankTransfer(@CurrentUser() ctx: UserContext, @Body() dto: BankTransferDto, @Res({ passthrough: true }) res: Response) {
+    const { payment, created } = await this.paymentService.recordBankTransfer(ctx.id, dto);
+    // 201 for a new transfer, 200 for an exact replay; Nest still serializes the return value.
+    res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
+    return payment;
   }
 
   @Get('admin/payments')
