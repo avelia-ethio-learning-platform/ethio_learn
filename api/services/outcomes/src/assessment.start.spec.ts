@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
 import { AssessmentType, Role } from '@ethiopialearn/contracts';
 import { AssessmentService } from './assessment.service';
@@ -527,5 +527,45 @@ describe('create(): attempt limits for every type', () => {
     expect(await make({ max_attempts: 99, cooldown_minutes: 99_999 })).toEqual({ max_attempts: 20, cooldown_minutes: 10_080 });
     expect(await make({ max_attempts: 0, cooldown_minutes: -5 })).toEqual({ max_attempts: 3, cooldown_minutes: 0 });
     expect(await make({ max_attempts: 5.4, cooldown_minutes: 30 })).toEqual({ max_attempts: 5, cooldown_minutes: 30 });
+  });
+});
+
+describe('submitAttempt(): a stale open row is refused', () => {
+  const evaluated = (h: ReturnType<typeof harness>) => {
+    const evaluateVivaAnswer = jest.fn(async () => ({ score: 90, feedback: 'ok' }));
+    (h.svc as unknown as { ai: Row }).ai = { ...(h.svc as unknown as { ai: Row }).ai, evaluateVivaAnswer };
+    return evaluateVivaAnswer;
+  };
+
+  it('an open row older than a finished attempt is not graded', async () => {
+    // Row 0 is the oldest: a duplicate open viva left from before the start lock.
+    const h = harness(AssessmentType.AI_VIVA, { max_attempts: 1 }, [
+      { id: 'stale', detail: { question: 'Q?' } },
+      { id: 'done', submitted_at: ago(5), passed: false, score: 10 },
+    ]);
+    const evaluate = evaluated(h);
+    await expect(h.svc.submitAttempt(learner, 'stale', { answer: 'my answer' })).rejects.toThrow(new ConflictException('This attempt is no longer open.'));
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(h.attempts.rows.find((r: Row) => r.id === 'stale').submitted_at).toBeNull();
+  });
+
+  it('an open row is refused once any attempt passed', async () => {
+    const h = harness(AssessmentType.AI_VIVA, {}, [
+      { id: 'won', submitted_at: ago(5), passed: true, score: 90 },
+      { id: 'open', detail: { question: 'Q?' } },
+    ]);
+    const evaluate = evaluated(h);
+    await expect(h.svc.submitAttempt(learner, 'open', { answer: 'again' })).rejects.toThrow(ConflictException);
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it('the current open row (newer than every finished one) is graded', async () => {
+    const h = harness(AssessmentType.AI_VIVA, { max_attempts: 3 }, [
+      { id: 'done', submitted_at: ago(5), passed: false, score: 10 },
+      { id: 'open', detail: { question: 'Q?' } },
+    ]);
+    const evaluate = evaluated(h);
+    await h.svc.submitAttempt(learner, 'open', { answer: 'my answer' });
+    expect(evaluate).toHaveBeenCalledTimes(1);
   });
 });

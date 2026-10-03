@@ -477,6 +477,16 @@ export class AssessmentService implements OnModuleInit {
     if (!attempt) throw new NotFoundException('Attempt not found');
     if (attempt.learner_id !== ctx.id) throw new ForbiddenException('Not your attempt');
     if (attempt.submitted_at) throw new ConflictException('Attempt already submitted.');
+    // Start's rule: an open row is current only when it is newer than every
+    // finished attempt and nothing passed. Older open rows (duplicates from
+    // before the start lock) are stale and can't be submitted past the limit.
+    const finished = await this.attempts.find({
+      where: { assessment_id: attempt.assessment_id, learner_id: ctx.id, submitted_at: Not(IsNull()) },
+    });
+    if (finished.some((a) => a.passed === true || a.created_at.getTime() >= attempt.created_at.getTime())) {
+      this.logger.log(`stale attempt submit refused: attempt ${attempt.id}, learner ${ctx.id}`);
+      throw new ConflictException('This attempt is no longer open.');
+    }
     const assessment = await this.assessmentOrThrow(attempt.assessment_id);
 
     if (assessment.type === AssessmentType.QUIZ) {

@@ -74,6 +74,7 @@ export function mergedLesson(lesson: Lesson) {
     summary: lesson.summary,
     duration_seconds: lesson.duration_seconds,
     video_s3_key: lesson.video_s3_key,
+    video_duration_seconds: lesson.video_duration_seconds,
     ...lesson.pending,
   };
 }

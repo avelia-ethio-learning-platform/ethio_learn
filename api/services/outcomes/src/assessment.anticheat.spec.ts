@@ -157,7 +157,7 @@ describe('submitting an attempt', () => {
     id: 'open-1', assessment_id: 'as1', learner_id: 'l1', enrollment_id: 'en1', submitted_at: null, passed: null, score: null, created_at: new Date(),
     detail: { order: [0, 1], option_orders: [null, null] }, proctor_log: [], flagged: false, terminated: false, ...extra,
   });
-  const done = (id: string, passed = false) => ({ id, assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), passed, created_at: new Date(), detail: {} });
+  const done = (id: string, passed = false) => ({ id, assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), passed, created_at: new Date(Date.now() - 60_000), detail: {} });
   const wrong = { responses: [{ index: 0, selected_index: 3 }, { index: 1, selected_index: 3 }] }; // bank answers are 0 and 1
   const right = { responses: [{ index: 0, selected_index: 0 }, { index: 1, selected_index: 1 }] };
 
@@ -224,7 +224,7 @@ describe('proctor report breakdown', () => {
     id: 'att-1', assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), passed: false, score: 0, flagged: false, terminated: false,
     created_at: new Date(), proctor_log: [], detail: { breakdown: [{ index: 0, kind: 'mcq', correct: false }] }, ...extra,
   });
-  const done = (id: string) => ({ id, assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), passed: false, created_at: new Date(), detail: {} });
+  const done = (id: string) => ({ id, assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), passed: false, created_at: new Date(Date.now() - 60_000), detail: {} });
   const staff = { id: 'qo1', role: Role.QUALITY_OFFICER, email: 'q@x.et' };
 
   it('hides it from the learner while retries remain, but not from staff', async () => {

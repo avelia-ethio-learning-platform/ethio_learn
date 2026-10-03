@@ -761,6 +761,21 @@ describe('CourseService lifecycle around open revisions', () => {
       ['Added lesson', 'live summary', 'videos/edu1/live.mp4', null, null],
     ]);
   });
+  it('duplicate carries the measured video length, live or staged', async () => {
+    const h = setup({
+      lessons: [
+        liveLesson({ video_duration_seconds: 7200 }),
+        liveLesson({ id: 'l2', order_index: 1, video_duration_seconds: 7200, pending: { video_s3_key: 'videos/edu1/new.mp4', video_duration_seconds: 300 } }),
+      ],
+    });
+    const copy = await h.service.duplicate(OWNER, 'c1');
+    const copiedSection = h.sections.rows.find((s) => s.course_id === copy.id);
+    const copiedLessons = h.lessons.rows.filter((l) => l.section_id === copiedSection?.id);
+    expect(copiedLessons.map((l) => [l.video_s3_key, l.video_duration_seconds])).toEqual([
+      ['videos/edu1/live.mp4', 7200],
+      ['videos/edu1/new.mp4', 300],
+    ]);
+  });
 });
 
 describe('Tutor notes on a live course', () => {
