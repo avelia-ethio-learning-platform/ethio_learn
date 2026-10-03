@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { envOrLocalDefault } from '../config/env';
+import { currentContext } from '../context';
 import { PeerAsleepError, PeerNotFoundError, PeerUnavailableError } from './internal-errors';
 
 /** A path built by `internalPath`; `get()` accepts nothing else. */
@@ -64,9 +65,12 @@ export class InternalHttpClient {
     // Bounded timeout so a slow/stuck peer can't tie up this service's request
     // handlers under load. Node's fetch (undici) already keep-alives connections.
     // Messages and logs never carry the path: it can hold an email address.
+    const headers: Record<string, string> = { 'x-internal-token': process.env.INTERNAL_API_TOKEN ?? '' };
+    const requestId = currentContext()?.request_id;
+    if (requestId) headers['x-request-id'] = requestId;
     const attempt = () =>
       fetch(`${this.gatewayUrl}${path}`, {
-        headers: { 'x-internal-token': process.env.INTERNAL_API_TOKEN ?? '' },
+        headers,
         signal: AbortSignal.timeout(Number(process.env.INTERNAL_HTTP_TIMEOUT_MS ?? 8000)),
       });
     let res: Response;

@@ -4,6 +4,7 @@ import { timingSafeEqual } from 'crypto';
 import { DataSource } from 'typeorm';
 import { envBool } from './config/env';
 import { assertProductionConfig } from './config/production-config';
+import { requestContextMiddleware } from './context';
 import { EventBusService } from './events/event-bus.service';
 import { setServiceName } from './health.controller';
 import { DbErrorFilter } from './http/db-error.filter';
@@ -36,6 +37,10 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
   });
   setServiceName(options.serviceName);
   const app = await NestFactory.create(appModule as any, { rawBody: options.rawBody ?? false });
+
+  // First, so everything after it (the token check, the body parser, the handler)
+  // runs with the request's id: log lines, internal calls and published events carry it.
+  app.use(requestContextMiddleware);
 
   // RolesGuard trusts the gateway's x-user-* headers, which is only safe while
   // services are unreachable from the internet. Render's free web services each

@@ -1,3 +1,4 @@
+import { requestContext } from '../context';
 import { InternalHttpClient, internalPath } from './internal-client';
 import { PeerAsleepError, PeerNotFoundError, PeerUnavailableError } from './internal-errors';
 
@@ -48,6 +49,14 @@ describe('InternalHttpClient.get', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/api\/v1\/internal\/lessons\/abc\?q=a%20b$/);
     expect(init.headers['x-internal-token']).toBe('test-internal-token');
+  });
+
+  it("forwards the current request's id, and sends none outside a request", async () => {
+    const path = internalPath`/api/v1/internal/lessons/${'abc'}`;
+    await requestContext.run({ request_id: '0b6f3c1e-5d2a-4f8e-9c71-2a4d6e8f0b13' }, () => client.get(path));
+    await client.get(path);
+    expect(fetchMock.mock.calls[0][1].headers['x-request-id']).toBe('0b6f3c1e-5d2a-4f8e-9c71-2a4d6e8f0b13');
+    expect(fetchMock.mock.calls[1][1].headers).not.toHaveProperty('x-request-id');
   });
 
   it.each([

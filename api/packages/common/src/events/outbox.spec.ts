@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { currentContext, isUuid, requestContextMiddleware } from '../context';
 import { EventBusService } from './event-bus.service';
 import { OutboxService } from './outbox';
 import { runOnce } from './run-once';
@@ -116,6 +117,27 @@ function setup() {
 
 describe('OutboxService.transaction', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it("stores the request's id as the correlation id, a UUID even when the client sent another kind of id", async () => {
+    const t = setup();
+    let requestId: string | undefined;
+    await new Promise<void>((resolve, reject) =>
+      requestContextMiddleware({ headers: { 'x-request-id': 'checkout-1' } }, { setHeader: () => undefined }, () => {
+        requestId = currentContext()?.request_id;
+        t.outbox
+          .transaction(async (_m, emit) => {
+            emit('CourseRated', { course_id: 'c1' });
+            emit('PaymentConfirmed', { payment_id: 'p1' }, { correlationId: '9d1c2b3a-4e5f-4a6b-8c7d-0e1f2a3b4c5d' });
+          })
+          .then(() => resolve(), reject);
+      }),
+    );
+
+    expect(isUuid(requestId)).toBe(true);
+    expect(t.rows().map((r) => r.correlation_id)).toEqual([requestId, '9d1c2b3a-4e5f-4a6b-8c7d-0e1f2a3b4c5d']);
+    await until(() => t.sent.length === 2, 'the fast path');
+    expect(t.sent.map((e) => e.correlationId)).toEqual([requestId, '9d1c2b3a-4e5f-4a6b-8c7d-0e1f2a3b4c5d']);
+  });
 
   it('an emit in a transaction that rolls back leaves no row and publishes nothing', async () => {
     const t = setup();
