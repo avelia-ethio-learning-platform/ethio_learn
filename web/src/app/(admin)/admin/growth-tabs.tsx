@@ -5,8 +5,14 @@ import { useQuery } from '@tanstack/react-query';
 import { Megaphone, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Bars } from '@/components/Bars';
+import { EmptyRows } from '@/components/EmptyRows';
+import { SearchPicker, type PickerOption } from '@/components/SearchPicker';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { CouponManager } from '@/app/(teach)/teach/coupons/coupon-manager';
 import { formatETB } from '@/lib/format';
+import { purposeLabel } from '@/lib/labels';
 import { useT } from '@/lib/i18n';
 
 /** Platform-wide money + learner funnel. */
@@ -37,38 +43,59 @@ export function AnalyticsTab() {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card">
           <p className="text-sm font-bold text-foreground">Revenue by month (ETB)</p>
-          {fin ? <Bars data={fin.by_month.map((m: any) => ({ label: m.month, value: m.gross_etb }))} /> : <div className="skeleton mt-3 h-36" />}
+          {fin ? (
+            <Bars
+              title="Revenue by month"
+              empty="No revenue yet."
+              format={(v) => formatETB(v, locale)}
+              data={fin.by_month.map((m: any) => ({ label: m.month, value: m.gross_etb }))}
+            />
+          ) : (
+            <div className="skeleton mt-3 h-36" />
+          )}
         </div>
         <div className="card">
           <p className="text-sm font-bold text-foreground">Enrollments by month</p>
-          {enr ? <Bars data={enr.enrollments_by_month.map((m: any) => ({ label: m.month, value: m.count }))} /> : <div className="skeleton mt-3 h-36" />}
+          {enr ? (
+            <Bars title="Enrollments by month" empty="No enrollments yet." data={enr.enrollments_by_month.map((m: any) => ({ label: m.month, value: m.count }))} />
+          ) : (
+            <div className="skeleton mt-3 h-36" />
+          )}
         </div>
       </div>
       {fin && (
         <div className="grid gap-4 md:grid-cols-2 text-sm">
           <div className="card">
             <p className="font-bold text-foreground">By purpose</p>
-            <ul className="mt-2 space-y-1 text-gray-600">
-              {Object.entries(fin.by_purpose ?? {}).map(([k, v]: any) => (
-                <li key={k} className="flex justify-between">
-                  <span className="capitalize">{k.replace('_', ' ')}</span>
-                  <span>
-                    {v.count} · {formatETB(v.gross_etb, locale)}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            {Object.keys(fin.by_purpose ?? {}).length ? (
+              <ul className="mt-2 space-y-1 text-gray-600">
+                {Object.entries(fin.by_purpose).map(([k, v]: any) => (
+                  <li key={k} className="flex justify-between">
+                    <span>{purposeLabel(k)}</span>
+                    <span>
+                      {v.count} · {formatETB(v.gross_etb, locale)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyRows label="No confirmed payments yet." />
+            )}
           </div>
           <div className="card">
             <p className="font-bold text-foreground">Top courses by revenue</p>
-            <ul className="mt-2 space-y-1 text-gray-600">
-              {(fin.by_course ?? []).slice(0, 8).map((c: any) => (
-                <li key={c.course_id} className="flex justify-between gap-2">
-                  <span className="truncate">{c.course_title}</span>
-                  <span className="shrink-0">{formatETB(c.gross_etb, locale)}</span>
-                </li>
-              ))}
-            </ul>
+            {fin.by_course?.length ? (
+              <ul className="mt-2 space-y-1 text-gray-600">
+                {fin.by_course.slice(0, 8).map((c: any) => (
+                  <li key={c.course_id} className="flex justify-between gap-2">
+                    <span className="truncate">{c.course_title}</span>
+                    <span className="shrink-0">{formatETB(c.gross_etb, locale)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyRows label="No course revenue yet." />
+            )}
           </div>
         </div>
       )}
@@ -76,46 +103,71 @@ export function AnalyticsTab() {
   );
 }
 
+const AUDIENCES: { value: string; label: string; who: string }[] = [
+  { value: '', label: 'Everyone', who: 'every user' },
+  { value: 'learner', label: 'Learners', who: 'every learner' },
+  { value: 'educator', label: 'Educators', who: 'every educator' },
+  { value: 'institution_admin', label: 'Institutions', who: 'every institution admin' },
+  { value: 'quality_officer', label: 'Quality officers', who: 'every quality officer' },
+];
+
 /** Announcement to a role or everyone (in-app inbox). */
 export function BroadcastTab() {
+  const ask = useConfirm();
   const [form, setForm] = useState({ title: '', body: '', link: '', role: '' });
-  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setOk, setError, clear] = useFormStatus();
   const send = async (e: FormEvent) => {
     e.preventDefault();
-    setStatus('');
+    const who = AUDIENCES.find((a) => a.value === form.role)?.who ?? 'every user';
+    if (!(await ask({ title: `Send this announcement to ${who}?`, body: `“${form.title}” goes to their notification bell now.`, confirmLabel: 'Send announcement' }))) return;
+    clear();
+    setBusy(true);
     try {
-      const res = await api<{ sent_to_roles: string[] }>('/admin/notifications/broadcast', {
+      await api('/admin/notifications/broadcast', {
         method: 'POST',
         body: { title: form.title, body: form.body, link: form.link || undefined, role: form.role || undefined },
       });
-      setStatus(`Sent to: ${res.sent_to_roles.join(', ')}`);
+      setOk(`Announcement sent to ${who}.`);
       setForm({ title: '', body: '', link: '', role: '' });
     } catch (err) {
-      setStatus((err as Error).message);
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
   return (
     <form onSubmit={send} className="card max-w-2xl space-y-3">
       <p className="flex items-center gap-2 font-bold text-foreground">
-        <Megaphone className="h-4 w-4 text-brand-500" /> Announce a feature, campaign or maintenance
+        <Megaphone aria-hidden="true" className="h-4 w-4 text-brand-500" /> Announce a feature, campaign or maintenance
       </p>
-      <input className="input" required maxLength={120} placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-      <textarea className="input" required rows={3} maxLength={1000} placeholder="Message" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />
+      <Field label="Title">
+        {(ids) => <input {...ids} className="input" required maxLength={120} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />}
+      </Field>
+      <Field label="Message">
+        {(ids) => <textarea {...ids} className="input" required rows={3} maxLength={1000} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />}
+      </Field>
       <div className="grid gap-2 sm:grid-cols-2">
-        <input className="input" placeholder="Link (optional, e.g. /courses)" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} />
-        <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-          <option value="">Everyone</option>
-          <option value="learner">Learners</option>
-          <option value="educator">Educators</option>
-          <option value="institution_admin">Institutions</option>
-          <option value="quality_officer">Quality officers</option>
-        </select>
+        <Field label="Link (optional)" hint="A page on this site, e.g. /courses">
+          {(ids) => <input {...ids} className="input" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} />}
+        </Field>
+        <Field label="Audience">
+          {(ids) => (
+            <select {...ids} className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+              {AUDIENCES.map((a) => (
+                <option key={a.value} value={a.value}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
       </div>
-      <div className="flex items-center gap-3">
-        <button className="btn">Send announcement</button>
-        {status && <span className="text-sm font-medium text-brand-600">{status}</span>}
-      </div>
-      <p className="text-xs text-gray-500">Delivered to the in-app notification bell. Marketing email blasts are deliberately not automated (see FEATURES_ADDED.md).</p>
+      <button className="btn" disabled={busy}>
+        Send announcement
+      </button>
+      <FormStatus status={status} />
+      <p className="text-xs text-gray-500">Delivered to each user&apos;s notification bell. Email announcements aren&apos;t sent from here.</p>
     </form>
   );
 }
@@ -127,33 +179,62 @@ export function CouponsTab() {
 /** Manual wallet credit / debit for support cases. */
 export function WalletTab() {
   const { locale } = useT();
-  const [form, setForm] = useState({ user_id: '', amount_etb: 100, note: '' });
-  const [status, setStatus] = useState('');
+  const ask = useConfirm();
+  const [user, setUser] = useState<PickerOption | null>(null);
+  const [amount, setAmount] = useState('100');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setOk, setError, clear] = useFormStatus();
+  const value = Number(amount);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    setStatus('');
+    if (!user || !value) return;
+    const sum = formatETB(Math.abs(value), locale);
+    const answer = await ask({
+      title: value > 0 ? `Credit ${sum} to ${user.label}?` : `Debit ${sum} from ${user.label}?`,
+      body: note.trim() ? `Reason shown to them: “${note.trim()}”` : undefined,
+      confirmLabel: value > 0 ? 'Credit wallet' : 'Debit wallet',
+    });
+    if (!answer) return;
+    clear();
+    setBusy(true);
     try {
-      const res = await api<{ balance_etb: number }>('/admin/wallet/adjust', { method: 'POST', body: form });
-      setStatus(`Done — new balance ${formatETB(res.balance_etb, locale)}.`);
+      const res = await api<{ balance_etb: number }>('/admin/wallet/adjust', { method: 'POST', body: { user_id: user.id, amount_etb: value, note } });
+      setOk(`Done — ${user.label} now has ${formatETB(res.balance_etb, locale)}.`);
     } catch (err) {
-      setStatus((err as Error).message);
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
   return (
     <form onSubmit={submit} className="card max-w-xl space-y-3">
       <p className="flex items-center gap-2 font-bold text-foreground">
-        <Wallet className="h-4 w-4 text-brand-500" /> Adjust a learner&apos;s wallet
+        <Wallet aria-hidden="true" className="h-4 w-4 text-brand-500" /> Adjust a user&apos;s wallet
       </p>
-      <input className="input" required placeholder="User id (from the Users tab)" value={form.user_id} onChange={(e) => setForm({ ...form, user_id: e.target.value })} />
+      <SearchPicker
+        label="User"
+        placeholder="Search name or email…"
+        selected={user}
+        onSelect={setUser}
+        fetcher={async (q) => {
+          const res = await api<{ items: any[] }>(`/admin/users?q=${encodeURIComponent(q)}`);
+          return res.items.map((u) => ({ id: u.id, label: `${u.name} (${u.email})` }));
+        }}
+      />
       <div className="grid gap-2 sm:grid-cols-2">
-        <input type="number" className="input" required value={form.amount_etb} onChange={(e) => setForm({ ...form, amount_etb: +e.target.value })} />
-        <input className="input" placeholder="Reason (shown to the learner)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} maxLength={200} />
+        <Field label="Amount (ETB)" hint="Positive credits, negative debits.">
+          {(ids) => <input {...ids} type="number" className="input" required value={amount} onChange={(e) => setAmount(e.target.value)} />}
+        </Field>
+        <Field label="Reason (shown to the user)">
+          {(ids) => <input {...ids} className="input" value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />}
+        </Field>
       </div>
-      <div className="flex items-center gap-3">
-        <button className="btn">Apply</button>
-        {status && <span className="text-sm font-medium text-brand-600">{status}</span>}
-      </div>
-      <p className="text-xs text-gray-500">Positive credits, negative debits (fails if the balance can&apos;t cover it). Every movement is logged in the learner&apos;s wallet history.</p>
+      <button className="btn" disabled={busy || !user || !value}>
+        Apply
+      </button>
+      <FormStatus status={status} />
+      <p className="text-xs text-gray-500">A debit fails if the balance can&apos;t cover it. Every movement is logged in the wallet history.</p>
     </form>
   );
 }
