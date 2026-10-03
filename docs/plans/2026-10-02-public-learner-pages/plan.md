@@ -1,6 +1,6 @@
 # Phase 7b: Public and learner pages
 
-Status: approved (round 2); amended after approval (A1, see the end of Risks and open questions); drift check (2026-10-03) folded in (D1–D8, marked "(drift Dn)")
+Status: in code review (round 1); steps 1–11 done
 Size: M (sessions: 3 — ethio-impl, or `ethio-impl-web`, implements; ethio-plan-review reviews plan and code). Web, plus one public auth endpoint (with a two-file migration) and one new event that the notification service consumes.
 Base branch: `origin/main` @ `ebc1eba` (2026-10-03), which already has 6a (PR #24) and 7a (PR #25). So 6a's auth migrations (`…397-InvitedAt`, `…398-InvitedAtIndex`) and its account/password rewrite are already below this branch; the drift D4/D5 notes about merging them in later only apply to the pre-PR `git merge origin/main` (6c or 6b may land first). Built in the `ethi0-web` worktree by ethio-planner. This phase uses 7a's `Field`, `FormStatus`, `labels.ts`, `format.ts` and axe gate · Feature branch: `feat/public-learner-pages`
 Roadmap: phase 7b (Phase 7 split; see `../2026-10-02-ui-foundations/plan.md`, "Roadmap change").
@@ -197,15 +197,15 @@ Line numbers are from `fix/access-control` @ `3de83c3`; phases 5, 6b and 7a edit
 
 ## Steps
 - [x] 1. Branch `feat/public-learner-pages` from `origin/main` @ `ebc1eba` (6a and 7a merged) in the `ethi0-web` worktree. Merge `origin/main` again before the PR (step 11).
-- [ ] 2. `categories.ts` `group` and `am` labels, `categoryMeta`, plus `CourseCover` and `hasRealThumbnail`; `CourseCard` uses them (7a already moved its price to `formatETB` and its category to a label; keep those, and switch to `categories.ts`'s label per decision 1); demo seed keeps its thumbnail line (A1) and adds one course with an Amharic title, for the OG font check in step 9 (decision 1).
+- [x] 2. `categories.ts` `group` and `am` labels, `categoryMeta`, plus `CourseCover` and `hasRealThumbnail`; `CourseCard` uses them (7a already moved its price to `formatETB` and its category to a label; keep those, and switch to `categories.ts`'s label per decision 1); demo seed keeps its thumbnail line (A1) and adds one course with an Amharic title, for the OG font check in step 9 (decision 1).
   - **Amharic category labels** (the native-speaker review flags these): programming ፕሮግራሚንግ, web_development የድር ልማት, design ግራፊክ ዲዛይን, video_editing ቪዲዮ ኤዲቲንግ, data_science ዳታ ሳይንስ, tech ቴክኖሎጂ, business ቢዝነስ, marketing ማርኬቲንግ, freelancing ፍሪላንሲንግ, finance ፋይናንስ, language ቋንቋ, healthcare ጤና, agriculture ግብርና, arts ጥበብ እና ሙዚቃ, education ትምህርት, other ሌላ. Business and other match the i18n `cat_*` strings the pills already show (drift D8). The review list also names the five `cat_*` keys.
   - **vitest:** `hasRealThumbnail` (null, placehold.co, a real URL); every category has a `group` and an `am` label; `categoryMeta` of an unknown value is the `other` entry; for the five `cat_*` values, `am` equals the i18n string.
-- [ ] 3. Course page layout, byline, buy box with pricing-aware bullets, bottom bar, preview rule (decision 3); per-course OG image (decision 2).
+- [x] 3. Course page layout, byline, buy box with pricing-aware bullets, bottom bar, preview rule (decision 3); per-course OG image (decision 2).
   - vitest for the bullets per pricing type and the preview rule.
-- [ ] 4. Lesson player states, deferred `<video>`, mobile order and disclosure, completion and certificate link, `aria-current` (decision 4); `ReviewBox` (decision 9).
+- [x] 4. Lesson player states, deferred `<video>`, mobile order and disclosure, completion and certificate link, `aria-current` (decision 4); `ReviewBox` (decision 9).
   - vitest: not-found for a 404 **and** for a 400 (malformed ID, drift D1), not-enrolled, Start/Resume button, certificate found vs missing, radiogroup keyboard and the disabled Submit.
-- [ ] 5. `not-found`, `error`, `global-error` and the two `loading.tsx` (decision 5); `PanelError` on the panels and the account page; `.skeleton` dedupe (decision 6).
-- [ ] 6. **API:**
+- [x] 5. `not-found`, `error`, `global-error` and the two `loading.tsx` (decision 5); `PanelError` on the panels and the account page; `.skeleton` dedupe (decision 6).
+- [x] 6. **API:**
   - two auth migrations and the entity column (data model);
   - `ResendVerificationDto`, the controller route, `AuthService.resendVerification` with the caps;
   - the `VerificationEmailRequested` contract type, the notification subscription, and the shared `verificationEmail` helper;
@@ -214,11 +214,11 @@ Line numbers are from `fix/access-control` @ `3de83c3`; phases 5, 6b and 7a edit
   - **Concurrency test against a real Postgres:** 5 parallel resends for one unverified user → exactly 1 new row and 1 event (round-1 B1). No api jest test uses a real DB today, so this is either a jest spec that runs only when `TEST_DATABASE_URL` is set (run locally and in the CI e2e job), or a node script in the e2e job that counts rows. **It never goes through the gateway** (drift D6): 5 calls would overflow the `auth-strict` budget the Playwright suite and `e2e-smoke.mjs` share. Prefer the jest spec; a script calls the auth service's own port directly.
   - jest: unknown email → no row, no event, same message; verified user → nothing sent; suspended user → nothing sent; first resend → row plus a `VerificationEmailRequested` event with a new token (and no `UserRegistered`); a second within 60 s → nothing; a sixth in 24 h → nothing; an invalid email → 400; the gateway classifies the route as `auth-strict`.
   - Migrations (house pattern, later timestamps, entity `@Index`, ordering after 6a: see the data model): `migration:run` then `migration:revert` twice, then run again, on a scratch DB; `pnpm -C api db:check` → no drift.
-- [ ] 7. **Web for resend:** "Resend email" on the signup success screen (it already knows the email), on the verify-email error state (email `Field`), and next to the login "Email not verified" error. Each has a 60 s client cooldown, which starts on mount on the signup success screen because the signup email counts toward the 60 s cap (round-1 N1); a `FormStatus` result; plus "Go to login".
+- [x] 7. **Web for resend:** "Resend email" on the signup success screen (it already knows the email), on the verify-email error state (email `Field`), and next to the login "Email not verified" error. Each has a 60 s client cooldown, which starts on mount on the signup success screen because the signup email counts toward the 60 s cap (round-1 N1); a `FormStatus` result; plus "Go to login".
   - vitest for the cooldown and the message.
-- [ ] 8. Catalog sort, `aria-pressed`, mobile disclosure, result line (decision 8); password rule and checklist (decision 10); emoji → lucide on public and learner pages (P2-35).
+- [x] 8. Catalog sort, `aria-pressed`, mobile disclosure, result line (decision 8); password rule and checklist (decision 10); emoji → lucide on public and learner pages (P2-35).
   - vitest: the sort param round-trips; the password table (client vs server rule); `PasswordStrength.test.tsx` updated to the new rule; signup and accept-invite refuse a password that isn't `ok` (drift D5).
-- [ ] 9. **Playwright:**
+- [x] 9. **Playwright:**
   - course page at 375 px: the buy box's primary button is within the first viewport; after scrolling the syllabus, the bottom bar is visible and focuses the buy box's button. At 1440 px, Phase 5's `layout.spec.ts` sticky test keeps passing; update it rather than adding a second one (drift D2);
   - a course without a thumbnail shows the cover, and `/courses/<id>/opengraph-image` returns a PNG; one seeded course with an Amharic title renders its OG image, and the PNG is saved into the after-folder for the user;
   - the lesson player at 375 px: the lesson list starts above the assessments panel; tabbing from the player controls reaches the lesson list next; no `<video>` before a lesson is chosen; "Start lesson 1" gives the `<video>` a `src` or an HLS `blob:` source; an unknown course ID **and `/learn/not-a-uuid`** show "Course not found" (drift D1);
@@ -226,8 +226,8 @@ Line numbers are from `fix/access-control` @ `3de83c3`; phases 5, 6b and 7a edit
   - resend, inside `copy.spec.ts`'s existing signup test (drift D6): after "Check your email", pass the on-mount 60 s cooldown with Playwright's `page.clock` (installed before `goto`), click Resend, see the status message, and see the button disabled again. The server answers the same 200 whether or not its own 60 s cap sent, so the message is the assertion. That's +1 `auth-strict` call, so the suite spends 8 of 10. 7a's error-state scan stubs its login, so it adds none. Update the budget comment in `playwright.config.ts`;
   - catalog: choosing "Newest" puts `sort=new` in the URL, and the order changes accordingly against the seeded data;
   - the 7a axe gate is extended to the course page at 375 px, the lesson player empty state, the 404 page, and the verify-email error state.
-- [ ] 10. Before/after screenshots of the course page (free, freemium, paid), catalog, home cards, lesson player (empty, playing, completed), 404 and verify-email, at 375 and 1440, light and dark, into `docs/plans/2026-10-02-refinement-audit/screenshots/after-phase7b/` (git-ignored).
-- [ ] 11. **Full gate:**
+- [x] 10. Before/after screenshots of the course page (free, freemium, paid), catalog, home cards, lesson player (empty, playing, completed), 404 and verify-email, at 375 and 1440, light and dark, into `docs/plans/2026-10-02-refinement-audit/screenshots/after-phase7b/` (git-ignored).
+- [x] 11. **Full gate:**
   - `pnpm -C api build && pnpm -C api test && pnpm -C api typecheck`;
   - `pnpm -C api db:check`;
   - `pnpm -C web typecheck && pnpm -C web test && pnpm -C web build`;
@@ -257,3 +257,15 @@ Line numbers are from `fix/access-control` @ `3de83c3`; phases 5, 6b and 7a edit
 - **A1 (amendment after approval, 2026-10-02, from ethio-impl):** step 2 originally had the demo seed write `thumbnail_url: null`. `submitBlocker` refuses to submit a course without a thumbnail (`course.service.ts:680` on main: "Thumbnail is required before submitting"), so every seeded course would stay a draft and break demo-seed and CI e2e. Decision: keep the seed's `placehold.co` URL; `hasRealThumbnail` already treats it as missing, so the cover shows. Relaxing the submit rule was rejected: it's an API and product change outside this phase. If `feat/sample-content` has merged first, the seed's course list (`COURSES`, `buildSections`) lives in `scripts/lib/sample-catalog.mjs`. Add the Amharic-titled course in `demo-seed.mjs` only, not the shared catalog, because `scripts/sample-content.mjs` publishes that catalog on production (plan-review round-3 note).
 
 ## Progress and deviations (implementer)
+- 2026-10-03, ethio-planner (implemented with one subagent per step, each reviewed; then a final whole-branch review, one fix wave and a re-review). Steps 2–11 done on `feat/public-learner-pages`; `origin/main` @ `5f5fe7d` (6c) merged in cleanly (`e7d1e8f`).
+- **Gate (head `4f90352`):** api build, typecheck and jest (64 suites, 1126 passed, 1 skipped: the `TEST_DATABASE_URL` resend spec, which CI runs); every service migrates on a fresh DB, `db:check` no drift, the two auth migrations revert and re-run; web typecheck, vitest 554, build; Playwright 94/94 against a stack from this head (after splitting one axe test, below).
+- **Deviations:**
+  - Step 3 / acceptance "first screen at 375 px": met inside the header the plan describes. Below `sm` the cover strip is hidden (the h1 right under it repeats the title; cards and the share image keep the cover), the h1 is a step smaller and the header spacing tighter; `sm` and up are unchanged. The bottom bar watches the primary button, not the whole buy box, so a signed-in learner whose button sits lower (coupon field) gets the bar from the first paint.
+  - Step 3b: the OG fonts are read with `process.cwd()` and listed in `experimental.outputFileTracingIncludes`; `new URL(..., import.meta.url)` returned 500 in the production bundle (found by the step 9 run).
+  - Step 4: the completion card re-checks `/me/certificates` every 5 s for up to 2 minutes while the certificate is issued, and says "being prepared" unless a required assessment is still unpassed (the plan's copy assumed a synchronous certificate).
+  - Step 5: `courses/[id]/loading.tsx` makes an unknown course id answer 200 with the branded "Course not found" and a `noindex` robots tag (Next 14 renders `notFound()` inside the loading boundary). Accepted; noted in the PR.
+  - Step 6: a publish failure after commit is logged and still answers the same 200 (a 500 there would reveal that an unverified account exists).
+  - Step 9: the 7a axe test "home, catalog, free and paid course, help, educators" is split into "home, catalog, help, educators" and "a free and a paid course" (same pages and assertions); with the richer course pages it came within 3 s of the 30 s timeout.
+  - Also fixed while testing: footer column headings at 375 px (axe contrast).
+- **Deferred minors** (none blocks): the bar shows the list price beside a coupon-adjusted button label; the login resend cooldown restarts when the form re-mounts (the server cap holds); a hidden cover image still downloads on phones (Phase 10, `next/image`); a few test-depth gaps. Rulings R1–R23 are in the local `../2026-10-02-refinement-audit/rulings-7b.md`.
+
