@@ -121,7 +121,7 @@ one `ChapaProvider` interface, selected by `chapaMode()`:
 | RabbitMQ | **CloudAMQP** | `amqps://user:pass@host/vhost` — vhost equals the username on CloudAMQP's free tier. |
 | Object storage | **Cloudflare R2** | S3-compatible, `forcePathStyle: true`. Bucket `ethio-learn`. |
 | Email | **Brevo SMTP** | Port 587, STARTTLS (`SMTP_SECURE=false`). `SMTP_HOST` being set is literally what makes `api/services/notification/src/email.provider.ts` select SMTP over Resend — Resend is now dead code, key unused. `EMAIL_FROM` must be a Brevo-**verified** sender or every send is rejected. |
-| AI | **Groq** | `llama-3.3-70b-versatile`. `api/packages/ai/src/index.ts` `groqConfigured()` requires the key to literally start with `gsk_`; anything else (including empty) silently falls back to `MockAiAssessor` — deterministic fake grading, no error, no warning. |
+| AI | **Groq** | `openai/gpt-oss-120b` (`GROQ_MODEL`; Groq retired `llama-3.3-70b-versatile` in 2026, and a retired `GROQ_MODEL` falls back to the code default with a logged warning; a rate-limited request is retried once on `openai/gpt-oss-20b`, which has its own token budget). `api/packages/ai/src/index.ts` `groqConfigured()` requires the key to literally start with `gsk_`; anything else (including empty) silently falls back to `MockAiAssessor` — deterministic fake grading, no error, no warning. |
 | Payments | **Chapa** | Test secret key, real Chapa API (see §1 Chapa flow above). |
 
 Both halves deploy from the **same GitHub repo**
@@ -170,7 +170,7 @@ because there's no Dockerfile at repo root, only `api/Dockerfile` and
   `NODE_ENV=production`, `DB_POOL_MAX=3`, `DB_POOL_MIN=0`, `DB_SYNC=true`,
   `S3_REGION=auto`, `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`,
   `SMTP_SECURE=false`, `SUPPORT_EMAIL`, `COOKIE_SAMESITE=none`,
-  `GROQ_MODEL=llama-3.3-70b-versatile`, `REQUIRE_INTERNAL_TOKEN=true`,
+  `GROQ_MODEL=openai/gpt-oss-120b`, `REQUIRE_INTERNAL_TOKEN=true`,
   `CHAPA_MODE=live`, `KYC_PAYOUT_THRESHOLD_ETB=10000`
 
   **Per-service, not in the shared group:** `PKG` (one value per service) and,

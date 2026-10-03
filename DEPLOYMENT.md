@@ -101,7 +101,7 @@ All config is via env vars (see `api/.env.example`). The services read `api/.env
 - `WEB_URL`, `GATEWAY_PUBLIC_URL`, `NEXT_PUBLIC_*` — your real domains.
 - **Chapa**: `CHAPA_MODE=live` + `CHAPA_SECRET_KEY` (keep the secret server-side only). Point the Chapa dashboard webhook at `https://api.yourdomain/api/v1/payments/webhook/chapa`.
 - **Email**: set `SMTP_*` (any SMTP server / Gmail app-password) **or** `RESEND_API_KEY`. Configure SPF/DKIM/DMARC on the sending domain for inbox delivery.
-- **AI**: `GROQ_API_KEY` (+ optional `GROQ_MODEL`). Without a real key, AI features fall back to a deterministic mock.
+- **AI**: `GROQ_API_KEY` (+ optional `GROQ_MODEL`, default `openai/gpt-oss-120b`; a model Groq has retired falls back to that default with a warning in the log, and a rate-limited request is retried once on `openai/gpt-oss-20b`, which has its own token budget). Without a real key, AI features fall back to a deterministic mock.
 
 ## Networking & security
 
