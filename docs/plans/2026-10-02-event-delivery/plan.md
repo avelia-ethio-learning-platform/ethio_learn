@@ -252,20 +252,20 @@ Changing `EVENT_RETRY_DELAY_MS` after the retry queue exists would hit `PRECONDI
   - The CI e2e wait moves to `/ready` and fails the step on timeout.
 
   Specs: `/ready` gives 200 when everything is up, and 503 with `db: 'down'` when the query times out or `broker: 'down'` when disconnected; 50 concurrent calls run one `SELECT 1`.
-- [ ] 9. Outage drill on the local stack. Script it as `scripts/e2e-broker-outage.mjs`, local only and not in CI, because stopping a shared container in CI is fragile:
+- [x] 9. Outage drill on the local stack. Script it as `scripts/e2e-broker-outage.mjs`, local only and not in CI, because stopping a shared container in CI is fragile:
   1. with the stack up, `docker compose stop rabbitmq` for 90 s;
   2. confirm every service's `/health` stays 200, `/ready` reports `broker: 'down'`, no service process exits (PIDs unchanged), and an endpoint that publishes fails fast (≤ 6 s) with a 503 rather than hanging;
   3. `docker compose start rabbitmq`;
   4. within 60 s all `/ready` are 200, and a free enrollment produces its `EnrollmentCreated` effects (the course `enrolled_count` +1, an inbox row).
 
   Record the output in Progress.
-- [ ] 10. Retry drill: temporarily make one notification handler throw through an env flag that only exists in test builds (or a unit-level drill if the implementer prefers), and show:
+- [x] 10. Retry drill: temporarily make one notification handler throw through an env flag that only exists in test builds (or a unit-level drill if the implementer prefers), and show:
   - retry after the delay;
   - parked after `EVENT_MAX_ATTEMPTS`;
   - no duplicate inbox row on the successful retry.
 
   Record the result.
-- [ ] 11. Full gate:
+- [x] 11. Full gate:
   - `pnpm -C api build && pnpm -C api test && pnpm -C api typecheck && pnpm -C api db:check`;
   - migrations apply on a fresh DB and on the dev DB, and `migration:revert` round-trips each new one;
   - the CI e2e scripts (`demo-seed`, `e2e-revisions`, `e2e-institution`, `e2e-payments`, `e2e-smoke`) pass locally;
@@ -319,7 +319,7 @@ The roadmap's Phase 9 covers 12 findings across every service: P1-15 to P1-23, P
 
 ## Progress and deviations (implementer)
 
-Commits on `fix/event-delivery` (base `03fd049`): `3c6f164` plan docs · `ccef60d` bus (steps 2–5) · `8bd28dd` runOnce and consumers (step 6) · `ea99c7d` notification (step 7) · `7edbd06` /ready (step 8).
+Commits on `fix/event-delivery` (base `03fd049`): `3c6f164` plan docs · `ccef60d` bus (steps 2–5) · `8bd28dd` runOnce and consumers (step 6) · `ea99c7d` notification (step 7) · `7edbd06` /ready (step 8) · `c9f4d0e` outage drill (step 9) · `f9e0e8e` retry drill (step 10) · `a6f2dd2` code review round 1 fixes.
 
 **Steps 1–8 done.** Unit gate on `7edbd06`: build ok; `pnpm -C api test` → 1324 passed, 1 skipped; typecheck ok. Migrations: every service migrates a fresh DB, `db:check` no drift, `migration:revert` then `migration:run` round-trips each of the three new ones; on a copy of the dev DB the pending migrations (main's and 9a's) apply and `db:check` has no drift. `runOnce` and the stats upsert were also checked on real Postgres (scratch DB): a redelivery skips with the stored result, two concurrent duplicates run the effect once, 20 concurrent upserts count 20.
 
@@ -327,21 +327,35 @@ Commits on `fix/event-delivery` (base `03fd049`): `3c6f164` plan docs · `ccef60
 - **Handler names.** The handlers with effects pass explicit, stable names: `quality:CourseSubmitted:enqueue`, `quality:CourseAppealSubmitted:enqueue`, `quality:CourseRevisionSubmitted:enqueue`, `quality:CourseCompleted:stats`, `quality:PaymentConfirmed:stats`, `quality:RefundApproved:stats`, `course:EnrollmentCreated:enrolled-count`. Every other handler keeps the positional default `<service>:<type>:<index>`, used only in logs and park headers. `runOnce(dataSource, consumer, eventId, fn)` takes the name and event id explicitly and throws on an empty one, so a handler can't dedupe under a positional name.
 - **Quality enqueue resume (B1).** On a skip, the enqueue handlers get `{ item_id }` back from the marker and rerun the screen only when that item is still open with `plagiarism.pending`. The screen, the stored result and the signal happen after the commit, as before.
 - **Notification: `NotificationSent` is best-effort** (caught and logged as a warning). Before, a publish failure after a successful send fell into the `catch` and wrote a `failed` row for an email that went out; now that a failure throws and retries, it would also resend it. It is telemetry only.
-- **Notification fan-out.** `notifyNewCourseFollowers` no longer swallows one recipient's failure: it throws, the bus retries the event, and the dedupe skips the recipients already notified. Its follower-query failure is still logged and skipped, as before.
+- **Notification fan-out** (changed in code review round 1, B1 and S2). `notifyNewCourseFollowers` and `notifyCourseUpdated` notify every recipient first, then rethrow the first failure (`forEachRecipient`). The bus retries the event, and the dedupe skips the recipients already notified, so one rejected address or a spent quota costs nobody else their notification. `userInfo` throws unless the user is gone (404), so an email skipped during an auth cold start is retried instead of dropped. The follower and learner list queries are still logged and skipped on failure, as before.
 - **Unique inbox index.** The entity declares `UQ_inbox_notifications_source_event` by name with its `WHERE`; the migration adds `NULLS NOT DISTINCT`, which TypeORM can't express (db:check accepts it). The indexes are built `CONCURRENTLY` in a `transaction = false` migration, and every statement is repeatable after a part-way failure.
 - **`/ready` is a plain route, not a Nest controller.** `bootstrapService` registers it on the HTTP adapter with a `Readiness` instance (`common/src/ready.ts`), outside the prefix and the internal-token check like `/health`. Auth adds its Redis `PING` through a new `readyChecks` bootstrap option. This avoided wrapping every app module to inject the database, the bus and auth's Redis into one controller. `/health` gets the name through `setServiceName`, which `bootstrapService` calls before the app is built.
 - **CI.** The gateway's wait now fails the step on timeout, and the per-service wait in the drift-check step polls `/ready` and prints the failing body.
 - **Spec helper.** Quality's fake `DataSource` lives in `src/testing/` and is excluded from the build, as financial's helpers are.
-- **Step 10 runs on the real broker** with no test-only code: the drill restarts notification with SMTP on a closed port, a 3 s retry delay and 3 attempts, and starts a small SMTP sink for the success path (scratch script, not committed).
+- **Step 10 runs on the real broker** with no test-only code: the drill restarts notification with SMTP on a closed port, a 3 s retry delay and 3 attempts, and starts a small SMTP sink for the success path. It's committed as `scripts/e2e-retry-drill.mjs`, local only like the outage drill, so the reviewer can rerun it.
+- **The retry delay is whole seconds** (review N3): `EVENT_RETRY_DELAY_MS` is rounded, so the retry queue's name and its TTL always agree.
 
-**In flight / next step (checkpoint 2026-10-03, updated 21:5x):**
-- The stack gate is running in the stack window that ethio-impl [9be294] (8b) handed over. The first run's scratchpad went away mid-run, so it was stopped during Playwright and restarted from scratch.
-  - The script, its env and its outputs are now in the worktree's git-ignored `.devlogs/gate9a/` (`gate9a.sh`, `env9a.sh`, `gate9a.out`).
-  - Order: fresh `el_9a_e2e`, seed, start and wait on `/ready`, db:check, the resend cap, the six CI e2e scripts, web build, Playwright, smoke, then the drills `scripts/e2e-broker-outage.mjs` (step 9) and `scripts/e2e-retry-drill.mjs` (step 10, now committed next to the outage drill so the reviewer can rerun it), and finally it stops the stack.
-- When it ends:
-  1. If the 9a services are still up, run `scripts/stop-backend.sh` from the worktree. Tell ethio-impl [9be294] "9a done, stack down".
-  2. Record the outage and retry drill outputs under steps 9 and 10, and tick steps 9–11 (or fix what failed).
-  3. Drop the scratch DBs `el_9a_gen` and `el_9a_e2e`.
-  4. Merge origin/main again if it moved.
-  5. Commit, then message ethio-reviewer: "Ready for code review (round 1): branch fix/event-delivery, base 03fd049 (origin/main), plan docs/plans/2026-10-02-event-delivery/plan.md".
-- After APPROVED: don't push. Tell ethio-planner [aeff2b] ([59d14c] is gone), who sends the 9b handoff (9a and 9b ship together).
+**Steps 9–11 done.** Stack gate with the api built at `297d8b2` (the code as at `7edbd06`: the later commits before `a6f2dd2` change only scripts and docs) and the retry drill from `f9e0e8e`, on a fresh `el_9a_e2e`, exit 0:
+- stack: seed, all 7 `/ready` 200 (auth with `redis: ok`), `db:check` no drift; the resend-verification cap on real Postgres;
+- the six CI e2e scripts (demo-seed, e2e-revisions, e2e-institution, e2e-payments, e2e-learning, e2e-security): 205 checks, none failed;
+- the web build (clean env); Playwright 106 passed; smoke 17/17.
+
+The first gate run was killed from outside (exit 143) during Playwright when the session that started it ended. It was rerun from scratch; no check failed in either run.
+
+Step 9, `node scripts/e2e-broker-outage.mjs` (outage 90 s), 17/17:
+- before: every service process running and ready, `/health` names the service, a QO approval publishes the course;
+- outage: every `/ready` 503 with `broker: down` and `db: ok`; a QO decision fails fast with 503 in 5.0 s, and the undelivered decision is reverted (the item is still queued); every `/health` stayed 200; no process exited;
+- recovery: every service ready again in 35 s with the same PIDs; a free enrollment after the outage reaches course (`enrolled_count` 1) and notification (one inbox row); the reverted decision can be made again.
+
+Step 10, `node scripts/e2e-retry-drill.mjs`, 11/11:
+- A, the send keeps failing: parked after 3 attempts in 6.8 s (two 3 s delays), each attempt logged `failed`, one inbox row across the attempts, and the error log names it: `event parked: EnrollmentCreated (…) handler notification:EnrollmentCreated:0 failed 3 times: connect ECONNREFUSED 127.0.0.1:2626`;
+- B, the first send fails and the retry succeeds: the log reads `failed, sent` (4.1 s), one inbox row, the SMTP sink got exactly one message, and nothing more was parked;
+- notification restarted on its normal env and the drill queues were removed.
+
+**Code review round 1 fixes** (`a6f2dd2`, see code-review.md): B1, S1, S2 and N1–N3. Unit gate on `a6f2dd2`: build ok; `pnpm -C api test` 1333 passed, 1 skipped (9 new specs); typecheck ok. No entity or migration changed. The drills weren't rerun on `a6f2dd2`, because the stack window went back to 8b. S1 changes the supervisor's `kick()`, which the outage drill exercises, so 9b's stack gate, which builds on this branch, reruns both drills.
+
+**In flight / next step (2026-10-03, 22:2x):**
+- Code review round 1 was CHANGES REQUESTED. Every finding is fixed in `a6f2dd2`, with the response in code-review.md. Round 2 is requested from ethio-reviewer.
+- The scratch DBs `el_9a_*` are dropped.
+- 9b has started in `../ethi0-9b` on `fix/outbox`, branched from this branch. Later 9a review fixes land here first, then get merged into `fix/outbox`.
+- After APPROVED: don't push. Tell ethio-planner [aeff2b]. 9a ships with 9b, once 9b is APPROVED too.
