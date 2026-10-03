@@ -32,7 +32,8 @@ function AccountPage() {
       </PageShell>
     );
   }
-  if (isError || !me) {
+  // Not `isError`: a failed background refetch keeps `me`, and the form (with what was typed) must stay.
+  if (!me) {
     return (
       <PageShell>
         <div className="mx-auto max-w-2xl">

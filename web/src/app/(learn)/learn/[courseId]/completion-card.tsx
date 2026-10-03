@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Award, Download, ExternalLink, Trophy } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -16,9 +16,9 @@ interface Certificate {
   verify_url: string;
 }
 
-// Certificates are issued asynchronously after completion: poll every 5 s for about 2 minutes.
+// Certificates are issued asynchronously after completion: poll every 5 s for 2 minutes from when this card mounts.
 const POLL_MS = 5000;
-const MAX_POLLS = 24;
+const POLL_FOR_MS = 120_000;
 
 /**
  * Shown once the course is completed: the certificate when there is one,
@@ -26,11 +26,15 @@ const MAX_POLLS = 24;
  * answered, so a slow or failed request never reads as "no certificate yet".
  */
 export function CompletionCard({ courseId }: { courseId: string }) {
+  const mountedAt = useRef(Date.now());
   const { data: certificates } = useQuery({
     queryKey: ['certificates'],
     queryFn: () => api<Certificate[]>('/me/certificates'),
+    // This card's own clock, not the shared cache's update count; and a failing request stops the poll.
     refetchInterval: (query) =>
-      query.state.data?.some((c) => c.course_id === courseId) || query.state.dataUpdateCount >= MAX_POLLS ? false : POLL_MS,
+      query.state.data?.some((c) => c.course_id === courseId) || query.state.status === 'error' || Date.now() - mountedAt.current >= POLL_FOR_MS
+        ? false
+        : POLL_MS,
   });
   // Same keys as the assessments panel, so these share its requests.
   const { data: assessments } = useQuery({ queryKey: ['assessments', courseId], queryFn: () => api<AssessmentSummary[]>(`/assessments?course_id=${courseId}`) });
@@ -38,8 +42,9 @@ export function CompletionCard({ courseId }: { courseId: string }) {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   if (!certificates) return null;
   const certificate = certificates.find((c) => c.course_id === courseId);
-  // Both lists must be loaded: with attempts still loading, every assessment would look unpassed.
-  const assessmentsLeft = !!attempts && !!assessments?.some((a) => a.is_required && !attempts.some((t) => t.assessment_id === a.id && t.passed));
+  // Without a certificate, say nothing until both lists have loaded: either branch could be wrong before that.
+  if (!certificate && (!assessments || !attempts)) return null;
+  const assessmentsLeft = !!assessments?.some((a) => a.is_required && !attempts?.some((t) => t.assessment_id === a.id && t.passed));
 
   return (
     <div className="card mt-4 !p-4 text-sm">

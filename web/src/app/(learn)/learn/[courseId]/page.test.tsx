@@ -55,9 +55,9 @@ function route(r: Routes) {
   });
 }
 
-function renderPage() {
+function renderPage(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <LearnPage />
     </QueryClientProvider>,
   );
@@ -88,6 +88,20 @@ describe('lesson player states', () => {
     renderPage();
     expect(await screen.findByRole('button', { name: 'Retry' })).toBeTruthy();
     expect(screen.queryByText(/not enrolled/)).toBeNull();
+  });
+
+  it('a failed background refetch keeps a loaded player (no "not found", no waking-up)', async () => {
+    route({});
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPage(client);
+    expect(await screen.findByRole('button', { name: 'Start lesson 1' })).toBeTruthy();
+    route({ course: new ApiError(404, 'gone'), status: new ApiError(503, 'down') });
+    await client.refetchQueries();
+    await waitFor(() => expect(client.getQueryState(['course', 'c1'])?.status).toBe('error'));
+    await waitFor(() => expect(client.getQueryState(['enrollment-status', 'c1'])?.status).toBe('error'));
+    expect(screen.getByRole('button', { name: 'Start lesson 1' })).toBeTruthy();
+    expect(screen.queryByText('Course not found')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   });
 
   it('a successful non-active status is "not enrolled" with a link to the course', async () => {
@@ -205,6 +219,59 @@ describe('completion', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('stops asking at once when the certificates request fails', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      route({ progress: done });
+      const base = apiMock.getMockImplementation()!;
+      let failing = false;
+      apiMock.mockImplementation(async (path: string, ...rest: unknown[]) => {
+        if (path === '/me/certificates' && failing) throw new Error('outcomes down');
+        return base(path, ...rest);
+      });
+      const calls = () => apiMock.mock.calls.filter(([p]) => p === '/me/certificates').length;
+      renderPage();
+      expect(await screen.findByText('Your certificate is being prepared…')).toBeTruthy();
+      failing = true;
+      await vi.advanceTimersByTimeAsync(5100);
+      const afterFailure = calls();
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(calls()).toBe(afterFailure);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('polls for at most 2 minutes while no certificate comes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      route({ progress: done });
+      const calls = () => apiMock.mock.calls.filter(([p]) => p === '/me/certificates').length;
+      renderPage();
+      expect(await screen.findByText('Your certificate is being prepared…')).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(125_000);
+      const atLimit = calls();
+      expect(atLimit).toBeGreaterThan(20);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(calls()).toBe(atLimit);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says nothing about the certificate while the attempts are still loading', async () => {
+    route({ progress: done });
+    const base = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation(async (path: string, ...rest: unknown[]) =>
+      path.startsWith('/attempts') ? new Promise(() => undefined) : base(path, ...rest),
+    );
+    renderPage();
+    await waitFor(() => expect(apiMock.mock.calls.some(([p]) => p === '/me/certificates')).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Your certificate is being prepared…')).toBeNull();
+    expect(screen.queryByText(/Pass the remaining assessments/)).toBeNull();
   });
 
   it('a failed Download shows a message instead of throwing', async () => {

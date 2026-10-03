@@ -61,4 +61,14 @@ describe('<ResendVerification />', () => {
     expect(screen.getByRole('alert').textContent).toBe('Too many requests. Wait a minute and try again.');
     expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it('any other failure (a 404 while auth deploys, a 500) is the plain "try again" line, not the raw message', async () => {
+    render(<ResendVerification email="a@example.com" />);
+    apiMock.mockRejectedValueOnce(new ApiError(404, 'Cannot POST /api/v1/auth/resend-verification'));
+    await click();
+    expect(screen.getByRole('alert').textContent).toBe("Couldn't send right now. Try again in a minute.");
+    apiMock.mockRejectedValueOnce(new ApiError(500, 'Internal server error'));
+    await click();
+    expect(screen.getByRole('alert').textContent).toBe("Couldn't send right now. Try again in a minute.");
+  });
 });

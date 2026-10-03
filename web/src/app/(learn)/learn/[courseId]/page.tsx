@@ -211,7 +211,8 @@ function Player({ courseId }: { courseId: string }) {
   };
 
   // States, in order: course not found, course unreachable, loading, enrollment unreachable, not enrolled.
-  if (courseError instanceof ApiError && (courseError.status === 400 || courseError.status === 404)) {
+  // Only without data: a failed background refetch keeps the last good data, and must not unmount the player.
+  if (!course && courseError instanceof ApiError && (courseError.status === 400 || courseError.status === 404)) {
     return (
       <PageShell>
         <StateCard icon={<Compass className="h-5 w-5" aria-hidden />} title="Course not found" body="This course doesn't exist, or the link is wrong.">
@@ -222,9 +223,9 @@ function Player({ courseId }: { courseId: string }) {
       </PageShell>
     );
   }
-  if (courseError) return <WakingUp onRetry={refetchCourse} />;
+  if (!course && courseError) return <WakingUp onRetry={refetchCourse} />;
   // A sleeping enrollment service must never read as "not enrolled".
-  if (statusError) return <WakingUp onRetry={refetchStatus} />;
+  if (!status && statusError) return <WakingUp onRetry={refetchStatus} />;
   if (!course || !status) {
     return (
       <PageShell>

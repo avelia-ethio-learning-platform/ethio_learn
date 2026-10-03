@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ApiError, api } from '@/lib/api';
+import { ApiError, WakingError, api } from '@/lib/api';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 const COOLDOWN_SECONDS = 60;
@@ -35,7 +35,8 @@ export function ResendVerification({ email, startCooledDown = false, label = 'Re
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) setError('Enter a valid email address.');
       else if (err instanceof ApiError && err.status === 429) setError('Too many requests. Wait a minute and try again.');
-      else setError((err as Error).message);
+      else if (err instanceof WakingError) setError(err.message);
+      else setError("Couldn't send right now. Try again in a minute.");
     }
     setBusy(false);
   };

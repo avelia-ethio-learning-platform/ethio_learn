@@ -49,6 +49,12 @@ describe('catalog', () => {
     expect(screen.getByText(/Showing/).textContent).toBe('Showing 13–15 of 15 courses');
   });
 
+  it('past the last page there is no range, only "No courses on this page"', () => {
+    view({}, { page: 99, total: 10 });
+    expect(screen.getByText('No courses on this page')).toBeTruthy();
+    expect(screen.queryByText(/Showing/)).toBeNull();
+  });
+
   it('pills expose which filter is applied', () => {
     view({ category: 'tech' });
     expect(screen.getByRole('button', { name: 'Tech' }).getAttribute('aria-pressed')).toBe('true');

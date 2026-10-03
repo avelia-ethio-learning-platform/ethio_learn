@@ -248,9 +248,14 @@ export function ExploreClient({
         {/* Results meta + active filter chips */}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <p className="flex items-center gap-2 text-sm text-gray-500">
-            <span>
-              Showing <span className="font-semibold text-foreground">{from}–{to}</span> of {total} courses
-            </span>
+            {/* Past the last page (`?page=` typed by hand) there is no range to show. */}
+            {from > to ? (
+              <span>No courses on this page</span>
+            ) : (
+              <span>
+                Showing <span className="font-semibold text-foreground">{from}–{to}</span> of {total} courses
+              </span>
+            )}
             {isPending && <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />}
           </p>
           <Field label="Sort by">
