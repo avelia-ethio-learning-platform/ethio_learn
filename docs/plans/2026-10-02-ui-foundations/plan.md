@@ -227,7 +227,7 @@ Line numbers are from `fix/access-control` at `3de83c3`. Phase 5 edits some of t
 - [x] 2. Primitives: `components/form/Field.tsx`, `FormStatus.tsx`, `useFormStatus`, `lib/labels.ts`, `lib/format.ts`, `lib/use-dismiss.ts` (decisions 1–3, 7).
   - vitest: `Field` links its label and description ids; `FormStatus`: both regions exist before any status is set, and the text lands in the region for its tone; `statusLabel` on known and unknown values; `formatDate`/`formatETB` in en and am; `useDismiss` handles Escape (focus returns), outside click and a second overlay opening.
 - [x] 3. Global CSS and layout: `color-scheme`, `:focus-visible`, `select` option colours, `.badge-success`, `.input` placeholder; skip link and `<main id>`; `viewport.themeColor`, plus `ThemeProvider` meta sync (decisions 4–6). · vitest for the ThemeProvider meta sync.
-- [ ] 4. App-wide sweeps (decisions 3–6):
+- [x] 4. App-wide sweeps (decisions 3–6):
   - contrast classes;
   - small text;
   - dark-mode overrides and light-only panels;
@@ -238,23 +238,23 @@ Line numbers are from `fix/access-control` at `3de83c3`. Phase 5 edits some of t
   - fixed-dark surfaces: `text-white/80` instead of the gray scale.
 
   Verify with `grep -rnE "text-gray-(300|400)|text-red-500|text-\[1[01]px\]|dark:(text|bg)-gray-" web/src` → only the documented exceptions (decorative icons, the bell's count badge), each with a code comment.
-- [ ] 5. Overlays and header (decision 7, 9):
+- [x] 5. Overlays and header (decision 7, 9):
   - ThemeToggle, NotificationBell (mobile panel), mobile menu focus handling;
   - Header labels and links;
   - remove the `whileTap` wrappers.
 
   vitest: Escape closes each and focus returns; `aria-expanded` toggles; opening the bell closes the theme menu.
-- [ ] 6. Motion (decision 8): `MotionConfig`, a static nav, the hero's CSS entrance, loops deleted, stars deleted. · Verify: `curl -s localhost:3000/ | grep -c 'opacity:0'` before and after, and no nav or hero element among the remaining hits.
-- [ ] 7. Forms and messages on public, learner and account pages (decisions 1, 2):
+- [x] 6. Motion (decision 8): `MotionConfig`, a static nav, the hero's CSS entrance, loops deleted, stars deleted. · Verify: `curl -s localhost:3000/ | grep -c 'opacity:0'` before and after, and no nav or hero element among the remaining hits.
+- [x] 7. Forms and messages on public, learner and account pages (decisions 1, 2):
   - **`Field` and `FormStatus` on:** login, signup, reset-password, accept-invite, help, account, account/password, verify-email, enroll-panel, dashboard, assessments-panel, exam, messages, CommentsSection;
   - **search inputs** get `aria-label`;
   - **icon-only buttons** get names ("Remove option 2" style);
   - **`StatusBadge`** goes through `labels.ts`.
 
   vitest: one test per form family (auth, account, enroll), asserting `getByLabelText` and an error announced with `role="alert"`.
-- [ ] 8. `RequireRole` and the Footer (decision 9). `next build` still passes with no new Suspense boundaries. · vitest: signed-out `RequireRole` links to `/login?next=%2Flearn%2Fabc`; wrong role shows the h1 and the role-home link; footer columns for signed-out, learner and educator.
-- [ ] 9. Metadata and icons (decisions 10, 11): route layouts, OG image, twitter card, icon routes, `app/manifest.ts`, `/favicon.ico` rewrite; delete `public/manifest.webmanifest`, and delete the `manifest` and `icons` fields from the root metadata (Next adds both from the file conventions). · Verify that `next build` lists `/opengraph-image`, `/icon/*`, `/apple-icon` and `/manifest.webmanifest`, and that `curl -I` on each returns 200 with an image or manifest content type.
-- [ ] 10. Playwright:
+- [x] 8. `RequireRole` and the Footer (decision 9). `next build` still passes with no new Suspense boundaries. · vitest: signed-out `RequireRole` links to `/login?next=%2Flearn%2Fabc`; wrong role shows the h1 and the role-home link; footer columns for signed-out, learner and educator.
+- [x] 9. Metadata and icons (decisions 10, 11): route layouts, OG image, twitter card, icon routes, `app/manifest.ts`, `/favicon.ico` rewrite; delete `public/manifest.webmanifest`, and delete the `manifest` and `icons` fields from the root metadata (Next adds both from the file conventions). · Verify that `next build` lists `/opengraph-image`, `/icon/*`, `/apple-icon` and `/manifest.webmanifest`, and that `curl -I` on each returns 200 with an image or manifest content type.
+- [x] 10. Playwright:
   - `a11y.spec.ts` (decision 12);
   - a titles-and-robots spec: each listed route has a non-default `<title>` and exactly one robots meta, with noindex where listed; a course without a thumbnail has an `og:image`;
   - a keyboard spec:
@@ -262,7 +262,7 @@ Line numbers are from `fix/access-control` at `3de83c3`. Phase 5 edits some of t
     - the mobile menu at 375 px opens, closes on Escape, and focus returns to the burger;
     - the bell panel at 375 px stays within the viewport;
   - a reduced-motion spec: with `reducedMotion: 'reduce'`, the hero h1's computed opacity is 1 at first paint.
-- [ ] 11. Screenshots:
+- [x] 11. Screenshots:
   - before/after of every touched public, learner and account page at 375 and 1440, light and dark;
   - the editor's file pickers with keyboard focus;
 
@@ -302,16 +302,28 @@ Phase 8 then applies the 7a primitives to role pages.
 
 Implemented by ethio-planner in the worktree `/home/kal/Documents/code/ethi0-web` (see handoff → Branch → Parallel run), task by task with a fresh subagent per step and a task review after each. The ledger is `.superpowers/sdd/plan/progress.md` (git-ignored scratch in the worktree).
 
-Commits: `9f24b1a` plan folder (step 1); `77f9f89` primitives (step 2); `404e302` skip link, focus ring, themed native controls, theme-color (step 3).
+Commits: `9f24b1a` plan folder (step 1); `77f9f89` primitives (step 2); `404e302` skip link, focus ring, themed native controls, theme-color (step 3). Step 4 `feb1bf3..b6a064d`; step 5 `1030b10..de63a8d`; step 6 `8ee22d0..063337e`; step 7 `9c06437..1cd3907`; step 8 `04417ab`, `6caede9`; step 9 `72962ec`, `6d692b4`; step 10 `ab6b459`, `c395500`, `c7113d7`; step 11 screenshots only (git-ignored, `docs/plans/2026-10-02-refinement-audit/screenshots/after-phase7a/` in the shared tree, with an `index.md`).
 
 Deviations and notes (none changes a decision):
 - **Step 2:** `pricingLabel` copy is Free / Free preview / Paid. `statusLabel` tones copy `STATUS_STYLE` exactly, so step 7's `StatusBadge` swap is drop-in.
 - **Step 2 → 4 (ruling):** `format.ts` gets a fixed `timeZone: 'Africa/Addis_Ababa'`, applied in step 4 before the 22 date sites move. Without it, server (UTC) and client renders differ, causing hydration mismatches and off-by-one dates. The audience is Ethiopia-first.
 - **Step 3:** also sets `.badge-danger` light text `#b91c1c` (decision 4, round-1 B1). The Amharic `skip_to_content` ("ወደ ዋናው ይዘት ዝለል") is best-effort and needs native review.
 - **Step 4 (ruling):** the date and ETB sweep covers role pages too, per decision 3.
+- **Step 5:** `useDismiss` gained an optional `closeOnOtherOpen` (default true; false for the mobile menu, which hosts the theme menu), and an open-overlay stack, so Escape closes only the innermost overlay. `.btn` links rely on `.btn`'s own hover and active transform instead of scale utilities. New keys `quality_review`, `educators` (Amharic best-effort, native review).
+- **Step 6:** the theme and language toggles lost their framer icon-swap entrance (it left `opacity:0` in the nav's server HTML). `opacity:0` hits on `/` went from 57 to 38, all below-the-fold `whileInView` reveals, including the final CTA band (Phase 10 decides framer's future).
+- **Step 7:** `StatusBadge` text is now sentence case ("Under review"). Pages with several forms carry one status and alert pair per form. Pages that can show `<WakingUp>` render `FormStatus` only after the data loads, so `cold-start.spec`'s strict `role="status"` still matches exactly one element.
+- **Step 8:** the footer's Learn column no longer has "My dashboard" or "Certificates". Signed-in users get their role home and Account. New keys `gate_login_title`, `gate_login_body`, `gate_denied_title`, `gate_denied_body`, `footer_made_with`, `footer_for_ethiopia`, `back_to_top` (Amharic best-effort). Phase 5's three wrong-role assertions moved to the new h1 in the same commit (drift D1).
+- **Step 9:** 28 route layouts. The course page falls back to `/opengraph-image` without a thumbnail, covered by a vitest test on `generateMetadata`, since the seed has no thumbnail-less course.
+- **Step 10:** 72/72 in the full suite. The first run found a real contrast failure: unread notification text on its tint, now `text-gray-600`. No axe waivers. The `/login` wrong-password scan stubs the login (drift D5), so the suite spends no extra auth-strict calls.
+- **Step 11:** the outline picker and the assessment upload weren't shot: the outline card is collapsed and the upload doesn't render on the sample course. 768 px and the role dashboards weren't shot either.
 
-### In flight / next step (checkpoint 2026-10-03)
-- Steps 1–3 are done and task-reviewed (clean). Vitest: 33 files, 386 tests. Typecheck and `next build` pass.
-- **Next:** step 4 (app-wide sweeps) from `404e302`. It isn't dispatched yet; the ledger has the rulings to carry.
-- Playwright (step 10) and screenshots (step 11) need a stack window from ethio-impl. Dark "before" shots come from a build of `4b4a64c` in a temp worktree on :3201, because `after-phase5/` is light only.
+### In flight / next step (tenth checkpoint, 2026-10-03)
+- Steps 1–11 are done and task-reviewed. Step 10's fix round 1 (`c7113d7`) has a scoped re-review dispatched; if the ledger has no "Task 10: complete" line, read its result or re-dispatch the re-review on `c395500..c7113d7`.
+- **Next:**
+  1. The final whole-branch review on the most capable model (`4b4a64c..HEAD`), pointed at the ledger's deferred minors. Several are marked LIKELY FIX: the assessment non-pass shown in success green, `roleLabel` on accept-invite, the null guard in reduced-motion.
+  2. One fix wave and one scoped re-review.
+  3. Step 12's gate: typecheck, vitest and build, then the full Playwright suite in a stack window from ethio-impl (ask first, about 15 minutes).
+  4. Code review by ethio-plan-review (size M).
+  5. Push, PR and merge under the user's standing authorization in `~/.claude/CLAUDE.md`, once CI is green and the review is APPROVED.
+- After the merge: show the user the before/after screenshots (`after-phase7a/index.md`), and send 7b's handoff.
 
