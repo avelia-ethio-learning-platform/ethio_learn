@@ -44,7 +44,7 @@ export function outboxSize(): number {
   return typeof window === 'undefined' ? 0 : read().length;
 }
 
-function isNetworkError(err: unknown): boolean {
+export function isNetworkError(err: unknown): boolean {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
   if (err instanceof WakingError) return true; // unreachable or asleep: keep the write for later
   const msg = (err as Error)?.message ?? '';

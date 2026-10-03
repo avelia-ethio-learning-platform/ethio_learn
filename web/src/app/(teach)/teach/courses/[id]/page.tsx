@@ -439,8 +439,8 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
           pool_size: poolSize || undefined,
           proctored,
         };
-      } else if (type === 'ai_viva') config = { topic_context: vivaTopic };
-      else config = { instructions: projectInstr };
+      } else if (type === 'ai_viva') config = { topic_context: vivaTopic, max_attempts: maxAttempts, cooldown_minutes: cooldown };
+      else config = { instructions: projectInstr, max_attempts: maxAttempts, cooldown_minutes: cooldown };
       const saved = await api<{ state?: string }>('/assessments', { method: 'POST', body: { course_id: courseId, type, pass_score: passScore, is_required: true, config } });
       setQuestions([]); setTopic(''); setVivaTopic(''); setProjectInstr('');
       setOk(
@@ -524,12 +524,6 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
             <button className="btn-ghost btn-sm text-brand-600" onClick={() => setQuestions((qs) => [...qs, { prompt: '', options: ['', ''], correct_index: 0 }])}>+ Add question manually</button>
             <div className="glass-secondary grid gap-2 rounded-xl p-3 text-xs sm:grid-cols-3">
               <p className="font-semibold text-foreground sm:col-span-3">Integrity settings (enforced on the server)</p>
-              <Field label="Max attempts">
-                {(ids) => <input {...ids} type="number" min={1} max={20} className="input" value={maxAttempts} onChange={(e) => setMaxAttempts(+e.target.value)} />}
-              </Field>
-              <Field label="Cooldown between attempts (min)">
-                {(ids) => <input {...ids} type="number" min={0} className="input" value={cooldown} onChange={(e) => setCooldown(+e.target.value)} />}
-              </Field>
               <Field label="Time limit (min, blank = none)">
                 {(ids) => <input {...ids} type="number" min={1} max={240} className="input" value={timeLimit} onChange={(e) => setTimeLimit(e.target.value ? +e.target.value : '')} />}
               </Field>
@@ -553,6 +547,15 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
           </Field>
         )}
 
+        <div className="glass-secondary grid gap-2 rounded-xl p-3 text-xs sm:grid-cols-3">
+          <p className="font-semibold text-foreground sm:col-span-3">Attempt limits (enforced on the server)</p>
+          <Field label="Max attempts">
+            {(ids) => <input {...ids} type="number" min={1} max={20} className="input" value={maxAttempts} onChange={(e) => setMaxAttempts(+e.target.value)} />}
+          </Field>
+          <Field label="Cooldown between attempts (min)">
+            {(ids) => <input {...ids} type="number" min={0} className="input" value={cooldown} onChange={(e) => setCooldown(+e.target.value)} />}
+          </Field>
+        </div>
         <FormStatus status={status} />
         {live && !locked && <p className="text-xs text-gray-500">New assessments on a live course are reviewed with your other changes before learners see them.</p>}
         <button className="btn" disabled={busy || locked} onClick={save} title={locked ? 'Editing is locked while your course or changes are in review' : undefined}>Save assessment</button>

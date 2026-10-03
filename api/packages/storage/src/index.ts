@@ -2,6 +2,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   ListPartsCommand,
@@ -59,6 +60,8 @@ export interface StorageProvider {
   abortMultipartUpload(key: string, uploadId: string): Promise<void>;
   /** Size and type of a stored object, or null when it does not exist. */
   headObject(key: string): Promise<StoredObjectInfo | null>;
+  /** Idempotent: an object that is already gone counts as deleted. */
+  deleteObject(key: string): Promise<void>;
 }
 
 /** True when the backend says the multipart upload id no longer exists (completed, aborted or expired). */
@@ -198,6 +201,14 @@ export class S3StorageProvider implements StorageProvider {
     } catch (err) {
       if (isNotFound(err)) return null;
       throw err;
+    }
+  }
+
+  async deleteObject(key: string): Promise<void> {
+    try {
+      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
     }
   }
 }

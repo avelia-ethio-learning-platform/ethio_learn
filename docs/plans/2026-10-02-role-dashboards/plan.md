@@ -437,7 +437,14 @@ None. Leaving reuses the existing `removed` status and `status_reason`.
 
 ### 8a
 
-Steps 2, 3, 4 and 7 are done, and the 8a parts of step 9 are written (the `/admin` a11y entries, the `admin.spec.ts` rewrite, the institution leave step). Steps 10 and 11 are not ticked: the gate (full Playwright suite, `scripts/e2e-institution.mjs`, web and api build/test) runs in a stack window. The final review's fix wave (refund copy, reason hint, `q` array guard, picker focus, wallet reset, payments refresh) is applied.
+Steps 2, 3, 4 and 7 are done, and so are the 8a parts of steps 9, 10 and 11 (8b runs its own). The final review's fix wave is applied (refund copy, reason hint, `q` array guard, picker focus, wallet reset, payments refresh).
+
+Gate (ethio-planner, 2026-10-03, at `eec6fb0`, on a fresh `el_8a_e2e` with `api/.env.example` values):
+- api build, typecheck and test (65 suites, 1143 passed, 1 skipped); `db:check`: no drift;
+- `demo-seed`, `e2e-revisions`, `e2e-institution` (with the leave step: leave → removed, the reason, the next course independent, leaving again 404, not-yours 404), `e2e-payments` and `e2e-security`: all pass;
+- web typecheck, test (72 files, 616 passed) and build;
+- Playwright: 103 of 106 on the first run. The fixes: `titles-and-robots` now expects "Institutions" (`19dc809`), and the `Bars` value labels lost `dark:text-gray-400`, which failed dark-mode contrast (`eec6fb0`). The two a11y timeouts (public pages; light admin) pass on rerun, 7/7 and 6/6. The paging test ran, because the e2e scripts brought the users to 21.
+- Screenshots: 34 at 375 and 1440 (light; dark for admin), plus the suspend dialog, in `screenshots/after-phase8a/`.
 
 Deviations and controller rulings:
 - `holdReasonLabel` added to `labels.ts` for the release dialog.
@@ -445,7 +452,7 @@ Deviations and controller rulings:
 - The refund reason `maxLength` is 500 (the DTO allows 1000).
 - The gateway already routes `profiles/me/*` to auth with the leave POST in the `write` bucket: no `routes.ts` or `rate-policy.ts` change.
 - Users row buttons use `aria-disabled` plus a busy guard instead of `disabled`, so focus stays on the button. After a real suspend the row swaps to Reactivate, so focus drops there anyway.
-- The `admin.spec.ts` paging test skips on a fresh seed of 5 users; the vitest paging and `Pager` tests carry it.
+- The `admin.spec.ts` paging test skips when the seed has 20 users or fewer (a bare seed has 5); after the e2e scripts it runs.
 - `Bars` draws compact visible values (a 375 px overflow finding).
 - The `e2e-institution.mjs` step reactivates the membership before leaving.
 - `course.service.ts` create still says "price_etb is required for paid courses"; reachable only from `/teach/new`, folded into 8b step 5.

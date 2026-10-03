@@ -244,7 +244,8 @@ function buildSections(spec, videoKey) {
     lessons: lessonTitles.map((lt, li) => ({
       title: lt,
       duration_seconds: 240 + ((si * 3 + li) % 5) * 90, // 4–10 min, varied
-      ...(videoKey ? { video_s3_key: videoKey } : {}),
+      // A short measured length, so the seeded learner can honestly watch it through (see the completion loop).
+      ...(videoKey ? { video_s3_key: videoKey, video_duration_seconds: 2 } : {}),
     })),
   }));
 }
@@ -357,8 +358,19 @@ async function main() {
   if (freeCourse) {
     await call('/enrollments', { method: 'POST', token: learner, body: { course_id: freeCourse.id } });
     const detail = await call(`/courses/${freeCourse.id}`);
-    const lessonIds = detail.sections.flatMap((s) => s.lessons.map((l) => l.id));
-    for (const lessonId of lessonIds) await call(`/progress/lessons/${lessonId}/complete`, { method: 'POST', token: learner });
+    const lessons = detail.sections.flatMap((s) => s.lessons);
+    const lessonIds = lessons.map((l) => l.id);
+    // A video lesson completes only by watching: a heartbeat at the start, a pause, then one at the end.
+    const videoLessons = lessons.filter((l) => l.has_video);
+    const beat = (lessonId, position_seconds) =>
+      call(`/progress/lessons/${lessonId}/video`, { method: 'POST', token: learner, body: { position_seconds, duration_seconds: 2 } });
+    for (const l of videoLessons) await beat(l.id, 0);
+    if (videoLessons.length) await sleep(1000);
+    for (const l of videoLessons) {
+      const done = await beat(l.id, 2);
+      if (done.completed !== true) throw new Error(`watching "${l.title}" through did not complete it: ${JSON.stringify(done)}`);
+    }
+    for (const l of lessons.filter((x) => !x.has_video)) await call(`/progress/lessons/${l.id}/complete`, { method: 'POST', token: learner });
     console.log(`→ learner completed "${freeCourse.title}" (${lessonIds.length} lessons) → certificate issued`);
   }
 

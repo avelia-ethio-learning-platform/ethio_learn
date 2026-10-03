@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
+import { QueryFailedError } from 'typeorm';
 import { EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { EnrollmentService } from './enrollment.service';
 
@@ -13,7 +14,16 @@ interface Options {
   pricingType?: string;
   /** `live` flag of the internal lesson; undefined = a course service that predates staged revisions. */
   lessonLive?: boolean;
+  /** `has_video` of the internal lesson; undefined = the field is absent (a course service that predates it). */
+  hasVideo?: boolean;
+  /** Measured `video_duration_seconds` of the internal lesson (null = not measured). */
+  videoDuration?: number | null;
+  /** The editor's "minutes" estimate on the lesson; never a completion requirement. */
+  lessonDuration?: number;
 }
+
+/** A start time `seconds` ago. */
+const ago = (seconds: number) => new Date(Date.now() - seconds * 1000);
 
 function setup(opts: Options = {}) {
   const enrollmentRow =
@@ -56,7 +66,14 @@ function setup(opts: Options = {}) {
   const internal = {
     get: jest.fn(async (path: string) => {
       if (path.includes('/lesson-ids')) return { lesson_ids: opts.lessonIds ?? ['l1', 'l2'] };
-      if (path.startsWith('/api/v1/internal/lessons/')) return { course_id: 'c1', live: opts.lessonLive };
+      if (path.startsWith('/api/v1/internal/lessons/')) {
+        return {
+          course_id: 'c1',
+          live: opts.lessonLive,
+          ...(opts.hasVideo === undefined ? {} : { has_video: opts.hasVideo, video_duration_seconds: opts.videoDuration ?? null }),
+          ...(opts.lessonDuration === undefined ? {} : { duration_seconds: opts.lessonDuration }),
+        };
+      }
       if (path.startsWith('/api/v1/internal/courses/')) {
         return {
           id: 'c1',
@@ -85,7 +102,7 @@ describe('EnrollmentService.saveVideoProgress', () => {
   it('stores the position and percent for a first heartbeat', async () => {
     const { service } = setup();
     const result = await service.saveVideoProgress(ctx, 'l1', 42, 120);
-    expect(result).toEqual({ lesson_id: 'l1', position_seconds: 42, duration_seconds: 120, percent_watched: 35 });
+    expect(result).toEqual({ lesson_id: 'l1', position_seconds: 42, duration_seconds: 120, percent_watched: 35, completed: false });
   });
 
   it('keeps percent_watched as a high-water mark while the resume point follows rewinds', async () => {
@@ -98,20 +115,30 @@ describe('EnrollmentService.saveVideoProgress', () => {
     expect(result.percent_watched).toBe(83);
   });
 
-  it('auto-completes the lesson at ≥90% watched', async () => {
-    const { service, progress } = setup();
-    await service.saveVideoProgress(ctx, 'l1', 110, 120); // 92%
+  it('auto-completes the lesson at ≥90% watched once enough time has passed', async () => {
+    const { service, progress } = setup({
+      existingVideoRow: { enrollment_id: 'e1', lesson_id: 'l1', position_seconds: 100, duration_seconds: 120, percent_watched: 83, started_at: ago(110) },
+    });
+    const result = await service.saveVideoProgress(ctx, 'l1', 110, 120); // 92%
     expect(progress.save).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: 'l1', enrollment_id: 'e1' }));
+    expect(result.completed).toBe(true);
   });
 
   it('does not complete the lesson below 90%', async () => {
-    const { service, progress } = setup();
-    await service.saveVideoProgress(ctx, 'l1', 60, 120); // 50%
+    const { service, progress } = setup({
+      existingVideoRow: { enrollment_id: 'e1', lesson_id: 'l1', position_seconds: 0, duration_seconds: 120, percent_watched: 0, started_at: ago(3600) },
+    });
+    const result = await service.saveVideoProgress(ctx, 'l1', 60, 120); // 50%
     expect(progress.save).not.toHaveBeenCalled();
+    expect(result.completed).toBe(false);
   });
 
   it('publishes CourseCompleted when the auto-completed lesson was the last one', async () => {
-    const { service, bus } = setup({ lessonIds: ['l1'], completedCount: 1 });
+    const { service, bus } = setup({
+      lessonIds: ['l1'],
+      completedCount: 1,
+      existingVideoRow: { enrollment_id: 'e1', lesson_id: 'l1', position_seconds: 100, duration_seconds: 120, percent_watched: 83, started_at: ago(110) },
+    });
     await service.saveVideoProgress(ctx, 'l1', 119, 120);
     expect(bus.publish).toHaveBeenCalledWith('CourseCompleted', expect.objectContaining({ enrollment_id: 'e1' }));
   });
@@ -128,6 +155,249 @@ describe('EnrollmentService.saveVideoProgress', () => {
     const { service } = setup();
     const result = await service.saveVideoProgress(ctx, 'l1', 10, 0);
     expect(result.percent_watched).toBe(0);
+  });
+});
+
+describe('EnrollmentService: the video completion rule', () => {
+  const NOW = new Date('2026-10-03T12:00:00.000Z').getTime();
+  const FINISH = 'Finish watching this lesson to complete it.';
+  /** An in-progress row on a 120 s video. */
+  const watching = (patch: Record<string, unknown> = {}) => ({
+    enrollment_id: 'e1',
+    lesson_id: 'l1',
+    position_seconds: 0,
+    duration_seconds: 120,
+    percent_watched: 0,
+    ...patch,
+  });
+  /** The error a call rejects with; fails the test if it resolves. */
+  const refusal = (promise: Promise<unknown>) =>
+    promise.then(
+      () => {
+        throw new Error('expected a 409');
+      },
+      (e: unknown) => e,
+    );
+
+  afterEach(() => jest.useRealTimers());
+
+  describe('heartbeats', () => {
+    it('records an early 100% claim right after the first heartbeat without completing the lesson', async () => {
+      const { service, progress, videoRows } = setup({ hasVideo: true });
+      const result = await service.saveVideoProgress(ctx, 'l1', 120, 120);
+      expect(result).toEqual(expect.objectContaining({ position_seconds: 120, percent_watched: 100, completed: false }));
+      expect(progress.save).not.toHaveBeenCalled();
+      // The first heartbeat starts the clock.
+      expect(videoRows[0].started_at).toBeInstanceOf(Date);
+      expect(Date.now() - (videoRows[0].started_at as Date).getTime()).toBeLessThan(1000);
+    });
+
+    it('completes at 90% once 45% of the required length has passed since the start', async () => {
+      // 120 s required: 54 s must have passed.
+      const { service, progress } = setup({ hasVideo: true, existingVideoRow: watching({ started_at: ago(54) }) });
+      const result = await service.saveVideoProgress(ctx, 'l1', 108, 120); // 90%
+      expect(result.completed).toBe(true);
+      expect(progress.save).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: 'l1', enrollment_id: 'e1' }));
+    });
+
+    it('does not complete at 90% just before 45% of the length has passed', async () => {
+      const { service, progress } = setup({ hasVideo: true, existingVideoRow: watching({ started_at: ago(53) }) });
+      const result = await service.saveVideoProgress(ctx, 'l1', 108, 120);
+      expect(result.completed).toBe(false);
+      expect(progress.save).not.toHaveBeenCalled();
+    });
+
+    it('never moves started_at forward once it is set', async () => {
+      const started = ago(30);
+      const { service, videoRows } = setup({ hasVideo: true, existingVideoRow: watching({ started_at: started }) });
+      await service.saveVideoProgress(ctx, 'l1', 40, 120);
+      expect(videoRows[0].started_at).toBe(started);
+    });
+
+    it('measures percent against the measured duration, not a smaller client duration', async () => {
+      // The client reports a 100 s video; the measured length is 300 s.
+      const { service, progress } = setup({
+        hasVideo: true,
+        videoDuration: 300,
+        existingVideoRow: watching({ duration_seconds: 0, started_at: ago(3600) }),
+      });
+      const result = await service.saveVideoProgress(ctx, 'l1', 100, 100);
+      expect(result.percent_watched).toBe(33);
+      expect(result.completed).toBe(false);
+      expect(progress.save).not.toHaveBeenCalled();
+    });
+
+    it("never uses the editor's minutes estimate as the requirement", async () => {
+      // The editor typed 5 minutes; the measured video is 250 s, so its end is 100%.
+      const { service, progress } = setup({
+        hasVideo: true,
+        lessonDuration: 300,
+        videoDuration: 250,
+        existingVideoRow: watching({ duration_seconds: 250, started_at: ago(113) }),
+      });
+      const result = await service.saveVideoProgress(ctx, 'l1', 250, 250);
+      expect(result.percent_watched).toBe(100);
+      expect(result.completed).toBe(true);
+      expect(progress.save).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: 'l1' }));
+    });
+
+    it('clamps the position to the required length plus 5 s', async () => {
+      const { service, videoRows } = setup({ hasVideo: true, existingVideoRow: watching({ started_at: ago(10) }) });
+      const result = await service.saveVideoProgress(ctx, 'l1', 100_000, 120);
+      expect(result.position_seconds).toBe(125);
+      expect(result.percent_watched).toBe(100);
+      expect(videoRows[0].position_seconds).toBe(125);
+    });
+
+    it('lets an in-progress row with a backfilled started_at complete on its next 90% heartbeat', async () => {
+      // The migration backfills started_at to one lesson length before the last heartbeat.
+      const lastHeartbeat = ago(20);
+      const backfilled = new Date(lastHeartbeat.getTime() - 120 * 1000);
+      const { service, progress } = setup({
+        hasVideo: true,
+        existingVideoRow: watching({ position_seconds: 96, percent_watched: 80, started_at: backfilled, updated_at: lastHeartbeat }),
+      });
+      const result = await service.saveVideoProgress(ctx, 'l1', 110, 120);
+      expect(result.completed).toBe(true);
+      expect(progress.save).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: 'l1' }));
+    });
+
+    it('restarts the clock after a replaced video reset started_at, so an early 90% claim does not complete', async () => {
+      // The row as onRevisionApplied leaves it.
+      const { service, progress, videoRows } = setup({
+        hasVideo: true,
+        existingVideoRow: watching({ duration_seconds: 0, started_at: null }),
+      });
+      const result = await service.saveVideoProgress(ctx, 'l1', 110, 120);
+      expect(result.completed).toBe(false);
+      expect(progress.save).not.toHaveBeenCalled();
+      expect(Date.now() - (videoRows[0].started_at as Date).getTime()).toBeLessThan(1000);
+    });
+
+    it('applies a first heartbeat that lost the insert race to the row the winner created', async () => {
+      // pause, ended and /complete can all find no row and insert at once; the unique constraint keeps one.
+      const winner = watching({ id: 'vp1', position_seconds: 60, percent_watched: 50, started_at: ago(70) });
+      const { service, videoProgress, videoRows, progress } = setup({ hasVideo: true });
+      videoProgress.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(winner);
+      videoProgress.save.mockRejectedValueOnce(
+        new QueryFailedError('INSERT INTO video_progress', [], Object.assign(new Error('duplicate key'), { code: '23505' })),
+      );
+      const result = await service.saveVideoProgress(ctx, 'l1', 110, 120); // 92%, 70 s after the winner's start
+      expect(videoProgress.findOne).toHaveBeenCalledTimes(2);
+      expect(videoProgress.save).toHaveBeenCalledTimes(2);
+      expect(videoRows).toEqual([winner]);
+      expect(winner).toEqual(expect.objectContaining({ position_seconds: 110, percent_watched: 92 }));
+      expect(result).toEqual(expect.objectContaining({ position_seconds: 110, percent_watched: 92, completed: true }));
+      expect(progress.save).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: 'l1', enrollment_id: 'e1' }));
+    });
+
+    it('reports completed for a lesson completed earlier, even below 90%', async () => {
+      const { service, progress } = setup({ hasVideo: true });
+      progress.findOne.mockResolvedValue({ enrollment_id: 'e1', lesson_id: 'l1', completed_at: new Date() });
+      const result = await service.saveVideoProgress(ctx, 'l1', 10, 120);
+      expect(result.completed).toBe(true);
+      expect(progress.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('/complete', () => {
+    it('refuses a video lesson without enough watching, then completes it with the final position after enough time', async () => {
+      const { service, progress, videoRows } = setup({
+        hasVideo: true,
+        videoDuration: 120,
+        existingVideoRow: watching({ position_seconds: 100, percent_watched: 83, started_at: ago(60) }),
+      });
+      const err = await refusal(service.completeLesson(ctx, 'l1'));
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toEqual({ statusCode: 409, message: FINISH });
+      expect(progress.save).not.toHaveBeenCalled();
+
+      const result = await service.completeLesson(ctx, 'l1', 118);
+      expect(videoRows[videoRows.length - 1]).toEqual(expect.objectContaining({ position_seconds: 118, percent_watched: 98 }));
+      expect(progress.save).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: 'l1', enrollment_id: 'e1' }));
+      expect(result).toEqual(expect.objectContaining({ enrollment_id: 'e1' }));
+    });
+
+    it('answers 409 with retry_after_seconds, rounded up, when only the elapsed time is missing', async () => {
+      jest.useFakeTimers({ now: NOW });
+      // 120 s required: 54 s must pass; 20.7 s have, so 33.3 s are left.
+      const { service, progress } = setup({
+        hasVideo: true,
+        videoDuration: 120,
+        existingVideoRow: watching({ started_at: new Date(NOW - 20_700) }),
+      });
+      const err = await refusal(service.completeLesson(ctx, 'l1', 120));
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toEqual({ statusCode: 409, message: FINISH, retry_after_seconds: 34 });
+      expect(progress.save).not.toHaveBeenCalled();
+    });
+
+    it('never asks to wait less than one whole second', async () => {
+      jest.useFakeTimers({ now: NOW });
+      const { service } = setup({
+        hasVideo: true,
+        videoDuration: 120,
+        existingVideoRow: watching({ percent_watched: 95, started_at: new Date(NOW - 53_900) }),
+      });
+      const err = await refusal(service.completeLesson(ctx, 'l1'));
+      expect((err as ConflictException).getResponse()).toEqual({ statusCode: 409, message: FINISH, retry_after_seconds: 1 });
+    });
+
+    it('refuses a video lesson with no known length, without retry_after_seconds', async () => {
+      // No measured duration and no heartbeat yet: a claimed final position proves nothing.
+      const { service, progress } = setup({ hasVideo: true, videoDuration: null });
+      const err = await refusal(service.completeLesson(ctx, 'l1', 500));
+      expect((err as ConflictException).getResponse()).toEqual({ statusCode: 409, message: FINISH });
+      expect(progress.save).not.toHaveBeenCalled();
+    });
+
+    it('never meets the time check with a null started_at', async () => {
+      const { service, progress } = setup({
+        hasVideo: true,
+        videoDuration: 120,
+        existingVideoRow: watching({ position_seconds: 115, percent_watched: 95, started_at: null }),
+      });
+      const err = await refusal(service.completeLesson(ctx, 'l1'));
+      expect((err as ConflictException).getResponse()).toEqual({ statusCode: 409, message: FINISH });
+      expect(progress.save).not.toHaveBeenCalled();
+    });
+
+    it('stays idempotent for a video lesson completed earlier', async () => {
+      const { service, progress } = setup({ hasVideo: true, videoDuration: 120 });
+      progress.findOne.mockResolvedValue({ enrollment_id: 'e1', lesson_id: 'l1', completed_at: new Date() });
+      await expect(service.completeLesson(ctx, 'l1')).resolves.toEqual(expect.objectContaining({ enrollment_id: 'e1' }));
+      expect(progress.save).not.toHaveBeenCalled();
+    });
+
+    it('completes a lesson without video as before, ignoring the position', async () => {
+      const { service, progress, videoProgress } = setup({ hasVideo: false });
+      await service.completeLesson(ctx, 'l1', 5);
+      expect(progress.save).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: 'l1', enrollment_id: 'e1' }));
+      expect(videoProgress.save).not.toHaveBeenCalled();
+    });
+
+    it('treats a lesson as one without video when the course service sends no has_video', async () => {
+      const { service, progress } = setup(); // an older course service: no has_video in the response
+      await service.completeLesson(ctx, 'l1');
+      expect(progress.save).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: 'l1', enrollment_id: 'e1' }));
+    });
+  });
+
+  it('logs each refused completion with the lesson, the required length and the elapsed time, never the email', async () => {
+    jest.useFakeTimers({ now: NOW });
+    const log = jest.spyOn(Logger.prototype, 'log');
+    const { service } = setup({ hasVideo: true, videoDuration: 120, existingVideoRow: watching({ started_at: new Date(NOW - 20_000) }) });
+    await service.saveVideoProgress(ctx, 'l1', 110, 120); // 92% too early
+    await refusal(service.completeLesson(ctx, 'l1'));
+    const lines = log.mock.calls.map(([line]) => String(line)).filter((line) => line.includes('refused'));
+    log.mockRestore();
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line).toMatch(/lesson l1\b/);
+      expect(line).toMatch(/required 120s/);
+      expect(line).toMatch(/elapsed 20s/);
+      expect(line).not.toContain('l@e.et');
+    }
   });
 });
 
@@ -346,7 +616,8 @@ describe('EnrollmentService: CourseRevisionClosed', () => {
     expect(t.videoProgress.update).toHaveBeenCalledTimes(1);
     const [criteria, patch] = t.videoProgress.update.mock.calls[0];
     expect(criteria.lesson_id.value).toEqual(['l1', 'l2']);
-    expect(patch).toEqual(expect.objectContaining({ position_seconds: 0, duration_seconds: 0, percent_watched: 0 }));
+    // started_at null restarts the time check for the new video (now() would let a late return complete at once).
+    expect(patch).toEqual(expect.objectContaining({ position_seconds: 0, duration_seconds: 0, percent_watched: 0, started_at: null }));
     expect(t.progress.delete).not.toHaveBeenCalled();
     expect(t.progress.save).not.toHaveBeenCalled();
   });

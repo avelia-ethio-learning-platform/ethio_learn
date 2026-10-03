@@ -38,11 +38,12 @@ export class Assessment {
 }
 
 @Entity({ name: 'assessment_attempts' })
+// Per-learner attempt count and cooldown lookups; its prefix also serves assessment_id alone.
+@Index('IDX_assessment_attempts_lookup', ['assessment_id', 'learner_id', 'submitted_at'])
 export class AssessmentAttempt {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index()
   @Column('uuid')
   assessment_id: string;
 

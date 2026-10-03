@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ClipboardCheck, FileUp, Mic, Play } from 'lucide-react';
 import { api } from '@/lib/api';
-import { formatBytes, putFile, type UploadState } from '@/lib/upload';
+import { putFile, type UploadState } from '@/lib/upload';
 import { UploadProgress } from '@/components/UploadProgress';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
@@ -57,9 +57,10 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
     }
   };
 
-  const finish = async (body: Record<string, unknown>) => {
+  // A project passes the attempt its file went to (the sized start's); the others submit the one from Start.
+  const finish = async (body: Record<string, unknown>, attemptId: string = active.attempt_id) => {
     try {
-      const res = await api<any>(`/attempts/${active.attempt_id}/submit`, { method: 'PUT', body });
+      const res = await api<any>(`/attempts/${attemptId}/submit`, { method: 'PUT', body });
       const feedback = res.feedback ? ` · ${res.feedback}` : '';
       // A score that did not pass is not a success: it goes out politely, in the warning colours.
       if (res.pending_review) setOk('Submitted — your educator will review it.');
@@ -168,7 +169,9 @@ function VivaForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => v
   );
 }
 
-function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => void }) {
+function ProjectForm({ attempt: opened, onSubmit }: { attempt: any; onSubmit: (b: any, attemptId: string) => void }) {
+  // The open attempt from Start; choosing a file asks again with its size and gets a URL signed for it.
+  const [attempt, setAttempt] = useState<any>(opened);
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [progress, setProgress] = useState<{ fileName: string; state: UploadState } | null>(null);
@@ -194,15 +197,12 @@ function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) =
                 clearStatus();
                 setUploaded(false);
                 setProgress(null);
-                if (file.size > attempt.max_bytes) {
-                  setError(`This file is ${formatBytes(file.size)}; the limit is ${formatBytes(attempt.max_bytes)}. Compress it or upload a smaller file.`);
-                  input.value = '';
-                  return;
-                }
                 setUploading(true);
                 try {
-                  // The signed URL comes from the attempt; only a 2xx from storage means the file is there.
-                  await putFile(attempt.upload_url, file, {
+                  const next = await api<any>(`/assessments/${attempt.assessment.id}/attempts`, { method: 'POST', body: { file_size: file.size } });
+                  setAttempt({ ...next, assessment: attempt.assessment });
+                  // Only a 2xx from storage means the file is there.
+                  await putFile(next.upload_url, file, {
                     contentType: 'application/octet-stream',
                     onState: (state) => setProgress({ fileName: file.name, state }),
                   });
@@ -222,7 +222,7 @@ function ProjectForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) =
       </div>
       {progress && <UploadProgress fileName={progress.fileName} state={progress.state} />}
       <FormStatus status={status} />
-      <button className="btn mt-3" disabled={!uploaded || uploading} onClick={() => onSubmit({ file_key: attempt.file_key })}>
+      <button className="btn mt-3" disabled={!uploaded || uploading} onClick={() => onSubmit({ file_key: attempt.file_key }, attempt.attempt_id)}>
         {uploading ? 'Uploading…' : 'Submit project'}
       </button>
     </div>

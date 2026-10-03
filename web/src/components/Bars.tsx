@@ -37,7 +37,7 @@ export function Bars({
             <span className="sr-only">
               {formatDate(first, locale, 'month-year')}: {format(d.value)}
             </span>
-            <span aria-hidden="true" className="h-4 whitespace-nowrap text-xs font-semibold text-gray-600 dark:text-gray-400">
+            <span aria-hidden="true" className="h-4 whitespace-nowrap text-xs font-semibold text-gray-600">
               {d.value > 0 ? compact(d.value, locale) : ''}
             </span>
             <div aria-hidden="true" className="flex w-full flex-1 items-end">

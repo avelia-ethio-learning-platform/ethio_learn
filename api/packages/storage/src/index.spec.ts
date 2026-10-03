@@ -2,6 +2,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectCommand,
   HeadObjectCommand,
   ListPartsCommand,
   S3Client,
@@ -174,6 +175,26 @@ describe('S3StorageProvider', () => {
     it('rethrows non-404 failures so callers do not mistake an outage for a missing file', async () => {
       send.mockRejectedValueOnce(s3Error('Forbidden', 403));
       await expect(storage.headObject('k')).rejects.toThrow('Forbidden');
+    });
+  });
+
+  describe('deleteObject', () => {
+    it('sends the delete for the key', async () => {
+      send.mockResolvedValueOnce({});
+      await expect(storage.deleteObject('k')).resolves.toBeUndefined();
+      const cmd = send.mock.calls[0][0];
+      expect(cmd).toBeInstanceOf(DeleteObjectCommand);
+      expect(cmd.input.Key).toBe('k');
+    });
+
+    it('treats an object that is already gone as deleted', async () => {
+      send.mockRejectedValueOnce(s3Error('NoSuchKey', 404));
+      await expect(storage.deleteObject('k')).resolves.toBeUndefined();
+    });
+
+    it('rethrows other failures', async () => {
+      send.mockRejectedValueOnce(s3Error('AccessDenied', 403));
+      await expect(storage.deleteObject('k')).rejects.toThrow('AccessDenied');
     });
   });
 

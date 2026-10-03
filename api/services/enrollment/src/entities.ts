@@ -94,6 +94,10 @@ export class VideoProgress {
   @Column({ type: 'int', default: 0 })
   percent_watched: number;
 
+  /** First heartbeat of the current video; null after a video is replaced (the time check then isn't met). */
+  @Column({ type: 'timestamptz', nullable: true, default: () => 'now()' })
+  started_at: Date | null;
+
   @UpdateDateColumn({ type: 'timestamptz' })
   updated_at: Date;
 }

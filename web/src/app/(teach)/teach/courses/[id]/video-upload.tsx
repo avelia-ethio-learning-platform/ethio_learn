@@ -132,6 +132,28 @@ export function useActiveLessonUploads(courseId: string): number {
   return useSyncExternalStore(subscribe, count, count);
 }
 
+/** How long to wait for a video's metadata: browsers fire nothing for formats they cannot decode (e.g. HEVC, MKV). */
+const PROBE_TIMEOUT_MS = 10_000;
+
+/** The local file's duration in seconds, or null when the browser cannot tell. Never rejects. */
+function probeVideoDuration(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    const url = URL.createObjectURL(file);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (duration: number | null) => {
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve(duration);
+    };
+    video.preload = 'metadata';
+    video.addEventListener('loadedmetadata', () => finish(Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null));
+    video.addEventListener('error', () => finish(null));
+    timer = setTimeout(() => finish(null), PROBE_TIMEOUT_MS);
+    video.src = url;
+  });
+}
+
 /** Start uploading a video into a lesson. Returns an error message when it cannot start. */
 function startLessonUpload({ userId, courseId, lessonId, file }: { userId: string; courseId: string; lessonId: string; file: File }): string | null {
   if (!resolveContentType(file, 'video')) return UNSUPPORTED_VIDEO;
@@ -150,14 +172,20 @@ function startLessonUpload({ userId, courseId, lessonId, file }: { userId: strin
     entries: { ...snapshot.entries, [lessonId]: { courseId, fileName: file.name, multipart, state: initialState(file), upload } },
     version: snapshot.version + 1,
   });
+  // Measured while the upload runs; the lesson only counts as watched against this length.
+  const measured = probeVideoDuration(file);
   upload
     .start()
     .then(async (result) => {
+      const seconds = Math.floor((await measured) ?? 0);
       // Multipart uploads are attached by the server on complete; the
       // single-PUT path (videos under 16 MiB) leaves that to us.
       if (!result.lesson_updated) {
         try {
-          await api(`/lessons/${lessonId}`, { method: 'PUT', body: { video_s3_key: result.key } });
+          await api(`/lessons/${lessonId}`, {
+            method: 'PUT',
+            body: seconds > 0 ? { video_s3_key: result.key, video_duration_seconds: seconds } : { video_s3_key: result.key },
+          });
         } catch (err) {
           patchEntry(lessonId, upload, {
             state: {
@@ -169,6 +197,9 @@ function startLessonUpload({ userId, courseId, lessonId, file }: { userId: strin
           });
           return;
         }
+      } else if (seconds > 0) {
+        // The server attached the key and cleared the length; a failure here only leaves the lesson unmeasured.
+        await api(`/lessons/${lessonId}`, { method: 'PUT', body: { video_duration_seconds: seconds } }).catch(() => undefined);
       }
       patchEntry(lessonId, upload, { state: doneState(file) });
       // The lesson now has this video, so other unfinished uploads into it are obsolete:

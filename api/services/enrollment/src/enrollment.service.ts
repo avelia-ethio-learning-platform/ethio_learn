@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -9,7 +10,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
 import { In, IsNull, LessThan, MoreThan, Repository } from 'typeorm';
-import { envInt, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import {
   CourseCompletedPayload,
   CourseProgressMilestonePayload,
@@ -33,6 +34,23 @@ interface CourseInfo {
   owner_type: string;
   pricing_type: PricingType;
   status: string;
+}
+
+/** What progress needs from the course service's internal lesson. */
+interface LiveLesson {
+  course_id: string;
+  has_video: boolean;
+  /** Measured length of the video; null when unknown. */
+  video_duration_seconds: number | null;
+}
+
+/**
+ * The length a video must be watched against: the measured duration when the
+ * lesson has one, else the longest client-reported duration. The editor's
+ * "minutes" estimate is display only and never counts.
+ */
+function requiredSeconds(lesson: LiveLesson, row: VideoProgress | null): number {
+  return lesson.video_duration_seconds ?? row?.duration_seconds ?? 0;
 }
 
 const MILESTONES = [25, 50, 75] as const;
@@ -137,13 +155,33 @@ export class EnrollmentService implements OnModuleInit {
     };
   }
 
-  async completeLesson(ctx: UserContext, lessonId: string) {
+  /**
+   * A lesson without video completes on request. A video lesson completes only
+   * under the watch rule (completeIfWatched), after applying `positionSeconds`,
+   * when sent, as a final heartbeat; otherwise 409.
+   */
+  async completeLesson(ctx: UserContext, lessonId: string, positionSeconds?: number) {
     const lesson = await this.liveLesson(lessonId);
     const enrollment = await this.enrollments.findOne({ where: { learner_id: ctx.id, course_id: lesson.course_id } });
     if (!enrollment || enrollment.entitlement_status !== EntitlementStatus.ACTIVE) {
       throw new ForbiddenException('No active entitlement for this course');
     }
-    await this.recordCompletion(enrollment, lessonId, ctx.email);
+    if (lesson.has_video) {
+      const row =
+        positionSeconds == null
+          ? await this.videoProgress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } })
+          : await this.applyHeartbeat(enrollment, lesson, lessonId, positionSeconds, 0);
+      const watch = await this.completeIfWatched(ctx, enrollment, lesson, lessonId, row, '/complete');
+      if (!watch.completed) {
+        throw new ConflictException({
+          statusCode: 409,
+          message: 'Finish watching this lesson to complete it.',
+          ...(watch.retryAfterSeconds === null ? {} : { retry_after_seconds: watch.retryAfterSeconds }),
+        });
+      }
+    } else {
+      await this.recordCompletion(enrollment, lessonId, ctx.email);
+    }
     return this.progressDetail(ctx, enrollment.id);
   }
 
@@ -151,7 +189,8 @@ export class EnrollmentService implements OnModuleInit {
    * Heartbeat from the video player (every ~10s / on pause / on leave).
    * position_seconds is the resume point; percent_watched is a high-water mark
    * (idempotent + commutative, so offline replays can never corrupt it).
-   * Watching ≥90% auto-completes the lesson.
+   * Reaching 90% completes the lesson once the watch rule is met; an early
+   * claim only records progress (`completed: false`).
    */
   async saveVideoProgress(ctx: UserContext, lessonId: string, positionSeconds: number, durationSeconds: number) {
     const lesson = await this.liveLesson(lessonId);
@@ -159,26 +198,87 @@ export class EnrollmentService implements OnModuleInit {
     if (!enrollment || enrollment.entitlement_status !== EntitlementStatus.ACTIVE) {
       throw new ForbiddenException('No active entitlement for this course');
     }
-    let row = await this.videoProgress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } });
-    if (!row) {
-      row = this.videoProgress.create({ enrollment_id: enrollment.id, lesson_id: lessonId });
-    }
-    row.position_seconds = Math.max(0, positionSeconds);
-    row.duration_seconds = Math.max(row.duration_seconds ?? 0, durationSeconds);
-    const percent = row.duration_seconds > 0 ? Math.min(100, Math.round((positionSeconds / row.duration_seconds) * 100)) : 0;
-    row.percent_watched = Math.max(row.percent_watched ?? 0, percent);
-    row = await this.videoProgress.save(row);
-    await this.touch(enrollment);
-
-    if (row.percent_watched >= 90) {
-      await this.recordCompletion(enrollment, lessonId, ctx.email);
-    }
+    const row = await this.applyHeartbeat(enrollment, lesson, lessonId, positionSeconds, durationSeconds);
+    const watch = await this.completeIfWatched(ctx, enrollment, lesson, lessonId, row, 'heartbeat');
     return {
       lesson_id: lessonId,
       position_seconds: row.position_seconds,
       duration_seconds: row.duration_seconds,
       percent_watched: row.percent_watched,
+      completed: watch.completed,
     };
+  }
+
+  /** Stores one player heartbeat (the endpoint's, or /complete's final position). */
+  private async applyHeartbeat(
+    enrollment: Enrollment,
+    lesson: LiveLesson,
+    lessonId: string,
+    positionSeconds: number,
+    durationSeconds: number,
+  ): Promise<VideoProgress> {
+    const where = { enrollment_id: enrollment.id, lesson_id: lessonId };
+    const apply = (row: VideoProgress) => {
+      row.duration_seconds = Math.max(row.duration_seconds ?? 0, durationSeconds);
+      const required = requiredSeconds(lesson, row);
+      row.position_seconds = Math.min(Math.max(0, positionSeconds), required + 5);
+      const percent = required > 0 ? Math.min(100, Math.round((row.position_seconds / required) * 100)) : 0;
+      row.percent_watched = Math.max(row.percent_watched ?? 0, percent);
+      // COALESCE(started_at, now): the first heartbeat of this video starts the clock; later ones never move it.
+      row.started_at ??= new Date();
+      return row;
+    };
+    const existing = await this.videoProgress.findOne({ where });
+    let saved: VideoProgress;
+    try {
+      saved = await this.videoProgress.save(apply(existing ?? this.videoProgress.create(where)));
+    } catch (err) {
+      // First heartbeats sent together (pause, ended, /complete) all insert; the
+      // unique constraint keeps one row, and the others are applied to it.
+      if (existing || !isUniqueViolation(err)) throw err;
+      const row = await this.videoProgress.findOne({ where });
+      if (!row) throw err;
+      saved = await this.videoProgress.save(apply(row));
+    }
+    await this.touch(enrollment);
+    return saved;
+  }
+
+  /**
+   * The video completion rule: the learner reached 90% of the required length,
+   * and at least 45% of it has passed in real time since they started (2x
+   * playback with a little slack). A null started_at (a replaced video not
+   * watched since) or an unknown length never meets it. Completes the lesson
+   * when met; `completed` also covers a lesson completed earlier.
+   * `retryAfterSeconds` is set when only the elapsed time is missing.
+   */
+  private async completeIfWatched(
+    ctx: UserContext,
+    enrollment: Enrollment,
+    lesson: LiveLesson,
+    lessonId: string,
+    row: VideoProgress | null,
+    source: 'heartbeat' | '/complete',
+  ): Promise<{ completed: boolean; retryAfterSeconds: number | null }> {
+    const required = requiredSeconds(lesson, row);
+    const reached = required > 0 && (row?.percent_watched ?? 0) >= 90;
+    const elapsed = row?.started_at ? (Date.now() - row.started_at.getTime()) / 1000 : null;
+    const timeLeft = elapsed === null ? null : 0.45 * required - elapsed;
+    if (reached && timeLeft !== null && timeLeft <= 0) {
+      await this.recordCompletion(enrollment, lessonId, ctx.email);
+      return { completed: true, retryAfterSeconds: null };
+    }
+    if (await this.progress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } })) {
+      return { completed: true, retryAfterSeconds: null };
+    }
+    // A heartbeat below 90% claims nothing; one at 90%+ and every /complete do.
+    if (reached || source === '/complete') {
+      this.logger.log(
+        `video completion refused (${source}): enrollment ${enrollment.id} lesson ${lessonId}, ` +
+          `required ${required}s, elapsed ${elapsed === null ? 'none' : `${Math.floor(elapsed)}s`}`,
+      );
+    }
+    return { completed: false, retryAfterSeconds: reached && timeLeft !== null ? Math.ceil(timeLeft) : null };
   }
 
   /** Everything the player needs to restore state: per-lesson positions + where to resume. */
@@ -209,11 +309,22 @@ export class EnrollmentService implements OnModuleInit {
   /**
    * A lesson added by a revision that is not approved yet is invisible to
    * learners, so progress on it is refused until the revision goes live.
+   * A course service that predates `has_video` (mid-deploy) sends neither
+   * video field: the lesson is then treated as one without video.
    */
-  private async liveLesson(lessonId: string): Promise<{ course_id: string }> {
-    const lesson = await this.internal.get<{ course_id: string; live?: boolean }>(internalPath`/api/v1/internal/lessons/${lessonId}`);
+  private async liveLesson(lessonId: string): Promise<LiveLesson> {
+    const lesson = await this.internal.get<{
+      course_id: string;
+      live?: boolean;
+      has_video?: boolean;
+      video_duration_seconds?: number | null;
+    }>(internalPath`/api/v1/internal/lessons/${lessonId}`);
     if (lesson.live === false) throw new NotFoundException('Lesson not available yet');
-    return lesson;
+    return {
+      course_id: lesson.course_id,
+      has_video: lesson.has_video === true,
+      video_duration_seconds: lesson.video_duration_seconds ?? null,
+    };
   }
 
   private async recordCompletion(enrollment: Enrollment, lessonId: string, learnerEmail: string) {
@@ -466,7 +577,9 @@ export class EnrollmentService implements OnModuleInit {
    *   denominator (saveVideoProgress keeps the longest duration seen), so a
    *   shorter new video could never reach the auto-complete threshold. Watch
    *   state restarts; a completed lesson stays completed (lesson_progress is
-   *   kept).
+   *   kept). started_at goes to null, not now(), so the time check runs again
+   *   from the learner's first heartbeat on the new video: now() would let a
+   *   learner returning days later complete it with a single 90% heartbeat.
    * - Removed lessons: a learner who had finished every other lesson is now
    *   at 100% but only gets completed when they next complete a lesson, so
    *   unfinished enrollments are re-checked here.
@@ -488,7 +601,7 @@ export class EnrollmentService implements OnModuleInit {
       const { affected } = await this.videoProgress.update(
         { lesson_id: In(p.replaced_video_lesson_ids) },
         // Keep updated_at so the reset doesn't make this lesson the player's "resume here" lesson.
-        { position_seconds: 0, duration_seconds: 0, percent_watched: 0, updated_at: () => 'updated_at' },
+        { position_seconds: 0, duration_seconds: 0, percent_watched: 0, started_at: null, updated_at: () => 'updated_at' },
       );
       this.logger.log(`revision ${p.revision_id}: video progress reset on ${affected ?? 0} row(s)`);
     }
