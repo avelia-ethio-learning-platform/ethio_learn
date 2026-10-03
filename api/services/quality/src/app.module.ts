@@ -9,7 +9,7 @@ import { QualityController, QualityInternalController } from './controllers';
   imports: [
     TypeOrmModule.forRoot(buildTypeOrmOptions(SCHEMA, entities, migrations)),
     TypeOrmModule.forFeature(entities),
-    EventBusModule.forRoot({ serviceName: 'quality' }),
+    EventBusModule.forRoot({ serviceName: 'quality', outbox: true }),
   ],
   controllers: [QualityController, QualityInternalController, HealthController],
   providers: [QualityService, InternalHttpClient],

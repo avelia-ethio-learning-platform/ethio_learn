@@ -17,7 +17,7 @@ import { VideoKeyService } from './video-key.service';
   imports: [
     TypeOrmModule.forRoot(buildTypeOrmOptions(SCHEMA, entities, migrations)),
     TypeOrmModule.forFeature(entities),
-    EventBusModule.forRoot({ serviceName: 'course' }),
+    EventBusModule.forRoot({ serviceName: 'course', outbox: true }),
   ],
   controllers: [CourseController, RevisionController, UploadController, CourseInternalController, HealthController],
   providers: [CourseService, CourseExtrasService, RevisionService, UploadService, VideoKeyService, InternalHttpClient, S3StorageProvider],

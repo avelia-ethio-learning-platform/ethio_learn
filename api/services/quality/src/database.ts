@@ -7,7 +7,7 @@ import {
   QualityCourseCache,
   RefundLog,
 } from './entities';
-import { ProcessedEvent } from '@ethiopialearn/common';
+import { OutboxEvent, ProcessedEvent } from '@ethiopialearn/common';
 import { migrations } from './migrations';
 
 /**
@@ -15,5 +15,5 @@ import { migrations } from './migrations';
  * TypeORM CLI data source (src/data-source.ts) and `pnpm -C api db:check`.
  */
 export const SCHEMA = 'quality';
-export const entities = [QaReviewItem, CourseReview, FraudSignal, EducatorTrustTier, QualityCourseCache, PayeeStats, RefundLog, ProcessedEvent];
+export const entities = [QaReviewItem, CourseReview, FraudSignal, EducatorTrustTier, QualityCourseCache, PayeeStats, RefundLog, ProcessedEvent, OutboxEvent];
 export { migrations };
