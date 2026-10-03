@@ -3,12 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { CurrentUser, env, EventBusService, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
+import { CurrentUser, env, pageQuery, EventBusService, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role, StaffInvitedPayload, UserStatus } from '@ethiopialearn/contracts';
 import { AuditLog, appendAudit } from './audit';
 import { AuthService, generateTempPassword } from './auth.service';
 import { User } from './entities';
 import { CreateStaffDto, UserStatusActionDto } from './dto';
+
+class AdminUsersPage extends pageQuery({ defaultLimit: 20, maxLimit: 100 }) {}
 
 /** Escapes LIKE wildcards so a search term matches literally. */
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, '\\$&');
@@ -26,9 +28,9 @@ export class AdminUsersController {
   ) {}
 
   @Get()
-  async list(@Query('q') q?: string, @Query('role') role?: Role, @Query('page') page = '1', @Query('limit') limit = '20') {
-    const take = Math.min(parseInt(limit, 10) || 20, 100);
-    const skip = (Math.max(parseInt(page, 10) || 1, 1) - 1) * take;
+  async list(@Query('q') q: string | undefined, @Query('role') role: Role | undefined, @Query() paging: AdminUsersPage) {
+    const take = paging.limit;
+    const skip = (paging.page - 1) * take;
     // A repeated ?q= arrives as an array: treat anything but a string as no term.
     const raw = typeof q === 'string' ? q : undefined;
     if (raw && raw.length > 100) throw new BadRequestException('Search is limited to 100 characters.');

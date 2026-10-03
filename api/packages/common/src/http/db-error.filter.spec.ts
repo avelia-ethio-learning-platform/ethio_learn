@@ -18,11 +18,36 @@ describe('DbErrorFilter', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
   });
 
+  it('answers 409 for a duplicate (23505) with a fixed body and no values', () => {
+    const { host, res } = httpHost();
+    const err = new QueryFailedError('INSERT', ['x@y.z'], Object.assign(new Error('db'), {
+      code: '23505',
+      table: 'users',
+      detail: 'Key (email)=(x@y.z) already exists.',
+    }));
+    new DbErrorFilter().catch(err, host);
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ statusCode: 409, message: 'This already exists.', error: 'Conflict' });
+    expect(JSON.stringify(res.json.mock.calls)).not.toContain('x@y.z');
+  });
+
+  it.each([
+    ['23503', "A related record doesn't exist."],
+    ['23502', 'Invalid value.'],
+    ['22001', 'Invalid value.'],
+    ['22003', 'Invalid value.'],
+  ])('answers 400 for %s', (code, message) => {
+    const { host, res } = httpHost();
+    new DbErrorFilter().catch(dbError(code), host);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ statusCode: 400, message, error: 'Bad Request' });
+  });
+
   it('leaves every other database error to the default handler', () => {
     const { host, res } = httpHost();
     const filter = new DbErrorFilter();
     const fallback = jest.spyOn(Object.getPrototypeOf(DbErrorFilter.prototype), 'catch').mockImplementation(() => undefined);
-    filter.catch(dbError('23505'), host);
+    filter.catch(dbError('40P01'), host);
     expect(fallback).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
     fallback.mockRestore();
