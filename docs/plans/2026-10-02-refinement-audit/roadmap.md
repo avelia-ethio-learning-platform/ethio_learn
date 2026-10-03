@@ -38,6 +38,8 @@ One plan, one branch and one PR per phase. Each phase runs through the team work
 | 11a | CI/CD gates and repo hygiene | P0-09 (ops docs), P1-24, P1-26, P1-28, P2-16 to P2-21 | M | impl / plan-review | planned |
 | 11b | Auth transport and tests for the high-risk paths | P1-07, P1-29 | L | impl / review | planned |
 | 11c | Dependencies and Next 15 | P1-08 | M | impl / plan-review | planned |
+| 12a | Motion system, shared primitives, shell, Home and Explore | user request (2026-10-03): calmer, consistent motion and UI polish | M (web only) | impl / plan-review | planned |
+| 12b | Motion and polish: course page, checkout, learner path, certificates, dashboards | same request | M (web only) | impl / plan-review | planned |
 
 The rows are in build order: 6c goes before 6b. When a phase merges, its row's status becomes `done (#PR)` and its `plan.md` status becomes `done`.
 
@@ -52,6 +54,7 @@ Remaining P2s are picked up opportunistically inside the phase that touches the 
 - **2026-10-03:** 6a gained P0-19, found during Phase 5.
 - **2026-10-03:** 6d was added for two money gaps found in the Phase 6c code review (P1-63, P2-47) plus its three nits, so 6c didn't grow mid-review. It goes after 6b.
 - **2026-10-03:** 7b merged (#27). The planner implements 8a in the web worktree while ethio-impl runs 6b and 6d.
+- **2026-10-03:** phase 12 (motion and UI polish, the user's request) was added after 11c, at the user's choice, so it builds on Phase 10's `LazyMotion` and 11c's Next 15 instead of redoing them. It ships as 12a and 12b, with a before/after for the user between them.
 
 ## User decisions (2026-10-02 check-in)
 - **Hosting:** stay on the free tier (Render free for the API, Vercel for web). So P0-09 is handled in code: fetch timeouts, ISR where possible, a friendly "waking up" state, and crons triggered by an external free scheduler instead of in-process timers on sleeping instances.
