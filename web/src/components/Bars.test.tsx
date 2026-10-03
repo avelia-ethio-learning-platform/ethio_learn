@@ -38,4 +38,12 @@ describe('<Bars />', () => {
     expect(screen.getByText('No revenue in the last 12 months')).toBeTruthy();
     expect(screen.queryByRole('list')).toBeNull();
   });
+
+  it('draws large values compactly and lets columns shrink, keeping the full value for screen readers', () => {
+    const { container } = render(<Bars data={[{ label: '2026-09', value: 125000 }]} format={(v) => `${v.toLocaleString('en-GB')} ETB`} />);
+    const li = container.querySelector('li')!;
+    expect(li.className).toContain('min-w-0');
+    expect(li.querySelector('[aria-hidden="true"]')!.textContent).toBe('125K');
+    expect(li.querySelector('.sr-only')!.textContent).toContain('125,000 ETB');
+  });
 });
