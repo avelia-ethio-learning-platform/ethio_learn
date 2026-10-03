@@ -318,7 +318,7 @@ Deviations and notes (none changes a decision):
 - **Step 11:** the outline picker and the assessment upload weren't shot: the outline card is collapsed and the upload doesn't render on the sample course. 768 px and the role dashboards weren't shot either.
 
 ### In flight / next step (tenth checkpoint, 2026-10-03)
-- Steps 1–11 are done and task-reviewed. Step 10's fix round 1 (`c7113d7`) has a scoped re-review dispatched; if the ledger has no "Task 10: complete" line, read its result or re-dispatch the re-review on `c395500..c7113d7`.
+- Steps 1–11 are done and task-reviewed (step 10 complete after fix round 1, `c7113d7`).
 - **Next:**
   1. The final whole-branch review on the most capable model (`4b4a64c..HEAD`), pointed at the ledger's deferred minors. Several are marked LIKELY FIX: the assessment non-pass shown in success green, `roleLabel` on accept-invite, the null guard in reduced-motion.
   2. One fix wave and one scoped re-review.
