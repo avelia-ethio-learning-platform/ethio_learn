@@ -174,25 +174,21 @@ export function HomeClient({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.7, delay: 0.85 }}
                 >
-                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                    <Link
-                      href="/courses"
-                      className="inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-3.5 text-base font-bold text-blue-700 shadow-floating transition-colors hover:bg-blue-50"
-                    >
-                      {t('explore_courses')}
-                      <motion.span animate={{ x: [0, 4, 0] }} transition={{ duration: 1.5, repeat: Infinity }}>
-                        <ArrowRight className="h-5 w-5" />
-                      </motion.span>
-                    </Link>
-                  </motion.div>
-                  <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                    <Link
-                      href="/signup?role=educator"
-                      className="inline-flex items-center gap-2 rounded-2xl border border-white/25 bg-white/10 px-7 py-3.5 text-base font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-                    >
-                      {t('become_educator')}
-                    </Link>
-                  </motion.div>
+                  <Link
+                    href="/courses"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-3.5 text-base font-bold text-blue-700 shadow-floating transition hover:scale-[1.02] active:scale-[.98] hover:bg-blue-50"
+                  >
+                    {t('explore_courses')}
+                    <motion.span animate={{ x: [0, 4, 0] }} transition={{ duration: 1.5, repeat: Infinity }}>
+                      <ArrowRight className="h-5 w-5" />
+                    </motion.span>
+                  </Link>
+                  <Link
+                    href="/signup?role=educator"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/25 bg-white/10 px-7 py-3.5 text-base font-semibold text-white backdrop-blur-sm transition hover:scale-[1.02] active:scale-[.98] hover:bg-white/20"
+                  >
+                    {t('become_educator')}
+                  </Link>
                 </motion.div>
               </div>
 
@@ -345,11 +341,9 @@ export function HomeClient({
               viewport={{ once: true }}
               transition={{ duration: 0.5 }}
             >
-              <motion.span className="inline-block" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Link href="/courses" className="btn !rounded-2xl !px-8 !py-4 !text-base">
-                  {t('view_all_courses')} <ArrowRight className="h-5 w-5" />
-                </Link>
-              </motion.span>
+              <Link href="/courses" className="inline-flex transition hover:scale-[1.02] active:scale-[.98] btn !rounded-2xl !px-8 !py-4 !text-base">
+                {t('view_all_courses')} <ArrowRight className="h-5 w-5" />
+              </Link>
             </motion.div>
           )}
         </div>
@@ -457,11 +451,9 @@ export function HomeClient({
                   {t('teach_cta_title_1')} <span className="gradient-text-blue">{t('teach_cta_title_2')}</span>
                 </h2>
                 <p className="mt-4 max-w-xl leading-relaxed text-gray-500">{t('teach_cta_sub')}</p>
-                <motion.div className="mt-7 inline-block" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                  <Link href="/signup?role=educator" className="btn !rounded-2xl !px-8 !py-4 !text-base">
-                    {t('become_educator')} <ArrowRight className="h-5 w-5" />
-                  </Link>
-                </motion.div>
+                <Link href="/signup?role=educator" className="mt-7 inline-flex transition hover:scale-[1.02] active:scale-[.98] btn !rounded-2xl !px-8 !py-4 !text-base">
+                  {t('become_educator')} <ArrowRight className="h-5 w-5" />
+                </Link>
               </div>
               <div className="space-y-4">
                 {[t('teach_benefit_1'), t('teach_benefit_2'), t('teach_benefit_3')].map((b, i) => (
@@ -496,11 +488,9 @@ export function HomeClient({
               {t('final_cta_sub')}
             </motion.p>
             <motion.div variants={fadeUp} className="mt-7 flex flex-wrap items-center justify-center gap-4">
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Link href="/signup" className="btn !rounded-2xl !px-8 !py-4 !text-base">
-                  {t('get_started')} <ArrowRight className="h-5 w-5" />
-                </Link>
-              </motion.div>
+              <Link href="/signup" className="transition hover:scale-[1.02] active:scale-[.98] btn !rounded-2xl !px-8 !py-4 !text-base">
+                {t('get_started')} <ArrowRight className="h-5 w-5" />
+              </Link>
               <Link href="/courses" className="btn-secondary !rounded-2xl !px-8 !py-4 !text-base">
                 {t('explore_courses')}
               </Link>
