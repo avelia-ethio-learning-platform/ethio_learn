@@ -23,12 +23,49 @@ async function prefer(page: Page, theme: Theme) {
   await page.emulateMedia({ colorScheme: theme });
 }
 
+/**
+ * Scrolls down the page in steps so every below-the-fold `whileInView` reveal
+ * plays (axe skips content still at opacity 0), then back to the top.
+ */
+async function revealAll(page: Page) {
+  await page.evaluate(async () => {
+    const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const step = Math.floor(window.innerHeight * 0.75);
+    for (let y = step; y < document.documentElement.scrollHeight; y += step) {
+      window.scrollTo({ top: y, behavior: 'instant' });
+      await frames();
+    }
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+    await frames();
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    await frames();
+  });
+  await settle(page);
+  // framer drives its reveals from JS, which getAnimations() doesn't list: wait until none is part-faded.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            Array.from(document.querySelectorAll<HTMLElement>('main [style*="opacity"]')).filter(
+              (el) => el.getClientRects().length > 0 && Number(getComputedStyle(el).opacity) < 1,
+            ).length,
+        ),
+      { message: 'every below-the-fold reveal has finished' },
+    )
+    .toBe(0);
+}
+
 async function scan(page: Page, where: string) {
   await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   await page.waitForLoadState('networkidle').catch(() => undefined);
   await settle(page);
+  await revealAll(page);
+  await analyze(new AxeBuilder({ page }), where);
+}
 
-  const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+async function analyze(builder: AxeBuilder, where: string) {
+  const { violations } = await builder.withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
 
   // A KNOWN entry waives one rule on one selector, never the rule or the page.
   const waived = (rule: string, target: string) => KNOWN.some((k) => k.rule === rule && k.selector === target);
@@ -112,3 +149,19 @@ for (const theme of THEMES) {
     });
   });
 }
+
+// The skip link is sr-only until focused, so the page scans above never see it.
+// Its colours don't depend on the theme; dark mode is where it once failed.
+test.describe('dark mode, skip link focused', () => {
+  test.beforeEach(async ({ page }) => prefer(page, 'dark'));
+
+  test('the focused skip link has no serious or critical violations', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.locator('input[name="email"]')).toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused();
+    await settle(page);
+    await analyze(new AxeBuilder({ page }).include('a[href="#main"]'), '/login skip link (dark)');
+  });
+});
+

@@ -8,9 +8,11 @@ test('the home hero heading is opaque at first paint', async ({ page }) => {
   // Record the heading's effective opacity (its own times every ancestor's) the
   // moment the browser reports first-contentful-paint.
   await page.addInitScript(() => {
-    const effectiveOpacity = (el: Element | null) => {
+    // null when the heading isn't in the first paint at all, so the check below fails rather than passing on nothing.
+    const effectiveOpacity = (el: Element | null): number | null => {
+      if (!el) return null;
       let o = 1;
-      for (; el; el = el.parentElement) o *= Number(getComputedStyle(el).opacity);
+      for (let node: Element | null = el; node; node = node.parentElement) o *= Number(getComputedStyle(node).opacity);
       return o;
     };
     new PerformanceObserver((list, observer) => {
