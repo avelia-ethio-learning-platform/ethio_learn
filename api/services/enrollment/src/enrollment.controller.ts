@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
-import { IsNumber, IsUUID, Min } from 'class-validator';
+import { IsNumber, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { AnalyticsQuery } from './analytics-query.dto';
@@ -10,14 +10,24 @@ class EnrollDto {
   course_id: string;
 }
 
-class VideoProgressDto {
+export class VideoProgressDto {
   @IsNumber()
   @Min(0)
   position_seconds: number;
 
+  /** Client-reported length; a day is far beyond any lesson video. */
   @IsNumber()
   @Min(0)
+  @Max(86_400)
   duration_seconds: number;
+}
+
+/** Optional final heartbeat sent with /complete (covers `ended` racing the last 10 s heartbeat). */
+export class CompleteLessonDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  position_seconds?: number;
 }
 
 @Controller()
@@ -79,8 +89,8 @@ export class EnrollmentController {
   @Post('progress/lessons/:lessonId/complete')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  complete(@CurrentUser() ctx: UserContext, @UuidParam('lessonId') lessonId: string) {
-    return this.service.completeLesson(ctx, lessonId);
+  complete(@CurrentUser() ctx: UserContext, @UuidParam('lessonId') lessonId: string, @Body() dto: CompleteLessonDto) {
+    return this.service.completeLesson(ctx, lessonId, dto.position_seconds);
   }
 
   @Post('progress/lessons/:lessonId/video')
