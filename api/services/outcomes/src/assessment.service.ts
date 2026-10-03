@@ -649,7 +649,7 @@ export class AssessmentService implements OnModuleInit {
     const attempt = await this.attempts.findOne({ where: { id: attemptId } });
     if (!attempt) throw new NotFoundException('Attempt not found');
     if (attempt.learner_id !== ctx.id) throw new ForbiddenException('Not your attempt');
-    if (attempt.submitted_at) throw new ConflictException('Attempt already submitted.');
+    if (attempt.submitted_at) throw new BadRequestException('Attempt already submitted');
 
     const type = (PROCTOR_EVENT_TYPES as readonly string[]).includes(dto.type) ? dto.type : 'other';
 

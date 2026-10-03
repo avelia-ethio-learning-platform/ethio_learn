@@ -241,3 +241,11 @@ describe('proctor report breakdown', () => {
     expect((await passed.svc.proctorReport(learner, 'att-1')).breakdown).toHaveLength(1);
   });
 });
+
+describe('proctor events on a finished attempt', () => {
+  it('stays a 400 "Attempt already submitted"', async () => {
+    const row = { id: 'att-1', assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), detail: {}, proctor_log: [] };
+    const { svc } = harness({ questions: bankOf(2) }, [row]);
+    await expect(svc.recordProctorEvent(learner, 'att-1', { type: 'tab', description: 'x' })).rejects.toThrow(new BadRequestException('Attempt already submitted'));
+  });
+});
