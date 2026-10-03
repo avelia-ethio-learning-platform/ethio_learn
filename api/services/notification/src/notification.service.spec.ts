@@ -707,3 +707,33 @@ describe('NotificationService: a fan-out with one failing recipient (9a review B
     ).rejects.toThrow('-> 503');
   });
 });
+
+describe('NotificationService: CourseCompleted with blank names (9b)', () => {
+  const completion = (extra: Record<string, unknown> = {}) => ({
+    enrollment_id: 'e1', learner_id: 'u1', learner_email: 'l@e.et', learner_name: 'Abebe', course_id: 'c1', course_title: 'Soil Science',
+    educator_id: 'edu-1', educator_name: 'Edu', completed_at: '2026-10-03T00:00:00Z', ...extra,
+  });
+
+  it('a blank email is fetched from auth, and the email goes out', async () => {
+    const t = setup({ userEmail: 'fetched@e.et', userName: 'Abebe' });
+    await t.emit('CourseCompleted', completion({ learner_email: '', learner_name: '', course_title: '' }), 'evt-1');
+    expect(t.internal.get).toHaveBeenCalledWith('/api/v1/internal/users/u1');
+    const [mail] = t.emails();
+    expect(mail).toMatchObject({ to: 'fetched@e.et', subject: 'You finished your course!' });
+    expect(mail.html).toContain('Well done Abebe — you finished every lesson in your course.');
+  });
+
+  it('a failed fetch throws, so the bus retries, and sends nothing', async () => {
+    const t = setup();
+    t.internal.get.mockRejectedValueOnce(new Error('Internal request failed: GET /api/v1/internal/users/u1 -> 503'));
+    await expect(t.emit('CourseCompleted', completion({ learner_email: '' }), 'evt-1')).rejects.toThrow('-> 503');
+    expect(t.emails()).toHaveLength(0);
+  });
+
+  it('with the email in the payload, nothing is fetched', async () => {
+    const t = setup();
+    await t.emit('CourseCompleted', completion(), 'evt-1');
+    expect(t.internal.get).not.toHaveBeenCalled();
+    expect(t.emails()).toEqual([expect.objectContaining({ to: 'l@e.et', subject: 'You finished Soil Science!' })]);
+  });
+});
