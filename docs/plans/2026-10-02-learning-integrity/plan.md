@@ -380,9 +380,6 @@ Gate (step 9):
   - all 9 images.
 
 ### In flight / next step
-- **Step 10:** code review round 1 requested from ethio-reviewer (branch `fix/learning-integrity`, base origin/main ff1d89e).
-- **Pre-merge (rollout step 1):** done by the user. No learners are blocked, so step 1a isn't needed.
-- **Next phase:** 6d (`2026-10-03-sponsor-refund-integrity`) is queued after 6b's code review is APPROVED.
-- **For the user's 6b summary:**
-  - The 3 existing video lessons stay unmeasured until their videos are re-uploaded, so P1-04 fully covers them only after that.
-  - Project-file overwrite after submit is a follow-up candidate.
+- Step 10: code review round 1 requested from ethio-reviewer (branch `fix/learning-integrity`, base origin/main ff1d89e).
+- Rollout step 1 is done by the user: no learners blocked, so step 1a isn't needed.
+- 6d is queued after 6b's review is APPROVED.
