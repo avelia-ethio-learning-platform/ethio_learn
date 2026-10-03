@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }));
@@ -11,6 +11,7 @@ vi.mock('@/components/RequireRole', () => ({ RequireRole: ({ children }: { child
 vi.mock('@/components/BackButton', () => ({ BackButton: () => null }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), back: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 
+import { ConfirmProvider } from '@/components/confirm/ConfirmProvider';
 import Account from './page';
 import ChangePasswordPage from './password/page';
 
@@ -23,7 +24,9 @@ function setup() {
   });
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <Account />
+      <ConfirmProvider>
+        <Account />
+      </ConfirmProvider>
     </QueryClientProvider>,
   );
 }
@@ -64,6 +67,38 @@ describe('Account settings', () => {
     const name = await screen.findByLabelText('Full name');
     fireEvent.submit(name.closest('form')!);
     await waitFor(() => expect(screen.getByText('Name is too short').closest('[role="alert"]')).not.toBeNull());
+  });
+
+  it('links to Institutions for a learner but not for an admin', async () => {
+    setup();
+    expect((await screen.findByRole('link', { name: 'Institutions' })).getAttribute('href')).toBe('/account/invites');
+    cleanup();
+    apiMock.mockResolvedValue({ ...me, role: 'platform_admin' });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ConfirmProvider>
+          <Account />
+        </ConfirmProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByLabelText('Full name');
+    expect(screen.queryByRole('link', { name: 'Institutions' })).toBeNull();
+  });
+
+  it('deleting the account asks first; Cancel sends nothing, confirming sends the password', async () => {
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete my account…' }));
+    fireEvent.change(screen.getByLabelText('Confirm with your password'), { target: { value: 'pw-fake-123' } });
+    const dialog = () => document.querySelector('dialog') as HTMLDialogElement;
+    const deletes = () => apiMock.mock.calls.filter((c) => c[1]?.method === 'DELETE');
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete account' }));
+    expect(within(dialog()).getByText('Delete your account permanently?')).toBeTruthy();
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(dialog().open).toBe(false));
+    expect(deletes()).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete account' }));
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Delete account' }));
+    await waitFor(() => expect(deletes()).toEqual([['/profiles/me', { method: 'DELETE', body: { password: 'pw-fake-123' } }]]));
   });
 
   it('puts a successful save in the polite status region', async () => {

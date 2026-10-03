@@ -12,11 +12,11 @@ export default function InvitesPage() {
         <PageHeader
           badge={
             <span className="section-badge">
-              <MailOpen className="h-4 w-4 text-brand-500" /> Invitations
+              <MailOpen className="h-4 w-4 text-brand-500" /> Institutions
             </span>
           }
-          title="Invitations to teach"
-          subtitle="Institutions that want you as an instructor. Nothing changes until you accept."
+          title="Institutions"
+          subtitle="Invitations to teach, and the institution you teach with. Nothing changes until you accept, and you can leave any time."
         />
         <InvitesList />
       </PageShell>

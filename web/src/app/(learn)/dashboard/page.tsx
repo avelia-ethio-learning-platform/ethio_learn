@@ -29,6 +29,7 @@ import { formatDate, formatETB } from '@/lib/format';
 import { refundRuleLabel, sentenceCase, statusLabel } from '@/lib/labels';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { WalletCard } from './wallet-card';
 
 function LearnerDashboard() {
@@ -38,6 +39,8 @@ function LearnerDashboard() {
   const { data: certificates } = useQuery({ queryKey: ['certificates'], queryFn: () => api<any[]>('/me/certificates') });
   const { data: payments } = useQuery({ queryKey: ['payments'], queryFn: () => api<any[]>('/payments/mine') });
   const { data: refunds } = useQuery({ queryKey: ['refunds'], queryFn: () => api<any[]>('/refunds/mine') });
+  const [refundStatus, setRefundOk, setRefundError, clearRefundStatus] = useFormStatus();
+  const [refunding, setRefunding] = useState(false);
 
   // First visit after signup: attach the referral code / claim gifted seats waiting on this email.
   useEffect(() => {
@@ -179,6 +182,7 @@ function LearnerDashboard() {
             </h2>
             <div className="card text-sm">
               {!payments?.length && <p className="py-2 text-gray-500">No payments yet.</p>}
+              <FormStatus status={refundStatus} />
               {payments?.map((p, i) => (
                 <div key={p.id} className="flex items-center justify-between gap-2 py-2.5" style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}>
                   <span className="min-w-0 flex-1 truncate text-foreground">
@@ -189,7 +193,20 @@ function LearnerDashboard() {
                     {formatETB(p.amount_etb, locale)}{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-700 dark:text-emerald-400">−{formatETB(p.discount_etb, locale)}</span>}
                   </span>
                   <StatusBadge status={p.status} />
-                  {p.status === 'confirmed' && p.purpose === 'course' && p.method === 'chapa' && <RefundButton paymentId={p.id} />}
+                  {p.status === 'confirmed' && p.purpose === 'course' && p.method === 'chapa' && (
+                    <RefundButton
+                      payment={p}
+                      disabled={refunding}
+                      onStart={() => {
+                        setRefunding(true);
+                        clearRefundStatus();
+                      }}
+                      onOutcome={(o) => {
+                        setRefunding(false);
+                        'ok' in o ? setRefundOk(o.ok) : setRefundError(o.error);
+                      }}
+                    />
+                  )}
                 </div>
               ))}
             </div>
@@ -391,21 +408,47 @@ function DownloadCert({ id }: { id: string }) {
   );
 }
 
-function RefundButton({ paymentId }: { paymentId: string }) {
+function RefundButton({
+  payment,
+  disabled,
+  onStart,
+  onOutcome,
+}: {
+  payment: { id: string; course_title: string; amount_etb: number };
+  disabled: boolean;
+  onStart: () => void;
+  onOutcome: (outcome: { ok: string } | { error: string }) => void;
+}) {
+  const { locale } = useT();
+  const ask = useConfirm();
+  const queryClient = useQueryClient();
+  const request = async () => {
+    const answer = await ask({
+      title: `Request a refund for ${payment.course_title}?`,
+      body: `You paid ${formatETB(payment.amount_etb, locale)}. The refund rules decide whether it is approved, reviewed by our team, or declined.`,
+      confirmLabel: 'Request refund',
+      reason: { label: 'Why do you want a refund?', required: true, minLength: 5, maxLength: 500 },
+    });
+    if (!answer) return;
+    onStart();
+    try {
+      const res = await api<{ status: string; rule: string }>(`/refunds`, { method: 'POST', body: { payment_id: payment.id, reason: answer.reason } });
+      const why = refundRuleLabel(res.rule);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['refunds'] }),
+        queryClient.invalidateQueries({ queryKey: ['payments'] }),
+        queryClient.invalidateQueries({ queryKey: ['enrollments'] }),
+      ]);
+      onOutcome({ ok: `Refund request for ${payment.course_title}: ${statusLabel(res.status).label}${why ? ` (${why})` : ''}.` });
+    } catch (err) {
+      onOutcome({ error: (err as Error).message });
+    }
+  };
   return (
     <button
-      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400 hover:underline"
-      onClick={async () => {
-        const reason = prompt('Why do you want a refund?');
-        if (!reason) return;
-        try {
-          const res = await api<{ status: string; rule: string }>(`/refunds`, { method: 'POST', body: { payment_id: paymentId, reason } });
-          const why = refundRuleLabel(res.rule);
-          alert(`Refund request: ${statusLabel(res.status).label}${why ? ` (${why})` : ''}. Refresh to see updates.`);
-        } catch (err) {
-          alert((err as Error).message);
-        }
-      }}
+      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+      disabled={disabled}
+      onClick={request}
     >
       <RotateCcw className="h-3 w-3" /> Refund
     </button>

@@ -81,3 +81,18 @@ None.
 
 Checks after the fixes: web typecheck OK, vitest 66 files / 560 passed, `next build` OK. Playwright runs on the PR's CI (the stack is with ethio-impl).
 
+
+## Round 2 (2026-10-03) · Verdict: APPROVED (checks the round-1 fixes only)
+Reviewed: `32b159f` (fixes) and `7ab7149` (responses), as the diff from `ba4d5db`.
+
+Checks run, in my own worktree at `7ab7149`:
+- `tsc --noEmit` (web) → OK;
+- `pnpm -C web test` → 66 files, 560 passed;
+- the S1 vitest against the round-1 `page.tsx` (`ba4d5db`) → it fails ("a failed background refetch keeps a loaded player"); against the fix → it passes. The file was restored.
+
+Round-1 findings:
+- **S1: fixed.** All three player branches and the account page now apply only without data. The new test refetches a loaded course into a 404 and its status into a 503, and the player stays.
+- **S2: fixed.** The poll is bounded by the card's own `mountedAt` (2 minutes) and stops on `status === 'error'`. Keeping the poll is a reasonable call: the reason given (the copy would otherwise wait for a tab switch) holds.
+- **N1–N3: taken, each with a vitest.** N2's early `return null` also covers a failed assessments query: there's no copy, rather than a wrong one.
+
+Nothing new. CI on PR #27 (api, web, e2e, which includes the new real-Postgres resend step) is the remaining gate.

@@ -10,6 +10,8 @@
  *   • the learner accepts on their own: role educator, membership active
  *   • a suspended membership leaves the account alone (login and refresh work)
  *     and makes new courses independent
+ *   • the member can leave: the membership is removed with the reason, their
+ *     next course is independent, and leaving again is a 404
  *
  * Usage: node scripts/e2e-institution.mjs      (exits 1 on any failure)
  */
@@ -181,6 +183,29 @@ async function main() {
     ok(independent) && !institutionCourses.includes(independent.json.id) && institutionCourses.includes(routed.json?.id),
     brief(independent),
   );
+
+  // ---- the member leaves in their own session ----
+  const reactivate = await call(`/institutions/${iid}/instructors/${membershipId}/status`, { method: 'POST', token: owner.token, body: { status: 'active' } });
+  check('reactivate the membership → 200', ok(reactivate) && reactivate.json.status === 'active', brief(reactivate));
+  const listed = await call('/profiles/me/institution-memberships', { token: relogin.json?.access_token });
+  check('the member sees their active membership', ok(listed) && listed.json.some((m) => m.id === membershipId && m.status === 'active'), brief(listed));
+  const notTheirs = await call(`/profiles/me/institution-memberships/${membershipId}/leave`, { method: 'POST', token: owner.token });
+  check("someone else's membership id is 404", notTheirs.status === 404, brief(notTheirs));
+  const left = await call(`/profiles/me/institution-memberships/${membershipId}/leave`, { method: 'POST', token: relogin.json?.access_token });
+  check('leave → removed', ok(left) && left.json?.status === 'removed', brief(left));
+  const removed = (await call(`/institutions/${iid}/instructors`, { token: owner.token })).json?.find?.((m) => m.membership_id === membershipId);
+  check('the membership is removed, with the reason', removed?.status === 'removed' && removed.status_reason === 'Left the institution', JSON.stringify(removed));
+  const listedAfter = await call('/profiles/me/institution-memberships', { token: relogin.json?.access_token });
+  check('the member no longer lists it', ok(listedAfter) && !listedAfter.json.some((m) => m.id === membershipId), brief(listedAfter));
+  const afterLeave = await newCourse(relogin.json?.access_token, `E2E after leaving ${RUN}`);
+  const afterCourses = await institutionCourseIds(owner.token);
+  check(
+    'a course created after leaving is independent; the earlier ones stay with the institution',
+    ok(afterLeave) && !afterCourses.includes(afterLeave.json.id) && afterCourses.includes(routed.json?.id),
+    brief(afterLeave),
+  );
+  const leftAgain = await call(`/profiles/me/institution-memberships/${membershipId}/leave`, { method: 'POST', token: relogin.json?.access_token });
+  check('leaving again is 404', leftAgain.status === 404, brief(leftAgain));
 
   console.log(failures ? `\n${failures} institution check(s) failed` : '\nall institution membership checks passed');
   process.exit(failures ? 1 : 0);

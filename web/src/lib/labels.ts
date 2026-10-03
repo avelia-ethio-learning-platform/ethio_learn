@@ -71,6 +71,91 @@ export function walletKindLabel(kind: string): string {
   return WALLET_KINDS[kind] ?? sentenceCase(kind);
 }
 
+const PAYMENT_METHODS: Record<string, string> = {
+  chapa: 'Online payment',
+  bank_transfer: 'Bank transfer',
+  wallet: 'Wallet',
+  coupon: 'Coupon',
+};
+
+export function paymentMethodLabel(method: string): string {
+  return PAYMENT_METHODS[method] ?? sentenceCase(method);
+}
+
+const OWNER_TYPES: Record<string, string> = {
+  educator: 'Educator',
+  institution: 'Institution',
+};
+
+export function ownerTypeLabel(type: string): string {
+  return OWNER_TYPES[type] ?? sentenceCase(type);
+}
+
+/** Who a payment is paid out to. */
+export function payeeLabel(payeeType: string): string {
+  return ownerTypeLabel(payeeType);
+}
+
+const FRAUD_SIGNALS: Record<string, string> = {
+  refund_abuse: 'Repeated refunds',
+};
+
+export function fraudSignalLabel(signal: string): string {
+  return FRAUD_SIGNALS[signal] ?? sentenceCase(signal);
+}
+
+const HOLD_REASONS: Record<string, string> = {
+  kyc_required: 'KYC required',
+  fraud_flag_open: 'Open fraud flag',
+};
+
+/** Why a payout is held. A fraud hold may carry its signal (`fraud:refund_abuse`). */
+export function holdReasonLabel(reason: string): string {
+  if (reason.startsWith('fraud:')) return `Fraud flag: ${fraudSignalLabel(reason.slice('fraud:'.length))}`;
+  return HOLD_REASONS[reason] ?? sentenceCase(reason);
+}
+
+const FRAUD_SUBJECTS: Record<string, string> = {
+  user: 'User',
+  course: 'Course',
+  payment: 'Payment',
+};
+
+export function fraudSubjectLabel(subject: string): string {
+  return FRAUD_SUBJECTS[subject] ?? sentenceCase(subject);
+}
+
+const PURPOSES: Record<string, string> = {
+  course: 'Course purchase',
+  wallet_topup: 'Wallet top-up',
+  gift: 'Gift',
+  pay_request: 'Pay request',
+  bulk: 'Bulk seats',
+};
+
+export function purposeLabel(purpose: string): string {
+  return PURPOSES[purpose] ?? sentenceCase(purpose);
+}
+
+const KNOWLEDGE_SOURCES: Record<string, string> = {
+  notes: 'Tutor notes',
+  description: 'Course description',
+  lessons: 'Lessons',
+};
+
+export function knowledgeSourceLabel(source: string): string {
+  return KNOWLEDGE_SOURCES[source] ?? sentenceCase(source);
+}
+
+const QA_TRIGGERS: Record<string, string> = {
+  submission: 'First submission',
+  revision: 'Revision',
+};
+
+export function qaTriggerLabel(trigger: string): string {
+  return QA_TRIGGERS[trigger] ?? sentenceCase(trigger);
+}
+
 const ASSESSMENT_TYPES: Record<string, string> = {
   quiz: 'Quiz',
   ai_viva: 'AI viva',

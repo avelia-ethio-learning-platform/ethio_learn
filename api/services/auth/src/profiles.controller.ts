@@ -248,6 +248,18 @@ export class ProfilesController {
     return this.memberships.myInvites(ctx.id);
   }
 
+  @Get('profiles/me/institution-memberships')
+  @Roles()
+  myInstitutionMemberships(@CurrentUser() ctx: UserContext) {
+    return this.memberships.myMemberships(ctx.id);
+  }
+
+  @Post('profiles/me/institution-memberships/:id/leave')
+  @Roles()
+  leaveInstitution(@CurrentUser() ctx: UserContext, @UuidParam('id') membershipId: string) {
+    return this.memberships.leave(ctx.id, membershipId);
+  }
+
   @Post('profiles/me/institution-invites/:id/accept')
   @Roles()
   acceptInstitutionInvite(@CurrentUser() ctx: UserContext, @UuidParam('id') membershipId: string) {

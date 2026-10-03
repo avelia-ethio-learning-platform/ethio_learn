@@ -191,6 +191,38 @@ export class MembershipService {
       .map((r) => ({ id: r.id, institution: { id: r.institution_id, name: byId.get(r.institution_id)!.name }, invited_at: r.created_at }));
   }
 
+  /** The signed-in user's active and suspended memberships, with the institution named. */
+  async myMemberships(userId: string) {
+    const rows = await this.memberships.find({ where: { user_id: userId, status: In(['active', 'suspended']) }, order: { created_at: 'ASC' } });
+    if (!rows.length) return [];
+    const institutions = await this.institutions.find({ where: { id: In(rows.map((r) => r.institution_id)) } });
+    const byId = new Map(institutions.map((i) => [i.id, i]));
+    return rows
+      .filter((r) => byId.has(r.institution_id))
+      .map((r) => ({
+        id: r.id,
+        institution: { id: r.institution_id, name: byId.get(r.institution_id)!.name },
+        status: r.status as 'active' | 'suspended',
+        joined_at: r.accepted_at,
+      }));
+  }
+
+  /**
+   * The member leaves in their own session. One conditional update, so "not
+   * yours" and "not leavable" are the same 404. Their account and role stay;
+   * only the internal lookup stops routing new courses to the institution.
+   */
+  async leave(userId: string, membershipId: string) {
+    const res = await this.memberships.update(
+      { id: membershipId, user_id: userId, status: In(['active', 'suspended']) },
+      { status: 'removed', status_reason: 'Left the institution' },
+    );
+    if (!res.affected) throw new NotFoundException('No membership with this id.');
+    const membership = await this.memberships.findOne({ where: { id: membershipId } });
+    await appendAudit(this.audit, userId, 'institution.member_left', membershipId, { institution_id: membership?.institution_id ?? null });
+    return { status: 'removed' as const };
+  }
+
   /**
    * The user accepts in their own session: the membership becomes active and a
    * learner becomes an educator, in one transaction. The web then refreshes

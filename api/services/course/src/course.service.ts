@@ -687,7 +687,7 @@ export class CourseService implements OnModuleInit {
     const lessonCount = await m.getRepository(Lesson).count({ where: { section_id: In(sections.map((s) => s.id)) } });
     if (lessonCount === 0) return 'Add at least one lesson before submitting';
     if (!course.thumbnail_url) return 'Thumbnail is required before submitting';
-    if (course.pricing_type === PricingType.PAID && !course.price_etb) return 'price_etb is required for paid courses';
+    if (course.pricing_type === PricingType.PAID && !course.price_etb) return 'Set a price before submitting a paid course.';
     if (course.pricing_type === PricingType.FREEMIUM && !sections.some((s) => s.is_free_preview)) {
       return 'Freemium courses need at least one free-preview section';
     }

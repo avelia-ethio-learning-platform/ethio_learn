@@ -432,6 +432,53 @@ describe('MembershipService.setStatus', () => {
   });
 });
 
+describe('MembershipService.myMemberships and leave', () => {
+  const internal = (t: ReturnType<typeof setup>) => new InternalController(t.users as never, t.profiles as never, t.institutions as never, t.members as never);
+
+  it('lists only active and suspended memberships, with the institution named', async () => {
+    const t = setup([
+      membership('m1', 'inst1', 'lrn1', 'suspended'),
+      membership('m2', 'inst2', 'lrn1', 'invited'),
+      membership('m3', 'inst2', 'edu1', 'removed'),
+      membership('m4', 'inst1', 'lrn2', 'active'),
+    ]);
+    await expect(t.svc.myMemberships('lrn1')).resolves.toEqual([
+      { id: 'm1', institution: { id: 'inst1', name: 'Addis Academy' }, status: 'suspended', joined_at: new Date('2026-02-02') },
+    ]);
+    await expect(t.svc.myMemberships('qo1')).resolves.toEqual([]);
+  });
+
+  it.each(['active', 'suspended'])('leaving a %s membership removes it and writes the audit row', async (status) => {
+    const t = setup([membership('m1', 'inst1', 'lrn1', status)]);
+    await expect(t.svc.leave('lrn1', 'm1')).resolves.toEqual({ status: 'removed' });
+    expect(t.memberRow('m1')).toMatchObject({ status: 'removed', status_reason: 'Left the institution' });
+    expect(t.audit.rows).toEqual([
+      expect.objectContaining({ actor_id: 'lrn1', action: 'institution.member_left', target: 'm1', detail: { institution_id: 'inst1' } }),
+    ]);
+  });
+
+  it("404s someone else's membership, changing nothing", async () => {
+    const t = setup([membership('m1', 'inst1', 'lrn1', 'active')]);
+    await expect(t.svc.leave('lrn2', 'm1')).rejects.toThrow(NotFoundException);
+    expect(t.memberRow('m1').status).toBe('active');
+    expect(t.audit.rows).toEqual([]);
+  });
+
+  it.each(['invited', 'removed', 'declined'])('404s a %s row, the same answer', async (status) => {
+    const t = setup([membership('m1', 'inst1', 'lrn1', status)]);
+    await expect(t.svc.leave('lrn1', 'm1')).rejects.toThrow(NotFoundException);
+    expect(t.memberRow('m1').status).toBe(status);
+    expect(t.audit.rows).toEqual([]);
+  });
+
+  it('after leaving, the internal lookup routes nothing and the role stays', async () => {
+    const t = setup([membership('m1', 'inst1', 'edu1', 'active')]);
+    await t.svc.leave('edu1', 'm1');
+    await expect(internal(t).userInstitution('edu1')).resolves.toEqual({ institution_id: null, institution_admin_user_id: null, institution_name: null });
+    expect(t.userRow('edu1').role).toBe(Role.EDUCATOR);
+  });
+});
+
 describe('Internal institution lookup', () => {
   it.each(['invited', 'suspended', 'removed', 'declined'])('routes nothing for a %s membership', async (status) => {
     const t = setup([membership('m1', 'inst1', 'lrn1', status)]);

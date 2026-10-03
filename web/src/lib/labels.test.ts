@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessmentTypeLabel, categoryLabel, pricingLabel, refundRuleLabel, roleLabel, statusLabel, walletKindLabel } from './labels';
+import { assessmentTypeLabel, fraudSignalLabel, holdReasonLabel, fraudSubjectLabel, knowledgeSourceLabel, ownerTypeLabel, payeeLabel, paymentMethodLabel, purposeLabel, qaTriggerLabel, categoryLabel, pricingLabel, refundRuleLabel, roleLabel, statusLabel, walletKindLabel } from './labels';
 
 describe('labels', () => {
   it('statusLabel gives a sentence-case label and the badge class for known values', () => {
@@ -63,5 +63,26 @@ describe('walletKindLabel', () => {
   });
   it('falls back to sentence case for an unknown kind, never the raw value', () => {
     expect(walletKindLabel('new_thing')).toBe('New thing');
+  });
+
+  it('the payments-and-quality labels name known values and never show a raw enum', () => {
+    expect(paymentMethodLabel('bank_transfer')).toBe('Bank transfer');
+    expect(payeeLabel('institution')).toBe('Institution');
+    expect(ownerTypeLabel('educator')).toBe('Educator');
+    expect(fraudSignalLabel('refund_abuse')).toBe('Repeated refunds');
+    expect(fraudSubjectLabel('payment')).toBe('Payment');
+    expect(purposeLabel('wallet_topup')).toBe('Wallet top-up');
+    expect(knowledgeSourceLabel('notes')).toBe('Tutor notes');
+    expect(qaTriggerLabel('revision')).toBe('Revision');
+    for (const fn of [paymentMethodLabel, payeeLabel, ownerTypeLabel, fraudSignalLabel, fraudSubjectLabel, purposeLabel, knowledgeSourceLabel, qaTriggerLabel]) {
+      expect(fn('some_new_value')).toBe('Some new value');
+    }
+  });
+
+  it('holdReasonLabel names KYC and fraud holds, including the signal', () => {
+    expect(holdReasonLabel('kyc_required')).toBe('KYC required');
+    expect(holdReasonLabel('fraud_flag_open')).toBe('Open fraud flag');
+    expect(holdReasonLabel('fraud:refund_abuse')).toBe('Fraud flag: Repeated refunds');
+    expect(holdReasonLabel('some_new_value')).toBe('Some new value');
   });
 });
