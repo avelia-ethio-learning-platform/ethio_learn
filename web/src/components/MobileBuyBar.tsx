@@ -1,24 +1,47 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { findPrimaryAction, scrollBehavior, type PrimaryActionKind } from '@/lib/course-page';
 
 /**
- * Below `lg`: a fixed bar with the price and a primary button, shown once the
- * buy box (the element with `targetId`) scrolls out of view. The button scrolls
- * to the box and focuses its primary action; it has no enroll logic of its own.
+ * Below `lg`: a fixed bar shown once the buy box (the element with `targetId`)
+ * scrolls out of view. Its button mirrors the box's primary action (the control
+ * marked `data-primary-action`) and scrolls to and focuses it; it has no enroll
+ * logic of its own. When the box has no enabled primary action (a non-learner,
+ * gift mode, a payment in progress) the bar is not shown at all. For an enrolled
+ * viewer the bar shows "Continue learning" without the price.
  * While visible it publishes its height as `--buy-bar-h`, which the page body and
  * the waking-up notice use to stay clear of it.
  */
-export function MobileBuyBar({ targetId, price, actionLabel }: { targetId: string; price: string; actionLabel: string }) {
-  const [show, setShow] = useState(false);
+export function MobileBuyBar({ targetId, price }: { targetId: string; price: string }) {
+  const [outOfView, setOutOfView] = useState(false);
+  const [action, setAction] = useState<{ label: string; kind: PrimaryActionKind } | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const show = outOfView && action !== null;
 
   useEffect(() => {
     const target = document.getElementById(targetId);
-    if (!target || typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver(([entry]) => setShow(!entry.isIntersecting));
-    observer.observe(target);
-    return () => observer.disconnect();
+    if (!target) return;
+    const sync = () => {
+      const found = findPrimaryAction(target);
+      setAction((prev) => {
+        if (!found) return prev === null ? prev : null;
+        return prev && prev.label === found.label && prev.kind === found.kind ? prev : { label: found.label, kind: found.kind };
+      });
+    };
+    sync();
+    // The enroll panel renders after auth and status load, and changes with the mode tabs.
+    const mutations = new MutationObserver(sync);
+    mutations.observe(target, { subtree: true, childList: true, attributes: true, characterData: true });
+    let intersections: IntersectionObserver | undefined;
+    if (typeof IntersectionObserver !== 'undefined') {
+      intersections = new IntersectionObserver(([entry]) => setOutOfView(!entry.isIntersecting));
+      intersections.observe(target);
+    }
+    return () => {
+      mutations.disconnect();
+      intersections?.disconnect();
+    };
   }, [targetId]);
 
   useEffect(() => {
@@ -37,14 +60,14 @@ export function MobileBuyBar({ targetId, price, actionLabel }: { targetId: strin
     };
   }, [show]);
 
-  if (!show) return null;
+  if (!show || !action) return null;
 
   const goToAction = () => {
     const box = document.getElementById(targetId);
-    if (!box) return;
-    const action = box.querySelector<HTMLElement>('.btn');
-    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    (action ?? box).focus({ preventScroll: true });
+    const found = findPrimaryAction(box);
+    if (!box || !found) return;
+    box.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
+    found.el.focus({ preventScroll: true });
   };
 
   return (
@@ -53,9 +76,9 @@ export function MobileBuyBar({ targetId, price, actionLabel }: { targetId: strin
       className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 bg-background px-4 py-3 shadow-floating lg:hidden"
       style={{ borderTop: '1px solid var(--border)' }}
     >
-      <p className="gradient-text-blue min-w-0 truncate text-lg font-extrabold">{price}</p>
-      <button type="button" className="btn shrink-0 !px-5" onClick={goToAction}>
-        {actionLabel}
+      {action.kind !== 'continue' && <p className="gradient-text-blue min-w-0 truncate text-lg font-extrabold">{price}</p>}
+      <button type="button" className={`btn shrink-0 !px-5 ${action.kind === 'continue' ? 'w-full' : ''}`} onClick={goToAction}>
+        {action.label}
       </button>
     </div>
   );

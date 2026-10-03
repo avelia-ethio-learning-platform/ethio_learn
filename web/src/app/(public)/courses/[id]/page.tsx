@@ -7,6 +7,7 @@ import { categoryLabel, hasRealThumbnail } from '@/lib/categories';
 import { BUY_BULLET_TEXT, buyBullets, hasPlayablePreview, sectionHasPreview, type BuyBullet } from '@/lib/course-page';
 import { priceLabel } from '@/components/CourseCard';
 import { CourseCover } from '@/components/CourseCover';
+import { ExpandableSummary } from '@/components/ExpandableSummary';
 import { MobileBuyBar } from '@/components/MobileBuyBar';
 import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
 import { BackButton } from '@/components/BackButton';
@@ -15,6 +16,8 @@ import { WakingUp } from '@/components/WakingUp';
 import { EnrollPanel } from './enroll-panel';
 import { jsonLdScript } from '@/lib/json-ld';
 import { formatDate } from '@/lib/format';
+
+const LANGUAGES: Record<string, string> = { en: 'English', am: 'Amharic' };
 
 interface CourseDetail {
   last_major_update_at?: string | null;
@@ -98,7 +101,6 @@ export default async function CoursePage({ params }: { params: { id: string } })
     },
   };
 
-  const LANGUAGES: Record<string, string> = { en: 'English', am: 'Amharic' };
   const facts = [
     { icon: Layers, label: `${course.sections.length} sections` },
     { icon: PlayCircle, label: `${totalLessons} lessons` },
@@ -122,7 +124,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
           <div className="overflow-hidden rounded-2xl">
             {hasRealThumbnail(course.thumbnail_url) ? (
               // eslint-disable-next-line @next/next/no-img-element -- next/image is Phase 10
-              <img src={course.thumbnail_url as string} alt="" className="h-28 w-full object-cover sm:h-32" />
+              <img src={course.thumbnail_url} alt="" className="h-28 w-full object-cover sm:h-32" />
             ) : (
               <CourseCover title={course.title} category={course.category} size="strip" decorative />
             )}
@@ -134,7 +136,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
             )}
           </div>
           <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-foreground md:text-4xl">{course.title}</h1>
-          <p className="mt-4 line-clamp-3 leading-relaxed text-gray-600 lg:line-clamp-none">{course.description}</p>
+          <ExpandableSummary text={course.description} />
           {educatorName && course.instructor_id && (
             <p className="mt-4 flex items-center gap-2 text-sm text-gray-600">
               <UserRound className="h-4 w-4 shrink-0 text-brand-500" aria-hidden />
@@ -224,7 +226,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
 
       </div>
 
-      <MobileBuyBar targetId="buy-box" price={price} actionLabel="Enroll" />
+      <MobileBuyBar targetId="buy-box" price={price} />
     </PageShell>
   );
 }

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { buyBullets, hasPlayablePreview, sectionHasPreview } from './course-page';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { buyBullets, findPrimaryAction, hasPlayablePreview, scrollBehavior, sectionHasPreview } from './course-page';
 
 const section = (is_free_preview: boolean, ...videos: boolean[]) => ({
   is_free_preview,
@@ -31,5 +31,47 @@ describe('free preview rule', () => {
     expect(sectionHasPreview(section(true, true))).toBe(true);
     expect(sectionHasPreview(section(true, false))).toBe(false);
     expect(sectionHasPreview(section(false, true))).toBe(false);
+  });
+});
+
+describe('findPrimaryAction (bottom bar target)', () => {
+  const box = (html: string) => {
+    const el = document.createElement('aside');
+    el.innerHTML = html;
+    return el;
+  };
+
+  it('returns the marked action with its own label and kind', () => {
+    const found = findPrimaryAction(box('<button data-primary-action="enroll"><svg></svg> Buy with Chapa</button>'));
+    expect(found?.label).toBe('Buy with Chapa');
+    expect(found?.kind).toBe('enroll');
+  });
+
+  it('reports "continue" for an enrolled viewer', () => {
+    expect(findPrimaryAction(box('<button data-primary-action="continue">Continue learning</button>'))?.kind).toBe('continue');
+  });
+
+  it('ignores unmarked buttons such as the gift submit, so a non-learner has no target', () => {
+    expect(findPrimaryAction(box('<button class="btn" disabled>Pay 300 ETB with Chapa</button>'))).toBeNull();
+  });
+
+  it('is hidden when the marked action is disabled (payment in progress)', () => {
+    expect(findPrimaryAction(box('<button data-primary-action="enroll" disabled>Please wait…</button>'))).toBeNull();
+  });
+
+  it('is null without a box', () => {
+    expect(findPrimaryAction(null)).toBeNull();
+  });
+});
+
+describe('scrollBehavior', () => {
+  const stub = (matches: boolean) => vi.stubGlobal('matchMedia', () => ({ matches }));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('is smooth by default and auto under reduced motion', () => {
+    stub(false);
+    expect(scrollBehavior()).toBe('smooth');
+    stub(true);
+    expect(scrollBehavior()).toBe('auto');
   });
 });

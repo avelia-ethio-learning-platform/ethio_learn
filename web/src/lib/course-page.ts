@@ -33,3 +33,23 @@ export function sectionHasPreview(section: PreviewSection): boolean {
 export function hasPlayablePreview(sections: PreviewSection[]): boolean {
   return sections.some(sectionHasPreview);
 }
+
+export type PrimaryActionKind = 'login' | 'enroll' | 'continue';
+
+/**
+ * The buy box's real primary action: the control the enroll panel marks with
+ * `data-primary-action`, if it is enabled. Gift and ask-to-pay forms are never
+ * marked, so they are never the target.
+ */
+export function findPrimaryAction(box: ParentNode | null): { el: HTMLElement; label: string; kind: PrimaryActionKind } | null {
+  const el = box?.querySelector<HTMLElement>('[data-primary-action]');
+  if (!el || (el as HTMLButtonElement).disabled) return null;
+  const label = el.textContent?.trim() ?? '';
+  if (!label) return null;
+  return { el, label, kind: el.dataset.primaryAction as PrimaryActionKind };
+}
+
+/** Smooth scrolling unless the viewer asked for reduced motion. */
+export function scrollBehavior(): ScrollBehavior {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+}
