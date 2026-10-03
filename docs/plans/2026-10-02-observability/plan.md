@@ -250,5 +250,5 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
   - step 10, the full gate, on the final head once 9a, 9b and 9c are on `main` (`git merge origin/main`);
   - step 11, code review round 1 by ethio-reviewer [93b6fc]. Report to ethio-planner [31d0d2].
 - **11a:** when it merges, move the "Logs" section into its `docs/DEPLOYMENT.md` structure, resolve `ci.yml` (keep the `safe-typeorm-logger.db.spec.ts` addition), and keep `pnpm -C api lint` under the baseline (the `_parameters` args in `SafeTypeOrmLogger`).
-- **Rollout item (from the early read):** the user's Render check that the notification service has `SMTP_HOST` or `BREVO_API_KEY` set isn't in `USER-ACTIONS.md` yet. ethio-planner adds it before the merge.
+- **Rollout item:** the user's Render check for an email provider on the notification service is `USER-ACTIONS.md` "Start here" item 4 ("Phase 9d, confirm the notification service has an email provider"). It blocks 9d's merge. ethio-planner passes on the user's answer.
 - **Drill script:** `node <scratch>/9d-trace.mjs` (session scratchpad, not in the repo). It logs in as learner@, skips enrolled courses, enrols with a fresh UUID `x-request-id`, and prints it.
