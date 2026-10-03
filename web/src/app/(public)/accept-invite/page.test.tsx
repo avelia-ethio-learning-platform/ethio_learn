@@ -42,6 +42,13 @@ describe('Accept invite (set a password)', () => {
     expect(apiMock).toHaveBeenCalledWith('/auth/accept-invite', { method: 'POST', auth: false, body: { token: 'tok', new_password: 'Strong-passw0rd' } });
   });
 
+  it('names the invited role in words, not as a raw value', async () => {
+    respondWith('institution_admin', 0);
+    render(<AcceptInvitePage />);
+    expect((await screen.findByText('Institution admin')).tagName).toBe('STRONG');
+    expect(document.body.textContent).not.toMatch(/institution_admin|institution admin/);
+  });
+
   it('sends staff to their home as before', async () => {
     respondWith('quality_officer', 0);
     await setPassword();

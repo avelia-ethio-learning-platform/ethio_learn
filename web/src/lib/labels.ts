@@ -57,6 +57,31 @@ export function pricingLabel(pricing: string): string {
   return PRICING[pricing] ?? sentenceCase(pricing);
 }
 
+const ASSESSMENT_TYPES: Record<string, string> = {
+  quiz: 'Quiz',
+  ai_viva: 'AI viva',
+  project: 'Project',
+};
+
+export function assessmentTypeLabel(type: string): string {
+  return ASSESSMENT_TYPES[type] ?? sentenceCase(type);
+}
+
+/** Why a refund request got its decision, as the refund rule engine names it. */
+const REFUND_RULES: Record<string, string> = {
+  auto_approve_under_20pct_within_7d: 'under 20% watched, within 7 days',
+  manual_review_20_to_50pct: '20–50% watched, so our team reviews it',
+  over_50pct_consumed: 'more than half of the course watched',
+  outside_7_day_window: 'more than 7 days since you enrolled',
+  certificate_already_issued: 'a certificate was already issued',
+  assessment_already_passed: 'an assessment was already passed',
+};
+
+/** A human reason for a refund rule, or '' for a rule without one (never the raw value). */
+export function refundRuleLabel(rule: string): string {
+  return REFUND_RULES[rule] ?? '';
+}
+
 /** The one category label: the curated name, else sentence case; a missing category is "other". */
 export function categoryLabel(category: string | null | undefined): string {
   const value = category || 'other';

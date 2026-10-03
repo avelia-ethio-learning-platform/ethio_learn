@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { PartyPopper, TriangleAlert } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
 import { roleHome } from '@/lib/safe-next';
+import { roleLabel } from '@/lib/labels';
 import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
 import { AuthShell } from '@/components/PageChrome';
 import { Field } from '@/components/form/Field';
@@ -95,7 +96,7 @@ function AcceptInvite() {
           </>
         ) : (
           <>
-            You&apos;ve been invited as <strong className="text-foreground">{info.role.replace('_', ' ')}</strong>. Choose a password for{' '}
+            You&apos;ve been invited as <strong className="text-foreground">{roleLabel(info.role)}</strong>. Choose a password for{' '}
             <strong className="text-foreground">{info.email}</strong> to activate your account.
           </>
         )

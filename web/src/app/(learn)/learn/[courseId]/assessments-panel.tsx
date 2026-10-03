@@ -8,8 +8,7 @@ import { formatBytes, putFile, type UploadState } from '@/lib/upload';
 import { UploadProgress } from '@/components/UploadProgress';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
-
-const TYPE_LABEL: Record<AssessmentSummary['type'], string> = { quiz: 'Quiz', ai_viva: 'AI viva', project: 'Project' };
+import { assessmentTypeLabel } from '@/lib/labels';
 
 interface AssessmentSummary {
   id: string;
@@ -70,7 +69,7 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
         {assessments.map((a) => (
           <li key={a.id} className="glass-secondary flex items-center justify-between gap-3 rounded-xl px-4 py-2.5">
             <span className="text-foreground">
-              {TYPE_LABEL[a.type] ?? a.type}{' '}
+              {assessmentTypeLabel(a.type)}{' '}
               {a.is_required && <span className="text-xs font-normal text-gray-500">(required for certificate)</span>}
             </span>
             {passed(a.id) ? (
@@ -78,7 +77,7 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
                 <CheckCircle2 className="h-3 w-3" /> Passed
               </span>
             ) : (
-              <button className="btn-secondary !px-3 !py-1 !text-xs" aria-label={`Start ${TYPE_LABEL[a.type] ?? a.type}`} onClick={() => start(a)}>
+              <button className="btn-secondary !px-3 !py-1 !text-xs" aria-label={`Start ${assessmentTypeLabel(a.type)}`} onClick={() => start(a)}>
                 <Play className="h-3 w-3" /> Start
               </button>
             )}

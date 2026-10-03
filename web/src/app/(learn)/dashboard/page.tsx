@@ -26,7 +26,7 @@ import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
 import { formatDate, formatETB } from '@/lib/format';
-import { sentenceCase } from '@/lib/labels';
+import { refundRuleLabel, sentenceCase, statusLabel } from '@/lib/labels';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
@@ -440,7 +440,8 @@ function RefundButton({ paymentId }: { paymentId: string }) {
         if (!reason) return;
         try {
           const res = await api<{ status: string; rule: string }>(`/refunds`, { method: 'POST', body: { payment_id: paymentId, reason } });
-          alert(`Refund request: ${res.status} (${res.rule}). Refresh to see updates.`);
+          const why = refundRuleLabel(res.rule);
+          alert(`Refund request: ${statusLabel(res.status).label}${why ? ` (${why})` : ''}. Refresh to see updates.`);
         } catch (err) {
           alert((err as Error).message);
         }

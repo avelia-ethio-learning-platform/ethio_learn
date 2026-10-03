@@ -3,6 +3,7 @@ import { BadgeCheck, ShieldX } from 'lucide-react';
 import { serverApi } from '@/lib/server-api';
 import { WakingUp } from '@/components/WakingUp';
 import { formatDate } from '@/lib/format';
+import { assessmentTypeLabel } from '@/lib/labels';
 
 interface Verification {
   valid: boolean;
@@ -61,7 +62,7 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
                 {result.assessment_badges && result.assessment_badges.length > 0 && (
                   <div>
                     <dt className="text-xs font-semibold uppercase tracking-wider text-gray-500">Assessments passed</dt>
-                    <dd className="mt-0.5 capitalize text-foreground">{result.assessment_badges.join(', ').replace(/_/g, ' ')}</dd>
+                    <dd className="mt-0.5 text-foreground">{result.assessment_badges.map(assessmentTypeLabel).join(', ')}</dd>
                   </div>
                 )}
               </dl>
