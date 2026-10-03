@@ -182,3 +182,76 @@ The roadmap's Phase 11 combines CI/CD gates, repo docs, the auth transport (P1-0
 The jobs scheduler from P0-09's ops part moved to 9c, where the job endpoints live.
 
 ## Progress and deviations (implementer)
+ethio-impl, worktree `../ethi0-11a`, branch `chore/ci-gates` (from origin/main; merged origin/main at `d8140db`, 8b).
+
+- **Step 1, GitHub settings (read-only `gh api`):**
+  - `rulesets` → `[]`;
+  - `branches/main/protection` → 404 (not protected);
+  - `security_and_analysis`: every feature disabled;
+  - the repo is public, owned by an org.
+- **Step 3, Docker (`8e1d18b`):**
+  - api: `pnpm fetch` from the lockfile, then sources, `install --offline`, build, `pnpm deploy --prod /out`;
+  - the runtime copies only `package.json`, `node_modules` and `dist` and runs as a non-root `app` user;
+  - both stages use `node:22-alpine@sha256:0a7108bf…`;
+  - web: install before the build ARGs and sources, so a source or arg change reuses the install layer;
+  - `.dockerignore` files exclude `.turbo`, `coverage`, `.next`, test files and `.env*`.
+  - **Timings:**
+    - api (auth): 72 s cold, 32 s after a source-only change (`pnpm fetch` CACHED, the offline install 1.3 s);
+    - the image is 347 MB, against 348 MB before. `/app` is 93 MB of `dist`, production `node_modules` and `package.json`, and the image boots up to the env check;
+    - web: 63 s cold, 57 s after a source-only change (install CACHED).
+  - **Deviation:** web's `.dockerignore` excludes `e2e/**/*.spec.ts`, not all of `e2e/`, because `playwright.config.ts` imports `e2e/support` and the build type-checks it.
+  - 9c's `tini` isn't on main yet. When it merges, keep it.
+- **Step 4, lint (`8def874`):**
+  - api: ESLint 9 with `typescript-eslint` 8, recommended rules, plus type-aware `no-floating-promises` on `gateway`/`services`/`packages` sources (not specs);
+  - web: ESLint 8.57 with `eslint-config-next@14.2.35` through FlatCompat. ESLint 9 needs eslint-config-next 15, which is 11c;
+  - `scripts/lint-check.mjs` compares counts **per rule**, not one total, so fixing one rule can't hide a new finding of another. `--update` rewrites `.github/lint-baseline.json`;
+  - baseline: api 204 (any 131, floating-promises 48, unused-vars 13, unsafe-function-type 10, require-imports 1, prefer-const 1), web 4;
+  - `web/public/**` is ignored: it's vendored MediaPipe wasm glue, which tripped `rules-of-hooks`;
+  - **check:** a scratch `export const probe: any = 1;` made the check exit 1 and print the `no-explicit-any` findings; reverted.
+  - The 48 floating promises are worth a look in a later phase.
+- **Step 2, CI (`b881fae`):**
+  - top-level `permissions: contents: read`;
+  - concurrency `ci-${{ github.ref }}`, cancelling only for PRs;
+  - timeouts: api 15, web 15, e2e 40, secret-scan 10, lint 10, audit 10;
+  - the gateway wait now fails the step if `/health` never answers;
+  - `docker-api`/`docker-web` (the GHCR pushes) are deleted;
+  - new `lint` and `audit` jobs;
+  - `docker-build` lives in its own workflow, `.github/workflows/docker.yml`, because path filters work per workflow. It runs on PRs touching the Dockerfiles, the `.dockerignore` files or the lockfiles, as a 9-image matrix, with no push;
+  - **check:** actionlint (Docker image) reports nothing; `ci.yml`'s jobs are `secret-scan`, `api`, `web`, `e2e`, `lint` and `audit`.
+- **Step 5 (`77f0e63`):**
+  - Dependabot: npm in `/api` and `/web`, github-actions in `/`, and docker in `/api` and `/web` (`directories`);
+  - weekly on Monday, limit 5;
+  - groups: nestjs, typeorm-pg, testing, next-react, minor-and-patch;
+  - ignores majors of `@nestjs/*`, `next`, `eslint-config-next`, `react`, `react-dom`, and also `eslint`, which needs Next 15;
+  - validated with `check-jsonschema --builtin-schema vendor.dependabot`.
+  - `audit`: step-level `continue-on-error`, and a summary step that writes the findings and a `::warning`.
+- **Step 6 (`493ff1c`):**
+  - `.github/rulesets/main.json`: deletion, non_fast_forward, pull_request (0 approvals), and required_status_checks (strict) for the five checks, each with `integration_id: 15368`;
+  - `gh api apps/github-actions` confirms id 15368;
+  - bypass: `RepositoryRole` id 5 (admin; source: terraform-provider-github `docs/resources/repository_ruleset.md`, "base repository roles and their associated IDs"), with `bypass_mode: pull_request`;
+  - the fields were checked against GitHub's REST "Create a repository ruleset" reference and with `jq`. Never POSTed.
+  - `render.yaml`: `autoDeployTrigger: checksPass` on all 8 services. Sources:
+    - render.com/docs/blueprint-spec: values `commit`/`checksPass`/`off`; it replaces `autoDeploy`;
+    - render.com/docs/deploys: Render waits for GitHub Actions and Checks API checks. `success`/`neutral`/`skipped` pass. A commit with zero checks or one failed check isn't deployed.
+- **Step 7 (`d0168ef`):**
+  - `api/.env.example` gained the 16 variables the code read but the example lacked: PORT, SERVICE_NAME, REQUIRE_INTERNAL_TOKEN, CORS_ORIGINS, COOKIE_SAMESITE, PROXY_*, INTERNAL_HTTP_TIMEOUT_MS, DB_POOL_*, DB_LOGGING, DB_SLOW_QUERY_MS, DB_SSL, DB_SSL_STRICT and MAX_VIDEO_UPLOAD_BYTES. All are commented out, with their code defaults;
+  - `web/.env.example` gained `GATEWAY_INTERNAL_URL`;
+  - left out on purpose: `BUILD_STANDALONE` (set by the Dockerfile), `OG_PROOF_DIR` (test only), and `NODE_ENV`/`NEXT_PHASE` (set by Next).
+- **Step 8 (`d442799`):**
+  - `docs/DEPLOYMENT.md` was rewritten as the single doc: Topology (public services plus the internal token), Environment variables, Render and Vercel gotchas (SMTP 2525), Cold starts and waking (scheduled work runs only while awake), Gates (with the web-before-API skew), and Environments;
+  - "Database migrations", with the first rollout, 6c and 6d, is copied **verbatim** (diffed against the old root file);
+  - Images, and Scaling. The root `DEPLOYMENT.md` is a pointer;
+  - the README no longer claims a private network, GHCR or an always-on sweep. It gained a Lint row and a Deployment section;
+  - five notes moved to `docs/history/`, with a README there;
+  - the dead `./HANDOFF.md` and `./PRODUCT_ROADMAP.md` `.gitignore` lines are removed (a `./` pattern never matched);
+  - one code comment link was updated;
+  - the empty root `package-lock.json` is removed;
+  - added the PR template and CODEOWNERS (`* @Kalkidan-Amare`);
+  - the planner's ask: roadmap row 8 is set to done, and the 8 plan Status too.
+  - Not written, as they aren't on main: the Jobs (9c), Logs (9d), Outbox (9b) and CSP (10) sections.
+- **Step 9, local gate (head `d442799` + this note, after merging origin/main):**
+  - the lint baseline was regenerated and is unchanged (api 204, web 4); the check passes;
+  - api build, typecheck, test: 67 suites, 1281 passed, 1 skipped;
+  - web typecheck, test: 76 files, 663 passed; web build OK;
+  - `docker build`: gateway 2 m 19 s, 347 MB; web 3 m 15 s, 299 MB. Both cold after the lockfile change.
+  - e2e and Playwright are left to CI on the draft PR: nothing in this branch changes runtime code (one comment), and the stack is held for Phase 10.
