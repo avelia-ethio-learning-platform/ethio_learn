@@ -50,7 +50,9 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
       title: course.title,
       description: course.description.slice(0, 200),
       type: 'website',
-      ...(course.thumbnail_url ? { images: [course.thumbnail_url] } : {}),
+      // Next merges openGraph shallowly, so without images the site card would
+      // be dropped; fall back to it explicitly until per-course images (7b).
+      images: [course.thumbnail_url ?? '/opengraph-image'],
     },
   };
 }

@@ -22,8 +22,7 @@ export const metadata: Metadata = {
     description: 'Educator-first online learning marketplace for Ethiopia with verifiable certificates.',
   },
   robots: { index: true, follow: true },
-  manifest: '/manifest.webmanifest',
-  icons: { icon: '/icon.svg' },
+  twitter: { card: 'summary_large_image' },
 };
 
 export const viewport: Viewport = {
