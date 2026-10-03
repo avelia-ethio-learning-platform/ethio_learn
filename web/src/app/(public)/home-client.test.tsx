@@ -22,7 +22,7 @@ describe('home hero', () => {
   it('server HTML hides none of the heading, copy, search or CTAs', () => {
     const doc = serverHome();
     const hero = doc.querySelector('section')!;
-    for (const el of [hero.querySelector('h1')!, hero.querySelector('h1 + p')!, hero.querySelector('form')!, ...hero.querySelectorAll('a[href="/courses"], a[href^="/signup"]')]) {
+    for (const el of [hero.querySelector('h1')!, hero.querySelector('h1 + p')!, hero.querySelector('form')!, ...Array.from(hero.querySelectorAll('a[href="/courses"], a[href^="/signup"]'))]) {
       expect(el.closest('[style*="opacity:0"]'), el.outerHTML.slice(0, 60)).toBeNull();
     }
   });

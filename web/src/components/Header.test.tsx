@@ -152,5 +152,6 @@ describe('Header nav', () => {
     const { container } = renderHeader();
     const nav = container.querySelector('nav[aria-label="Main"]')!;
     expect(nav.getAttribute('style')).toBeNull();
+    expect(nav.querySelectorAll('[style*="opacity"]')).toHaveLength(0);
   });
 });

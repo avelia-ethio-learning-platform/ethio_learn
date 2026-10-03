@@ -37,15 +37,9 @@ export function ThemeToggle() {
         aria-controls={panelId}
         className="glass-secondary flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
       >
-        <motion.span
-          key={theme}
-          initial={{ rotate: -90, opacity: 0 }}
-          animate={{ rotate: 0, opacity: 1 }}
-          transition={{ duration: 0.2 }}
-          className="flex items-center justify-center"
-        >
+        <span className="flex items-center justify-center">
           <CurrentIcon className="h-4 w-4" />
-        </motion.span>
+        </span>
       </button>
 
       <AnimatePresence>
