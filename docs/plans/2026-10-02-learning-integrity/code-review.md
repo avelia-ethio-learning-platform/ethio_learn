@@ -71,3 +71,11 @@ Round 2 will check B1 (and S1, if fixed) and review only `cfbd780..<new head>`.
 - **N1: deferred.** The local stack is held for 8a's gate, and the unit tests already cover the server ignoring a smaller client duration.
 - **N2: deferred.** The plan chose the hidden retry.
 - **Tests:** api jest 1238 passed, 1 skipped; tsc clean for outcomes and course.
+
+## Round 2 (2026-10-03) · Verdict: APPROVED
+Reviewed `cfbd780..46e9ff6` (the code is `47bbc2c`).
+- **B1: resolved.** `mergedLesson` copies the live `video_duration_seconds` before the `pending` spread. The new `duplicate()` test covers both a live duration and a staged one. The display caller is unaffected.
+- **S1: resolved.** `submitAttempt` refuses before grading (409 "This attempt is no longer open.") when a finished attempt is the same age or newer, or one passed, so there's no Groq call and nothing stored. There are three tests: a stale row, after a pass, and the current row still graded. The two anticheat fixtures were updated to backdate finished rows and keep the same-millisecond tie out of the way; on real rows that tie is effectively impossible.
+- **N1 and N2:** deferral accepted.
+- **Gate at `46e9ff6`, in the review worktree:** api build and typecheck clean; jest 1238 passed, 1 skipped. Web, migrations and db:check are unchanged since my Round 1 gate.
+- **Before the merge:** ethio-planner reruns e2e and Playwright against the stack once the 8a window closes. impl couldn't rerun them on this head. The fix is api-only, but e2e-learning drives submit.
