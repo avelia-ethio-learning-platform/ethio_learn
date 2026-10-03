@@ -196,12 +196,26 @@ export function fakeDb() {
   /** Every statement the services send as raw SQL, interpreted in memory. */
   const runQuery = async (sql: string, params: any[] = [], txLocks?: Set<string>): Promise<any> => {
     const s = sql.replace(/\s+/g, ' ').trim();
-    if (/^INSERT INTO financial\.wallet_transactions .* ON CONFLICT DO NOTHING RETURNING id$/.test(s)) {
-      const [user_id, amount_etb, kind, reference, note] = params;
-      const row = { user_id, amount_etb, kind, reference, note };
+    // A credit names its state (available or pending); a debit takes the column defaults.
+    if (
+      /^INSERT INTO financial\.wallet_transactions \(user_id, amount_etb, kind, reference, note, state, available_at, payment_id\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\) ON CONFLICT DO NOTHING RETURNING id$/.test(s) ||
+      /^INSERT INTO financial\.wallet_transactions \(user_id, amount_etb, kind, reference, note\) VALUES \(\$1, \$2, \$3, \$4, \$5\) ON CONFLICT DO NOTHING RETURNING id$/.test(s)
+    ) {
+      const [user_id, amount_etb, kind, reference, note, state = 'available', available_at = null, payment_id = null] = params;
+      const row = { user_id, amount_etb, kind, reference, note, state, available_at, payment_id };
       if (walletTx.conflicts(row)) return [];
       await walletTx.insert(row);
       return [{ id: (row as Row).id }];
+    }
+    if (
+      s ===
+      "UPDATE financial.wallet_transactions SET state = 'available' WHERE user_id = $1 AND state = 'pending' AND available_at <= now() AND NOT EXISTS (SELECT 1 FROM financial.payments p WHERE p.id = wallet_transactions.payment_id AND (p.refund_requested_at IS NOT NULL OR p.status <> 'confirmed')) RETURNING amount_etb"
+    ) {
+      const held = (t: Row) => repo(Payment).rows.some((p) => p.id === t.payment_id && (p.refund_requested_at != null || p.status !== 'confirmed'));
+      const matured = (t: Row) => t.available_at != null && new Date(t.available_at).getTime() <= Date.now();
+      const released = walletTx.rows.filter((t) => t.user_id === params[0] && t.state === 'pending' && matured(t) && !held(t));
+      released.forEach((t) => (t.state = 'available'));
+      return [released.map((t) => ({ amount_etb: t.amount_etb })), released.length];
     }
     if (/^INSERT INTO financial\.wallets .* ON CONFLICT \(user_id\) DO NOTHING$/.test(s)) {
       if (!wallets.rows.some((w) => w.user_id === params[0])) wallets.rows.push({ id: params[0], user_id: params[0], balance_etb: '0.00' });
