@@ -4,7 +4,7 @@ import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BadgeCheck, KeyRound, Save, ShieldAlert, UserRound } from 'lucide-react';
+import { BadgeCheck, Building2, KeyRound, Save, ShieldAlert, UserRound } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
@@ -15,6 +15,7 @@ import { useT } from '@/lib/i18n';
 import { roleLabel } from '@/lib/labels';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
 
 function AccountPage() {
   const { locale } = useT();
@@ -133,6 +134,18 @@ function AccountPage() {
           </Link>
         </div>
 
+        {(me.role === 'learner' || me.role === 'educator') && (
+          <div className="card animate-fade-in-up !rounded-3xl">
+            <h2 className="flex items-center gap-2 font-bold text-foreground">
+              <Building2 className="h-4 w-4 text-brand-500" /> Institutions
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">Invitations to teach with an institution, and the institution you teach with.</p>
+            <Link href="/account/invites" className="btn-secondary mt-4 inline-flex">
+              Institutions
+            </Link>
+          </div>
+        )}
+
         <DangerZone role={me.role} />
       </div>
     </PageShell>
@@ -141,13 +154,20 @@ function AccountPage() {
 
 function DangerZone({ role }: { role: string }) {
   const router = useRouter();
+  const ask = useConfirm();
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [status, , setError, clearStatus] = useFormStatus();
   const [busy, setBusy] = useState(false);
 
   const remove = async () => {
-    if (!confirm('Delete your account permanently? This cannot be undone.')) return;
+    const answer = await ask({
+      title: 'Delete your account permanently?',
+      body: 'Your personal data is removed and you are logged out. This cannot be undone.',
+      confirmLabel: 'Delete account',
+      tone: 'danger',
+    });
+    if (!answer) return;
     setBusy(true);
     clearStatus();
     try {
