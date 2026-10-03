@@ -238,7 +238,7 @@ Phase 2 pattern; entities updated so `db:check` stays at 0.
     - a malformed token (wrong alphabet or length) → 400;
     - `POST /api/v1/pay-requests/<token>/pay` → 401.
 - [x] 9. Full gate: api build, tests and `db:check`; web typecheck, tests and build; every e2e script; both image builds.
-- [ ] 10. Code review by ethio-reviewer. The user approves push and PR (same-day merge and deploy).
+- [x] 10. Code review by ethio-reviewer: APPROVED in round 2 at `99bd653`. Push, PR and merge are next (same-day merge and deploy).
 
 ## Test plan
 - **Unit tests** (codebase mock style; fakes from `course.service.spec.ts:20-133`):
@@ -392,22 +392,10 @@ Deviations:
   - Both fixes are in the controller, not a subagent dispatch: one config line pair and one string. Neither touches the api or the e2e scripts, so the e2e was not rerun. The web typecheck is clean, and the web tests pass (30 files, 377 tests).
 
 ### Status (2026-10-03)
-Steps 1–9 are done, and code review round 1 is addressed (`b3db839`, `0c876de`). Not pushed. Push and PR wait until the user can merge and deploy 6a the same day.
+Steps 1–10 are done. Code review is APPROVED (round 2, at `99bd653`, see `code-review.md`). Not pushed yet. Push, PR and merge happen on the same day as the deploy.
 
-### In flight / next step (checkpoint 3, 2026-10-03)
-- **Waiting on:** ethio-reviewer's round 2, which checks B2 and N3. `code-review.md` is git-ignored in this folder, as `.git/info/exclude` excludes the folder. Force-add it at approval, as Phase 5's was.
-- **When the review is APPROVED:**
-  - Tell the user the summary, the branch, the test results and the deferred items, and ask about push and PR. They can be pushed only when the user can merge and deploy 6a the same day.
-  - Collect production-side items into one list for the user: the post-deploy probes in Rollout and ops. No env changes are needed.
-  - Delete the SDD workspace `.superpowers/sdd/plan/`. Its ledger holds rulings R3–R18; they're all also recorded in this section.
-- **Shared stack:**
-  - ethio-planner holds a 7a Playwright window on our `:4000` stack, from about 09:55 for 20–30 minutes, and will ask for a second, shorter one later. Don't restart the stack or run e2e until they say it's done.
-  - The stack runs 6a branch code on a fresh `el_e2e`, with the demo seed. Restore the dev stack (`ethiopialearn` DB) only after 6a's review is done and 7a no longer needs it.
-- **Runners:** in this session's scratchpad, `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/87145e98-2ae1-4654-aee6-31e251d3e4d8/scratchpad/`:
-  - `e2e-up.sh`: fresh `el_e2e`, build, seed, start, `db:check`;
-  - `e2e-run.sh <script…>`: the e2e scripts with the `.env.example` env, `CHAPA_MODE=mock`, and SMTP and Groq blank;
-  - `gate.sh`: the full CI-order gate;
-  - `images.sh`: all 9 images.
-
-  `demo-seed.mjs` must run after `e2e-up.sh` and before the other scripts.
-- **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths, and use `git add -u -- <path>` for this tracked folder. Production is off-limits.
+### In flight / next step (checkpoint 4, 2026-10-03)
+- **Next for 6a:** the user's go-ahead to push, after the auto-mode flag on the push and merge note (see the Phase 6a conversation). Then push `fix/security-platform`, open the PR, and send ethio-reviewer the PR number; it merges with `--merge` once CI is green. The post-deploy checks are `USER-ACTIONS.md` item 5 and `prod-rollout.sh verify 6a`.
+- **Cleanup after the merge:** delete the SDD workspace `.superpowers/sdd/plan/`. Its ledger holds rulings R3–R18, and all of them are recorded in this section. Restore the dev stack (`ethiopialearn` DB) only once 7a and 6c no longer need `el_e2e`.
+- **Runners:** in the previous session's scratchpad, `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/87145e98-2ae1-4654-aee6-31e251d3e4d8/scratchpad/`: `e2e-up.sh`, `e2e-run.sh <script…>`, `gate.sh`, `images.sh`. `demo-seed.mjs` must run after `e2e-up.sh` and before the other scripts.
+- **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths. Production is off-limits.
