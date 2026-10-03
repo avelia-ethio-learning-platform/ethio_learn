@@ -140,6 +140,16 @@ describe('AssessmentsPanel project', () => {
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/attempts/t9/submit', { method: 'PUT', body: { file_key: 'k/9' } }));
   });
 
+  it('Submit goes to the attempt the file was uploaded to, when the sized start answers a different one', async () => {
+    putFileMock.mockResolvedValueOnce(undefined);
+    setup(() => ({ ...started, attempt_id: 't10', file_key: 'k/10' }));
+    await openAndPick(file(10));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Submit project' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit project' }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/attempts/t10/submit', { method: 'PUT', body: { file_key: 'k/10' } }));
+    expect(apiMock.mock.calls.filter(([, o]) => o?.method === 'PUT')).toHaveLength(1);
+  });
+
   it('a start refusal shows the server message, clears the picker and uploads nothing', async () => {
     setup(() => new Error('Project files can be up to 50 MB.'));
     const input = await openAndPick(file(10));

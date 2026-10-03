@@ -57,9 +57,10 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
     }
   };
 
-  const finish = async (body: Record<string, unknown>) => {
+  // A project passes the attempt its file went to (the sized start's); the others submit the one from Start.
+  const finish = async (body: Record<string, unknown>, attemptId: string = active.attempt_id) => {
     try {
-      const res = await api<any>(`/attempts/${active.attempt_id}/submit`, { method: 'PUT', body });
+      const res = await api<any>(`/attempts/${attemptId}/submit`, { method: 'PUT', body });
       const feedback = res.feedback ? ` · ${res.feedback}` : '';
       // A score that did not pass is not a success: it goes out politely, in the warning colours.
       if (res.pending_review) setOk('Submitted — your educator will review it.');
@@ -168,7 +169,7 @@ function VivaForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => v
   );
 }
 
-function ProjectForm({ attempt: opened, onSubmit }: { attempt: any; onSubmit: (b: any) => void }) {
+function ProjectForm({ attempt: opened, onSubmit }: { attempt: any; onSubmit: (b: any, attemptId: string) => void }) {
   // The open attempt from Start; choosing a file asks again with its size and gets a URL signed for it.
   const [attempt, setAttempt] = useState<any>(opened);
   const [uploading, setUploading] = useState(false);
@@ -221,7 +222,7 @@ function ProjectForm({ attempt: opened, onSubmit }: { attempt: any; onSubmit: (b
       </div>
       {progress && <UploadProgress fileName={progress.fileName} state={progress.state} />}
       <FormStatus status={status} />
-      <button className="btn mt-3" disabled={!uploaded || uploading} onClick={() => onSubmit({ file_key: attempt.file_key })}>
+      <button className="btn mt-3" disabled={!uploaded || uploading} onClick={() => onSubmit({ file_key: attempt.file_key }, attempt.attempt_id)}>
         {uploading ? 'Uploading…' : 'Submit project'}
       </button>
     </div>
