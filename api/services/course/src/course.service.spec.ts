@@ -991,6 +991,13 @@ function staleNextLoad(h: ReturnType<typeof setup>, concurrent: Row) {
   });
 }
 
+describe('Submit blockers', () => {
+  it('tells the educator to set a price on a paid course without one', async () => {
+    const h = setup({ course: { status: 'draft', pricing_type: 'paid', price_etb: null } });
+    await expect(h.service.submit(OWNER, 'c1')).rejects.toThrow(new BadRequestException('Set a price before submitting a paid course.'));
+  });
+});
+
 describe('Submitting an institution course', () => {
   it('notifies the owner of the course’s institution, even after the instructor left it', async () => {
     // The instructor's membership lookup finds nothing (the default internal answer).
