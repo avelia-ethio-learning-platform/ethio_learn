@@ -10,6 +10,7 @@ import { useT } from '@/lib/i18n';
 import { AuthShell } from '@/components/PageChrome';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { ResendVerification } from '@/components/ResendVerification';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 function LoginForm() {
@@ -18,6 +19,8 @@ function LoginForm() {
   const { t } = useT();
   const [status, , setError, clearStatus] = useFormStatus();
   const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState('');
+  const unverified = status?.tone === 'error' && status.text.startsWith('Email not verified');
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -58,12 +61,13 @@ function LoginForm() {
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label={t('email')}>
-          {(ids) => <input {...ids} name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />}
+          {(ids) => <input {...ids} name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />}
         </Field>
         <Field label={t('password')}>
           {(ids) => <input {...ids} name="password" type="password" required autoComplete="current-password" className="input" placeholder="••••••••" />}
         </Field>
         <FormStatus status={status} />
+        {unverified && <ResendVerification email={email} label="Resend verification email" />}
         <button className="btn w-full !py-3" disabled={busy}>
           {busy ? 'Logging in…' : t('login')}
         </button>
