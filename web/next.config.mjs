@@ -1,4 +1,8 @@
 import { securityHeaders } from './src/lib/csp.mjs';
+import { assertSiteUrl } from './src/lib/site-url.mjs';
+
+// A production build without the real site URL would publish localhost canonicals.
+assertSiteUrl(process.env);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

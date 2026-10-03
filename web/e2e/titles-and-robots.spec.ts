@@ -68,6 +68,23 @@ test.describe('titles and robots', () => {
   }
 });
 
+test.describe('canonicals', () => {
+  /** The page's canonical links, as hrefs. */
+  const canonicals = (html: string) => (html.match(/<link\s[^>]*rel="canonical"[^>]*>/g) ?? []).map((tag) => /href="([^"]*)"/.exec(tag)?.[1] ?? '');
+
+  test('every indexable route has one canonical, to itself', async ({ request }) => {
+    const { items } = await apiGet<{ items: { id: string }[] }>(request, '/search?page=1&limit=1');
+    const [educator] = await apiGet<{ educator_id: string }[]>(request, '/educators/top?limit=1');
+    const paths = [...ROUTES.filter(([, , noindex]) => !noindex).map(([path]) => path), `/courses/${items[0].id}`];
+    if (educator) paths.push(`/educators/${educator.educator_id}`);
+    for (const path of paths) {
+      const found = canonicals(await (await request.get(path)).text());
+      expect(found, path).toHaveLength(1);
+      expect(new URL(found[0]).pathname, path).toBe(path);
+    }
+  });
+});
+
 test.describe('share image', () => {
   const expectShareImages = (html: string, where: string) => {
     for (const [attr, key] of [['property', 'og:image'], ['name', 'twitter:image']] as const) {
