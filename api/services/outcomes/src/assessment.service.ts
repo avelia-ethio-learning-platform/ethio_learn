@@ -323,7 +323,8 @@ export class AssessmentService implements OnModuleInit {
    * Starts an attempt, or resumes the open one. Each start is one transaction
    * under an advisory lock per learner and assessment (transaction-scoped: the
    * Neon URL is pooled), so concurrent starts queue and the later ones reuse
-   * the row the first inserted. Only finished attempts count towards
+   * the row the first inserted. An open row is resumed only when it was created
+   * after every finished attempt. Only finished attempts count towards
    * max_attempts and the cooldown. AI and storage calls run after commit.
    */
   async startAttempt(ctx: UserContext, assessmentId: string) {
@@ -339,12 +340,16 @@ export class AssessmentService implements OnModuleInit {
       await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`attempt:${assessment.id}:${ctx.id}`]);
       const attempts = m.getRepository(AssessmentAttempt);
       const mine = { assessment_id: assessment.id, learner_id: ctx.id };
+      const finished = await attempts.find({ where: { ...mine, submitted_at: Not(IsNull()) }, order: { submitted_at: 'DESC' } });
+      const lastStarted = finished.reduce((latest, a) => Math.max(latest, a.created_at.getTime()), 0);
 
       // Anti-cheat: an unfinished attempt is resumed, never replaced — restarting
       // to fish for an easier paper or viva question is not possible. Only the
-      // newest open row is resumed; older duplicates from before the lock are
-      // never resumed and, being unfinished, never counted below.
-      const open = await attempts.findOne({ where: { ...mine, submitted_at: IsNull() }, order: { created_at: 'DESC' } });
+      // newest open row, and only when it was created after every finished
+      // attempt, is current. Older open rows (duplicates from before the lock)
+      // are stale: never resumed, closed or counted.
+      const newestOpen = await attempts.findOne({ where: { ...mine, submitted_at: IsNull() }, order: { created_at: 'DESC' } });
+      const open = newestOpen && newestOpen.created_at.getTime() > lastStarted ? newestOpen : null;
       if (open && !(isQuiz && this.timeLimitExpired(assessment, open))) {
         if (isProject && !open.detail?.file_key) {
           // Left by a start that failed before its key was stored.
@@ -361,9 +366,9 @@ export class AssessmentService implements OnModuleInit {
         open.score = open.score ?? 0;
         open.detail = { ...open.detail, termination_reason: 'Time limit expired before submission' };
         await attempts.save(open);
+        finished.unshift(open); // now the newest submission
       }
 
-      const finished = await attempts.find({ where: { ...mine, submitted_at: Not(IsNull()) }, order: { submitted_at: 'DESC' } });
       const noun = isQuiz ? 'quiz' : 'assessment';
       const refuse = (reason: string, error: HttpException) => {
         this.logger.log(`attempt start refused for assessment ${assessment.id}, learner ${ctx.id}: ${reason}`);

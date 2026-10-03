@@ -393,6 +393,57 @@ describe('startAttempt(): an expired open quiz', () => {
   });
 });
 
+describe('startAttempt(): an open row older than a finished attempt is stale', () => {
+  // Open rows left from before the lock (duplicates of a start the learner then finished).
+  const cases = [
+    [AssessmentType.QUIZ, { questions: bankOf(3) }],
+    [AssessmentType.AI_VIVA, {}],
+    [AssessmentType.PROJECT, {}],
+  ] as const;
+  const stale = { id: 'stale', created_at: ago(200), detail: { question: 'Old?', file_key: 'projects/l1/stale' } };
+
+  it('viva: a stale open row older than a passed attempt is not reused; the pass refuses the start', async () => {
+    const { svc, attempts, ai } = harness(AssessmentType.AI_VIVA, {}, [stale, { ...finished(50, true), created_at: ago(100) }]);
+    const err = await svc.startAttempt(learner, 'as1').catch((e) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.message).toBe('You have already passed this assessment');
+    expect(ai.generateVivaQuestion).not.toHaveBeenCalled();
+    expect(attempts.inserted).toHaveLength(0);
+    expect(attempts.rows[0]).toMatchObject({ id: 'stale', submitted_at: null });
+  });
+
+  it.each(cases)('%s: a stale open row is ignored and a fresh attempt is inserted when limits allow', async (type, config) => {
+    const { svc, attempts } = harness(type, config, [stale, { ...finished(50), created_at: ago(100) }]);
+    const res: any = await svc.startAttempt(learner, 'as1');
+    expect(attempts.inserted).toHaveLength(1);
+    expect(res.attempt_id).toBe(attempts.inserted[0].id);
+    expect(attempts.rows[0]).toMatchObject({ id: 'stale', submitted_at: null });
+  });
+
+  it('timed quiz: an expired stale open row is neither closed nor counted', async () => {
+    const { svc, attempts } = harness(AssessmentType.QUIZ, { questions: bankOf(3), time_limit_minutes: 30, max_attempts: 2 }, [
+      stale,
+      { ...finished(90), created_at: ago(100) },
+    ]);
+    // 1 finished of 2: closing and counting the stale row would refuse this start.
+    const paper: any = await svc.startAttempt(learner, 'as1');
+    expect(attempts.inserted).toHaveLength(1);
+    expect(paper.attempt_id).toBe(attempts.inserted[0].id);
+    expect(attempts.rows[0]).toMatchObject({ id: 'stale', submitted_at: null, terminated: false, passed: null });
+  });
+
+  it.each(cases)('%s: an open row newer than every finished attempt is still reused', async (type, config) => {
+    const { svc, attempts, ai } = harness(type, config, [
+      { ...finished(250), created_at: ago(300) },
+      { id: 'current', created_at: ago(5), detail: { question: 'Current?', file_key: 'projects/l1/current' } },
+    ]);
+    const res: any = await svc.startAttempt(learner, 'as1');
+    expect(res.attempt_id).toBe('current');
+    expect(attempts.inserted).toHaveLength(0);
+    expect(ai.generateVivaQuestion).not.toHaveBeenCalled();
+  });
+});
+
 describe('create(): attempt limits for every type', () => {
   it.each([AssessmentType.AI_VIVA, AssessmentType.PROJECT])('%s gets the defaults, and configured values are clamped', async (type) => {
     const { svc } = harness(type);

@@ -27,7 +27,7 @@ function harness(config: Record<string, unknown>, priorAttempts: Record<string, 
       if (where.id) return saved.find((a) => a.id === where.id) ?? priorAttempts.find((a) => a.id === where.id) ?? null;
       return null;
     }),
-    find: jest.fn(async () => priorAttempts),
+    find: jest.fn(async () => priorAttempts.filter((a) => a.submitted_at)), // startAttempt asks for finished attempts only
     save: jest.fn(async (a: any) => {
       if (!a.id) a.id = `att-${saved.length + 1}`;
       if (!a.created_at) a.created_at = new Date();
