@@ -237,6 +237,7 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
   - `grep -l <id> .devlogs/*.log`: expect the gateway, enrollment, and the `EnrollmentCreated` consumers in course and notification, with their internal calls;
   - then the email-regex grep from step 8 (only masked addresses or none);
   - record both in Progress, run `bash scripts/stop-backend.sh`, drop `el_e2e_9d`, and tell the next stack holder.
+- **Early read (ethio-reviewer):** no blockers or should-fixes. N1 is taken: the PII guard also scans `packages/*/src`. Common passes, and a probe file with a raw `email` in `packages/storage` failed the guard as expected.
 - **Waiting on peers:**
   - 9b step 4 (converted emit sites; the outbox default already covers them);
   - 9c step 5 (job runners: they must start outside a request, through 9b's snapshot pattern or `requestContext.exit`).
