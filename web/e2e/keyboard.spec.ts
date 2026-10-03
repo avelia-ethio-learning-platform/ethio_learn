@@ -7,28 +7,40 @@ test('on /login the skip link is the first tab stop and the email field has no d
   await page.goto('/login');
   await expect(page.locator('input[name="email"]')).toBeVisible();
 
-  await page.keyboard.press('Tab');
-  const skip = page.getByRole('link', { name: 'Skip to main content' });
-  await expect(skip).toBeFocused();
-
-  await page.keyboard.press('Enter');
-  await expect(page.locator('main#main')).toBeFocused();
-
-  // From <main>, Tab walks forward to the email field: every stop is a new element.
-  const stops: string[] = [];
-  for (let i = 0; i < 10; i++) {
+  // Every stop from the first Tab (skip link included) up to the email field.
+  // Each focused element is tagged, so the same element twice is caught, and two
+  // consecutive stops with the same role and name (a link wrapping a button) are too.
+  const stops: { tag: string; role: string; name: string; seen: boolean }[] = [];
+  for (let i = 0; i < 25; i++) {
     await page.keyboard.press('Tab');
+    if (i === 0) {
+      await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused();
+      // Following the link moves focus to <main>; start the walk again from the top.
+      await page.keyboard.press('Enter');
+      await expect(page.locator('main#main')).toBeFocused();
+      await page.goto('/login');
+      await expect(page.locator('input[name="email"]')).toBeVisible();
+      await page.keyboard.press('Tab');
+    }
     const stop = await page.evaluate(() => {
-      const el = document.activeElement as HTMLElement | null;
-      if (!el) return '';
-      const siblings = el.parentElement ? Array.from(el.parentElement.children).indexOf(el) : 0;
-      return `${el.tagName}|${el.getAttribute('name') ?? ''}|${(el.textContent ?? '').trim().slice(0, 30)}|${siblings}|${el.getAttribute('href') ?? ''}`;
+      const el = document.activeElement as HTMLElement;
+      const seen = el.hasAttribute('data-tabstop-seen');
+      el.setAttribute('data-tabstop-seen', '');
+      const label = el.getAttribute('aria-label') ?? (el.textContent ?? '').trim().slice(0, 40);
+      const role = el.getAttribute('role') ?? (el.tagName === 'A' ? 'link' : el.tagName === 'BUTTON' ? 'button' : el.tagName.toLowerCase());
+      return { tag: el.tagName, role, name: label || el.getAttribute('name') || '', seen };
     });
     stops.push(stop);
-    if (stop.startsWith('INPUT|email|')) break;
+    if (stop.tag === 'INPUT' && stop.name === 'email') break;
   }
-  expect(stops.at(-1), `tab stops: ${stops.join(' > ')}`).toMatch(/^INPUT\|email\|/);
-  expect(new Set(stops).size, `duplicate stops: ${stops.join(' > ')}`).toBe(stops.length);
+  const trail = stops.map((s) => `${s.role}:${s.name}`).join(' > ');
+  expect(`${stops[0].role}:${stops[0].name}`, trail).toBe('link:Skip to main content');
+  expect(stops.at(-1)!.name, `email field not reached: ${trail}`).toBe('email');
+  expect(stops.filter((s) => s.seen), `an element took focus twice: ${trail}`).toEqual([]);
+  stops.slice(1).forEach((s, i) => {
+    const prev = stops[i];
+    expect(!(prev.role === s.role && prev.name === s.name && s.name !== ''), `duplicate stop ${s.role}:${s.name}: ${trail}`).toBe(true);
+  });
 });
 
 test.describe('375 px', () => {

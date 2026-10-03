@@ -80,19 +80,12 @@ test.describe('share image', () => {
     expectShareImages(await (await request.get('/')).text(), '/');
   });
 
-  test('a course keeps the share image, with or without a thumbnail', async ({ request }) => {
-    const { items } = await apiGet<{ items: { id: string; thumbnail_url: string | null }[] }>(request, '/search?page=1&limit=50');
-    const bare = items.find((c) => !c.thumbnail_url);
-    // scripts/demo-seed.mjs gives every course a thumbnail, so on the seeded
-    // stack this falls back to a course that has one: the shared metadata
-    // path is the same, only the image URL differs.
-    const course = bare ?? items[0];
-    test.info().annotations.push({
-      type: 'note',
-      description: bare ? 'checked a course without a thumbnail' : 'the seed has no course without a thumbnail; checked one with a thumbnail',
-    });
-    const html = await (await request.get(`/courses/${course.id}`)).text();
-    expectShareImages(html, `/courses/${course.id}`);
-    if (bare) expect(metaTags(html, 'property', 'og:image')[0]).toContain('/opengraph-image');
+  // The no-thumbnail fallback is covered by the unit test next to the course
+  // page (the seed gives every course a thumbnail, and server-generated
+  // metadata can't be stubbed from the browser).
+  test('a course page has og:image and twitter:image', async ({ request }) => {
+    const { items } = await apiGet<{ items: { id: string }[] }>(request, '/search?page=1&limit=1');
+    const html = await (await request.get(`/courses/${items[0].id}`)).text();
+    expectShareImages(html, `/courses/${items[0].id}`);
   });
 });
