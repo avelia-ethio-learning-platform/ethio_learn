@@ -56,14 +56,9 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
     title: course.title,
     description: course.description.slice(0, 160),
     alternates: { canonical: `/courses/${course.id}` },
-    openGraph: {
-      title: course.title,
-      description: course.description.slice(0, 200),
-      type: 'website',
-      // Next merges openGraph shallowly, so without images the site card would
-      // be dropped; fall back to it explicitly until per-course images (7b).
-      images: [course.thumbnail_url ?? '/opengraph-image'],
-    },
+    // No `images`: opengraph-image.tsx (the file convention) supplies the card.
+    openGraph: { title: course.title, description: course.description.slice(0, 200), type: 'website' },
+    twitter: { card: 'summary_large_image', title: course.title, description: course.description.slice(0, 200) },
   };
 }
 
