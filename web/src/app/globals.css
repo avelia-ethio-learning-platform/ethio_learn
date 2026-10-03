@@ -354,18 +354,6 @@
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
   }
-
-  .skeleton {
-    @apply rounded-xl;
-    background: linear-gradient(
-      90deg,
-      rgba(59, 130, 246, 0.06) 25%,
-      rgba(59, 130, 246, 0.14) 50%,
-      rgba(59, 130, 246, 0.06) 75%
-    );
-    background-size: 800px 100%;
-    animation: shimmer 1.6s linear infinite;
-  }
 }
 
 @layer utilities {

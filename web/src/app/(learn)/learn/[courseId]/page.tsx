@@ -13,6 +13,7 @@ import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { WakingUp } from '@/components/WakingUp';
+import { PanelError } from '@/components/PanelError';
 import { AssessmentsPanel } from './assessments-panel';
 import { TutorPanel } from './tutor-panel';
 import { ReviewBox } from './review-box';
@@ -108,7 +109,7 @@ function Player({ courseId }: { courseId: string }) {
     enabled: !!enrollmentId,
     staleTime: 60_000,
   });
-  const { data: changelog } = useQuery({
+  const { data: changelog, isError: changelogError, refetch: refetchChangelog } = useQuery({
     queryKey: ['changelog', courseId],
     queryFn: () => api<ChangelogEntry[]>(`/courses/${courseId}/changelog`),
   });
@@ -276,6 +277,11 @@ function Player({ courseId }: { courseId: string }) {
               </button>
             )}
           </div>
+          {changelogError && (
+            <div className="mt-3">
+              <PanelError panel="course updates" onRetry={refetchChangelog} />
+            </div>
+          )}
           {showChangelog && changelog && (
             <div className="card mt-3 !p-4 text-sm">
               <p className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">Course updates</p>

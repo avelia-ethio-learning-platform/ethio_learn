@@ -9,6 +9,7 @@ import { UploadProgress } from '@/components/UploadProgress';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { assessmentTypeLabel } from '@/lib/labels';
+import { PanelError } from '@/components/PanelError';
 
 interface AssessmentSummary {
   id: string;
@@ -20,14 +21,28 @@ interface AssessmentSummary {
 
 export function AssessmentsPanel({ courseId }: { courseId: string }) {
   const queryClient = useQueryClient();
-  const { data: assessments } = useQuery({
+  const { data: assessments, isError: assessmentsError, refetch: refetchAssessments } = useQuery({
     queryKey: ['assessments', courseId],
     queryFn: () => api<AssessmentSummary[]>(`/assessments?course_id=${courseId}`),
   });
-  const { data: attempts } = useQuery({ queryKey: ['attempts', courseId], queryFn: () => api<any[]>(`/attempts/mine?course_id=${courseId}`) });
+  const { data: attempts, isError: attemptsError, refetch: refetchAttempts } = useQuery({
+    queryKey: ['attempts', courseId],
+    queryFn: () => api<any[]>(`/attempts/mine?course_id=${courseId}`),
+  });
   const [active, setActive] = useState<any | null>(null);
   const [status, setOk, setError, clearStatus, setInfo] = useFormStatus();
 
+  // Without the attempts we can't tell which assessments are passed, so that failure is a panel error too.
+  if (assessmentsError || attemptsError) {
+    return (
+      <div className="card mt-6">
+        <PanelError
+          panel="assessments"
+          onRetry={() => Promise.all([assessmentsError ? refetchAssessments() : null, attemptsError ? refetchAttempts() : null])}
+        />
+      </div>
+    );
+  }
   if (!assessments?.length) return null;
 
   const passed = (assessmentId: string) => attempts?.some((a) => a.assessment_id === assessmentId && a.passed);

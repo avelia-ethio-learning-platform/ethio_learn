@@ -34,6 +34,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Account settings', () => {
+  it('shows a panel error with Retry instead of a blank page when the profile fails to load', async () => {
+    apiMock.mockRejectedValue(new Error('boom'));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <Account />
+      </QueryClientProvider>,
+    );
+    expect((await screen.findByRole('alert')).textContent).toContain("Couldn't load your account.");
+    apiMock.mockResolvedValue(me);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByLabelText('Full name')).toBeTruthy();
+  });
+
   it('labels the profile fields and shows the role as a human label', async () => {
     setup();
     expect((await screen.findByLabelText('Full name')).getAttribute('name')).toBe('name');
