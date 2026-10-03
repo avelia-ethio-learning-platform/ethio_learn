@@ -509,21 +509,36 @@ export class PaymentService {
   /**
    * Safety net for missed webhooks and abandoned return pages. Every 2 minutes,
    * ask Chapa about recent pending payments and apply the standard rules.
+   *
+   * Then it re-checks recent failed Chapa payments that had a checkout page,
+   * such as one a retry of the same purchase superseded. One Chapa reports
+   * paid is confirmed exactly as its webhook would confirm it (paying both
+   * pages is a duplicate purchase, a refund case); one reported unpaid or
+   * still pending stays failed. A failed row with no checkout URL is never
+   * selected: Chapa never opened its page, so it can't have been paid.
    */
   @Cron('*/2 * * * *')
   async sweepPendingPayments(): Promise<void> {
     if (chapaMode() !== 'live') return;
     const now = Date.now();
-    const rows = await this.payments.find({
-      where: {
-        status: PaymentStatus.PENDING,
-        method: PaymentMethod.CHAPA,
-        created_at: Between(new Date(now - 24 * 3600_000), new Date(now - 60_000)),
-      },
+    const recent = Between(new Date(now - 24 * 3600_000), new Date(now - 60_000));
+    const pending = await this.payments.find({
+      where: { status: PaymentStatus.PENDING, method: PaymentMethod.CHAPA, created_at: recent },
       order: { created_at: 'DESC' },
       take: 25,
     });
-    for (const payment of rows) {
+    const failed = await this.payments.find({
+      where: {
+        status: PaymentStatus.FAILED,
+        method: PaymentMethod.CHAPA,
+        chapa_tx_ref: Not(IsNull()),
+        chapa_checkout_url: Not(IsNull()),
+        created_at: recent,
+      },
+      order: { created_at: 'DESC' },
+      take: 10,
+    });
+    for (const payment of [...pending, ...failed]) {
       try {
         const verification = await this.chapa.verify(payment.chapa_tx_ref);
         await this.applyVerification(payment, verification, 'sweep');

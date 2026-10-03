@@ -772,6 +772,68 @@ describe('PaymentService.sweepPendingPayments', () => {
     await t.service.sweepPendingPayments();
     expect(t.payments.find).not.toHaveBeenCalled();
   });
+
+  /** A failed Chapa payment whose checkout page was opened, such as one a retry of the same purchase superseded. */
+  const failedCheckout = (t: ReturnType<typeof setup>, over: Row = {}) =>
+    t.seed({ status: PaymentStatus.FAILED, chapa_checkout_url: 'https://checkout.example/old', webhook_received_at: new Date(Date.now() - 5 * 60_000), ...over });
+
+  it('confirms a failed checkout Chapa reports paid, even a superseded one whose retry already settled the purchase', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    failedCheckout(t, { id: 'pay-old', chapa_tx_ref: 'TX-OLD', created_at: new Date(Date.now() - 20 * 60_000) });
+    t.seed({ id: 'pay-new', chapa_tx_ref: 'TX-NEW', status: PaymentStatus.CONFIRMED, chapa_checkout_url: 'https://checkout.example/new', effects_completed_at: new Date() });
+
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify.mock.calls).toEqual([['TX-OLD']]);
+    // Both pages paid: a duplicate purchase, now visible to refunds and support.
+    expect(t.row('pay-old').status).toBe(PaymentStatus.CONFIRMED);
+    expect(t.row('pay-new').status).toBe(PaymentStatus.CONFIRMED);
+    expect(t.published('PaymentConfirmed')).toEqual([['PaymentConfirmed', expect.objectContaining({ payment_id: 'pay-old' }), { correlationId: 'pay-old' }]]);
+  });
+
+  it.each([
+    ['failed', { status: 'failed', amount: null, currency: null }],
+    ['still pending', { status: 'pending', amount: null, currency: null }],
+  ])('leaves a failed checkout failed, with no event, when Chapa reports it %s', async (_, verification) => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    failedCheckout(t);
+    t.chapa.verify.mockResolvedValue(verification);
+
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify).toHaveBeenCalledWith('TX-TEST');
+    expect(t.row().status).toBe(PaymentStatus.FAILED);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.bus.publishConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('never selects a failed checkout Chapa never opened, so a dozen newer ones cannot crowd out a payable one', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    failedCheckout(t, { id: 'payable', chapa_tx_ref: 'TX-PAYABLE', created_at: new Date(Date.now() - 3 * 3600_000) });
+    for (let i = 0; i < 12; i++) {
+      failedCheckout(t, { id: `never-opened-${i}`, chapa_tx_ref: `TX-NEVER-${i}`, chapa_checkout_url: null, created_at: new Date(Date.now() - (5 + i) * 60_000) });
+    }
+    failedCheckout(t, { id: 'too-old', chapa_tx_ref: 'TX-TOO-OLD', created_at: new Date(Date.now() - 25 * 3600_000) });
+
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify.mock.calls).toEqual([['TX-PAYABLE']]);
+    expect(t.row('payable').status).toBe(PaymentStatus.CONFIRMED);
+  });
+
+  it('sweeps pending payments first, then failed checkouts', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    failedCheckout(t, { id: 'failed', chapa_tx_ref: 'TX-FAILED', created_at: new Date(Date.now() - 5 * 60_000) });
+    t.seed({ id: 'pending', chapa_tx_ref: 'TX-PENDING', course_id: 'c2', created_at: new Date(Date.now() - 3 * 3600_000) });
+
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify.mock.calls).toEqual([['TX-PENDING'], ['TX-FAILED']]);
+  });
 });
 
 describe('PaymentService.nudgeAbandonedCheckouts: one reminder, and it never writes the status', () => {
