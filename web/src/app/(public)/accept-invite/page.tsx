@@ -3,11 +3,13 @@
 import { FormEvent, Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertCircle, PartyPopper, TriangleAlert } from 'lucide-react';
+import { PartyPopper, TriangleAlert } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
 import { roleHome } from '@/lib/safe-next';
 import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
 import { AuthShell } from '@/components/PageChrome';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 function AcceptInvite() {
   const router = useRouter();
@@ -16,7 +18,8 @@ function AcceptInvite() {
   const [info, setInfo] = useState<{ email: string; name: string; role: string } | null>(null);
   const [loadError, setLoadError] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
+  const [passwordError, setPasswordError] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -32,11 +35,12 @@ function AcceptInvite() {
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (scorePassword(password).score < 3) {
-      setError('Password must include at least 3 of: lowercase, uppercase, number, symbol (min 8 chars).');
+      setPasswordError('Password must include at least 3 of: lowercase, uppercase, number, symbol (min 8 chars).');
       return;
     }
     setBusy(true);
-    setError('');
+    setPasswordError('');
+    clearStatus();
     try {
       const res = await api<{ access_token: string; user: any; pending_institution_invites?: number }>('/auth/accept-invite', {
         method: 'POST',
@@ -99,27 +103,24 @@ function AcceptInvite() {
     >
       <form onSubmit={submit} className="space-y-4">
         <div>
-          <label className="label" htmlFor="invite-password">
-            Choose a password
-          </label>
-          <input
-            id="invite-password"
-            type="password"
-            minLength={8}
-            required
-            autoFocus
-            autoComplete="new-password"
-            className="input"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <Field label="Choose a password" error={passwordError}>
+            {(ids) => (
+              <input
+                {...ids}
+                type="password"
+                minLength={8}
+                required
+                autoFocus
+                autoComplete="new-password"
+                className="input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            )}
+          </Field>
           <PasswordStrength value={password} />
         </div>
-        {error && (
-          <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
-          </p>
-        )}
+        <FormStatus status={status} />
         <button className="btn w-full !py-3" disabled={busy}>
           {busy ? 'Setting up…' : 'Set password & continue'}
         </button>

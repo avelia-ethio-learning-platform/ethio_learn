@@ -3,24 +3,26 @@
 import { FormEvent, Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertCircle, LogIn } from 'lucide-react';
+import { LogIn } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
 import { roleHome, safeNext } from '@/lib/safe-next';
 import { useT } from '@/lib/i18n';
 import { AuthShell } from '@/components/PageChrome';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const { t } = useT();
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setBusy(true);
-    setError('');
+    clearStatus();
     const form = new FormData(e.currentTarget);
     try {
       const res = await api<{ access_token: string; user: any }>('/auth/login', {
@@ -55,19 +57,13 @@ function LoginForm() {
       }
     >
       <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label className="label">{t('email')}</label>
-          <input name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />
-        </div>
-        <div>
-          <label className="label">{t('password')}</label>
-          <input name="password" type="password" required autoComplete="current-password" className="input" placeholder="••••••••" />
-        </div>
-        {error && (
-          <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
-          </p>
-        )}
+        <Field label={t('email')}>
+          {(ids) => <input {...ids} name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />}
+        </Field>
+        <Field label={t('password')}>
+          {(ids) => <input {...ids} name="password" type="password" required autoComplete="current-password" className="input" placeholder="••••••••" />}
+        </Field>
+        <FormStatus status={status} />
         <button className="btn w-full !py-3" disabled={busy}>
           {busy ? 'Logging in…' : t('login')}
         </button>

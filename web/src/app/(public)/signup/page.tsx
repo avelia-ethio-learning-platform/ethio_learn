@@ -3,11 +3,13 @@
 import { FormEvent, Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { AlertCircle, MailCheck, UserPlus } from 'lucide-react';
+import { MailCheck, UserPlus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
 import { AuthShell } from '@/components/PageChrome';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 function SignupForm() {
@@ -25,7 +27,8 @@ function SignupForm() {
     }
   }
   const { t } = useT();
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
+  const [passwordError, setPasswordError] = useState('');
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [password, setPassword] = useState('');
@@ -33,11 +36,12 @@ function SignupForm() {
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (scorePassword(password).score < 3) {
-      setError('Password must include at least 3 of: lowercase, uppercase, number, symbol (min 8 chars).');
+      setPasswordError('Password must include at least 3 of: lowercase, uppercase, number, symbol (min 8 chars).');
       return;
     }
     setBusy(true);
-    setError('');
+    setPasswordError('');
+    clearStatus();
     const form = new FormData(e.currentTarget);
     try {
       await api('/auth/signup', {
@@ -83,42 +87,41 @@ function SignupForm() {
       }
     >
       <form onSubmit={submit} className="space-y-4">
+        <Field label={t('full_name')}>
+          {(ids) => <input {...ids} name="name" required minLength={2} className="input" placeholder="Abebe Bikila" />}
+        </Field>
+        <Field label={t('email')}>
+          {(ids) => <input {...ids} name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />}
+        </Field>
         <div>
-          <label className="label">{t('full_name')}</label>
-          <input name="name" required minLength={2} className="input" placeholder="Abebe Bikila" />
-        </div>
-        <div>
-          <label className="label">{t('email')}</label>
-          <input name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />
-        </div>
-        <div>
-          <label className="label">{t('password')} (8+ characters)</label>
-          <input
-            name="password"
-            type="password"
-            minLength={8}
-            required
-            autoComplete="new-password"
-            className="input"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <Field label={`${t('password')} (8+ characters)`} error={passwordError}>
+            {(ids) => (
+              <input
+                {...ids}
+                name="password"
+                type="password"
+                minLength={8}
+                required
+                autoComplete="new-password"
+                className="input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            )}
+          </Field>
           <PasswordStrength value={password} />
         </div>
-        <div>
-          <label className="label">I am joining as</label>
-          <select name="role" defaultValue={params.get('role') ?? 'learner'} className="input">
-            <option value="learner">Learner — I want to take courses</option>
-            <option value="educator">Educator — I want to teach</option>
-            <option value="institution_admin">Institution — training center / bootcamp</option>
-          </select>
-        </div>
+        <Field label="I am joining as">
+          {(ids) => (
+            <select {...ids} name="role" defaultValue={params.get('role') ?? 'learner'} className="input">
+              <option value="learner">Learner — I want to take courses</option>
+              <option value="educator">Educator — I want to teach</option>
+              <option value="institution_admin">Institution — training center / bootcamp</option>
+            </select>
+          )}
+        </Field>
         <p className="text-xs text-gray-500">No phone number required — just email and password.</p>
-        {error && (
-          <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
-          </p>
-        )}
+        <FormStatus status={status} />
         <button className="btn w-full !py-3" disabled={busy}>
           {busy ? 'Creating…' : t('signup')}
         </button>

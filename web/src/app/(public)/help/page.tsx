@@ -4,6 +4,8 @@ import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { getAuth } from '@/lib/api';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface Faq {
   q: string;
@@ -112,14 +114,15 @@ function FaqItem({ item }: { item: Faq }) {
 
 function ContactForm() {
   const auth = getAuth();
-  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
-  const [error, setError] = useState('');
+  const [status, setOk, setError, clearStatus] = useFormStatus();
+  const [sending, setSending] = useState(false);
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setStatus('sending');
-    setError('');
-    const form = new FormData(e.currentTarget);
+    const formEl = e.currentTarget;
+    setSending(true);
+    clearStatus();
+    const form = new FormData(formEl);
     try {
       await api('/support/contact', {
         method: 'POST',
@@ -131,46 +134,33 @@ function ContactForm() {
           message: form.get('message'),
         },
       });
-      setStatus('sent');
+      formEl.reset();
+      setOk("Message sent. Thanks for reaching out — we'll reply to your email as soon as we can.");
     } catch (err) {
-      setError((err as Error).message);
-      setStatus('error');
+      setError((err as Error).message || 'Something went wrong. Please try again.');
     }
+    setSending(false);
   };
-
-  if (status === 'sent') {
-    return (
-      <div className="card text-center">
-        <p className="text-3xl">✅</p>
-        <h3 className="mt-2 font-semibold">Message sent</h3>
-        <p className="mt-1 text-sm text-gray-600">Thanks for reaching out — we&apos;ll reply to your email as soon as we can.</p>
-      </div>
-    );
-  }
 
   return (
     <form onSubmit={submit} className="card space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label">Your name</label>
-          <input name="name" className="input" placeholder="Optional" defaultValue={auth?.user.name ?? ''} />
-        </div>
-        <div>
-          <label className="label">Email</label>
-          <input name="email" type="email" required className="input" defaultValue={auth?.user.email ?? ''} placeholder="you@example.com" />
-        </div>
+        <Field label="Your name">
+          {(ids) => <input {...ids} name="name" className="input" placeholder="Optional" defaultValue={auth?.user.name ?? ''} />}
+        </Field>
+        <Field label="Email">
+          {(ids) => <input {...ids} name="email" type="email" required className="input" defaultValue={auth?.user.email ?? ''} placeholder="you@example.com" />}
+        </Field>
       </div>
-      <div>
-        <label className="label">Subject</label>
-        <input name="subject" className="input" placeholder="What&apos;s this about?" maxLength={160} />
-      </div>
-      <div>
-        <label className="label">How can we help?</label>
-        <textarea name="message" required minLength={10} maxLength={4000} rows={5} className="input" placeholder="Tell us what&apos;s going on…" />
-      </div>
-      {status === 'error' && <p className="text-sm text-red-600">{error || 'Something went wrong. Please try again.'}</p>}
-      <button className="btn w-full sm:w-auto" disabled={status === 'sending'}>
-        {status === 'sending' ? 'Sending…' : 'Send message'}
+      <Field label="Subject">
+        {(ids) => <input {...ids} name="subject" className="input" placeholder="What's this about?" maxLength={160} />}
+      </Field>
+      <Field label="How can we help?">
+        {(ids) => <textarea {...ids} name="message" required minLength={10} maxLength={4000} rows={5} className="input" placeholder="Tell us what's going on…" />}
+      </Field>
+      <FormStatus status={status} />
+      <button className="btn w-full sm:w-auto" disabled={sending}>
+        {sending ? 'Sending…' : 'Send message'}
       </button>
     </form>
   );
