@@ -1,18 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MobileBuyBar } from './MobileBuyBar';
 
 let notify: (intersecting: boolean) => void;
+const observed = new Set<Element>();
 
 beforeEach(() => {
+  observed.clear();
   vi.stubGlobal(
     'IntersectionObserver',
     class {
       constructor(cb: (e: { isIntersecting: boolean }[]) => void) {
         notify = (isIntersecting) => cb([{ isIntersecting }]);
       }
-      observe() {}
-      disconnect() {}
+      observe(el: Element) {
+        observed.add(el);
+      }
+      unobserve(el: Element) {
+        observed.delete(el);
+      }
+      disconnect() {
+        observed.clear();
+      }
     },
   );
 });
@@ -58,6 +67,20 @@ describe('MobileBuyBar', () => {
     mount('<button data-primary-action="enroll">Buy with Chapa</button>');
     act(() => notify(true));
     expect(screen.queryByText('300 ETB')).toBeNull();
+  });
+
+  it('watches the primary action, and moves to the new one when it changes', async () => {
+    const box = mount('<button data-primary-action="enroll" id="a">Buy with Chapa</button>');
+    const first = box.querySelector('#a')!;
+    expect(Array.from(observed)).toEqual([first]);
+    box.innerHTML = '<button data-primary-action="enroll" id="b">Redeem coupon</button>';
+    const second = box.querySelector('#b')!;
+    await waitFor(() => expect(Array.from(observed)).toEqual([second]));
+  });
+
+  it('falls back to the whole box when there is no primary action', () => {
+    const box = mount('<button class="btn" disabled>Pay</button>');
+    expect(Array.from(observed)).toEqual([box]);
   });
 
   it('scrolls with auto behaviour under reduced motion', () => {

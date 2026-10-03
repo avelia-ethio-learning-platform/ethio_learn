@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { findPrimaryAction, scrollBehavior, type PrimaryActionKind } from '@/lib/course-page';
 
 /**
- * Below `lg`: a fixed bar shown once the buy box (the element with `targetId`)
- * scrolls out of view. Its button mirrors the box's primary action (the control
+ * Below `lg`: a fixed bar shown once the buy box's primary action (inside the
+ * element with `targetId`) scrolls out of view. Its button mirrors the box's primary action (the control
  * marked `data-primary-action`) and scrolls to and focuses it; it has no enroll
  * logic of its own. When the box has no enabled primary action (a non-learner,
  * gift mode, a payment in progress) the bar is not shown at all. For an enrolled
@@ -22,22 +22,30 @@ export function MobileBuyBar({ targetId, price }: { targetId: string; price: str
   useEffect(() => {
     const target = document.getElementById(targetId);
     if (!target) return;
+    // Watch the primary button (the aside when there is none), so the bar shows whenever the button is out of view.
+    let intersections: IntersectionObserver | undefined;
+    let watched: Element | undefined;
+    const watch = (el: Element) => {
+      if (!intersections || el === watched) return;
+      if (watched) intersections.unobserve(watched);
+      watched = el;
+      intersections.observe(el);
+    };
     const sync = () => {
       const found = findPrimaryAction(target);
+      watch(found?.el ?? target);
       setAction((prev) => {
         if (!found) return prev === null ? prev : null;
         return prev && prev.label === found.label && prev.kind === found.kind ? prev : { label: found.label, kind: found.kind };
       });
     };
+    if (typeof IntersectionObserver !== 'undefined') {
+      intersections = new IntersectionObserver(([entry]) => setOutOfView(!entry.isIntersecting));
+    }
     sync();
     // The enroll panel renders after auth and status load, and changes with the mode tabs.
     const mutations = new MutationObserver(sync);
     mutations.observe(target, { subtree: true, childList: true, attributes: true, characterData: true });
-    let intersections: IntersectionObserver | undefined;
-    if (typeof IntersectionObserver !== 'undefined') {
-      intersections = new IntersectionObserver(([entry]) => setOutOfView(!entry.isIntersecting));
-      intersections.observe(target);
-    }
     return () => {
       mutations.disconnect();
       intersections?.disconnect();

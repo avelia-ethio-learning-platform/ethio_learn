@@ -120,6 +120,8 @@
   html {
     scroll-behavior: smooth;
     overflow-x: clip;
+    /* Keep focused and scrolled-to elements clear of the course page's mobile buy bar. */
+    scroll-padding-bottom: var(--buy-bar-h, 0px);
   }
 
   body {

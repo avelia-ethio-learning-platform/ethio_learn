@@ -50,6 +50,25 @@ test.describe('course page at 375 px', () => {
     expect(misses, 'the primary button ends inside the first 375x667 screen').toEqual([]);
   });
 
+  test('a signed-in learner on a paid course sees the buy button or the bar in the first screen', async ({ browser, request }) => {
+    const enrolled = new Set((await apiGet<{ course_id: string }[]>(request, '/enrollments', 'learner')).map((e) => e.course_id));
+    const course = (await seededCourses(request)).find((c) => c.pricing_type === 'paid' && !enrolled.has(c.id));
+    expect(course, 'a paid course the seeded learner is not enrolled in').toBeTruthy();
+    const context = await browser.newContext({ viewport: { width: 375, height: 667 }, storageState: authFile('learner'), serviceWorkers: 'block' });
+    try {
+      const page = await context.newPage();
+      await page.goto(`/courses/${course!.id}`);
+      const button = page.locator('#buy-box [data-primary-action]');
+      await expect(button).toBeVisible();
+      await settle(page);
+      const box = (await button.boundingBox())!;
+      const barButton = page.locator(BAR).getByRole('button');
+      if (box.y + box.height > 667) await expect(barButton, 'the button is below the fold, so the bar shows').toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+
   test('the bottom bar appears past the buy box and takes you back to it', async ({ page, request }) => {
     const [course] = await seededCourses(request);
     await page.goto(`/courses/${course.id}`);
