@@ -45,6 +45,7 @@ import {
 } from '@/lib/qa';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { hasRealThumbnail } from '@/lib/categories';
 import { attachVideo } from '@/lib/video';
 
 function PreviewSkeleton() {
@@ -168,9 +169,10 @@ function Preview({ courseId }: { courseId: string }) {
 function Thumbnail({ url, alt, className = '' }: { url: string | null | undefined; alt: string; className?: string }) {
   return (
     <div className={`relative aspect-video overflow-hidden rounded-xl border border-[var(--border)] bg-gray-500/10 ${className}`}>
-      {url ? (
+      {/* The seed's placehold.co placeholders aren't uploads, and stay out of the CSP. */}
+      {hasRealThumbnail(url) ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt={alt} className="h-full w-full object-cover" />
+        <img src={url} alt={alt} width={224} height={126} decoding="async" loading="lazy" className="h-full w-full object-cover" />
       ) : (
         <span className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-gray-500">
           <ImageOff className="h-5 w-5" aria-hidden /> No thumbnail

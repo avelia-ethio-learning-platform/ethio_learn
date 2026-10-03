@@ -119,8 +119,8 @@ export default async function CoursePage({ params }: { params: { id: string } })
           {/* Hidden on phones so the price and button fit the first screen; the h1 right below says the same. */}
           <div className="hidden overflow-hidden rounded-2xl sm:block">
             {hasRealThumbnail(course.thumbnail_url) ? (
-              // eslint-disable-next-line @next/next/no-img-element -- next/image is Phase 10
-              <img src={course.thumbnail_url} alt="" className="h-28 w-full object-cover sm:h-32" />
+              // eslint-disable-next-line @next/next/no-img-element -- no next/image: the free plan's optimizer quota
+              <img src={course.thumbnail_url} alt="" width={800} height={128} decoding="async" loading="lazy" className="h-28 w-full object-cover sm:h-32" />
             ) : (
               <CourseCover title={course.title} category={course.category} size="strip" decorative />
             )}

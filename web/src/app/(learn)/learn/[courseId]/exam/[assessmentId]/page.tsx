@@ -379,7 +379,15 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                 <li key={i} className="flex gap-3 rounded-lg border p-3">
                   {e.screenshot_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={e.screenshot_url} alt={`Flag ${i + 1} snapshot`} className="h-20 w-28 shrink-0 rounded object-cover" />
+                    <img
+                      src={e.screenshot_url}
+                      alt={`Flag ${i + 1} snapshot`}
+                      width={112}
+                      height={80}
+                      decoding="async"
+                      loading="lazy"
+                      className="h-20 w-28 shrink-0 rounded object-cover"
+                    />
                   ) : (
                     <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded bg-gray-100 text-xs text-gray-500">no image</div>
                   )}

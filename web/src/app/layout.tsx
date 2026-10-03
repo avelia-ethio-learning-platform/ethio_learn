@@ -5,6 +5,7 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { THEME_COLOR_DARK, THEME_COLOR_LIGHT, THEME_INIT_SCRIPT } from '@/lib/theme-script';
 import { SITE_URL } from '@/lib/server-api';
+import { inter, notoEthiopic } from './fonts';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -34,7 +35,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} ${notoEthiopic.variable}`} suppressHydrationWarning>
       <head>
         {/* Apply saved theme before paint to avoid a flash of the wrong mode */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />

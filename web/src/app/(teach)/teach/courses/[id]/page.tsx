@@ -19,6 +19,7 @@ import { LessonUploadsProvider, ThumbnailUploader, useActiveLessonUploads, WAIT_
 import { COURSE_IN_REVIEW, editState, REVISION_IN_REVIEW, type ReviewFeedbackView, type WorkingCourse } from './working';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { hasRealThumbnail } from '@/lib/categories';
 
 const S3_PUBLIC_URL = process.env.NEXT_PUBLIC_S3_PUBLIC_URL ?? 'http://localhost:9000/ethiopialearn';
 
@@ -168,9 +169,17 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
         <div className="card animate-fade-in-up">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              {course.thumbnail_url ? (
+              {hasRealThumbnail(course.thumbnail_url) ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={course.thumbnail_url} alt="Course thumbnail" className="h-14 w-24 shrink-0 rounded-xl border object-cover shadow-glass" />
+                <img
+                  src={course.thumbnail_url}
+                  alt="Course thumbnail"
+                  width={96}
+                  height={56}
+                  decoding="async"
+                  loading="lazy"
+                  className="h-14 w-24 shrink-0 rounded-xl border object-cover shadow-glass"
+                />
               ) : (
                 <span className="glass-secondary flex h-14 w-24 shrink-0 items-center justify-center rounded-xl">
                   <ImagePlus className="h-5 w-5 text-brand-400" />

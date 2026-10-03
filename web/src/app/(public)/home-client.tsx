@@ -110,7 +110,7 @@ export function HomeClient({
                   </span>
                 </h1>
 
-                <p className="mx-auto mt-5 max-w-xl text-balance text-sm font-light leading-relaxed text-blue-100 sm:text-base lg:mx-0">
+                <p className="mx-auto mt-5 max-w-xl text-balance text-sm font-normal leading-relaxed text-blue-100 sm:text-base lg:mx-0">
                   {t('hero_sub')}
                 </p>
 
@@ -153,7 +153,15 @@ export function HomeClient({
               <div className="relative mx-auto w-full max-w-md lg:max-w-none">
                 <div className="relative overflow-hidden rounded-3xl border border-white/25 shadow-floating">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/hero-student.jpg" alt={t('hero_image_alt')} className="h-72 w-full object-cover sm:h-96 lg:h-[440px]" />
+                  <img
+                    src="/hero-student.jpg"
+                    alt={t('hero_image_alt')}
+                    width={1200}
+                    height={800}
+                    decoding="async"
+                    fetchPriority="high"
+                    className="h-72 w-full object-cover sm:h-96 lg:h-[440px]"
+                  />
                   <div className="absolute inset-0 bg-gradient-to-t from-blue-950/40 via-transparent to-transparent" />
                 </div>
 

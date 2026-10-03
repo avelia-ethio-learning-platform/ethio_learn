@@ -34,7 +34,16 @@ describe('buildCsp', () => {
       'https://stream.example.et:8443',
       'https://accounts.google.com/gsi/',
     ]);
-    expect(csp['img-src']).toEqual(["'self'", 'data:', 'blob:', 'https://pub-1.r2.dev', 'https://*.googleusercontent.com']);
+    // Proctoring snapshots are signed storage URLs, so images allow the media origins too.
+    expect(csp['img-src']).toEqual([
+      "'self'",
+      'data:',
+      'blob:',
+      'https://pub-1.r2.dev',
+      'https://acct.r2.cloudflarestorage.com',
+      'https://stream.example.et:8443',
+      'https://*.googleusercontent.com',
+    ]);
     expect(csp['media-src']).toEqual(["'self'", 'blob:', 'https://acct.r2.cloudflarestorage.com', 'https://stream.example.et:8443']);
   });
 

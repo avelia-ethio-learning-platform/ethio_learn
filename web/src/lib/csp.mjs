@@ -69,8 +69,8 @@ export function buildCsp(env) {
   const api = origins(env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000');
   const storage = origins(env.NEXT_PUBLIC_S3_PUBLIC_URL ?? 'http://localhost:9000/ethiopialearn');
   const wake = origins(env.NEXT_PUBLIC_WAKE_URLS);
-  // Presigned uploads and signed video URLs. Locally that's MinIO, the same
-  // host as the public storage URL, so that is the default.
+  // Presigned uploads and signed URLs (video, proctoring snapshots). Locally
+  // that's MinIO, the same host as the public storage URL, so that is the default.
   const media = env.NEXT_PUBLIC_MEDIA_ORIGINS ? origins(env.NEXT_PUBLIC_MEDIA_ORIGINS) : storage;
 
   /** @type {[string, (string | false | undefined)[]][]} */
@@ -84,7 +84,8 @@ export function buildCsp(env) {
       ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", env.NODE_ENV === 'development' && "'unsafe-eval'", google && GOOGLE.script],
     ],
     ['style-src', ["'self'", "'unsafe-inline'", google && GOOGLE.style]],
-    ['img-src', ["'self'", 'data:', 'blob:', ...storage, google && GOOGLE.avatars]],
+    // Thumbnails from the public storage URL; proctoring snapshots are signed URLs.
+    ['img-src', ["'self'", 'data:', 'blob:', ...storage, ...media, google && GOOGLE.avatars]],
     ['font-src', ["'self'"]],
     ['connect-src', ["'self'", ...api, ...wake, ...media, google && GOOGLE.gsi]],
     ['media-src', ["'self'", 'blob:', ...media]],
