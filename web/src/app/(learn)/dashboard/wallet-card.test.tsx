@@ -51,9 +51,13 @@ describe('WalletCard pending credits', () => {
     expect(await screen.findByText('Available 12 Oct 2026')).toBeTruthy();
   });
 
-  it('labels a void row as refunded, and leaves an available row unlabelled', async () => {
+  it('labels a void row as refunded with its amount muted and struck through, and leaves an available row unlabelled', async () => {
     setup({ transactions: [tx({ id: 't1', state: 'void' }), tx({ id: 't2', note: 'Wallet top-up', kind: 'topup' })] });
     expect(await screen.findByText('Refunded')).toBeTruthy();
     expect(screen.queryByText(/Available/)).toBeNull();
+    const [voided, available] = screen.getAllByText('+25 ETB');
+    expect(voided.className).toContain('line-through');
+    expect(voided.className).not.toContain('text-emerald');
+    expect(available.className).toContain('text-emerald-700');
   });
 });

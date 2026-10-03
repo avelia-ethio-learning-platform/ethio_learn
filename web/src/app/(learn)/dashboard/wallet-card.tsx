@@ -63,7 +63,15 @@ export function WalletCard() {
             <li key={tx.id} className="flex justify-between gap-2">
               <span className="truncate">{tx.note || walletKindLabel(tx.kind)}</span>
               <span className="shrink-0 text-right">
-                <span className={tx.amount_etb >= 0 ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'font-semibold text-gray-700'}>
+                <span
+                  className={
+                    tx.state === 'void'
+                      ? 'text-gray-500 line-through'
+                      : tx.amount_etb >= 0
+                        ? 'font-semibold text-emerald-700 dark:text-emerald-400'
+                        : 'font-semibold text-gray-700'
+                  }
+                >
                   {tx.amount_etb >= 0 ? '+' : ''}
                   {formatETB(tx.amount_etb, locale)}
                 </span>
