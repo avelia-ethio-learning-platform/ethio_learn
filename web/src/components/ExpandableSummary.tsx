@@ -10,7 +10,7 @@ export function ExpandableSummary({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   return (
-    <div className="mt-4">
+    <div className="mt-3 sm:mt-4">
       <p id={id} className={`leading-relaxed text-gray-600 lg:line-clamp-none ${open ? '' : 'line-clamp-3'}`}>
         {text}
       </p>

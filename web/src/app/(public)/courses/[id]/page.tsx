@@ -114,9 +114,10 @@ export default async function CoursePage({ params }: { params: { id: string } })
       <BackButton fallback="/courses" label="Browse courses" />
 
       {/* One buy box, placed by grid order: right after the header below lg, the sticky right column from lg. */}
-      <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:gap-y-6 lg:grid-cols-3">
         <header className="animate-fade-in-up min-w-0 lg:col-span-2 lg:row-start-1">
-          <div className="overflow-hidden rounded-2xl">
+          {/* Hidden on phones so the price and button fit the first screen; the h1 right below says the same. */}
+          <div className="hidden overflow-hidden rounded-2xl sm:block">
             {hasRealThumbnail(course.thumbnail_url) ? (
               // eslint-disable-next-line @next/next/no-img-element -- next/image is Phase 10
               <img src={course.thumbnail_url} alt="" className="h-28 w-full object-cover sm:h-32" />
@@ -124,16 +125,16 @@ export default async function CoursePage({ params }: { params: { id: string } })
               <CourseCover title={course.title} category={course.category} size="strip" decorative />
             )}
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:mt-4">
             <span className="badge-info uppercase tracking-wider">{categoryLabel(course.category)}</span>
             {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
               <span className="badge-success">Recently updated</span>
             )}
           </div>
-          <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-foreground md:text-4xl">{course.title}</h1>
+          <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-foreground sm:mt-3 sm:text-3xl md:text-4xl">{course.title}</h1>
           <ExpandableSummary text={course.description} />
           {educatorName && course.instructor_id && (
-            <p className="mt-4 flex items-center gap-2 text-sm text-gray-600">
+            <p className="mt-3 flex items-center gap-2 text-sm text-gray-600 sm:mt-4">
               <UserRound className="h-4 w-4 shrink-0 text-brand-500" aria-hidden />
               <span>
                 By{' '}
@@ -143,7 +144,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
               </span>
             </p>
           )}
-          <ul className="mt-5 flex flex-wrap gap-2">
+          <ul className="mt-3 flex flex-wrap gap-2 sm:mt-5">
             {facts.map((fact) => (
               <li key={fact.label} className="section-badge !px-3 !py-1.5 !text-xs">
                 <fact.icon className="h-3.5 w-3.5 text-brand-500" aria-hidden />
@@ -154,7 +155,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
         </header>
 
         <aside id="buy-box" tabIndex={-1} className="animate-fade-in-up min-w-0 lg:col-start-3 lg:row-span-2 lg:row-start-1">
-          <div className="card sticky top-28 !rounded-3xl !p-6 shadow-elevated">
+          <div className="card sticky top-28 !rounded-3xl !p-5 shadow-elevated sm:!p-6">
             <p className="gradient-text-blue text-3xl font-extrabold">{price}</p>
             <EnrollPanel courseId={course.id} pricingType={course.pricing_type} price={course.price_etb} />
             <ul className="mt-5 space-y-2.5 text-sm text-gray-600">
