@@ -101,4 +101,29 @@ describe('<SearchPicker />', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear learner' }));
     expect((screen.getByRole('combobox', { name: 'Learner' }) as HTMLInputElement).value).toBe('');
   });
+
+  it('two pickers with the same label keep their own results', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // The app's cache keeps results fresh for a while: a shared cache key would hand one picker the other's list.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 15_000 } } });
+    const paid = vi.fn().mockResolvedValue([{ id: 'p', label: 'Paid course' }]);
+    const every = vi.fn().mockResolvedValue([{ id: 'f', label: 'Free course' }]);
+    render(
+      <QueryClientProvider client={client}>
+        <div data-testid="first">
+          <SearchPicker label="Course" selected={null} onSelect={() => undefined} fetcher={every} />
+        </div>
+        <div data-testid="second">
+          <SearchPicker label="Course" selected={null} onSelect={() => undefined} fetcher={paid} />
+        </div>
+      </QueryClientProvider>,
+    );
+    const [first, second] = screen.getAllByRole('combobox', { name: 'Course' });
+    await search(first, 'co');
+    expect(screen.getByRole('option', { name: 'Free course' })).toBeTruthy();
+    fireEvent.blur(first);
+    await search(second, 'co');
+    expect(paid).toHaveBeenCalledWith('co');
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Paid course']);
+  });
 });

@@ -30,7 +30,8 @@ export function SearchPicker({
   const listId = useId();
   const term = useDebouncedValue(q.trim());
   const { data } = useQuery({
-    queryKey: ['picker', label, term],
+    // Keyed by this picker, not its label: two "Course" pickers search different lists.
+    queryKey: ['picker', listId, term],
     queryFn: () => fetcher(term),
     enabled: term.length >= 2 && !selected,
   });
