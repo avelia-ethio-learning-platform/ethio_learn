@@ -3,20 +3,23 @@
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { ArrowUp, BadgeCheck, GraduationCap, Heart, ShieldCheck, Wallet } from 'lucide-react';
+import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { roleHome, roleHomeLabel } from '@/lib/safe-next';
 
 /** Site footer, adapted from the template's Footer to EthiopiaLearn's pages. */
 export function Footer() {
   const { t } = useT();
+  const { user } = useAuth();
 
   const columns = [
     {
       title: t('footer_learn'),
       links: [
         { label: t('footer_browse'), href: '/courses' },
-        { label: t('footer_dashboard'), href: '/dashboard' },
-        { label: t('certificates'), href: '/dashboard' },
+        { label: t('educators'), href: '/educators' },
         { label: t('footer_verify'), href: '/verify' },
+        { label: t('help'), href: '/help' },
       ],
     },
     {
@@ -30,9 +33,15 @@ export function Footer() {
     {
       title: t('footer_platform'),
       links: [
-        { label: t('login'), href: '/login' },
-        { label: t('signup'), href: '/signup' },
-        { label: t('account'), href: '/account' },
+        ...(user
+          ? [
+              { label: roleHomeLabel(user.role), href: roleHome(user.role) },
+              { label: t('account'), href: '/account' },
+            ]
+          : [
+              { label: t('login'), href: '/login' },
+              { label: t('signup'), href: '/signup' },
+            ]),
       ],
     },
   ];
@@ -82,12 +91,12 @@ export function Footer() {
           {columns.map((col) => (
             <div key={col.title}>
               <h4 className="text-sm font-semibold uppercase tracking-wider text-gray-500">{col.title}</h4>
-              <ul className="mt-4 space-y-2.5">
+              <ul className="mt-3 space-y-0.5">
                 {col.links.map((l) => (
                   <li key={l.label}>
                     <Link
                       href={l.href}
-                      className="group inline-flex items-center gap-1.5 text-sm text-gray-600 transition-colors hover:text-brand-600"
+                      className="group inline-flex items-center gap-1.5 py-1 text-sm text-gray-600 transition-colors hover:text-brand-600"
                     >
                       <span className="h-1 w-1 rounded-full bg-brand-400 opacity-0 transition-opacity group-hover:opacity-100" />
                       {l.label}
@@ -105,17 +114,16 @@ export function Footer() {
             © {new Date().getFullYear()} EthiopiaLearn · {t('footer_rights')}
             {/* The heart is a decorative icon, so its red-500 is exempt from the text-red sweep. */}
             <span className="hidden items-center gap-1 sm:inline-flex">
-              · Made with <Heart className="h-3 w-3 fill-red-500 text-red-500" /> for Ethiopia 🇪🇹
+              · {t('footer_made_with')} <Heart className="h-3 w-3 fill-red-500 text-red-500" aria-hidden="true" /> {t('footer_for_ethiopia')} 🇪🇹
             </span>
           </p>
           <div className="flex items-center gap-3">
             <p className="text-xs text-gray-500">{t('footer_payments')}</p>
             <motion.button
               whileHover={{ scale: 1.08, y: -2 }}
-              whileTap={{ scale: 0.95 }}
               onClick={scrollTop}
-              aria-label="Back to top"
-              className="glass-secondary flex h-9 w-9 items-center justify-center rounded-xl text-brand-600 shadow-glass"
+              aria-label={t('back_to_top')}
+              className="glass-secondary flex h-9 w-9 active:scale-[.98] items-center justify-center rounded-xl text-brand-600 shadow-glass"
             >
               <ArrowUp className="h-4 w-4" />
             </motion.button>
