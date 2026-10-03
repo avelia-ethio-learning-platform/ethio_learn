@@ -278,7 +278,7 @@ Financial migrations, timestamps after 6a's, registered in `migrations/index.ts`
   - record the same bank transfer twice concurrently → one payment;
   - (A3) a gift with a fully used coupon → 400, and the sponsor's gift count is unchanged. A1 and A2 can't be reached in mock mode (a cron, and a live-only sweep), so they are unit-tested only.
 - [x] 9. Full gate: api build + tests + typecheck + `db:check`, web typecheck + test + build, all e2e scripts, both images build.
-- [ ] 10. Code review by ethio-reviewer; the user approves push/PR (same-day merge and deploy); rollout below.
+- [ ] 10. Code review by ethio-reviewer (APPROVED round 1); the user approves push/PR (same-day merge and deploy); rollout below.
 
 ## Test plan
 - Unit (fake DB): steps 3–7 and 7b as listed.
@@ -397,9 +397,16 @@ Branch `fix/money-integrity`, created from `fix/security-platform` @ `e2c4014` (
     - all 9 images build (8 api and the web).
   - Migrations: applied on a fresh and an existing DB, with the revert round-trip, in step 2. Re-verified after M3's reorder (`1d9a0d0`).
 
-### In flight / next step (2026-10-03, after step 9)
-- **Done:** steps 1–9. No push yet.
-- **Next:** step 10, code review round 1 by ethio-reviewer (base `origin/main` = `ebc1eba`). After APPROVED, ethio-planner merges 6c (USER-ACTIONS item 6, the read-only pre-checks, is done).
+- **Step 10:** code review APPROVED in round 1, with no blockers or should-fixes, at `935a889` ([code-review.md](code-review.md)). The three optional nits are deferred, to keep the approved head for the same-day merge:
+  - N1: test the A3 pay-request undo on a wallet refusal;
+  - N2: the bank-transfer alert should say "already recorded" on a 200 replay;
+  - N3: a vitest for the "Pending rewards" tile.
+
+  Pushed and the PR opened under the standing authorization. `origin/main` was still `ebc1eba`, so no merge was needed. ethio-planner merges once CI is green.
+
+### In flight / next step (2026-10-03, after step 10)
+- **Done:** steps 1–10 apart from the merge. The PR is open, and ethio-planner merges it once CI is green.
+- **After the deploy (the user):** `bash ~/ethio-ops/prod-rollout.sh verify 6c` and the DEPLOYMENT.md refund-mark check (both counts 0).
 - **Stack:** served from this tree on `el_e2e`. ethio-planner needs one more short window for its Task 11 gate.
 - **SDD workspace:** `.superpowers/sdd/plan-2026-10-02-money-integrity/`.
   - `progress.md` is the ledger, with every ruling from P1 to R7 and the triaged deferred minors.
