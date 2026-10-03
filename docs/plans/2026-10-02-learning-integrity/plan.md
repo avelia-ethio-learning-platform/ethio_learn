@@ -197,7 +197,7 @@ Phase 2 pattern; entities updated so `db:check` stays at 0.
   - `/complete` on a video lesson → 409;
   - project start with `file_size` above the cap → 400;
   - submit without upload → 400.
-- [ ] 9. Full gate: api build, tests and `db:check`; web typecheck, tests and build; every e2e script; `pnpm -C web exec playwright test` (after a fresh demo-seed, before e2e-smoke); both image builds.
+- [x] 9. Full gate: api build, tests and `db:check`; web typecheck, tests and build; every e2e script; `pnpm -C web exec playwright test` (after a fresh demo-seed, before e2e-smoke); both image builds.
 - [ ] 10. Code review by ethio-reviewer. The user approves push and PR (same-day merge and deploy).
 
 ## Test plan
@@ -372,15 +372,15 @@ Gate (step 9):
     - all 9 images.
   - Failed, all fixed in c9acd17: e2e-payments, e2e-learning and one smoke check.
 - **After the fixes,** against the run-1 stack: e2e-learning 12/12, e2e-payments 42/42, smoke 17/17. api tests 1234, web tests 587.
-- **Run 2 (c9acd17):** in progress.
+- **Run 2 (c9acd17):** green, on a fresh el_e2e stack:
+  - api build, typecheck and tests (1234 passed, 1 skipped); web typecheck and tests (587);
+  - `db:check` clean for all 7 services; the resend-verification spec on real Postgres;
+  - demo-seed, e2e-revisions, e2e-institution, e2e-payments, e2e-learning and e2e-security;
+  - the web build; Playwright (96 passed); smoke;
+  - all 9 images.
 
 ### In flight / next step
-- **Gate run 2** is running on c9acd17 (fresh el_e2e stack). Its log is `full-gate-2.out` in ethio-impl's session scratchpad; the runner scripts are in the same folder.
-  - So far: api build, typecheck and tests (1234) pass; web typecheck passes.
-- **If it's green:**
-  1. Tick step 9 with the results.
-  2. Ask ethio-reviewer for code review round 1: branch `fix/learning-integrity`, base origin/main ff1d89e, plan here.
-- **If anything fails:** fix it, re-run the affected part, then go to review.
+- **Step 10:** code review round 1 requested from ethio-reviewer (branch `fix/learning-integrity`, base origin/main ff1d89e).
 - **Pre-merge (rollout step 1):** done by the user. No learners are blocked, so step 1a isn't needed.
 - **Next phase:** 6d (`2026-10-03-sponsor-refund-integrity`) is queued after 6b's code review is APPROVED.
 - **For the user's 6b summary:**
