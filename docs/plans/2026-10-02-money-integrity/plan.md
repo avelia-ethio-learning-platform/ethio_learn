@@ -222,7 +222,7 @@ Financial migrations, timestamps after 6a's, registered in `migrations/index.ts`
     - a payment that failed and was confirmed later gets `available_at` from the confirmation, not the failure (round-1 S2);
     - top-up and admin adjust are unchanged.
   - Phase 4 specs that break by design (drift D2), rewritten to the new rule: `growth.wallet.spec.ts` (the two balance-after-cashback/referral-reward assertions) and `payment.service.spec.ts` (the balance after cashback). They now expect the balance unchanged and a pending row.
-- [ ] 4. Refunds (decisions 3–5):
+- [x] 4. Refunds (decisions 3–5):
   - the window from the payment's confirmation;
   - the request transaction with the payment mark and the paid-out 400;
   - the rules before the mark; the mark only for `PENDING` and `APPROVED`;
@@ -235,12 +235,12 @@ Financial migrations, timestamps after 6a's, registered in `migrations/index.ts`
     - a re-purchase after a refund is refundable within 7 days of the new payment;
     - an approval on a payment refunded through another path → resolves, no `RefundApproved` (Phase 4's existing test, kept; D3).
   - Phase 4 spec that breaks by design (D2): `refund.service.spec.ts` drives the window from `enrolledDaysAgo`, its payment row has no `webhook_received_at` or `created_at`, and its constructor has no DataSource. Rewrite its setup so the window comes from the payment's confirmation time and the service gets a (fake) DataSource for its transactions.
-- [ ] 5. Payout claim (decision 5): `AND refund_requested_at IS NULL`; remove the pre-transaction refund lookup.
+- [x] 5. Payout claim (decision 5): `AND refund_requested_at IS NULL`; remove the pre-transaction refund lookup.
   - Tests:
     - a payment with an open request isn't claimed, and it is claimed after denial;
     - a request after the claim → 400.
   - Phase 4 spec that breaks by design (D2): `payout.service.spec.ts`'s pending-refund case seeds only a `refund_requests` row. It now seeds the payment's `refund_requested_at` as well, since the claim reads the mark.
-- [ ] 6. Bank transfer (decision 6): DTO, the four checks, 23505 re-read, admin form field, errors through the existing `alert()` (D6).
+- [x] 6. Bank transfer (decision 6): DTO, the four checks, 23505 re-read, admin form field, errors through the existing `alert()` (D6).
   - Tests:
     - a replay returns the same payment with one cashback;
     - a learner with a confirmed Chapa payment for the course → 409, even while the entitlements endpoint still says not active (S4);
@@ -322,4 +322,34 @@ Branch `fix/money-integrity`, created from `fix/security-platform` @ `e2c4014` (
   - P1: A3 also covers `createBulk`, which has the same create-then-checkout shape.
   - P2: replaying a non-confirmed `bank-<REF>` row re-runs `confirmPayment` with the existing bank source.
   - P3: the DEPLOYMENT.md Phase 6c SQL goes into step 8.
+- **Step 4 (`a93ce7d`, `471e08e`, fix round 1 `a3da407`):**
+  - The rules run first. `DENIED` doesn't touch `payments`. `PENDING`/`APPROVED` mark the payment in one transaction with the insert, and an approval runs the flip and the void in that same transaction.
+  - A 0-row mark answers the paid-out 400 or `ALREADY_OPEN`. A 0-row flip re-reads the payment: `payout_id` set → the 400 with rollback, otherwise Phase 4's no-op (D3).
+  - Admin denial clears the mark in its transaction.
+  - The window runs from `COALESCE(webhook_received_at, created_at)`.
+  - The void is `GrowthService.voidPurchaseCredits(m, paymentId)`. `RefundService` now depends on `GrowthService`, with no DI cycle.
+  - A refusal that wrote nothing commits an empty transaction and throws after it. On Postgres that's the same as a rollback.
+  - api: 1034 tests pass. 9 mutation checks were caught. A real-Postgres run passed 20/20, including a request racing a payout claim 40 times.
+  - **Ruling R1/R1a (deviation):** a request is judged on the payment's clock only when the learner's entitlement is `active`. With no enrollment, or an entitlement still `refunded` (a re-purchase whose grant hasn't been consumed yet), it keeps today's outcome: denied `outside_7_day_window`, payment not marked. Read literally, decision 4 would auto-approve these, and then a late grant would reopen access on a refunded payment.
+- **Step 5 (`1c1b7fc`):** the claim and the candidate read add `refund_requested_at IS NULL`. The pre-transaction refund lookup and its `RefundRequest` constructor parameter are removed. The "request after the claim → 400" test drives the real `runPayouts` and `RefundService`. api: 1037 tests pass.
+- **Step 6 (`a970b1b` api, `01d538a` web):** the five checks run in the plan's order, with the exact messages, and the 23505 re-read is in.
+  - 201 or 200 comes from `@Res({ passthrough: true })`, as in `auth.controller.ts`.
+  - The admin form has a required "Bank reference" field, with errors through `alert()`.
+  - The messages the plan doesn't give are "Learner not found" (404) and "Couldn't check the learner. Try again." (503).
+  - **Ruling R2:** check 3 tells 404 from 503 by InternalHttpClient's `-> 404` message suffix. ethio-planner added this call site to 9c decision 2, where `PeerNotFoundError` replaces the match.
+  - api: 1076 tests pass, web: 381. 12 mutation checks were caught.
+- **Merge (ruling R3):** 7a (PR #25) landed after the first merge, so `origin/main` is merged again as `c2798c7`, before step 7's web work. `admin/page.tsx` auto-merged and no api files changed. After installing web deps (7a added `@axe-core/playwright`), web typecheck is clean and 478 tests pass.
+- **Deferred minors from the task reviews:** in the SDD ledger, for the final review to triage. They are test-pinning gaps, the payee listing including marked-only payees, bank-transfer refusals not logged with the admin id, and different references for one (learner, course) not being serialized.
+
+### In flight / next step (checkpoint 1, 2026-10-03)
+- **Next:** step 7 (contract and copy), BASE `c2798c7`. Then 7b (A1–A3), 8 (e2e, mutation checks, the DEPLOYMENT.md Phase 6c SQL per ruling P3), and 9 (gate). Then code review by ethio-reviewer, with base `origin/main`.
+- **SDD workspace:** `.superpowers/sdd/plan-2026-10-02-money-integrity/`.
+  - `progress.md` is the ledger: the pre-flight scan, the rulings P1–P3 and R1–R3, and the deferred minors.
+  - `global-constraints.md`.
+  - The briefs `task-{2..8,7b}-brief.md`, prebuilt with `mkbrief.py`.
+  - The reports and the review packages.
+  - The 6a workspace `.superpowers/sdd/plan/` can be deleted (6a is merged).
+- **Stack:** `:4000` is free (ethio-planner's windows are closed). It still serves `origin/main` `c82d091` from the worktree `../ethi0-stack-main`. For step 8, stop it with `(cd ../ethi0-stack-main && scripts/stop-backend.sh)`, then run this session's scratchpad `e2e-up.sh` (main tree, fresh `el_e2e`), then `e2e-run.sh demo-seed.mjs …`. Remove the worktree after 6c's e2e. ethio-planner will ask for a window before 7b's auth migration.
+- **Runners:** in this session's scratchpad, `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/959c0807-89d7-43b0-b6b7-57b6bc2ac5e3/scratchpad/`: `e2e-up.sh`, `e2e-run.sh`, `e2e-up-main.sh`, `e2e-run-main.sh`, `gate.sh`, `images.sh`.
+- **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths. Production is off-limits.
 
