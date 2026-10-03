@@ -369,6 +369,13 @@
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
   }
+  /* A button kept focusable while its request runs (aria-disabled plus a busy guard) still looks busy. */
+  [aria-disabled='true'].btn,
+  [aria-disabled='true'].btn-secondary,
+  [aria-disabled='true'].btn-danger,
+  [aria-disabled='true'].btn-ghost {
+    @apply cursor-not-allowed opacity-50;
+  }
 }
 
 @layer utilities {

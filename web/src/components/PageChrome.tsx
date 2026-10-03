@@ -38,7 +38,7 @@ export function PageHeader({
         <h1 className="text-3xl font-extrabold tracking-tight text-foreground md:text-4xl">{title}</h1>
         {subtitle && <p className="mt-2 max-w-2xl text-sm leading-relaxed text-gray-500">{subtitle}</p>}
       </div>
-      {actions && <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex w-full flex-wrap gap-2 sm:w-auto">{actions}</div>}
     </div>
   );
 }
