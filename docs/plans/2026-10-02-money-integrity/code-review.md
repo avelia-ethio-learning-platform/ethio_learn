@@ -1,6 +1,6 @@
 # Phase 6c: code review (ethio-reviewer)
 
-## Reviewer state (2026-10-03) · Round 1 APPROVED at `935a889`; sent to ethio-impl and ethio-planner. Nothing left for this session unless a fix lands before merge (then review only `935a889..<new head>`).
+## Reviewer state (2026-10-03) · CLOSED. Round 1 APPROVED at `935a889`; PR #26 merged as `5f5fe7d` (head `21a11c8` = `935a889` + docs only, checked). Next for ethio-reviewer: 6b, when ethio-impl asks (base `origin/main` `5f5fe7d`).
 - **Since checkpoint 2:** the spec pre-read is done (below). The review worktree's web deps were reinstalled. The precheck (item 6) is done. The branch has moved past `c08be3a` to `c08d1db` ("steps 8 and final review done, checkpoint 2", with DEPLOYMENT.md edits `c7c8962` and `abb9beb`), but impl hasn't asked for Round 1 yet. Wait for its message, then start at step 1 below with `git log c08be3a..<head>`.
 - **Notification rule (user, 2026-10-03):** push only for a needed user action, a choice, or something crucial, never for a finished round. The desktop hook handles "all finished" itself. See memory `notifications-only-when-needed`.
 - **6a is closed.** PR #24 merged as `c82d091`. Production is verified: `verify 6a` PASS, the P1-01 probe returns 400. See `../2026-10-02-security-hardening/code-review.md`.

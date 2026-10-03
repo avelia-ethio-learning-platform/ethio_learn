@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Check, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { CourseCategory, CourseRevisionStatus, CourseStatus, OwnerType, PricingType } from '@ethiopialearn/contracts';
 
 /**
@@ -25,6 +25,7 @@ export interface LessonPending {
   summary?: string | null;
   duration_seconds?: number;
   video_s3_key?: string | null;
+  video_duration_seconds?: number | null;
 }
 
 /**
@@ -169,6 +170,7 @@ export class Section {
 }
 
 @Entity({ name: 'lessons' })
+@Check('CHK_lessons_video_duration_seconds', 'video_duration_seconds IS NULL OR video_duration_seconds > 0')
 export class Lesson {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -194,6 +196,10 @@ export class Lesson {
 
   @Column({ type: 'int', default: 0 })
   duration_seconds: number;
+
+  /** Measured length of the current video, set by the upload; unlike duration_seconds (the editor's estimate) it can be a completion requirement. */
+  @Column({ type: 'int', nullable: true })
+  video_duration_seconds: number | null;
 
   @Column({ type: 'int' })
   order_index: number;

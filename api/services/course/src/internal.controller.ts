@@ -37,11 +37,19 @@ export class CourseInternalController {
     return { outline: await this.service.outlineForCourse(id) };
   }
 
-  /** `live: false` = added in an unapproved revision; enrollment refuses progress on it. */
+  /** `live: false` = added in an unapproved revision; enrollment refuses progress on it. `video_duration_seconds` is the measured length (null when unknown). */
   @Get('lessons/:id')
   async lesson(@UuidParam('id') id: string) {
     const { lesson, section, course } = await this.service.lessonWithCourse(id);
-    return { id: lesson.id, course_id: course.id, title: lesson.title, live: isLiveRow(lesson) && isLiveRow(section) };
+    return {
+      id: lesson.id,
+      course_id: course.id,
+      title: lesson.title,
+      live: isLiveRow(lesson) && isLiveRow(section),
+      // Live values, never pending: enrollment judges what learners can watch now.
+      has_video: !!lesson.video_s3_key,
+      video_duration_seconds: lesson.video_duration_seconds ?? null,
+    };
   }
 
   /** Published-course count per owner — used for trust-tier math (spec §10.5). */

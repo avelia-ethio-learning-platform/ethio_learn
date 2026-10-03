@@ -30,6 +30,7 @@ export interface LessonPendingFields {
   summary?: string | null;
   duration_seconds?: number;
   video_s3_key?: string | null;
+  video_duration_seconds?: number | null;
 }
 
 export interface CourseLike {
@@ -60,6 +61,7 @@ export interface LessonLike {
   summary: string | null;
   duration_seconds: number;
   video_s3_key: string | null;
+  video_duration_seconds?: number | null;
   order_index: number;
   pending_state?: string | null;
   pending?: LessonPendingFields | null;
@@ -159,6 +161,7 @@ export function mergedLesson(l: LessonLike) {
     summary: pick<LessonPendingFields, 'summary'>(p, 'summary', l.summary) ?? null,
     duration_seconds: pick<LessonPendingFields, 'duration_seconds'>(p, 'duration_seconds', l.duration_seconds) ?? 0,
     video_s3_key: pick<LessonPendingFields, 'video_s3_key'>(p, 'video_s3_key', l.video_s3_key) ?? null,
+    video_duration_seconds: pick<LessonPendingFields, 'video_duration_seconds'>(p, 'video_duration_seconds', l.video_duration_seconds) ?? null,
   };
 }
 
@@ -456,7 +459,14 @@ export function contentHash(state: RevisionState, assessmentIds: string[] = []):
         state: l.pending_state ?? null,
         pending: emptyToNull(l.pending ?? null),
         ...(l.pending_state === 'added'
-          ? { title: l.title, summary: l.summary ?? null, duration_seconds: l.duration_seconds, video_s3_key: l.video_s3_key ?? null }
+          ? {
+              title: l.title,
+              summary: l.summary ?? null,
+              duration_seconds: l.duration_seconds,
+              video_s3_key: l.video_s3_key ?? null,
+              // Only when set, so a revision submitted before this field existed hashes as before.
+              ...(l.video_duration_seconds != null ? { video_duration_seconds: l.video_duration_seconds } : {}),
+            }
           : {}),
       })),
     knowledge: knowledgeDocs(state.pendingKnowledge).map((d) => ({ title: d.title, chars: d.chars, chunks: d.chunks })),

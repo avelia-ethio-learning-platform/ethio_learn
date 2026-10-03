@@ -42,6 +42,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** The parsed JSON error body, when the response had one. */
+    public body?: unknown,
   ) {
     super(message);
   }
@@ -118,6 +120,14 @@ export async function refreshSession(): Promise<boolean> {
   }
 }
 
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 function errorMessage(text: string, status: number): string {
   try {
     const body = JSON.parse(text);
@@ -181,7 +191,7 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
       wakeServices();
       throw new WakingError();
     }
-    throw new ApiError(res.status, errorMessage(text, res.status));
+    throw new ApiError(res.status, errorMessage(text, res.status), parseJson(text));
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
 import { AssessmentType, CourseRevisionClosedPayload, EventEnvelope, Role } from '@ethiopialearn/contracts';
 import { AssessmentService } from './assessment.service';
@@ -17,6 +17,8 @@ function matches(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, value]) => {
     if (value instanceof FindOperator) {
       if (value.type === 'lessThanOrEqual') return row[key] <= value.value;
+      if (value.type === 'not') return !matches({ v: row[key] }, { v: value.child });
+      if (value.type === 'isNull') return row[key] === null || row[key] === undefined;
       if (value.type === 'in') return (value.value as unknown as unknown[]).includes(row[key]);
       throw new Error(`fake repo: unsupported operator ${value.type}`);
     }
@@ -28,7 +30,11 @@ function fakeRepo(rows: Row[]) {
   return {
     rows,
     find: jest.fn(async ({ where }: { where: Row }) => rows.filter((r) => matches(r, where))),
-    findOne: jest.fn(async ({ where }: { where: Row }) => rows.find((r) => matches(r, where)) ?? null),
+    count: jest.fn(async ({ where }: { where: Row }) => rows.filter((r) => matches(r, where)).length),
+    findOne: jest.fn(async ({ where }: { where: Row }) => {
+      const row = rows.find((r) => matches(r, where));
+      return row ? { ...row } : null; // a read is a copy, as with a real database
+    }),
     create: jest.fn((r: Row) => ({ ...r })),
     save: jest.fn(async (r: Row) => {
       if (!r.id) {
@@ -41,6 +47,23 @@ function fakeRepo(rows: Row[]) {
       const hit = rows.filter((r) => matches(r, where));
       hit.forEach((r) => Object.assign(r, patch));
       return { affected: hit.length };
+    }),
+    // The conditional update that records a submission.
+    createQueryBuilder: jest.fn(() => {
+      let patch: Row = {};
+      let id: unknown;
+      const qb = {
+        update: () => qb,
+        set: (p: Row) => ((patch = p), qb),
+        where: (_sql: string, p: Row) => ((id = p.id), qb),
+        andWhere: () => qb,
+        execute: async () => {
+          const hit = rows.filter((r) => r.id === id && !r.submitted_at);
+          hit.forEach((r) => Object.assign(r, patch));
+          return { affected: hit.length };
+        },
+      };
+      return qb;
     }),
     delete: jest.fn(async (where: Row) => {
       const keep = rows.filter((r) => !matches(r, where));
@@ -83,9 +106,13 @@ function harness(opts: { course?: Row; rows?: Row[]; attempts?: Row[]; instituti
   const attempts = fakeRepo(opts.attempts ?? []);
   const internal = internalFor(opts.course ?? INSTITUTION_COURSE, opts.institutions ?? { ia1: 'inst1', ia2: 'inst2' });
   const bus = { publish: jest.fn(), subscribe: jest.fn() };
-  const storage = { getSignedUploadUrl: jest.fn(async () => ({ url: 'https://r2/put' })) };
+  const storage = {
+    getSignedUploadUrl: jest.fn(async () => ({ url: 'https://r2/put' })),
+    headObject: jest.fn(async (): Promise<{ size: number; content_type: string | null } | null> => ({ size: 1024, content_type: null })),
+    deleteObject: jest.fn(async () => undefined),
+  };
   const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, storage as never);
-  return { svc, assessments, attempts, internal, bus };
+  return { svc, assessments, attempts, internal, bus, storage };
 }
 
 const user = (id: string, role: Role) => ({ id, role, email: `${id}@x.et` });
@@ -450,13 +477,63 @@ describe('pendingForReview() (internal, for the quality officer’s revision dif
 });
 
 describe('project submission', () => {
-  it('always keeps the upload key issued at start, ignoring a client-supplied file_key', async () => {
-    const { svc, attempts } = harness({
+  const cap = 50 * 1024 * 1024;
+  const projectHarness = () =>
+    harness({
       rows: [{ id: 'proj', course_id: 'c1', type: AssessmentType.PROJECT, pass_score: 60, config: {}, state: 'live' }],
       attempts: [{ id: 'att1', assessment_id: 'proj', learner_id: 'l1', submitted_at: null, detail: { file_key: 'projects/l1/own-upload' } }],
     });
+
+  it('always keeps the upload key issued at start, ignoring a client-supplied file_key', async () => {
+    const { svc, attempts, storage } = projectHarness();
     const res = await svc.submitAttempt(learner, 'att1', { file_key: 'projects/someone-else/secret' } as never);
     expect(res.pending_review).toBe(true);
     expect(attempts.rows[0].detail.file_key).toBe('projects/l1/own-upload');
+    expect(storage.headObject).toHaveBeenCalledWith('projects/l1/own-upload');
+  });
+
+  it('accepts a file of exactly the cap', async () => {
+    const { svc, storage } = projectHarness();
+    storage.headObject.mockResolvedValueOnce({ size: cap, content_type: null });
+    await expect(svc.submitAttempt(learner, 'att1', {})).resolves.toMatchObject({ pending_review: true });
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('refuses a submit with no uploaded file, leaving the attempt open', async () => {
+    const { svc, attempts, storage, bus } = projectHarness();
+    storage.headObject.mockResolvedValueOnce(null);
+    const err = await svc.submitAttempt(learner, 'att1', {}).catch((e) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.message).toBe('Upload your file before submitting.');
+    expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
+    expect(attempts.rows[0].submitted_at).toBeNull();
+    expect(bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('deletes an oversized object and refuses, leaving the attempt open', async () => {
+    const { svc, attempts, storage } = projectHarness();
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    storage.headObject.mockResolvedValueOnce({ size: cap + 1, content_type: null });
+    const err = await svc.submitAttempt(learner, 'att1', {}).catch((e) => e);
+    const lines = warn.mock.calls.map(([line]) => String(line));
+    warn.mockRestore();
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.message).toBe('Project files can be up to 50 MB.');
+    expect(storage.deleteObject).toHaveBeenCalledWith('projects/l1/own-upload');
+    expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
+    expect(attempts.rows[0].submitted_at).toBeNull();
+    // The signed length was bypassed: logged with the attempt, the learner and the size, never the key.
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/attempt att1\b/);
+    expect(lines[0]).toMatch(/learner l1\b/);
+    expect(lines[0]).toContain(String(cap + 1));
+    expect(lines[0]).not.toContain('projects/l1/own-upload');
+  });
+
+  it('lets a storage error through without claiming the result', async () => {
+    const { svc, attempts, storage } = projectHarness();
+    storage.headObject.mockRejectedValueOnce(new Error('storage down'));
+    await expect(svc.submitAttempt(learner, 'att1', {})).rejects.toThrow('storage down');
+    expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
   });
 });
