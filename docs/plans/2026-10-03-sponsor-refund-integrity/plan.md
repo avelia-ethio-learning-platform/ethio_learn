@@ -155,7 +155,7 @@ None. Contract change: one optional event field (decision 2). Response change: o
   - **Sequential:** a learner initiates two Chapa checkouts for one paid course before completing either, then `mockComplete`s both. Refund one: the entitlement is still active (`waitFor`), and enrollment and notification honour `access_kept`. Refund the other: it becomes refunded.
   - **Concurrent (review S1/S2):** a second learner with two duplicate payments sends both refund requests together with `Promise.all`. Both answer 2xx (no deadlock 500), and the entitlement ends `refunded` (`waitFor`). Requests don't always overlap, so this can miss a deadlock on some runs, but it never fails a correct build.
   - Two learners open the same pay request. The first one's checkout is completed, so the request's `sponsor_id` is the first learner, checked with SQL as the script already does elsewhere.
-- [ ] 7. **Gate:**
+- [x] 7. **Gate:**
   - `pnpm -C api build && pnpm -C api typecheck && pnpm -C api test`;
   - `db:check`;
   - `pnpm -C web typecheck && pnpm -C web test && pnpm -C web build`;
@@ -195,14 +195,8 @@ Deviations:
 - **`closedRequest`:** the 400 after a conditional write matched nothing is "This request has already been paid" for `granted` or `pending_claim` (paid, with the learner not signed up yet), and otherwise the existing `Request is <status>`.
 - **The admin replay message** reads `replayed` from the body (`api<{ replayed?: boolean }>`).
 
-### In flight / next step (resumed 2026-10-03)
-- **Images:** all 9 build from the worktree (notification was re-run after the session restart cut it off).
-- **Base:** 6b is on main (#28), and origin/main is merged in (3ef1439). The review base is origin/main `bbd6146`.
-- **Stack part of step 7:** waiting for ethio-planner's "window open" (queued after its 8a run). Then:
-  1. `bash <scratchpad>/gate6d.sh > <scratchpad>/gate6d.out 2>&1`, where `<scratchpad>` is ethio-impl's session scratchpad (`4ea5ed01…/scratchpad`, with `env6d.sh` alongside).
-     - It refuses to run if ports 4000/4101–4107/3000 are busy.
-     - It runs a fresh `el_6d_e2e` DB on `api/.env.example` values, the resend spec, every e2e script in CI order, the web build, Playwright and smoke, then stops the 6d services.
-  2. Reply "window closed" to ethio-planner.
-  3. If green, tick step 7 and ask ethio-reviewer for code review round 1.
-- **The worktree's `api/.env`** is a copy of `api/.env.example` (untracked, git-ignored).
+- **Step 7 (gate, 2026-10-03, on 3ef1439 = 6d + origin/main bbd6146):** api build, typecheck and tests (1264 passed, 1 skipped); web typecheck and tests (590); db:check on a fresh `el_6d_e2e`, no drift; the resend spec on real Postgres (1/1); every api e2e script in CI order (revisions, institution, payments with the new duplicate-refund, concurrent-refund and payer checks, learning, security); web build; Playwright (96 passed); smoke; all 9 images build.
+
+### Next step
+- Code review round 1 by ethio-reviewer: branch `fix/sponsor-refund-integrity`, base origin/main `bbd6146`.
 - **Money phase:** push only when it can merge and deploy the same day.
