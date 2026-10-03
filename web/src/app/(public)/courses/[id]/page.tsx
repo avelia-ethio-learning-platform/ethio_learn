@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { BadgeCheck, Clock, Layers, PlayCircle, Star, Wallet } from 'lucide-react';
 import { serverApi, SITE_URL } from '@/lib/server-api';
-import { categoryIcon, categoryLabel } from '@/lib/categories';
+import { categoryLabel } from '@/lib/labels';
 import { priceLabel } from '@/components/CourseCard';
 import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
 import { BackButton } from '@/components/BackButton';
@@ -10,6 +10,7 @@ import { PageShell } from '@/components/PageChrome';
 import { WakingUp } from '@/components/WakingUp';
 import { EnrollPanel } from './enroll-panel';
 import { jsonLdScript } from '@/lib/json-ld';
+import { formatDate } from '@/lib/format';
 
 interface CourseDetail {
   last_major_update_at?: string | null;
@@ -49,7 +50,9 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
       title: course.title,
       description: course.description.slice(0, 200),
       type: 'website',
-      ...(course.thumbnail_url ? { images: [course.thumbnail_url] } : {}),
+      // Next merges openGraph shallowly, so without images the site card would
+      // be dropped; fall back to it explicitly until per-course images (7b).
+      images: [course.thumbnail_url ?? '/opengraph-image'],
     },
   };
 }
@@ -102,7 +105,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <div className="animate-fade-in-up min-w-0 lg:col-span-2">
-          <span className="badge-info uppercase tracking-wider">{course.category}</span>
+          <span className="badge-info uppercase tracking-wider">{categoryLabel(course.category)}</span>
           {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
             <span className="badge-success ml-2">Recently updated</span>
           )}
@@ -138,7 +141,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
                         <PlayCircle className="h-4 w-4 shrink-0 text-brand-400" />
                         <span className="truncate">{lesson.title}</span>
                       </span>
-                      <span className="shrink-0 text-xs text-gray-400">{Math.max(1, Math.round(lesson.duration_seconds / 60))} min</span>
+                      <span className="shrink-0 text-xs text-gray-500">{Math.max(1, Math.round(lesson.duration_seconds / 60))} min</span>
                     </li>
                   ))}
                 </ul>
@@ -154,11 +157,11 @@ export default async function CoursePage({ params }: { params: { id: string } })
                   <div key={r.id} className="card">
                     <p className="flex items-center gap-0.5">
                       {[1, 2, 3, 4, 5].map((n) => (
-                        <Star key={n} className={`h-4 w-4 ${n <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`} />
+                        <Star key={n} className={`h-4 w-4 ${n <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-gray-500'}`} />
                       ))}
                     </p>
                     {r.comment && <p className="mt-2 text-sm leading-relaxed text-gray-600">{r.comment}</p>}
-                    <p className="mt-2 text-xs text-gray-400">{new Date(r.created_at).toDateString()}</p>
+                    <p className="mt-2 text-xs text-gray-500">{formatDate(r.created_at, 'en')}</p>
                   </div>
                 ))}
               </div>

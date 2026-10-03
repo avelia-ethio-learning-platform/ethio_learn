@@ -8,8 +8,11 @@ import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 function NotificationsList() {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const router = useRouter();
   const { data, isLoading } = useQuery({ queryKey: ['notifications-page'], queryFn: () => api<any[]>('/notifications') });
@@ -38,7 +41,7 @@ function NotificationsList() {
         </div>
         <div className="card mt-6 animate-fade-in-up !p-0 overflow-hidden">
           {!data?.length && (
-            <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-gray-400">
+            <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-gray-500">
               <Inbox className="h-7 w-7" />
               No notifications yet.
             </div>
@@ -54,15 +57,15 @@ function NotificationsList() {
                 }
                 if (n.link) router.push(n.link);
               }}
-              className={`block w-full px-5 py-4 text-left transition-colors hover:bg-brand-500/5 ${n.read ? '' : 'bg-brand-500/10'}`}
+              className={`block w-full px-5 py-4 text-left transition-colors hover:bg-brand-500/5 focus-visible:outline-offset-[-2px] ${n.read ? '' : 'bg-brand-500/10'}`}
               style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
             >
               <p className={`flex items-start gap-2 text-sm text-foreground ${n.read ? '' : 'font-semibold'}`}>
                 {!n.read && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />}
                 <span className="min-w-0 flex-1">{n.title}</span>
               </p>
-              {n.body && <p className="mt-1 text-xs leading-relaxed text-gray-500">{n.body}</p>}
-              <p className="mt-1 text-[10px] text-gray-400">{new Date(n.created_at).toLocaleString()}</p>
+              {n.body && <p className={`mt-1 text-xs leading-relaxed ${n.read ? 'text-gray-500' : 'text-gray-600'}`}>{n.body}</p>}
+              <p className={`mt-1 text-xs ${n.read ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(n.created_at, locale, 'datetime')}</p>
             </button>
           ))}
         </div>

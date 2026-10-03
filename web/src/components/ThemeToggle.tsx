@@ -1,25 +1,27 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, Monitor, Moon, Sun } from 'lucide-react';
 import { Theme, useTheme } from './ThemeProvider';
 import { useT } from '@/lib/i18n';
+import { useDismiss } from '@/lib/use-dismiss';
 
-/** Light / Dark / System selector, ported from the template's DarkModeToggle. */
-export function ThemeToggle() {
+/**
+ * Light / Dark / System selector, ported from the template's DarkModeToggle.
+ * `placement="up"` opens the menu above the trigger, aligned to its left edge:
+ * the mobile menu's bottom row needs it, because that panel clips anything
+ * below it and the trigger sits near the screen's left edge.
+ */
+export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' }) {
   const { theme, setTheme } = useTheme();
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
 
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('click', onClick);
-    return () => document.removeEventListener('click', onClick);
-  }, []);
+  useDismiss({ open, onClose: () => setOpen(false), containerRef: ref, triggerRef });
 
   const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
     { value: 'light', label: t('theme_light'), icon: Sun },
@@ -29,35 +31,32 @@ export function ThemeToggle() {
 
   const current = themes.find((x) => x.value === theme) ?? themes[2];
   const CurrentIcon = current.icon;
+  const up = placement === 'up';
 
   return (
     <div className="relative" ref={ref}>
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
+      <button
+        ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
         aria-label="Theme"
-        className="glass-secondary flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition-colors hover:text-brand-700"
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="glass-secondary flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
       >
-        <motion.span
-          key={theme}
-          initial={{ rotate: -90, opacity: 0 }}
-          animate={{ rotate: 0, opacity: 1 }}
-          transition={{ duration: 0.2 }}
-          className="flex items-center justify-center"
-        >
+        <span className="flex items-center justify-center">
           <CurrentIcon className="h-4 w-4" />
-        </motion.span>
-      </motion.button>
+        </span>
+      </button>
 
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.92, y: -8 }}
+            id={panelId}
+            initial={{ opacity: 0, scale: 0.92, y: up ? 8 : -8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.92, y: -8 }}
+            exit={{ opacity: 0, scale: 0.92, y: up ? 8 : -8 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-12 z-50 min-w-[150px] space-y-1 rounded-2xl p-2 shadow-floating"
+            className={`absolute z-50 min-w-[150px] space-y-1 rounded-2xl p-2 shadow-floating ${up ? 'bottom-12 left-0' : 'right-0 top-12'}`}
             style={{ background: 'var(--popover)', border: '1px solid var(--card-border)', backdropFilter: 'blur(16px)' }}
           >
             {themes.map((option) => {
@@ -66,9 +65,11 @@ export function ThemeToggle() {
               return (
                 <button
                   key={option.value}
+                  aria-pressed={selected}
                   onClick={() => {
                     setTheme(option.value);
                     setOpen(false);
+                    triggerRef.current?.focus();
                   }}
                   className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
                     selected ? 'bg-brand-500/10 text-brand-700' : 'text-gray-600 hover:bg-brand-500/5 hover:text-foreground'

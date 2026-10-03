@@ -25,9 +25,13 @@ import { useT } from '@/lib/i18n';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
+import { formatDate, formatETB } from '@/lib/format';
+import { refundRuleLabel, sentenceCase, statusLabel, walletKindLabel } from '@/lib/labels';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 function LearnerDashboard() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const queryClient = useQueryClient();
   const { data: enrollments, isLoading: enrollLoading } = useQuery({ queryKey: ['enrollments'], queryFn: () => api<any[]>('/enrollments') });
   const { data: certificates } = useQuery({ queryKey: ['certificates'], queryFn: () => api<any[]>('/me/certificates') });
@@ -94,7 +98,7 @@ function LearnerDashboard() {
                 <div key={e.id} className="card card-hover">
                   <div className="flex items-start justify-between gap-3">
                     <h3 className="min-w-0 flex-1 font-semibold text-foreground">{e.course_title ?? 'Course'}</h3>
-                    <span className={e.entitlement_status === 'active' ? 'badge-success' : 'badge-neutral'}>{e.entitlement_status}</span>
+                    <StatusBadge status={e.entitlement_status} />
                   </div>
                   <div className="progress-track mt-4">
                     <div className="progress-fill" style={{ width: `${e.progress_percent}%` }} />
@@ -144,7 +148,7 @@ function LearnerDashboard() {
                     </span>
                     {c.course_title}
                   </p>
-                  <p className="mt-2 text-xs text-gray-500">Issued {new Date(c.issued_at).toDateString()}</p>
+                  <p className="mt-2 text-xs text-gray-500">Issued {formatDate(c.issued_at, locale)}</p>
                   <div className="mt-3 flex flex-wrap gap-3 text-xs">
                     <a className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:underline" href={c.verify_url}>
                       <ExternalLink className="h-3.5 w-3.5" /> Public verification
@@ -168,10 +172,10 @@ function LearnerDashboard() {
                 <div key={p.id} className="flex items-center justify-between gap-2 py-2.5" style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}>
                   <span className="min-w-0 flex-1 truncate text-foreground">
                     {p.course_title}
-                    {p.purpose && p.purpose !== 'course' && <span className="ml-1 text-xs text-gray-400">({p.purpose.replace('_', ' ')})</span>}
+                    {p.purpose && p.purpose !== 'course' && <span className="ml-1 text-xs text-gray-500">({sentenceCase(p.purpose).toLowerCase()})</span>}
                   </span>
                   <span className="shrink-0 font-medium text-foreground">
-                    {p.amount_etb} ETB{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-600">−{p.discount_etb}</span>}
+                    {formatETB(p.amount_etb, locale)}{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-700 dark:text-emerald-400">−{formatETB(p.discount_etb, locale)}</span>}
                   </span>
                   <StatusBadge status={p.status} />
                   {p.status === 'confirmed' && p.purpose === 'course' && p.method === 'chapa' && <RefundButton paymentId={p.id} />}
@@ -188,7 +192,7 @@ function LearnerDashboard() {
               {refunds?.map((r, i) => (
                 <div key={r.id} className="flex items-center justify-between gap-2 py-2.5" style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}>
                   <span className="min-w-0 flex-1 truncate pr-2 text-foreground">{r.reason}</span>
-                  <span className={r.status === 'approved' ? 'badge-success' : r.status === 'denied' ? 'badge-danger' : 'badge-warn'}>{r.status}</span>
+                  <StatusBadge status={r.status} />
                 </div>
               ))}
             </div>
@@ -201,13 +205,14 @@ function LearnerDashboard() {
 
 /** Prepaid credits: balance, top-up via Chapa, recent movements. */
 function WalletCard() {
+  const { locale } = useT();
   const { data: wallet } = useQuery({ queryKey: ['wallet'], queryFn: () => api<any>('/wallet') });
   const [amount, setAmount] = useState(200);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const topUp = async () => {
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       const res = await api<{ checkout_url: string | null }>('/wallet/topup', { method: 'POST', body: { amount_etb: amount } });
       if (res.checkout_url) window.location.href = res.checkout_url;
@@ -223,27 +228,33 @@ function WalletCard() {
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
             <Wallet className="h-4 w-4 text-brand-500" /> Wallet
           </p>
-          <p className="gradient-text-blue mt-1 text-3xl font-extrabold">{wallet?.balance_etb ?? 0} ETB</p>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="gradient-text-blue mt-1 text-3xl font-extrabold">{formatETB(wallet?.balance_etb ?? 0, locale)}</p>
+          <p className="mt-1 text-xs text-gray-500">
             Earn {wallet?.cashback_percent ?? 5}% cashback on every purchase · spend credits on any course
           </p>
         </div>
       </div>
-      <div className="mt-4 flex gap-2">
-        <input type="number" min={50} max={50000} step={50} className="input w-28" value={amount} onChange={(e) => setAmount(+e.target.value)} />
-        <button className="btn !px-4" disabled={busy || amount < 50} onClick={topUp}>
-          Top up with Chapa
-        </button>
+      <div className="mt-4">
+        <Field label="Top-up amount (ETB)">
+          {(ids) => (
+            <div className="flex gap-2">
+              <input {...ids} type="number" min={50} max={50000} step={50} className="input w-28" value={amount} onChange={(e) => setAmount(+e.target.value)} />
+              <button className="btn !px-4" disabled={busy || amount < 50} onClick={topUp}>
+                Top up with Chapa
+              </button>
+            </div>
+          )}
+        </Field>
       </div>
-      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+      <FormStatus status={status} />
       {wallet?.transactions?.length > 0 && (
         <ul className="mt-4 space-y-1 text-xs text-gray-500">
           {wallet.transactions.slice(0, 5).map((tx: any) => (
             <li key={tx.id} className="flex justify-between gap-2">
-              <span className="truncate">{tx.note || tx.kind}</span>
-              <span className={tx.amount_etb >= 0 ? 'shrink-0 font-semibold text-emerald-600' : 'shrink-0 font-semibold text-gray-700'}>
+              <span className="truncate">{tx.note || walletKindLabel(tx.kind)}</span>
+              <span className={tx.amount_etb >= 0 ? 'shrink-0 font-semibold text-emerald-700 dark:text-emerald-400' : 'shrink-0 font-semibold text-gray-700'}>
                 {tx.amount_etb >= 0 ? '+' : ''}
-                {tx.amount_etb}
+                {formatETB(tx.amount_etb, locale)}
               </span>
             </li>
           ))}
@@ -255,25 +266,27 @@ function WalletCard() {
 
 /** Invite friends: share link + email invites; rewards land in the wallet. */
 function ReferralCard() {
+  const { locale } = useT();
   const { data } = useQuery({ queryKey: ['referral'], queryFn: () => api<any>('/referrals/me') });
   const [emails, setEmails] = useState('');
   const [message, setMessage] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setOk, setError, clearStatus, setInfo] = useFormStatus();
   const [copied, setCopied] = useState(false);
   const invite = async (e: FormEvent) => {
     e.preventDefault();
-    setStatus('');
+    clearStatus();
     const list = emails.split(/[\s,;]+/).filter(Boolean);
     try {
       const res = await api<{ invited: number }>('/referrals/invite', { method: 'POST', body: { emails: list, message: message || undefined } });
-      setStatus(
-        res.invited === 0
-          ? 'No new invitations sent: these people already have an account or were invited recently.'
-          : `Sent ${res.invited} invitation${res.invited === 1 ? '' : 's'}.`,
-      );
+      if (res.invited === 0) {
+        // Nothing went out: a polite note, not a success.
+        setInfo('No new invitations sent: these people already have an account or were invited recently.');
+      } else {
+        setOk(`Sent ${res.invited} invitation${res.invited === 1 ? '' : 's'}.`);
+      }
       setEmails('');
     } catch (err) {
-      setStatus((err as Error).message);
+      setError((err as Error).message);
     }
   };
   return (
@@ -282,11 +295,11 @@ function ReferralCard() {
         <Users className="h-4 w-4 text-brand-500" /> Invite &amp; earn
       </p>
       <p className="mt-1 text-sm text-gray-600">
-        Get <b>{data?.reward_etb ?? 50} ETB</b> in your wallet when someone you invite makes their first purchase.
+        Get <b>{formatETB(data?.reward_etb ?? 50, locale)}</b> in your wallet when someone you invite makes their first purchase.
       </p>
       {data && (
         <div className="mt-3 flex gap-2">
-          <input readOnly className="input flex-1 text-xs" value={data.share_url} onFocus={(e) => e.currentTarget.select()} />
+          <input readOnly aria-label="Your invite link" className="input flex-1 text-xs" value={data.share_url} onFocus={(e) => e.currentTarget.select()} />
           <button
             className="btn-secondary !px-3"
             onClick={async () => {
@@ -300,18 +313,24 @@ function ReferralCard() {
         </div>
       )}
       <form onSubmit={invite} className="mt-3 space-y-2">
-        <input className="input" placeholder="friend@example.com, another@example.com" value={emails} onChange={(e) => setEmails(e.target.value)} />
-        <div className="flex gap-2">
-          <input className="input flex-1" placeholder="Personal note (optional)" value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />
-          <button className="btn !px-4" disabled={!emails.trim()}>
-            <Send className="h-4 w-4" /> Invite
-          </button>
-        </div>
+        <Field label="Friends' email addresses">
+          {(ids) => <input {...ids} className="input" placeholder="friend@example.com, another@example.com" value={emails} onChange={(e) => setEmails(e.target.value)} />}
+        </Field>
+        <Field label="Personal note (optional)">
+          {(ids) => (
+            <div className="flex gap-2">
+              <input {...ids} className="input flex-1" placeholder="Personal note (optional)" value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />
+              <button className="btn !px-4" disabled={!emails.trim()}>
+                <Send className="h-4 w-4" /> Invite
+              </button>
+            </div>
+          )}
+        </Field>
+        <FormStatus status={status} />
       </form>
-      {status && <p className="mt-2 text-xs font-medium text-brand-600">{status}</p>}
       {data?.stats && (
-        <p className="mt-3 text-xs text-gray-400">
-          {data.stats.signed_up + data.stats.rewarded} joined · {data.stats.rewarded} purchased · earned {data.stats.earned_etb} ETB
+        <p className="mt-3 text-xs text-gray-500">
+          {data.stats.signed_up + data.stats.rewarded} joined · {data.stats.rewarded} purchased · earned {formatETB(data.stats.earned_etb, locale)}
         </p>
       )}
     </div>
@@ -350,7 +369,7 @@ function SponsorshipsSection() {
                       </p>
                     </>
                   )}
-                  {s.status === 'pending_claim' && <p className="mt-1 text-xs text-gray-400">Waiting for them to sign up with that email.</p>}
+                  {s.status === 'pending_claim' && <p className="mt-1 text-xs text-gray-500">Waiting for them to sign up with that email.</p>}
                 </li>
               ))}
             </ul>
@@ -419,13 +438,14 @@ function DownloadCert({ id }: { id: string }) {
 function RefundButton({ paymentId }: { paymentId: string }) {
   return (
     <button
-      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-500 hover:underline"
+      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400 hover:underline"
       onClick={async () => {
         const reason = prompt('Why do you want a refund?');
         if (!reason) return;
         try {
           const res = await api<{ status: string; rule: string }>(`/refunds`, { method: 'POST', body: { payment_id: paymentId, reason } });
-          alert(`Refund request: ${res.status} (${res.rule}). Refresh to see updates.`);
+          const why = refundRuleLabel(res.rule);
+          alert(`Refund request: ${statusLabel(res.status).label}${why ? ` (${why})` : ''}. Refresh to see updates.`);
         } catch (err) {
           alert((err as Error).message);
         }

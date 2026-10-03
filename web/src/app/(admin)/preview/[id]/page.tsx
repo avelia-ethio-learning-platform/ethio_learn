@@ -43,6 +43,8 @@ import {
   type TreeMarker,
   type VideosReviewedRecord,
 } from '@/lib/qa';
+import { formatDate, formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 function PreviewSkeleton() {
   return (
@@ -85,6 +87,7 @@ function attachStream(video: HTMLVideoElement, url: string): Hls | null {
  * changes to a live course are reviewed with ?revision= (RevisionPreview).
  */
 function Preview({ courseId }: { courseId: string }) {
+  const { locale } = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const back = useBackTarget(courseId);
@@ -113,7 +116,7 @@ function Preview({ courseId }: { courseId: string }) {
   if (isError) {
     return (
       <PageShell>
-        <div className="card mx-auto max-w-md py-8 text-center text-sm font-medium text-red-500">Could not load this course for preview.</div>
+        <div className="card mx-auto max-w-md py-8 text-center text-sm font-medium text-red-600 dark:text-red-400">Could not load this course for preview.</div>
       </PageShell>
     );
   }
@@ -132,14 +135,14 @@ function Preview({ courseId }: { courseId: string }) {
           </div>
           <p className="mt-2 text-sm text-gray-500">
             {course.category} · {course.pricing_type}
-            {course.price_etb ? ` · ${course.price_etb} ETB` : ''}
+            {course.price_etb ? ` · ${formatETB(course.price_etb, locale)}` : ''}
             {reviews?.average_rating ? ` · ★ ${reviews.average_rating}` : ''}
           </p>
           <div className="mt-5 overflow-hidden rounded-2xl bg-black shadow-floating">
             <video ref={videoRef} controls playsInline className="aspect-video w-full" />
           </div>
           {playing && <p className="mt-3 text-sm font-semibold text-foreground">Now playing: {playing}</p>}
-          {err && <p className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">{err}</p>}
+          {err && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{err}</p>}
         </div>
         <aside className="min-w-0 animate-fade-in-up space-y-3">
           {course.sections?.map((s: any) => (
@@ -151,13 +154,13 @@ function Preview({ courseId }: { courseId: string }) {
                 {s.lessons.map((l: any) => (
                   <li key={l.id}>
                     <button
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-gray-600 transition-colors hover:bg-brand-500/5 hover:text-brand-600 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:bg-transparent"
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-gray-600 transition-colors hover:bg-brand-500/5 hover:text-brand-600 disabled:cursor-not-allowed disabled:text-gray-500 disabled:hover:bg-transparent"
                       disabled={!l.has_video}
                       onClick={() => play(l.id, l.title)}
                     >
                       <Play className="h-3.5 w-3.5 shrink-0" />
                       <span className="min-w-0 flex-1 truncate">{l.title}</span>
-                      {!l.has_video && <span className="shrink-0 text-xs text-gray-400">(no video)</span>}
+                      {!l.has_video && <span className="shrink-0 text-xs text-gray-500">(no video)</span>}
                     </button>
                   </li>
                 ))}
@@ -219,7 +222,7 @@ function TextChange({ before, after, highlight }: { before: string; after: strin
                     <span key={i}>{s.text}</span>
                   ),
                 )
-            : before || <em className="text-gray-400">empty</em>}
+            : before || <em className="text-gray-500">empty</em>}
         </p>
       </div>
       <div>
@@ -237,7 +240,7 @@ function TextChange({ before, after, highlight }: { before: string; after: strin
                     <span key={i}>{s.text}</span>
                   ),
                 )
-            : after || <em className="text-gray-400">empty</em>}
+            : after || <em className="text-gray-500">empty</em>}
         </p>
       </div>
     </div>
@@ -318,7 +321,7 @@ function StructureTree({ diff }: { diff: RevisionDiff }) {
               <div className="min-w-0">
                 <p className={`break-words text-sm font-semibold text-foreground ${s.marker === '−' ? 'line-through opacity-70' : ''}`}>{s.title}</p>
                 {s.titleBefore && <p className="break-words text-xs text-gray-500">was “{s.titleBefore}”</p>}
-                {s.note && <p className="text-xs font-medium text-amber-600 dark:text-amber-400">{s.note}</p>}
+                {s.note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{s.note}</p>}
               </div>
             </div>
             {s.lessons.length > 0 && (
@@ -460,7 +463,7 @@ function ReviewPlayer({
         )}
       </div>
       {error && (
-        <p role="alert" className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+        <p role="alert" className="mt-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
           {error}
         </p>
       )}
@@ -546,7 +549,7 @@ function PendingAssessments({ items }: { items: PendingAssessment[] }) {
                         })}
                       </ul>
                       {(q.correct_index === undefined || q.correct_index === null || !(q.options ?? [])[q.correct_index]) && (
-                        <p className="mt-1 text-xs font-medium text-red-500">No valid answer key — learners cannot pass this question.</p>
+                        <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">No valid answer key — learners cannot pass this question.</p>
                       )}
                     </>
                   )}
@@ -587,13 +590,8 @@ function KnowledgeAdded({ items }: { items: RevisionDiff['knowledge_added'] }) {
   );
 }
 
-function formatWhen(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
-
 function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; revisionId: string; itemId: string | null }) {
+  const { locale } = useT();
   const back = useBackTarget(courseId);
   const { user } = useAuth();
   const { data: diff, error, isLoading, isFetching, dataUpdatedAt, refetch } = useQuery({
@@ -659,7 +657,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
       <PageShell>
         <BackButton fallback={back.fallback} label={back.label} />
         <div className="card mx-auto max-w-lg space-y-2 py-8 text-center text-sm">
-          <p className="font-semibold text-red-500">Could not load the staged changes.</p>
+          <p className="font-semibold text-red-600 dark:text-red-400">Could not load the staged changes.</p>
           <p className="text-gray-500">
             {(error as Error | null)?.message ?? 'Unknown error.'} If the educator withdrew the update or it was already decided, refresh the queue.
           </p>
@@ -690,7 +688,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
         </div>
         <h1 className="mt-3 break-words text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{diff.course.title}</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Live course ({diff.course.status.replace(/_/g, ' ')}){revision?.submitted_at ? ` · submitted ${formatWhen(revision.submitted_at)}` : ''}. Learners keep
+          Live course ({diff.course.status.replace(/_/g, ' ')}){revision?.submitted_at ? ` · submitted ${formatDate(revision.submitted_at, locale, 'datetime')}` : ''}. Learners keep
           seeing the live version until these changes are approved.
         </p>
       </div>
@@ -751,7 +749,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
             )}
             <h3 className="mt-4 text-xs font-semibold text-gray-500">Educator&apos;s summary (becomes the change-log entry)</h3>
             <p className="mt-1 whitespace-pre-line break-words text-sm text-gray-600">
-              {revision?.changelog_summary || <em className="text-gray-400">No summary — a sentence is generated from the changes.</em>}
+              {revision?.changelog_summary || <em className="text-gray-500">No summary — a sentence is generated from the changes.</em>}
             </p>
             {revision?.decision_notes && (
               <>

@@ -278,12 +278,12 @@ export function StructureGenerator({
             onChange={(e) => setPrompt(e.target.value)}
           />
           <div className="flex flex-wrap items-center gap-2">
-            <label className={`btn-secondary text-xs ${reading ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}>
+            <label className={`btn-secondary text-xs focus-within:ring-2 focus-within:ring-brand-500 ${reading ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}>
               {reading ?? '📄 Upload PDF / Word / notes'}
               <input
                 type="file"
                 accept={FILE_ACCEPT}
-                className="hidden"
+                className="sr-only"
                 disabled={!!reading}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
@@ -301,7 +301,7 @@ export function StructureGenerator({
             {sourceText && !reading && (
               <button
                 type="button"
-                className="text-xs text-red-500"
+                className="text-xs text-red-600 dark:text-red-400"
                 onClick={() => {
                   setSourceText('');
                   forgetDocument();
@@ -347,7 +347,7 @@ export function StructureGenerator({
               >
                 <BookOpenCheck className="h-3.5 w-3.5" /> Also add the full text to the course tutor
               </button>
-              {tutor && <span className={`font-medium ${tutor.state === 'failed' ? 'text-red-500' : 'text-brand-600'}`}>{tutor.message}</span>}
+              {tutor && <span className={`font-medium ${tutor.state === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-brand-600'}`}>{tutor.message}</span>}
             </div>
           )}
           <div className="grid gap-2 sm:grid-cols-2">
@@ -408,7 +408,7 @@ export function StructureGenerator({
                     <label className="flex shrink-0 items-center gap-1 text-xs">
                       <input type="checkbox" checked={s.is_free_preview} onChange={(e) => updateSection(si, { is_free_preview: e.target.checked })} /> free
                     </label>
-                    <button className="shrink-0 text-xs text-red-500" aria-label={`Remove section ${si + 1}`} onClick={() => setDraft((d) => d!.filter((_, i) => i !== si))}>
+                    <button className="shrink-0 text-xs text-red-600 dark:text-red-400" aria-label={`Remove section ${si + 1}`} onClick={() => setDraft((d) => d!.filter((_, i) => i !== si))}>
                       ✕
                     </button>
                   </div>
@@ -424,7 +424,7 @@ export function StructureGenerator({
                             onChange={(e) => updateLesson(si, li, { title: e.target.value })}
                           />
                           <button
-                            className="shrink-0 text-xs text-red-500"
+                            className="shrink-0 text-xs text-red-600 dark:text-red-400"
                             aria-label={`Remove lesson ${li + 1}`}
                             onClick={() => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, lessons: x.lessons.filter((_, j) => j !== li) } : x)))}
                           >
@@ -432,7 +432,7 @@ export function StructureGenerator({
                           </button>
                         </div>
                         <input
-                          className="input w-full !py-1 text-[11px] text-gray-600"
+                          className="input w-full !py-1 text-xs text-gray-600"
                           maxLength={OUTLINE_LIMITS.summary}
                           placeholder="One-line summary learners see (optional)"
                           value={l.summary ?? ''}

@@ -3,15 +3,18 @@
 import { FormEvent, useState } from 'react';
 import { Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
-import { categoryLabel, COURSE_CATEGORIES } from '@/lib/categories';
+import { COURSE_CATEGORIES } from '@/lib/categories';
+import { categoryLabel } from '@/lib/labels';
 import { fieldLabel, type WorkingCourse } from './working';
+import { formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /** "Edited" chip when any of `fields` has a staged change (live courses only). */
 export function EditedChip({ course, fields }: { course: Pick<WorkingCourse, 'pending_fields'>; fields: string[] }) {
   const changed = fields.filter((f) => course.pending_fields.includes(f));
   if (!changed.length) return null;
   return (
-    <span className="badge-warn !text-[10px]" title={`The ${changed.map(fieldLabel).join(' and ')} change goes live after review`}>
+    <span className="badge-warn " title={`The ${changed.map(fieldLabel).join(' and ')} change goes live after review`}>
       Edited
     </span>
   );
@@ -19,6 +22,7 @@ export function EditedChip({ course, fields }: { course: Pick<WorkingCourse, 'pe
 
 /** Title, description, category and pricing. On a live course a save is staged for review. */
 export function CourseDetails({ course, live, disabled, onSaved }: { course: WorkingCourse; live: boolean; disabled: boolean; onSaved: (message: string) => void }) {
+  const { locale } = useT();
   const [editing, setEditing] = useState(false);
   const [pricing, setPricing] = useState(course.pricing_type);
   const [busy, setBusy] = useState(false);
@@ -82,7 +86,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
           <dt className="flex items-center gap-1.5 text-gray-500">
             Description <EditedChip course={course} fields={['description']} />
           </dt>
-          <dd className="min-w-0 whitespace-pre-line break-words text-gray-700 dark:text-gray-300">{course.description}</dd>
+          <dd className="min-w-0 whitespace-pre-line break-words text-gray-700">{course.description}</dd>
           <dt className="flex items-center gap-1.5 text-gray-500">
             Category <EditedChip course={course} fields={['category']} />
           </dt>
@@ -92,7 +96,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
           </dt>
           <dd className="capitalize">
             {course.pricing_type}
-            {course.pricing_type !== 'free' && course.price_etb ? ` · ${course.price_etb} ETB` : ''}
+            {course.pricing_type !== 'free' && course.price_etb ? ` · ${formatETB(course.price_etb, locale)}` : ''}
           </dd>
         </dl>
       ) : (
@@ -150,7 +154,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
               Cancel
             </button>
           </div>
-          {error && <p className="text-sm font-medium text-red-500">{error}</p>}
+          {error && <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
         </form>
       )}
     </div>

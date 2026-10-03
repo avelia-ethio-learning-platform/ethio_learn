@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpenCheck, Megaphone, MessageCircleQuestion, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { noteRemoval, type KnowledgeDoc } from './working';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /**
  * Educator: short change-log notes (minor — they never notify learners).
@@ -12,6 +14,7 @@ import { noteRemoval, type KnowledgeDoc } from './working';
  * on "Submit changes for review", so they fire only once the change is live.
  */
 export function ChangelogTool({ courseId, published }: { courseId: string; published: boolean }) {
+  const { locale } = useT();
   const queryClient = useQueryClient();
   const { data: entries } = useQuery({ queryKey: ['changelog', courseId], queryFn: () => api<any[]>(`/courses/${courseId}/changelog`) });
   const [summary, setSummary] = useState('');
@@ -49,7 +52,7 @@ export function ChangelogTool({ courseId, published }: { courseId: string; publi
           </div>
         </form>
       ) : (
-        <p className="mt-2 text-xs text-gray-400">Available once the course is published.</p>
+        <p className="mt-2 text-xs text-gray-500">Available once the course is published.</p>
       )}
       {entries && entries.length > 0 && (
         <ul className="mt-3 space-y-1 text-xs text-gray-600">
@@ -57,7 +60,7 @@ export function ChangelogTool({ courseId, published }: { courseId: string; publi
             <li key={c.id} className="flex gap-2">
               <span className={c.kind === 'major' ? 'badge-info' : 'badge-neutral'}>{c.kind}</span>
               <span>
-                {c.summary} <span className="text-gray-400">· {new Date(c.created_at).toLocaleDateString()}</span>
+                {c.summary} <span className="text-gray-500">· {formatDate(c.created_at, locale)}</span>
               </span>
             </li>
           ))}
@@ -170,7 +173,7 @@ export function TutorKnowledgeTool({ courseId, live, locked }: { courseId: strin
                 </span>
                 {removal && (
                   <button
-                    className="inline-flex items-center gap-1 text-red-500 hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
+                    className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 hover:underline disabled:cursor-not-allowed disabled:text-gray-500 disabled:no-underline"
                     aria-label={`Remove tutor note ${d.title}`}
                     // Locked while in review like every other edit: a pending note is part of the
                     // reviewed change set, and removing one makes the approval apply nothing.
@@ -199,7 +202,7 @@ export function TutorKnowledgeTool({ courseId, live, locked }: { courseId: strin
         <div className="glass-secondary mt-4 rounded-xl p-3 text-xs">
           <p className="flex items-center gap-1 font-semibold text-foreground">
             <MessageCircleQuestion className="h-3.5 w-3.5 text-brand-500" /> {insights.questions_total} questions from {insights.learners} learner{insights.learners === 1 ? '' : 's'}
-            {insights.not_covered_total > 0 && <span className="ml-1 text-amber-600">· {insights.not_covered_total} not covered by your material</span>}
+            {insights.not_covered_total > 0 && <span className="ml-1 text-amber-700 dark:text-amber-400">· {insights.not_covered_total} not covered by your material</span>}
           </p>
           <ul className="mt-2 space-y-0.5 text-gray-600">
             {insights.recent_questions.slice(0, 6).map((q: any, i: number) => (

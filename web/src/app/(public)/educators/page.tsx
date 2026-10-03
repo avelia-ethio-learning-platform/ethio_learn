@@ -42,7 +42,7 @@ export default async function EducatorsPage() {
             >
               <span
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-bold ${
-                  i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-200 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-gray-50 text-gray-400'
+                  i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-200 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-gray-50 text-gray-500'
                 }`}
               >
                 {i + 1}
@@ -60,11 +60,11 @@ export default async function EducatorsPage() {
               <div className="shrink-0 text-right">
                 {e.average_rating != null ? (
                   <>
-                    <p className="font-semibold text-amber-600">★ {e.average_rating}</p>
-                    <p className="text-xs text-gray-400">{e.total_rating_points} pts · {e.rating_count} rating{e.rating_count !== 1 ? 's' : ''}</p>
+                    <p className="font-semibold text-amber-700 dark:text-amber-400">★ {e.average_rating}</p>
+                    <p className="text-xs text-gray-500">{e.total_rating_points} pts · {e.rating_count} rating{e.rating_count !== 1 ? 's' : ''}</p>
                   </>
                 ) : (
-                  <p className="text-xs text-gray-300">not yet rated</p>
+                  <p className="text-xs text-gray-500">not yet rated</p>
                 )}
               </div>
             </Link>

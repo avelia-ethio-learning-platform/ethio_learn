@@ -6,16 +6,19 @@ import { Megaphone, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Bars } from '@/components/Bars';
 import { CouponManager } from '@/app/(teach)/teach/coupons/coupon-manager';
+import { formatETB } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /** Platform-wide money + learner funnel. */
 export function AnalyticsTab() {
+  const { locale } = useT();
   const { data: fin } = useQuery({ queryKey: ['admin-fin'], queryFn: () => api<any>('/admin/analytics/financial') });
   const { data: enr } = useQuery({ queryKey: ['admin-enr'], queryFn: () => api<any>('/admin/enrollments/analytics') });
   const tiles = [
-    { label: 'Gross revenue', value: `${fin?.total_gross_etb ?? 0} ETB`, hint: `${fin?.payment_count ?? 0} confirmed payments · platform share ${fin ? (fin.total_gross_etb - fin.total_net_etb).toFixed(2) : 0} ETB` },
+    { label: 'Gross revenue', value: `${formatETB(fin?.total_gross_etb ?? 0, locale)}`, hint: `${fin?.payment_count ?? 0} confirmed payments · platform share ${formatETB(fin ? fin.total_gross_etb - fin.total_net_etb : 0, locale)}` },
     { label: 'Active enrollments', value: enr?.active ?? 0, hint: `${enr?.distinct_learners ?? 0} learners · ${enr?.active_last_7d ?? 0} active this week` },
     { label: 'Completions', value: enr?.completed ?? 0, hint: enr?.active ? `${Math.round((enr.completed / enr.active) * 100)}% completion rate` : '' },
-    { label: 'Wallet liability', value: `${fin?.wallet?.outstanding_balance_etb ?? 0} ETB`, hint: `coupon discounts given: ${fin?.coupon_discount_total_etb ?? 0} ETB` },
+    { label: 'Wallet liability', value: `${formatETB(fin?.wallet?.outstanding_balance_etb ?? 0, locale)}`, hint: `coupon discounts given: ${formatETB(fin?.coupon_discount_total_etb ?? 0, locale)}` },
     { label: 'Sponsored seats', value: enr?.sponsored ?? 0, hint: 'gifts, pay requests and bulk seats' },
     { label: 'Pending / failed', value: `${fin?.pending_count ?? 0} / ${fin?.failed_count ?? 0}`, hint: 'checkouts opened but not confirmed' },
   ];
@@ -26,7 +29,7 @@ export function AnalyticsTab() {
           <div key={t.label} className="card">
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{t.label}</p>
             <p className="gradient-text-blue mt-2 text-2xl font-extrabold">{t.value}</p>
-            <p className="mt-1 text-xs text-gray-400">{t.hint}</p>
+            <p className="mt-1 text-xs text-gray-500">{t.hint}</p>
           </div>
         ))}
       </div>
@@ -49,7 +52,7 @@ export function AnalyticsTab() {
                 <li key={k} className="flex justify-between">
                   <span className="capitalize">{k.replace('_', ' ')}</span>
                   <span>
-                    {v.count} · {v.gross_etb} ETB
+                    {v.count} · {formatETB(v.gross_etb, locale)}
                   </span>
                 </li>
               ))}
@@ -61,7 +64,7 @@ export function AnalyticsTab() {
               {(fin.by_course ?? []).slice(0, 8).map((c: any) => (
                 <li key={c.course_id} className="flex justify-between gap-2">
                   <span className="truncate">{c.course_title}</span>
-                  <span className="shrink-0">{c.gross_etb} ETB</span>
+                  <span className="shrink-0">{formatETB(c.gross_etb, locale)}</span>
                 </li>
               ))}
             </ul>
@@ -111,7 +114,7 @@ export function BroadcastTab() {
         <button className="btn">Send announcement</button>
         {status && <span className="text-sm font-medium text-brand-600">{status}</span>}
       </div>
-      <p className="text-xs text-gray-400">Delivered to the in-app notification bell. Marketing email blasts are deliberately not automated (see FEATURES_ADDED.md).</p>
+      <p className="text-xs text-gray-500">Delivered to the in-app notification bell. Marketing email blasts are deliberately not automated (see FEATURES_ADDED.md).</p>
     </form>
   );
 }
@@ -122,6 +125,7 @@ export function CouponsTab() {
 
 /** Manual wallet credit / debit for support cases. */
 export function WalletTab() {
+  const { locale } = useT();
   const [form, setForm] = useState({ user_id: '', amount_etb: 100, note: '' });
   const [status, setStatus] = useState('');
   const submit = async (e: FormEvent) => {
@@ -129,7 +133,7 @@ export function WalletTab() {
     setStatus('');
     try {
       const res = await api<{ balance_etb: number }>('/admin/wallet/adjust', { method: 'POST', body: form });
-      setStatus(`Done — new balance ${res.balance_etb} ETB.`);
+      setStatus(`Done — new balance ${formatETB(res.balance_etb, locale)}.`);
     } catch (err) {
       setStatus((err as Error).message);
     }
@@ -148,7 +152,7 @@ export function WalletTab() {
         <button className="btn">Apply</button>
         {status && <span className="text-sm font-medium text-brand-600">{status}</span>}
       </div>
-      <p className="text-xs text-gray-400">Positive credits, negative debits (fails if the balance can&apos;t cover it). Every movement is logged in the learner&apos;s wallet history.</p>
+      <p className="text-xs text-gray-500">Positive credits, negative debits (fails if the balance can&apos;t cover it). Every movement is logged in the learner&apos;s wallet history.</p>
     </form>
   );
 }

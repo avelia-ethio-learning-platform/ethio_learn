@@ -5,13 +5,16 @@ import { FormEvent, useState } from 'react';
 import { Eye, GitPullRequestArrow, Lock, Radio, Undo2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useActiveLessonUploads, WAIT_FOR_UPLOAD } from './video-upload';
-import { formatDate, stagedChangeChips, type WorkingCourse } from './working';
+import { stagedChangeChips, type WorkingCourse } from './working';
+import { formatDate } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /**
  * Staged changes on an approved course: what is waiting, submit / discard,
  * the in-review lock with withdraw, and the reviewer's notes after coaching.
  */
 export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; onChanged: (message: string) => void }) {
+  const { locale } = useT();
   const [summary, setSummary] = useState('');
   const [major, setMajor] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -62,7 +65,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
 
   return (
     <div className="space-y-3">
-      <p className="flex items-start gap-2 rounded-2xl border border-brand-400/30 bg-brand-500/5 px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+      <p className="flex items-start gap-2 rounded-2xl border border-brand-400/30 bg-brand-500/5 px-4 py-3 text-sm text-gray-700">
         <Radio className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
         <span>
           <b>Live course</b> — your edits are staged and go live after a quality review. Learners keep seeing the approved version until then.
@@ -81,13 +84,13 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
           <h2 className="flex flex-wrap items-center gap-2 font-semibold">
             <Lock className="h-4 w-4 text-amber-500" />
             {revision.status === 'institution_review' ? "Your changes are with your institution's reviewers" : 'Your changes are in review'}
-            {revision.submitted_at && <span className="text-xs font-normal text-gray-500">In review since {formatDate(revision.submitted_at)}</span>}
+            {revision.submitted_at && <span className="text-xs font-normal text-gray-500">In review since {formatDate(revision.submitted_at, locale, 'datetime')}</span>}
           </h2>
           <p className="mt-1 text-sm text-gray-600">
             Editing is locked so the reviewer approves exactly what you submitted.
             {revision.major && ' Enrolled learners will be notified when it goes live.'}
           </p>
-          {revision.changelog_summary && <p className="mt-2 whitespace-pre-wrap rounded-xl bg-gray-500/5 px-3 py-2 text-sm text-gray-700 dark:text-gray-300">{revision.changelog_summary}</p>}
+          {revision.changelog_summary && <p className="mt-2 whitespace-pre-wrap rounded-xl bg-gray-500/5 px-3 py-2 text-sm text-gray-700">{revision.changelog_summary}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               className="btn-secondary"
@@ -98,7 +101,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
             </button>
             <PreviewLink courseId={course.id} revisionId={revision.id} />
           </div>
-          {error && <p className="mt-2 text-sm font-medium text-red-500">{error}</p>}
+          {error && <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
         </div>
       ) : course.has_pending_changes ? (
         <form onSubmit={submit} className="card !border-brand-400/40">
@@ -133,7 +136,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
             </button>
             <button
               type="button"
-              className="btn-ghost !text-red-500"
+              className="btn-ghost !text-red-600 dark:!text-red-400"
               disabled={busy}
               onClick={() => {
                 if (confirm('Discard all staged changes? New sections, lessons, videos and notes you added since approval are deleted. This cannot be undone.')) {
@@ -146,7 +149,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
             {revision && <PreviewLink courseId={course.id} revisionId={revision.id} />}
           </div>
           {uploading && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{WAIT_FOR_UPLOAD}</p>}
-          {error && <p className="mt-2 text-sm font-medium text-red-500">{error}</p>}
+          {error && <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
         </form>
       ) : null}
     </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { THEME_STORAGE_KEY as STORAGE_KEY } from '@/lib/theme-script';
+import { THEME_COLOR_DARK, THEME_COLOR_LIGHT, THEME_STORAGE_KEY as STORAGE_KEY } from '@/lib/theme-script';
 
 /**
  * Light/dark/system theme, ported from the template's DarkModeProvider.
@@ -24,6 +24,18 @@ const ThemeContext = createContext<ThemeContextType>({
 
 function systemPrefersDark(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+/**
+ * The viewport export renders one theme-color meta per colour scheme, chosen by the
+ * OS media query. An explicit theme overrides both; `system` restores each to its own scheme.
+ */
+export function syncThemeColorMeta(theme: Theme) {
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+    if (theme === 'light') meta.content = THEME_COLOR_LIGHT;
+    else if (theme === 'dark') meta.content = THEME_COLOR_DARK;
+    else meta.content = meta.media.includes('dark') ? THEME_COLOR_DARK : THEME_COLOR_LIGHT;
+  });
 }
 
 function resolveIsDark(theme: Theme): boolean {
@@ -55,6 +67,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
+
+  // Next re-creates the theme-color metas with the server's colours whenever a
+  // client navigation remounts the route head, so re-apply the theme to new ones.
+  useEffect(() => {
+    syncThemeColorMeta(theme);
+    const observer = new MutationObserver((records) => {
+      const added = records.some((r) => Array.from(r.addedNodes).some((n) => n instanceof HTMLMetaElement && n.name === 'theme-color'));
+      if (added) syncThemeColorMeta(theme);
+    });
+    observer.observe(document.head, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [theme]);
 
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);

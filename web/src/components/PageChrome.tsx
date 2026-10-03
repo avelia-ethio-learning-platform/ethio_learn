@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { statusLabel } from '@/lib/labels';
 
 /**
  * Shared page scaffolding. Server-component safe (CSS animations only) so both
@@ -41,35 +42,12 @@ export function PageHeader({
   );
 }
 
-/** Consistent dark-mode-aware badge for entity lifecycle statuses. */
-const STATUS_STYLE: Record<string, string> = {
-  draft: 'badge-neutral',
-  institution_review: 'badge-info',
-  submitted: 'badge-warn',
-  under_review: 'badge-warn',
-  published: 'badge-success',
-  flagged: 'badge-danger',
-  unlisted: 'badge-neutral',
-  archived: 'badge-neutral',
-  active: 'badge-success',
-  invited: 'badge-info',
-  suspended: 'badge-warn',
-  banned: 'badge-danger',
-  confirmed: 'badge-success',
-  pending: 'badge-warn',
-  initiated: 'badge-warn',
-  failed: 'badge-danger',
-  refunded: 'badge-neutral',
-  paid: 'badge-success',
-  held: 'badge-warn',
-  approved: 'badge-success',
-  denied: 'badge-danger',
-};
-
-export function StatusBadge({ status, suffix }: { status: string; suffix?: string }) {
+/** Consistent dark-mode-aware badge for entity lifecycle statuses. `label` overrides the wording for one context. */
+export function StatusBadge({ status, suffix, label }: { status: string; suffix?: string; label?: string }) {
+  const { label: defaultLabel, tone } = statusLabel(status);
   return (
-    <span className={STATUS_STYLE[status] ?? 'badge-neutral'}>
-      {status.replace(/_/g, ' ')}
+    <span className={tone}>
+      {label ?? defaultLabel}
       {suffix ? ` · ${suffix}` : ''}
     </span>
   );

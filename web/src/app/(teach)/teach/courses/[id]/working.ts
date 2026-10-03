@@ -455,9 +455,3 @@ export function groupUploadHints(
   }
   return { byLesson, orphans };
 }
-
-export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}

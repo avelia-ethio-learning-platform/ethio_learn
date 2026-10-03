@@ -2,12 +2,14 @@
 
 import { FormEvent, Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertCircle, KeyRound } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { api, AuthUser, setAuth } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { PasswordStrength, scorePassword } from '@/components/PasswordStrength';
 import { RequireRole } from '@/components/RequireRole';
 import { AuthShell } from '@/components/PageChrome';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 function ChangePassword() {
   const { user } = useAuth();
@@ -21,7 +23,8 @@ function ChangePassword() {
   // Set when the server itself says the current password is needed (the
   // profile lookup failed, or the first-login flag does not apply).
   const [serverWantsCurrent, setServerWantsCurrent] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
+  const [passwordError, setPasswordError] = useState('');
   const [busy, setBusy] = useState(false);
 
   // Google-only accounts have no password to confirm; the first-login path
@@ -37,15 +40,19 @@ function ChangePassword() {
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (scorePassword(password).score < 3) {
-      setError('Password must include at least 3 of: lowercase, uppercase, number, symbol (min 8 chars).');
+      // The field error replaces any earlier server error, which no longer applies.
+      clearStatus();
+      setPasswordError('Password must include at least 3 of: lowercase, uppercase, number, symbol (min 8 chars).');
       return;
     }
     if (password !== confirm) {
+      setPasswordError('');
       setError('The new passwords do not match.');
       return;
     }
     setBusy(true);
-    setError('');
+    setPasswordError('');
+    clearStatus();
     try {
       // Other sessions are revoked; this call returns the caller a fresh one.
       const res = await api<{ access_token: string; user: AuthUser }>('/profiles/password', {
@@ -72,51 +79,52 @@ function ChangePassword() {
     >
       <form onSubmit={submit} className="space-y-4">
         {needsCurrent && (
-          <div>
-            <label className="label" htmlFor="current-password">Current password</label>
-            <input
-              id="current-password"
-              type="password"
-              required
-              autoComplete="current-password"
-              className="input"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-            />
-          </div>
+          <Field label="Current password">
+            {(ids) => (
+              <input
+                {...ids}
+                type="password"
+                required
+                autoComplete="current-password"
+                className="input"
+                value={current}
+                onChange={(e) => setCurrent(e.target.value)}
+              />
+            )}
+          </Field>
         )}
         <div>
-          <label className="label" htmlFor="new-password">New password</label>
-          <input
-            id="new-password"
-            type="password"
-            minLength={8}
-            required
-            autoComplete="new-password"
-            className="input"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <Field label="New password" error={passwordError}>
+            {(ids) => (
+              <input
+                {...ids}
+                type="password"
+                minLength={8}
+                required
+                autoComplete="new-password"
+                className="input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            )}
+          </Field>
           <PasswordStrength value={password} />
         </div>
-        <div>
-          <label className="label" htmlFor="confirm-password">Confirm new password</label>
-          <input
-            id="confirm-password"
-            type="password"
-            minLength={8}
-            required
-            autoComplete="new-password"
-            className="input"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
-        </div>
-        {error && (
-          <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
-          </p>
-        )}
+        <Field label="Confirm new password">
+          {(ids) => (
+            <input
+              {...ids}
+              type="password"
+              minLength={8}
+              required
+              autoComplete="new-password"
+              className="input"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+            />
+          )}
+        </Field>
+        <FormStatus status={status} />
         <button className="btn w-full !py-3" disabled={busy}>
           {busy ? 'Saving…' : 'Save password'}
         </button>

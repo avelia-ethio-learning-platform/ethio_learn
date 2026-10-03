@@ -1,9 +1,11 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useId, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { getAuth } from '@/lib/api';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface Faq {
   q: string;
@@ -91,11 +93,13 @@ const FAQS: { group: string; items: Faq[] }[] = [
 
 function FaqItem({ item }: { item: Faq }) {
   const [open, setOpen] = useState(false);
+  const answerId = useId();
   return (
     <div className="border-b border-gray-100 last:border-0">
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
+        aria-controls={answerId}
         className="flex w-full items-center justify-between gap-4 py-4 text-left"
       >
         <span className="font-medium text-gray-900">{item.q}</span>
@@ -103,8 +107,12 @@ function FaqItem({ item }: { item: Faq }) {
           ＋
         </span>
       </button>
-      <div className={`grid transition-all duration-200 ${open ? 'grid-rows-[1fr] pb-4' : 'grid-rows-[0fr]'}`}>
-        <div className="overflow-hidden text-sm leading-relaxed text-gray-600">{item.a}</div>
+      <div id={answerId} className={`grid transition-all duration-200 ${open ? 'grid-rows-[1fr] pb-4' : 'grid-rows-[0fr]'}`}>
+        {/* invisible while closed, so links in a collapsed answer are not tab stops; the
+            visibility transition keeps the text shown until the collapse finishes. */}
+        <div className={`overflow-hidden text-sm leading-relaxed text-gray-600 transition-[visibility] duration-200 ${open ? 'visible' : 'invisible'}`}>
+          {item.a}
+        </div>
       </div>
     </div>
   );
@@ -112,14 +120,15 @@ function FaqItem({ item }: { item: Faq }) {
 
 function ContactForm() {
   const auth = getAuth();
-  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
-  const [error, setError] = useState('');
+  const [status, setOk, setError, clearStatus] = useFormStatus();
+  const [sending, setSending] = useState(false);
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setStatus('sending');
-    setError('');
-    const form = new FormData(e.currentTarget);
+    const formEl = e.currentTarget;
+    setSending(true);
+    clearStatus();
+    const form = new FormData(formEl);
     try {
       await api('/support/contact', {
         method: 'POST',
@@ -131,46 +140,33 @@ function ContactForm() {
           message: form.get('message'),
         },
       });
-      setStatus('sent');
+      formEl.reset();
+      setOk("Message sent. Thanks for reaching out — we'll reply to your email as soon as we can.");
     } catch (err) {
-      setError((err as Error).message);
-      setStatus('error');
+      setError((err as Error).message || 'Something went wrong. Please try again.');
     }
+    setSending(false);
   };
-
-  if (status === 'sent') {
-    return (
-      <div className="card text-center">
-        <p className="text-3xl">✅</p>
-        <h3 className="mt-2 font-semibold">Message sent</h3>
-        <p className="mt-1 text-sm text-gray-600">Thanks for reaching out — we&apos;ll reply to your email as soon as we can.</p>
-      </div>
-    );
-  }
 
   return (
     <form onSubmit={submit} className="card space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label">Your name</label>
-          <input name="name" className="input" placeholder="Optional" defaultValue={auth?.user.name ?? ''} />
-        </div>
-        <div>
-          <label className="label">Email</label>
-          <input name="email" type="email" required className="input" defaultValue={auth?.user.email ?? ''} placeholder="you@example.com" />
-        </div>
+        <Field label="Your name">
+          {(ids) => <input {...ids} name="name" className="input" placeholder="Optional" defaultValue={auth?.user.name ?? ''} />}
+        </Field>
+        <Field label="Email">
+          {(ids) => <input {...ids} name="email" type="email" required className="input" defaultValue={auth?.user.email ?? ''} placeholder="you@example.com" />}
+        </Field>
       </div>
-      <div>
-        <label className="label">Subject</label>
-        <input name="subject" className="input" placeholder="What&apos;s this about?" maxLength={160} />
-      </div>
-      <div>
-        <label className="label">How can we help?</label>
-        <textarea name="message" required minLength={10} maxLength={4000} rows={5} className="input" placeholder="Tell us what&apos;s going on…" />
-      </div>
-      {status === 'error' && <p className="text-sm text-red-600">{error || 'Something went wrong. Please try again.'}</p>}
-      <button className="btn w-full sm:w-auto" disabled={status === 'sending'}>
-        {status === 'sending' ? 'Sending…' : 'Send message'}
+      <Field label="Subject">
+        {(ids) => <input {...ids} name="subject" className="input" placeholder="What's this about?" maxLength={160} />}
+      </Field>
+      <Field label="How can we help?">
+        {(ids) => <textarea {...ids} name="message" required minLength={10} maxLength={4000} rows={5} className="input" placeholder="Tell us what's going on…" />}
+      </Field>
+      <FormStatus status={status} />
+      <button className="btn w-full sm:w-auto" disabled={sending}>
+        {sending ? 'Sending…' : 'Send message'}
       </button>
     </form>
   );
@@ -179,9 +175,9 @@ function ContactForm() {
 export default function HelpPage() {
   return (
     <div className="page-shell max-w-3xl">
-      <div className="animate-in rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 px-6 py-10 text-white">
+      <div className="animate-in rounded-2xl bg-gradient-to-br from-blue-700 to-blue-900 px-6 py-10 text-white">
         <h1 className="text-3xl font-bold">Help &amp; Support</h1>
-        <p className="mt-2 max-w-xl text-brand-100">
+        <p className="mt-2 max-w-xl text-blue-100">
           Answers to common questions, and a direct line to our team when you need a hand.
         </p>
       </div>

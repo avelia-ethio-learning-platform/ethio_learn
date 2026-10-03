@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpenCheck, LoaderCircle, MessageCircleQuestion, Send, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface Message {
   id: string;
@@ -23,7 +24,7 @@ export function TutorPanel({ courseId }: { courseId: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
   const [open, setOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -39,7 +40,7 @@ export function TutorPanel({ courseId }: { courseId: string }) {
     const q = question.trim();
     if (!q || busy) return;
     setBusy(true);
-    setError('');
+    clearStatus();
     setQuestion('');
     setMessages((m) => [...m, { id: `u-${Date.now()}`, role: 'user', content: q, sources: [], not_covered: false }]);
     try {
@@ -78,31 +79,33 @@ export function TutorPanel({ courseId }: { courseId: string }) {
             )}
             {messages.map((m) => (
               <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${m.role === 'user' ? 'bg-brand-600 text-white' : 'bg-white text-gray-800 shadow-sm dark:bg-slate-900 dark:text-gray-100'}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-card text-foreground shadow-sm'}`}>
                   <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
                   {m.role === 'assistant' && m.sources.length > 0 && (
-                    <p className="mt-2 flex flex-wrap items-center gap-1 text-[11px] text-gray-500">
+                    <p className="mt-2 flex flex-wrap items-center gap-1 text-xs text-gray-500">
                       <BookOpenCheck className="h-3 w-3" /> {m.sources.join(' · ')}
                     </p>
                   )}
-                  {m.role === 'assistant' && m.not_covered && <p className="mt-1 text-[11px] text-amber-600">Not covered in the course material — try asking your instructor.</p>}
+                  {m.role === 'assistant' && m.not_covered && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">Not covered in the course material — try asking your instructor.</p>}
                 </div>
               </div>
             ))}
             {busy && (
-              <p className="flex items-center gap-2 text-xs text-gray-400">
+              <p className="flex items-center gap-2 text-xs text-gray-500">
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Reading the course material…
               </p>
             )}
             <div ref={endRef} />
           </div>
           <form onSubmit={ask} className="mt-3 flex gap-2">
-            <input className="input flex-1" placeholder="Ask a question about this course…" value={question} onChange={(e) => setQuestion(e.target.value)} maxLength={1500} />
+            <input className="input flex-1" aria-label="Ask a question about this course" placeholder="Ask a question about this course…" value={question} onChange={(e) => setQuestion(e.target.value)} maxLength={1500} />
             <button className="btn !px-4" disabled={busy || !question.trim()} aria-label="Send">
               <Send className="h-4 w-4" />
             </button>
           </form>
-          {error && <p className="mt-2 text-xs font-medium text-red-500">{error}</p>}
+          <div className="mt-2">
+            <FormStatus status={status} />
+          </div>
         </div>
       )}
     </div>
