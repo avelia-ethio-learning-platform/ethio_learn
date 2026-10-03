@@ -236,11 +236,35 @@ Optional env, documented in `api/.env.example`:
 
 **Early read S1, S2** (`3555c6f`, answered in `code-review.md`): the fast path and the relay mark the rows they're publishing, so a row is never sent twice at once; the bus supervisor runs in a context snapshot taken when the bus is built, so a reconnect can't leave deliveries inside a transaction scope. Full api suite: 1346 passed, 1 skipped.
 
-**In flight / next step (2026-10-03 22:2x, checkpoint):**
-- **Next: step 4**, one commit per service in the plan's order: financial, auth, enrollment, course, quality, outcomes. `step4-brief.md` (in this folder) is a brief I wrote for running the services in parallel sub-agents; it's equally fine as a checklist for doing them one by one. When step 4 is committed, tell ethio-impl [9be294].
-- **Step 5 prep, not started:** add a small `stableEventId(key)` helper in common (uuid v5 with a fixed namespace; `uuid` 9.0.1 resolves in common). The step 4 agents mustn't edit common.
+**Step 4, partial** (run as one sub-agent per service with `step4-brief.md`; each service's specs and tsc green, and I re-ran them before each commit):
+- **auth** `d99ca56`: done. Signup's user, verification link and `UserRegistered` share one outbox transaction. Google sign-in emits no `UserRegistered` (by design), so financial's gifted-seat claim never runs for a Google-created account. That was already so before 9b; out of scope.
+- **financial** `b156a46`: done. Deviation: wider than the plan's "claim path".
+  - `grant` became a conditional `pending_claim` → `granted` update, so a redelivered `UserRegistered` or the dashboard's claim racing it grants and announces a seat once.
+  - `assignSeats` creates the bulk seat inside the outbox transaction with its `SponsorshipGranted`/`SponsorshipInvited`; the old `invite()` is gone.
+  - The refund learner-email lookup runs before the transaction.
+- **enrollment** `aa7fb42`: done (`saveActivated` for the three activation paths; `detectCompletion`).
+  - **Check in round 1:** two simultaneous grants re-activating an already-refunded row can both save and both emit. The window is wider now because the lookups run before the transaction. If wanted, close it with a `pessimistic_write` re-read inside the transaction.
+  - A failed outbox write now fails the learner's request, and `completed_at` stays unset; completing the lesson again re-detects it.
+- **outcomes + notification** `954a4ea`: done (`submitAttempt`, `reviewAttempt`, `issue()` name fill-in, notification's email fill-in).
+  - `issue()` also fills a blank course title and `educator_id`.
+  - A learner deleted in auth (404) makes `issue()` throw until 9a parks the event; deliberate.
+  - `reviewAttempt` now looks up the learner email before saving the grade.
+- **course** `af62ff8`: **4 of 13 sites** (`CoursePublished`, both `CourseSubmitted`, `withdraw`'s `CourseReviewWithdrawn`; `moveToDraft` always runs in an outbox transaction). **Remaining:**
+  - in `course.service.ts`: `closeReviewsOnArchive`, `closeOpenRevision`, `appeal`;
+  - all of `revision.service.ts`: `withdraw` :237, `discard` :273, `apply` :330/:345, `reject` :510, `publishSubmitted` :658.
+
+  The course agent's notes for these:
+  - **Archive: two separate outbox transactions,** one for the status plus the null-revision withdrawal, one in `closeOpenRevision`. The lock orders differ (course→revision vs revision→course), so one transaction could deadlock.
+  - **`apply`/`reject`:** look up the owner contact before `withRetry(() => this.outbox.transaction(...))`, with blanks on failure so the payload falls back to `payload.owner_email`. Emit inside `applyInTransaction`. Drop the `withRetry('publish …')` wrappers and the `CourseUpdated` try/catch.
+  - **Specs:** `revision.service.spec.ts`'s fake transaction can't roll back; add a small snapshot/restore.
+  - **D2 doesn't apply:** the `CourseReviewed` and `CourseRevisionReviewed` handlers use no `runOnce`.
+- **quality: not started.** The quality agent's reading, with ready designs, is in `step4-quality-notes.md`. It covers the fraud migrations, the raise/decision/spec plans, and one decision for me: the index migration repeats the dedupe, to close a deploy-overlap race.
+
+**In flight / next step (2026-10-03 late, checkpoint for the weekly limit; work resumes Monday 2026-10-05 afternoon):**
+- **Next: finish step 4.** Course's remaining 9 sites first (notes above), then quality (`step4-quality-notes.md`; run quality's new migrations on a scratch DB, as for step 3). Commit each, then run the full api suite. Then tell ethio-impl [9be294] that step 4 is committed: 9c steps 3/5/6/9 and 9d's job-runner wait on it. The sub-agent brief is `step4-brief.md`.
+- **Step 5 is started:** `stableEventId(key)` is in common (`602ef8e`). Use it in `payment.service.ts` `emitConfirmed` and `sponsorship.service.ts` (`publishConfirmed` at :438/:440/:452). Key the sponsorship events by sponsorship id, not only by payment: one bulk payment yields several `SponsorshipGranted` events, and one id for all of them would dedupe real grants away.
 - **Scratch DB `el_9b_gen`** holds every migration, the outbox included. My scratchpad scripts are gone with the old session. To recreate the env in one Bash call: `export PATH=/home/kal/.local/opt/node22/bin:$PATH`, `set -a; . api/.env.example; set +a`, then point `DATABASE_URL` at the same server with database `el_9b_gen` (or a fresh `el_9b_*`), and blank the payment and mail keys as the E2E memory says. Always set the scratch `DATABASE_URL` in the same Bash call as any migration command; never run one against the shared dev DB. The step 3 check is: `migration:run` per service, `node api/scripts/db-check.mjs`, then `migration:revert` + `migration:run` per new migration.
-- **The stack** is held by ethio-impl (3) for Phase 10 Playwright, from about 22:00 for about 75 min; it will message when it's released. Steps 6, 7 and 9 need the stack: ask the holder first.
+- **The stack:** steps 6, 7 and 9 need it; ask whoever holds it first.
 - **Peers:** I'm now ethio-impl (4) [5e6b60]; the planner is ethio-planner [31d0d2]. 9a is APPROVED and held; 9a and 9b ship together after 9b is APPROVED.
 - **Remember at merge and PR time:** if 11a has merged when origin/main is merged in, keep `pnpm -C api lint` within `.github/lint-baseline.json` and add this phase's own DEPLOYMENT.md section. The PR description needs the user's read-only query counting duplicate fraud signals.
 
