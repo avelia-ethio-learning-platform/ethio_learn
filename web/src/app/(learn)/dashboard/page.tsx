@@ -26,7 +26,7 @@ import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
 import { formatDate, formatETB } from '@/lib/format';
-import { refundRuleLabel, sentenceCase, statusLabel } from '@/lib/labels';
+import { refundRuleLabel, sentenceCase, statusLabel, walletKindLabel } from '@/lib/labels';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
@@ -252,7 +252,7 @@ function WalletCard() {
         <ul className="mt-4 space-y-1 text-xs text-gray-500">
           {wallet.transactions.slice(0, 5).map((tx: any) => (
             <li key={tx.id} className="flex justify-between gap-2">
-              <span className="truncate">{tx.note || tx.kind}</span>
+              <span className="truncate">{tx.note || walletKindLabel(tx.kind)}</span>
               <span className={tx.amount_etb >= 0 ? 'shrink-0 font-semibold text-emerald-700 dark:text-emerald-400' : 'shrink-0 font-semibold text-gray-700'}>
                 {tx.amount_etb >= 0 ? '+' : ''}
                 {formatETB(tx.amount_etb, locale)}

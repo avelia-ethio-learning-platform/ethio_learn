@@ -57,6 +57,20 @@ export function pricingLabel(pricing: string): string {
   return PRICING[pricing] ?? sentenceCase(pricing);
 }
 
+const WALLET_KINDS: Record<string, string> = {
+  topup: 'Top-up',
+  purchase: 'Course purchase',
+  referral_reward: 'Referral reward',
+  cashback: 'Cashback',
+  gift_sent: 'Gift sent',
+  admin_adjust: 'Adjustment',
+};
+
+/** A wallet entry's kind in words; sentence case for a kind without a curated label. */
+export function walletKindLabel(kind: string): string {
+  return WALLET_KINDS[kind] ?? sentenceCase(kind);
+}
+
 const ASSESSMENT_TYPES: Record<string, string> = {
   quiz: 'Quiz',
   ai_viva: 'AI viva',

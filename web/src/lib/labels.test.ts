@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessmentTypeLabel, categoryLabel, pricingLabel, refundRuleLabel, roleLabel, statusLabel } from './labels';
+import { assessmentTypeLabel, categoryLabel, pricingLabel, refundRuleLabel, roleLabel, statusLabel, walletKindLabel } from './labels';
 
 describe('labels', () => {
   it('statusLabel gives a sentence-case label and the badge class for known values', () => {
@@ -52,5 +52,16 @@ describe('labels', () => {
       expect(refundRuleLabel(rule), rule).not.toContain('_');
     }
     expect(refundRuleLabel('some_new_rule')).toBe('');
+  });
+});
+
+describe('walletKindLabel', () => {
+  it('names every wallet kind in words', () => {
+    expect(walletKindLabel('referral_reward')).toBe('Referral reward');
+    expect(walletKindLabel('admin_adjust')).toBe('Adjustment');
+    expect(walletKindLabel('topup')).toBe('Top-up');
+  });
+  it('falls back to sentence case for an unknown kind, never the raw value', () => {
+    expect(walletKindLabel('new_thing')).toBe('New thing');
   });
 });
