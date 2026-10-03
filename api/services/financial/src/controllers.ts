@@ -203,7 +203,8 @@ export class FinancialController {
     const { payment, created } = await this.paymentService.recordBankTransfer(ctx.id, dto);
     // 201 for a new transfer, 200 for an exact replay; Nest still serializes the return value.
     res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
-    return payment;
+    // `replayed` lets the admin page tell the two apart (its api() sees only the body).
+    return { ...payment, replayed: !created };
   }
 
   @Get('admin/payments')

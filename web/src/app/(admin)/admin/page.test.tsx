@@ -122,6 +122,18 @@ describe('Admin payments: record a bank transfer', () => {
     await waitFor(() => expect(alertFn).toHaveBeenCalledWith('Bank transfer recorded — entitlement grants via PaymentConfirmed.'));
   });
 
+  it('says so when the transfer was already recorded (a replay creates no payment)', async () => {
+    const alertFn = stubDialog('alert', null);
+    await pickLearnerAndCourse();
+    const base = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation(async (path: string, ...rest: unknown[]) =>
+      path === '/admin/payments/bank-transfer' ? { id: 'pay-1', replayed: true } : base(path, ...rest),
+    );
+    fireEvent.change(screen.getByLabelText('Bank reference'), { target: { value: 'FT-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mark bank transfer' }));
+    await waitFor(() => expect(alertFn).toHaveBeenCalledWith('Already recorded — no new payment was created.'));
+  });
+
   it.each([
     [409, 'This learner already owns the course'],
     [503, "Couldn't check enrollment. Try again."],

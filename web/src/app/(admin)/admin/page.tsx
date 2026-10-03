@@ -164,11 +164,15 @@ function BankTransferForm() {
         disabled={!learner || !course || !reference.trim()}
         onClick={async () => {
           try {
-            await api('/admin/payments/bank-transfer', {
+            const result = await api<{ replayed?: boolean }>('/admin/payments/bank-transfer', {
               method: 'POST',
               body: { learner_id: learner!.id, course_id: course!.id, bank_reference: reference.trim() },
             });
-            alert('Bank transfer recorded — entitlement grants via PaymentConfirmed.');
+            alert(
+              result?.replayed
+                ? 'Already recorded — no new payment was created.'
+                : 'Bank transfer recorded — entitlement grants via PaymentConfirmed.',
+            );
           } catch (err) {
             alert((err as Error).message);
           }
