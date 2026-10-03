@@ -9,6 +9,7 @@ export * from './auth/user-context';
 export * from './auth/roles.guard';
 export * from './auth/internal.guard';
 export * from './http/internal-client';
+export * from './http/internal-errors';
 export * from './typeorm/typeorm';
 export * from './typeorm/baseline';
 export * from './typeorm/schema-check';

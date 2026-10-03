@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { currentEvent, env, EventBusService, InternalHttpClient, internalPath } from '@ethiopialearn/common';
+import { currentEvent, env, EventBusService, InternalHttpClient, internalPath, PeerNotFoundError } from '@ethiopialearn/common';
 import { courseCategoryLabel } from '@ethiopialearn/contracts';
 import {
   AssessmentResultPayload,
@@ -668,7 +668,7 @@ export class NotificationService implements OnModuleInit {
     try {
       return await this.internal.get<{ email: string; name: string }>(internalPath`/api/v1/internal/users/${userId}`);
     } catch (err) {
-      if ((err as Error).message.endsWith('-> 404')) return { email: '', name: '' };
+      if (err instanceof PeerNotFoundError) return { email: '', name: '' };
       throw err;
     }
   }

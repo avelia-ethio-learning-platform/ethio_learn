@@ -12,7 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
 import { Between, DataSource, EntityManager, In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, PeerNotFoundError, UserContext } from '@ethiopialearn/common';
 import {
   OwnerType,
   PaymentAbandonedPayload,
@@ -878,8 +878,7 @@ export class PaymentService {
     try {
       await this.internal.get(internalPath`/api/v1/internal/users/${dto.learner_id}`);
     } catch (err) {
-      // Phase 9c's typed PeerNotFoundError replaces this match on InternalHttpClient's message.
-      if ((err as Error).message.endsWith('-> 404')) throw new NotFoundException('Learner not found');
+      if (err instanceof PeerNotFoundError) throw new NotFoundException('Learner not found');
       throw new ServiceUnavailableException("Couldn't check the learner. Try again.");
     }
 

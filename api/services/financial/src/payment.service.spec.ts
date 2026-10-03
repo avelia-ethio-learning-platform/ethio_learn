@@ -1,7 +1,7 @@
 import { createHmac } from 'crypto';
 import { ForbiddenException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
-import { BrokerPublishError } from '@ethiopialearn/common';
+import { BrokerPublishError, PeerNotFoundError, PeerUnavailableError } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, PaymentStatus } from '@ethiopialearn/contracts';
 import { MockChapaProvider } from './chapa.provider';
 import { Coupon, Payment, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
@@ -481,8 +481,8 @@ describe('PaymentService.recordBankTransfer: the bank reference is the idempoten
     const base = get.getMockImplementation()!;
     get.mockImplementation(async (path) => (path.includes(match) ? reply() : base(path)));
   };
-  /** What InternalHttpClient throws: with the status for a non-2xx answer, without one for a network error. */
-  const failure = (path: string, status?: number) => new Error(`Internal request failed: GET ${path}${status ? ` -> ${status}` : ''}`);
+  /** What InternalHttpClient throws: a 404 is PeerNotFoundError, anything else PeerUnavailableError. */
+  const failure = (_path: string, status?: number) => (status === 404 ? new PeerNotFoundError('Not found') : new PeerUnavailableError());
   const calls = (t: ReturnType<typeof setup>, match: string) => t.internal.get.mock.calls.filter(([path]) => path.includes(match));
   /** Holds every entitlements lookup until `n` submits have reached it, so they all pass checks 1-4 before any inserts. */
   const gateEntitlements = (t: ReturnType<typeof setup>, n: number) => {

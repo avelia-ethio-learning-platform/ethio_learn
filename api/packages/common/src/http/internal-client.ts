@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { envOrLocalDefault } from '../config/env';
+import { PeerAsleepError, PeerNotFoundError, PeerUnavailableError } from './internal-errors';
 
 /** A path built by `internalPath`; `get()` accepts nothing else. */
 export type InternalPath = string & { readonly __brand: 'InternalPath' };
@@ -62,20 +63,51 @@ export class InternalHttpClient {
     }
     // Bounded timeout so a slow/stuck peer can't tie up this service's request
     // handlers under load. Node's fetch (undici) already keep-alives connections.
-    let res: Response;
-    try {
-      res = await fetch(`${this.gatewayUrl}${path}`, {
+    // Messages and logs never carry the path: it can hold an email address.
+    const attempt = () =>
+      fetch(`${this.gatewayUrl}${path}`, {
         headers: { 'x-internal-token': process.env.INTERNAL_API_TOKEN ?? '' },
         signal: AbortSignal.timeout(Number(process.env.INTERNAL_HTTP_TIMEOUT_MS ?? 8000)),
       });
+    let res: Response;
+    try {
+      try {
+        res = await attempt();
+      } catch (err) {
+        // One retry, only for a connection that failed fast (peer restarting). Never after a timeout.
+        if (!isFastConnectionFailure(err)) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        res = await attempt();
+      }
     } catch (err) {
-      this.logger.warn(`internal GET ${path} failed: ${(err as Error).message}`);
-      throw new Error(`Internal request failed: GET ${path}`);
+      this.logger.warn(`internal GET failed (${(err as Error).name}), path length ${path.length}`);
+      throw new PeerUnavailableError();
     }
     if (!res.ok) {
-      this.logger.warn(`internal GET ${path} -> ${res.status}`);
-      throw new Error(`Internal request failed: GET ${path} -> ${res.status}`);
+      this.logger.warn(`internal GET failed (${res.status}), path length ${path.length}`);
+      if (res.status === 404) throw new PeerNotFoundError('Not found');
+      if (res.status === 429) {
+        const text = await res.text().catch(() => '');
+        if (isHibernation(res.status, res.headers, text)) throw new PeerAsleepError();
+      }
+      throw new PeerUnavailableError();
     }
     return (await res.json()) as T;
+  }
+}
+
+function isFastConnectionFailure(err: unknown): boolean {
+  const code = (err as { cause?: { code?: string } } | null)?.cause?.code;
+  return code === 'ECONNREFUSED' || code === 'ECONNRESET';
+}
+
+/** Mirrors web/src/lib/hibernation.ts: a JSON 429 is a limiter, anything else is a sleeping service. */
+function isHibernation(status: number, headers: Headers, bodyText: string): boolean {
+  if (status !== 429) return false;
+  if (headers.get('x-render-routing')?.includes('hibernate')) return true;
+  try {
+    return (JSON.parse(bodyText) as { statusCode?: unknown } | null)?.statusCode !== 429;
+  } catch {
+    return true;
   }
 }

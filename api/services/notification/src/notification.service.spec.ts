@@ -1,5 +1,5 @@
 import { QaDecisionAction, Role } from '@ethiopialearn/contracts';
-import { eventContext } from '@ethiopialearn/common';
+import { eventContext, PeerNotFoundError, PeerUnavailableError } from '@ethiopialearn/common';
 import { NotificationService } from './notification.service';
 
 type Handler = (payload: unknown) => unknown;
@@ -686,24 +686,24 @@ describe('NotificationService: a fan-out with one failing recipient (9a review B
   });
 
   it.each(cases)('%s: a failed user lookup for recipient 2 still notifies recipient 3, then throws so the bus retries', async (type, _inboxType, payload) => {
-    const t = fanOut({ u2: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u2'); } });
+    const t = fanOut({ u2: () => { throw new PeerUnavailableError(); } });
 
-    await expect(t.emit(type, payload, 'evt-1')).rejects.toThrow('Internal request failed');
+    await expect(t.emit(type, payload, 'evt-1')).rejects.toBeInstanceOf(PeerUnavailableError);
     expect(t.emails().map((m) => m.to)).toEqual(['u1@e.et', 'u3@e.et']);
   });
 
   it('a deleted user (404) is skipped quietly: no email, no retry', async () => {
-    const t = fanOut({ u2: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u2 -> 404'); } });
+    const t = fanOut({ u2: () => { throw new PeerNotFoundError('Not found'); } });
 
     await t.emit('CourseUpdated', updated, 'evt-1');
     expect(t.emails().map((m) => m.to)).toEqual(['u1@e.et', 'u3@e.et']);
   });
 
   it('a lookup that fails for a single-recipient email throws instead of skipping the email', async () => {
-    const t = fanOut({ u1: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u1 -> 503'); } });
+    const t = fanOut({ u1: () => { throw new PeerUnavailableError(); } });
 
     await expect(
       t.emit('LearnerInactive', { learner_id: 'u1', course_id: 'c1', course_title: 'Soil Science', days_inactive: 7, progress_percent: 40, channel: 'email' }, 'evt-1'),
-    ).rejects.toThrow('-> 503');
+    ).rejects.toBeInstanceOf(PeerUnavailableError);
   });
 });
