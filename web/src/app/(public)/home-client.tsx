@@ -78,7 +78,8 @@ export function HomeClient({
           <div className="absolute -right-24 top-40 h-64 w-64 rounded-full bg-blue-600/10 blur-3xl dark:bg-blue-700/10" />
         </div>
         <div className="mx-auto w-full max-w-6xl">
-          <div className="animate-in relative overflow-hidden rounded-[2rem] shadow-floating sm:rounded-[2.5rem]">
+          {/* White focus rings: the global blue ring vanishes against this blue panel. */}
+          <div className="animate-in relative overflow-hidden rounded-[2rem] shadow-floating sm:rounded-[2.5rem] [&_:focus-visible]:outline-white">
             {/* Smooth gradient backdrop */}
             <div className="absolute inset-0 bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 dark:from-blue-950 dark:via-blue-900 dark:to-indigo-950" />
             <div className="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
