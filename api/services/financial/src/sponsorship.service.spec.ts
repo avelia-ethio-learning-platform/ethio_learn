@@ -93,7 +93,7 @@ function setup() {
   };
   const events = (type: string) => bus.publishConfirmed.mock.calls.filter(([t]) => t === type);
   const payment = (id = 'pay-1') => db.repo(Payment).rows.find((p) => p.id === id)!;
-  return { db, bus, chapa, payments, sponsorships, confirmedPayment, sponsorship, events, payment };
+  return { db, bus, chapa, internal, payments, sponsorships, confirmedPayment, sponsorship, events, payment };
 }
 
 describe('Sponsored payments: access events follow the sponsorship (P0-05)', () => {
@@ -234,12 +234,15 @@ describe('A refused checkout undoes its sponsorship side', () => {
     await expect(t.sponsorships.createGift(SPONSOR, gift)).resolves.toMatchObject({ checkout_url: 'https://checkout.example/gift' });
   });
 
-  it('a refused pay-request checkout puts the request back to requested, with no sponsor', async () => {
+  it.each([
+    ['Chapa cannot open the checkout', {}, 'Chapa is unavailable'],
+    ['the wallet cannot cover it', { use_wallet: true }, 'is not enough for 500.00 ETB'],
+  ])('a refused pay-request checkout (%s) puts the request back to requested, with no sponsor', async (_, how, message) => {
     const t = setup();
     openRequest(t);
     chapaRefuses(t);
 
-    await expect(t.sponsorships.payRequest(SPONSOR, 'TOKEN', {})).rejects.toThrow('Chapa is unavailable');
+    await expect(t.sponsorships.payRequest(SPONSOR, 'TOKEN', how)).rejects.toThrow(message);
 
     expect(t.db.repo(Sponsorship).rows).toEqual([expect.objectContaining({ status: 'requested', sponsor_id: null, sponsor_name: '', payment_id: null })]);
   });
@@ -326,5 +329,101 @@ describe('A refused checkout undoes its sponsorship side', () => {
     const left = t.db.repo(Sponsorship).rows[0];
     expect(error).toHaveBeenCalledWith(expect.stringContaining(`gift ${left.id}`));
     expect(error).toHaveBeenCalledWith(expect.stringContaining('connection lost'));
+  });
+});
+
+describe('Pay requests: a stale call never overwrites a paid request (P2-47)', () => {
+  const PAYER_A = { id: 'payer-a', role: 'learner', email: 'a@x.et' } as never;
+  const PAYER_B = { id: 'payer-b', role: 'learner', email: 'b@x.et' } as never;
+  const NAMES: Record<string, string> = { 'payer-a': 'Payer A', 'payer-b': 'Payer B' };
+
+  function requestSetup() {
+    const t = setup();
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      const user = /\/internal\/users\/([^/]+)$/.exec(path);
+      if (user && NAMES[user[1]]) return { email: `${user[1]}@x.et`, name: NAMES[user[1]] };
+      return get(path);
+    });
+    t.sponsorship({ source: 'pay_request', status: 'requested', sponsor_id: null, sponsor_name: '', recipient_user_id: 'asker', recipient_email: 'asker@x.et' });
+    t.chapa.initialize.mockImplementation(async () => ({ checkout_url: 'https://checkout.example/pay' }));
+    const row = () => t.db.repo(Sponsorship).rows[0];
+    const paymentOf = (learnerId: string) => t.db.repo(Payment).rows.find((p) => p.learner_id === learnerId)!;
+    /** The payer's Chapa checkout completes, and the sponsorship handler runs on it. */
+    const confirm = async (learnerId: string) => {
+      Object.assign(paymentOf(learnerId), { status: PaymentStatus.CONFIRMED, webhook_received_at: new Date(Date.now() - 5 * 60_000) });
+      await t.payments.completePendingEffects();
+    };
+    return { ...t, row, paymentOf, confirm };
+  }
+
+  it('A-1: B opens, A opens, B pays: the grant names B', async () => {
+    const t = requestSetup();
+    await t.sponsorships.payRequest(PAYER_B, 'TOKEN', {});
+    await t.sponsorships.payRequest(PAYER_A, 'TOKEN', {});
+    expect(t.row()).toMatchObject({ sponsor_id: 'payer-a', payment_id: t.paymentOf('payer-a').id });
+
+    await t.confirm('payer-b');
+
+    expect(t.row()).toMatchObject({ status: 'granted', sponsor_id: 'payer-b', sponsor_name: 'Payer B', payment_id: t.paymentOf('payer-b').id });
+    expect(t.events('SponsorshipGranted')).toEqual([['SponsorshipGranted', expect.objectContaining({ sponsor_id: 'payer-b', sponsor_name: 'Payer B' }), expect.anything()]]);
+  });
+
+  it("A-2: A's payment confirms while B's checkout opens: the request stays granted to A, and B gets a 400 with no URL", async () => {
+    const t = requestSetup();
+    await t.sponsorships.payRequest(PAYER_A, 'TOKEN', {});
+    t.chapa.initialize.mockImplementationOnce(async () => {
+      await t.confirm('payer-a');
+      return { checkout_url: 'https://checkout.example/b' };
+    });
+
+    await expect(t.sponsorships.payRequest(PAYER_B, 'TOKEN', {})).rejects.toThrow('This request has already been paid');
+
+    expect(t.row()).toMatchObject({ status: 'granted', sponsor_id: 'payer-a', payment_id: t.paymentOf('payer-a').id });
+    expect(t.paymentOf('payer-b')).toMatchObject({ status: PaymentStatus.PENDING });
+  });
+
+  it('A-3: a grant that lands during the entitlement check is not cancelled', async () => {
+    const t = requestSetup();
+    await t.sponsorships.payRequest(PAYER_A, 'TOKEN', {});
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (!path.includes('/entitlements')) return get(path);
+      await t.confirm('payer-a'); // A's payment is granted meanwhile, so the learner is entitled
+      return { entitlement_status: 'active' };
+    });
+
+    await expect(t.sponsorships.payRequest(PAYER_B, 'TOKEN', {})).rejects.toThrow('The learner already has access to this course');
+
+    expect(t.row()).toMatchObject({ status: 'granted', sponsor_id: 'payer-a' });
+  });
+
+  it('the entitled check still cancels an open request', async () => {
+    const t = requestSetup();
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => (path.includes('/entitlements') ? { entitlement_status: 'active' } : get(path)));
+
+    await expect(t.sponsorships.payRequest(PAYER_B, 'TOKEN', {})).rejects.toThrow('The learner already has access to this course');
+    expect(t.row()).toMatchObject({ status: 'cancelled' });
+  });
+
+  it("A-4: B settles by wallet after A's refused checkout reset the request: the grant names B", async () => {
+    const t = requestSetup();
+    t.chapa.initialize.mockRejectedValueOnce(new Error('Chapa is unavailable'));
+    await expect(t.sponsorships.payRequest(PAYER_A, 'TOKEN', {})).rejects.toThrow('Chapa is unavailable');
+    expect(t.row()).toMatchObject({ status: 'requested', sponsor_id: null });
+    t.db.repo(Wallet).rows.push({ user_id: 'payer-b', balance_etb: '1000.00' });
+
+    const result = await t.sponsorships.payRequest(PAYER_B, 'TOKEN', { use_wallet: true });
+
+    expect(result).toMatchObject({ confirmed: true });
+    expect(t.row()).toMatchObject({ status: 'granted', sponsor_id: 'payer-b', sponsor_name: 'Payer B' });
+  });
+
+  it('a call on a request that is already granted answers 400 without opening a checkout', async () => {
+    const t = requestSetup();
+    t.row().status = 'granted';
+    await expect(t.sponsorships.payRequest(PAYER_B, 'TOKEN', {})).rejects.toThrow('This request has already been paid');
+    expect(t.db.repo(Payment).rows).toEqual([]);
   });
 });

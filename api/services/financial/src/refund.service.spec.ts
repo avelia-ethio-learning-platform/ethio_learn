@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { EntitlementStatus, PaymentStatus, RefundStatus } from '@ethiopialearn/contracts';
-import { Coupon, Payment, Referral, ReferralCode, RefundRequest, Wallet, WalletTransaction } from './entities';
+import { Coupon, Payment, Referral, ReferralCode, RefundRequest, Sponsorship, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { RefundService } from './refund.service';
 import { fakeDb } from './testing/fake-db';
@@ -419,6 +419,105 @@ describe('RefundService: decided once (5a)', () => {
   });
 });
 
+describe('RefundService: access is kept when the learner holds the course another way (P1-63)', () => {
+  /** Another payment of u1 for c1, confirmed unless said otherwise. */
+  const second = (over: Record<string, unknown> = {}) => ({
+    id: 'pay-0',
+    learner_id: 'u1',
+    course_id: 'c1',
+    course_title: 'Course',
+    amount_etb: '500.00',
+    status: PaymentStatus.CONFIRMED,
+    chapa_tx_ref: 'TX-0',
+    purpose: 'course',
+    method: 'chapa',
+    payout_id: null,
+    refund_requested_at: null,
+    webhook_received_at: ago(DAY),
+    created_at: ago(DAY),
+    ...over,
+  });
+  const approvedPayload = (published: (t: string) => unknown[][]) => published('RefundApproved').map(([, p]) => p as Record<string, unknown>);
+
+  it('refunding one of two duplicate purchases keeps access and still voids its credits; refunding the other revokes', async () => {
+    const { service, payments, earnCredits, credits, published } = setup({ progress: 10 });
+    payments.rows.push(second());
+    await earnCredits();
+
+    await service.request(ctx, 'pay-1', 'bought it twice');
+    expect(approvedPayload(published)).toEqual([expect.objectContaining({ payment_id: 'pay-1', access_kept: true })]);
+    expect(credits().filter(([, , pay]) => pay === 'pay-1').map(([, , , state]) => state)).toEqual(['void', 'void']);
+
+    await service.request(ctx, 'pay-0', 'the other one too');
+    expect(approvedPayload(published)[1]).toMatchObject({ payment_id: 'pay-0', access_kept: false });
+    expect(payments.rows.filter((p) => p.learner_id === 'u1').map((p) => p.status)).toEqual([PaymentStatus.REFUNDED, PaymentStatus.REFUNDED]);
+  });
+
+  it("locks the learner's confirmed course payments for the course, in id order, before marking the payment", async () => {
+    const { service, payments, payment } = setup({ progress: 10 });
+    payments.rows.push(second());
+    const markedAtLock: unknown[] = [];
+    const find = payments.find.getMockImplementation()!;
+    payments.find.mockImplementation(async (opts) => {
+      if (opts?.lock) markedAtLock.push(payment().refund_requested_at);
+      return find(opts);
+    });
+    await service.request(ctx, 'pay-1', 'bought it twice');
+    expect(payments.find).toHaveBeenCalledWith({
+      where: { learner_id: 'u1', course_id: 'c1', purpose: 'course', status: PaymentStatus.CONFIRMED },
+      order: { id: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+    // The first lock is taken before the mark, the second (in approveWith) after it.
+    expect(markedAtLock).toEqual([null, expect.any(Date)]);
+  });
+
+  it('a granted sponsorship for the course keeps access when the learner refunds their own purchase', async () => {
+    const { service, db, published } = setup({ progress: 10 });
+    db.repo(Sponsorship).rows.push({ id: 'sp-1', source: 'pay_request', status: 'granted', recipient_user_id: 'u1', course_id: 'c1' });
+    await service.request(ctx, 'pay-1', 'my uncle paid for it too');
+    expect(approvedPayload(published)[0]).toMatchObject({ access_kept: true });
+  });
+
+  it.each([
+    ['a sponsorship that is not granted', { status: 'pending_payment', recipient_user_id: 'u1', course_id: 'c1' }],
+    ['a granted sponsorship for another learner', { status: 'granted', recipient_user_id: 'u2', course_id: 'c1' }],
+    ['a granted sponsorship for another course', { status: 'granted', recipient_user_id: 'u1', course_id: 'c2' }],
+  ])('%s does not keep access', async (_label, row) => {
+    const { service, db, published } = setup({ progress: 10 });
+    db.repo(Sponsorship).rows.push({ id: 'sp-1', source: 'gift', ...row });
+    await service.request(ctx, 'pay-1', 'changed my mind');
+    expect(approvedPayload(published)[0]).toMatchObject({ access_kept: false });
+  });
+
+  it.each([
+    ["the learner's own gift payment for the same course", { purpose: 'gift' }],
+    ['a refunded other payment', { status: PaymentStatus.REFUNDED }],
+    ['a failed other payment', { status: PaymentStatus.FAILED }],
+    ['a pending other payment', { status: PaymentStatus.PENDING }],
+    ['a confirmed payment for another course', { course_id: 'c2' }],
+  ])('%s does not keep access', async (_label, over) => {
+    const { service, payments, published } = setup({ progress: 10 });
+    payments.rows.push(second(over));
+    await service.request(ctx, 'pay-1', 'changed my mind');
+    expect(approvedPayload(published)[0]).toMatchObject({ access_kept: false });
+  });
+
+  it('the admin decide path carries the flag', async () => {
+    const { service, payments, published } = setup({ progress: 35 });
+    payments.rows.push(second());
+    const { refund_id } = await service.request(ctx, 'pay-1', 'bought it twice');
+    await service.decide('adm-1', refund_id, true);
+    expect(approvedPayload(published)).toEqual([expect.objectContaining({ payment_id: 'pay-1', access_kept: true })]);
+  });
+
+  it('a denial carries no flag', async () => {
+    const { service, published } = setup({ progress: 80 });
+    await service.request(ctx, 'pay-1', 'finished it');
+    expect(published('RefundDenied')[0][1]).not.toHaveProperty('access_kept');
+  });
+});
+
 describe('RefundService.listPending', () => {
   const admin = { id: 'adm-1', role: 'platform_admin', email: 'a@e.et' } as never;
 
@@ -426,6 +525,7 @@ describe('RefundService.listPending', () => {
     const { service, payments } = setup({ progress: 35, confirmedDaysAgo: 2 });
     await service.request(ctx, 'pay-1', 'not what I expected');
     const find = jest.spyOn(payments, 'find');
+    find.mockClear(); // request() already called find (the course-payment lock)
     const rows = await service.listPending(admin);
     expect(rows).toEqual([expect.objectContaining({ payment_id: 'pay-1', reason: 'not what I expected', amount_etb: '500.00', course_title: 'Course' })]);
     expect(find).toHaveBeenCalledTimes(1);

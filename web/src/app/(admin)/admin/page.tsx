@@ -192,11 +192,15 @@ function BankTransferForm() {
     clear();
     setBusy(true);
     try {
-      await api('/admin/payments/bank-transfer', {
+      const result = await api<{ replayed?: boolean }>('/admin/payments/bank-transfer', {
         method: 'POST',
         body: { learner_id: learner.id, course_id: course.id, bank_reference: bankReference },
       });
-      setOk(`Bank transfer recorded. ${learner.label} has access to ${course.label} now.`);
+      setOk(
+        result?.replayed
+          ? `Already recorded: bank reference ${bankReference} was marked before, so no new payment was created.`
+          : `Bank transfer recorded. ${learner.label} has access to ${course.label} now.`,
+      );
       setLearner(null);
       setCourse(null);
       setReference('');

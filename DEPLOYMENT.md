@@ -254,6 +254,30 @@ COMMIT;
 
 The two `UPDATE <n>` counts are the stale marks cleared and the missing marks set; the check then shows 0 and 0.
 
+### Phase 6d: past wrong revocations (any time; blocks nothing)
+
+Read-only, for the owner, against production. Before 6d, refunding one purchase of a course revoked access even when the learner still held it another way: a second confirmed purchase of it, or a granted gift, pay request or bulk seat. 6d stops this but doesn't touch past rows. Each row below is a learner who lost access that way; re-granting it is your call. The result doesn't affect the 6d merge.
+
+```sql
+-- Learners whose course access is refunded while they still hold the course another way.
+SELECT e.learner_id, e.course_id, e.enrolled_at,
+       (SELECT count(*) FROM financial.payments p
+         WHERE p.learner_id = e.learner_id AND p.course_id = e.course_id
+           AND p.purpose = 'course' AND p.status = 'confirmed') AS confirmed_purchases,
+       (SELECT count(*) FROM financial.sponsorships s
+         WHERE s.recipient_user_id = e.learner_id AND s.course_id = e.course_id
+           AND s.status = 'granted') AS granted_sponsorships
+FROM enrollment.enrollments e
+WHERE e.entitlement_status = 'refunded'
+  AND (EXISTS (SELECT 1 FROM financial.payments p
+               WHERE p.learner_id = e.learner_id AND p.course_id = e.course_id
+                 AND p.purpose = 'course' AND p.status = 'confirmed')
+       OR EXISTS (SELECT 1 FROM financial.sponsorships s
+                  WHERE s.recipient_user_id = e.learner_id AND s.course_id = e.course_id
+                    AND s.status = 'granted'))
+ORDER BY e.enrolled_at;
+```
+
 ## Scaling & operations
 
 - Services are stateless → scale horizontally behind the gateway; use PgBouncer for Postgres connection pooling under load.
