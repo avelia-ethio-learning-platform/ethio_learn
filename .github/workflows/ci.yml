@@ -221,12 +221,12 @@ jobs:
         id: api
         continue-on-error: true
         shell: bash # -o pipefail, so tee doesn't hide audit's exit code
-        run: pnpm -C api audit --prod --audit-level low | tee audit-api.txt
+        run: pnpm -C api audit --prod --audit-level high | tee audit-api.txt
       - name: Audit web
         id: web
         continue-on-error: true
         shell: bash # -o pipefail, so tee doesn't hide audit's exit code
-        run: pnpm -C web audit --prod --audit-level low | tee audit-web.txt
+        run: pnpm -C web audit --prod --audit-level high | tee audit-web.txt
       - name: Summary
         run: |
           for pkg in api web; do
