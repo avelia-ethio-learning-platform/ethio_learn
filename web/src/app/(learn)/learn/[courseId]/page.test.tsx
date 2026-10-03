@@ -358,19 +358,20 @@ describe('completing a lesson', () => {
 
   it('a refusal with a short wait retries once after that wait, then succeeds and refreshes progress', async () => {
     route({});
-    await openLesson();
+    const video = await openLesson();
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       completeAnswers(refused({ retry_after_seconds: 30 }), {});
       const progressCalls = () => apiMock.mock.calls.filter(([p]) => p === '/enrollments/e1/progress').length;
       fireEvent.click(markButton());
       await vi.advanceTimersByTimeAsync(29_000);
+      (video as any).currentTime = 99.2;
       expect(completeCalls()).toHaveLength(1);
       expect(screen.queryByText(MSG)).toBeNull();
       const before = progressCalls();
       await vi.advanceTimersByTimeAsync(1_500);
       expect(completeCalls()).toHaveLength(2);
-      expect(completeCalls()[1][1]).toEqual({ method: 'POST', body: { position_seconds: 95 } });
+      expect(completeCalls()[1][1]).toEqual({ method: 'POST', body: { position_seconds: 99 } });
       await waitFor(() => expect(progressCalls()).toBeGreaterThan(before));
       expect(screen.queryByText(MSG)).toBeNull();
     } finally {
@@ -462,5 +463,73 @@ describe('completing a lesson', () => {
     fireEvent.click(markButton());
     expect(await screen.findByText('Something broke')).toBeTruthy();
     expect(screen.queryByText(/We couldn't reach the server/)).toBeNull();
+  });
+  /** /complete that stays in flight until `finish` is called with its result. */
+  function slowComplete() {
+    const base = apiMock.getMockImplementation()!;
+    let finish!: (r: unknown) => void;
+    apiMock.mockImplementation(async (path: string, ...rest: unknown[]) => {
+      if (path.endsWith('/complete')) return new Promise((resolve, reject) => (finish = (r) => (r instanceof Error ? reject(r) : resolve(r))));
+      return base(path, ...rest);
+    });
+    return (r: unknown) => finish(r);
+  }
+
+  it('a refusal that lands after the learner switched lessons shows nothing and never retries', async () => {
+    route({});
+    await openLesson();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const land = slowComplete();
+      fireEvent.click(markButton());
+      fireEvent.click(screen.getByRole('button', { name: /Seeds/ }));
+      await vi.advanceTimersByTimeAsync(100);
+      land(refused({ retry_after_seconds: 30 }));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(completeCalls()).toHaveLength(1);
+      expect(screen.queryByText(MSG)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a plain refusal that lands after the switch shows no message on the new lesson', async () => {
+    route({});
+    await openLesson();
+    const land = slowComplete();
+    fireEvent.click(markButton());
+    fireEvent.click(screen.getByRole('button', { name: /Seeds/ }));
+    await new Promise((r) => setTimeout(r, 50));
+    land(refused());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(MSG)).toBeNull();
+  });
+
+  it('a refusal that lands after unmount never retries', async () => {
+    route({});
+    await openLesson();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const land = slowComplete();
+      fireEvent.click(markButton());
+      cleanup();
+      land(refused({ retry_after_seconds: 30 }));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(completeCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starting a new completion clears the previous message', async () => {
+    route({});
+    await openLesson();
+    completeAnswers(refused());
+    fireEvent.click(markButton());
+    expect(await screen.findByText(MSG)).toBeTruthy();
+    const land = slowComplete();
+    fireEvent.click(markButton());
+    await waitFor(() => expect(screen.queryByText(MSG)).toBeNull());
+    land({});
   });
 });

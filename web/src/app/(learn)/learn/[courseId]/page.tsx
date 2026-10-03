@@ -91,7 +91,10 @@ function Player({ courseId }: { courseId: string }) {
   // Tear down any HLS instance when leaving the page.
   useEffect(() => () => hlsRef.current?.destroy(), []);
 
+  // Bumped whenever a completion stops mattering (lesson change, unmount), so a call already in flight is ignored.
+  const completeEpoch = useRef(0);
   const cancelCompleteRetry = () => {
+    completeEpoch.current += 1;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     retryTimer.current = null;
   };
@@ -170,11 +173,11 @@ function Player({ courseId }: { courseId: string }) {
   }, [sendHeartbeat]);
 
   const playLesson = async (lesson: Lesson) => {
+    setCompleteError('');
+    cancelCompleteRetry();
     await sendHeartbeat(); // save the lesson we are leaving
     setActiveId(lesson.id);
     setVideoError('');
-    setCompleteError('');
-    cancelCompleteRetry();
     hlsRef.current?.destroy();
     hlsRef.current = null;
     if (!lesson.has_video) {
@@ -219,6 +222,8 @@ function Player({ courseId }: { courseId: string }) {
    */
   const markComplete = async (lesson: Lesson, isRetry = false) => {
     if (retryTimer.current) return; // a retry is already waiting
+    if (!isRetry) setCompleteError('');
+    const epoch = completeEpoch.current;
     const video = videoRef.current;
     const holdsVideo = lesson.has_video && !!video && activeIdRef.current === lesson.id && Number.isFinite(video.duration);
     try {
@@ -228,6 +233,7 @@ function Player({ courseId }: { courseId: string }) {
         await api(`/progress/lessons/${lesson.id}/complete`, { method: 'POST', body });
       }
     } catch (err) {
+      if (epoch !== completeEpoch.current) return; // the learner moved on while this was in flight
       const wait = err instanceof ApiError && err.status === 409 ? (err.body as { retry_after_seconds?: unknown } | undefined)?.retry_after_seconds : undefined;
       if (!isRetry && typeof wait === 'number' && wait <= MAX_COMPLETE_RETRY_S) {
         retryTimer.current = setTimeout(() => {
@@ -239,7 +245,7 @@ function Player({ courseId }: { courseId: string }) {
       setCompleteError(isNetworkError(err) ? UNREACHABLE_MESSAGE : (err as Error).message);
       return;
     }
-    setCompleteError('');
+    if (epoch === completeEpoch.current) setCompleteError('');
     await queryClient.invalidateQueries({ queryKey: ['progress'] });
     await queryClient.invalidateQueries({ queryKey: ['enrollments'] });
   };
