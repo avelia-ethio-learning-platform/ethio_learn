@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -8,6 +8,7 @@ import { GraduationCap, LogOut, Menu, User, X } from 'lucide-react';
 import { api, setAuth } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { useDismiss } from '@/lib/use-dismiss';
 import { NotificationBell } from './NotificationBell';
 import { ThemeToggle } from './ThemeToggle';
 import { LanguageToggle } from './LanguageToggle';
@@ -23,6 +24,42 @@ export function Header() {
   const pathname = usePathname();
   const [isScrolled, setIsScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const burgerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+
+  // Escape and an outside press close the menu. It hosts the theme menu, so
+  // that one opening must not close it (closeOnOtherOpen off); the bell sits
+  // outside the panel, and pressing it closes the menu as an outside press.
+  useDismiss({ open: menuOpen, onClose: () => setMenuOpen(false), containerRef: panelRef, triggerRef: burgerRef, closeOnOtherOpen: false });
+
+  // The backdrop makes the open menu modal: focus moves in, and Tab wraps
+  // between the burger and the panel's controls.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const panel = panelRef.current;
+    const focusables = () => [
+      ...(burgerRef.current ? [burgerRef.current] : []),
+      ...Array.from(panel?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])') ?? []),
+    ];
+    panel?.querySelector<HTMLElement>('a[href]')?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const items = focusables();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [menuOpen]);
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 20);
@@ -44,7 +81,7 @@ export function Header() {
     quality_officer: [{ href: '/qa', label: t('review_queue') }],
     platform_admin: [
       { href: '/admin', label: t('admin') },
-      { href: '/qa', label: 'QA' },
+      { href: '/qa', label: t('quality_review') },
     ],
   };
 
@@ -53,6 +90,9 @@ export function Header() {
     { href: '/courses', label: t('courses') },
     ...(ready && user ? (roleLinks[user.role] ?? []) : []),
   ];
+
+  // Help and Educators live in the footer on desktop; the mobile menu carries them too.
+  const mobileLinks = [...navLinks, { href: '/educators', label: t('educators') }, { href: '/help', label: t('help') }];
 
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
 
@@ -151,11 +191,9 @@ export function Header() {
                 <Link href="/login" className="btn-ghost">
                   {t('login')}
                 </Link>
-                <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                  <Link href="/signup" className="btn">
-                    {t('signup')}
-                  </Link>
-                </motion.div>
+                <Link href="/signup" className="btn transition hover:scale-[1.03] active:scale-[.98]">
+                  {t('signup')}
+                </Link>
               </>
             )}
             {ready && user && (
@@ -181,9 +219,11 @@ export function Header() {
           <div className="flex items-center gap-2 lg:hidden">
             {ready && user && <NotificationBell />}
             <button
+              ref={burgerRef}
               onClick={() => setMenuOpen((o) => !o)}
               aria-label="Menu"
               aria-expanded={menuOpen}
+              aria-controls={menuId}
               className="glass-secondary flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass"
             >
               {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -195,6 +235,7 @@ export function Header() {
         <AnimatePresence>
           {menuOpen && (
             <motion.div
+              id={menuId}
               initial={{ opacity: 0, height: 0, y: -8 }}
               animate={{ opacity: 1, height: 'auto', y: 0 }}
               exit={{ opacity: 0, height: 0, y: -8 }}
@@ -202,12 +243,13 @@ export function Header() {
               className="mt-3 overflow-hidden lg:hidden"
             >
               <div
+                ref={panelRef}
                 data-testid="mobile-menu-panel"
                 className="rounded-2xl bg-background px-4 py-4 shadow-floating"
                 style={{ border: '1px solid var(--border)' }}
               >
                 <div className="space-y-1">
-                  {navLinks.map((l) => (
+                  {mobileLinks.map((l) => (
                     <Link
                       key={l.href}
                       href={l.href}
