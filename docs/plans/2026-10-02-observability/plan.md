@@ -1,6 +1,6 @@
 # Phase 9d: Observability
 
-Status: in progress (ethio-impl [796289], worktree `../ethi0-9d`); steps 1–7 and 9 done; approved in round 2, drift check vs 9a D1–D3 folded in
+Status: in progress (ethio-impl [110afc], which took over from [796289]; worktree `../ethi0-9d`); steps 1–7 and 9 done; approved in round 2, drift check vs 9a D1–D3 folded in
 Size: L (sessions: 4 — ethio-impl implements, ethio-plan-review reviews the plan, ethio-reviewer reviews the code). Cross-cutting: common, the gateway and every service's logs.
 Base branch: `fix/calls-and-jobs` (9c), or `origin/main` once it has merged. This phase builds on 9a's per-event context store, 6a's `internalPath` client and 9c's typed client errors. · Feature branch: `feat/observability`
 Roadmap: phase 9d. 9a's "Roadmap change" planned one 9d for observability and read paths together. It is split again: this plan is observability, and 9e is read paths (P1-22, P2-04), for the same reviewability reason as Phase 8's split. Findings: P1-21; the Phase 2 review note that the slow-query log prints parameter values; the console email provider's lack of a production guard (part of P1-21).
@@ -226,9 +226,9 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
 10. **A bad `LOG_FORMAT` or `LOG_LEVEL` value fails the boot** and names the allowed values (the `envInt` style).
 11. **A service's `user_id` in the context** comes from the gateway's `x-user-id`. Handlers only run after the internal-token check.
 
-### In flight / next step (checkpoint 2026-10-03, ethio-impl [796289])
-- **Head:** `feat/observability` @ `9b22e23` in `../ethi0-9d`, not pushed. It has merged `fix/outbox` `0d39ec3` and `fix/calls-and-jobs` `2f31a0d`.
-- **Waiting for the stack window:** ethio-impl (3) [688c71] (Phase 10) said at about 22:50 that it would message "ethio-impl [796289]" when its gate run ends and its backend is stopped.
+### In flight / next step (2026-10-03, ethio-impl [110afc], which took over from [796289])
+- **Head:** `feat/observability` @ `604aaba` in `../ethi0-9d`, not pushed. It has merged `fix/outbox` `602ef8e` (`stableEventId`) and `fix/calls-and-jobs` `2f31a0d`. On that head: api build and typecheck green, and `pnpm -C api test` passes (80 suites, 1468 passed, 4 skipped).
+- **Waiting for the stack window:** ethio-impl (3) [688c71] (Phase 10) holds the stack. It was asked to message "ethio-impl [110afc]" when its gate run ends and its backend is stopped.
 - **Step 8 drill, prepared:**
   - scratch DB `el_e2e_9d` (compose Postgres, port 55432) has the schemas from `docker/postgres-init.sql` and `pnpm -C api seed`;
   - the env: export every `api/.env.example` key (the worktree has no `api/.env`), set `DATABASE_URL` to `…/el_e2e_9d`, and set `LOG_FORMAT=json CHAPA_MODE=mock` with empty `CHAPA_SECRET_KEY SMTP_HOST SMTP_USER SMTP_PASS GROQ_API_KEY BREVO_API_KEY RESEND_API_KEY`. node22 is on PATH;
