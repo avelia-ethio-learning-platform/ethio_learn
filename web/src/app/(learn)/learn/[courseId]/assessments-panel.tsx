@@ -27,7 +27,7 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
   });
   const { data: attempts } = useQuery({ queryKey: ['attempts', courseId], queryFn: () => api<any[]>(`/attempts/mine?course_id=${courseId}`) });
   const [active, setActive] = useState<any | null>(null);
-  const [status, setOk, setError, clearStatus] = useFormStatus();
+  const [status, setOk, setError, clearStatus, setInfo] = useFormStatus();
 
   if (!assessments?.length) return null;
 
@@ -46,11 +46,11 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
   const finish = async (body: Record<string, unknown>) => {
     try {
       const res = await api<any>(`/attempts/${active.attempt_id}/submit`, { method: 'PUT', body });
-      setOk(
-        res.pending_review
-          ? 'Submitted — your educator will review it.'
-          : `Score: ${res.score} — ${res.passed ? 'PASSED 🎉' : 'not passed yet'}${res.feedback ? ` · ${res.feedback}` : ''}`,
-      );
+      const feedback = res.feedback ? ` · ${res.feedback}` : '';
+      // A score that did not pass is not a success: it goes out politely, in the warning colours.
+      if (res.pending_review) setOk('Submitted — your educator will review it.');
+      else if (res.passed) setOk(`Score: ${res.score} — PASSED 🎉${feedback}`);
+      else setInfo(`Score: ${res.score} — not passed yet${feedback}`);
       setActive(null);
       await queryClient.invalidateQueries({ queryKey: ['attempts', courseId] });
     } catch (err) {
