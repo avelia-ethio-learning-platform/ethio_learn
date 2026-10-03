@@ -282,7 +282,7 @@ Deviations and rulings (the plan left these open, or the review surfaced them):
 - **Old project rows without a key:** a reused open project attempt with no `file_key` (from before this change) gets one inside the transaction.
 - **Duplicate submit:** a sequential duplicate submit also answers 409 `Attempt already submitted.` (it was 400), the same answer the concurrent loser gets. The proctor-event check keeps its 400.
 - **Refusal messages:** viva and project refusals use the quiz texts with "assessment" in place of "quiz"; quizzes keep today's exact texts.
-- **Project start texts:** a missing size gives `Choose your project file first.`; a size above the cap gives `Project files can be up to 50 MB.` (start and submit).
+- **Project size text:** a size above the cap gives `Project files can be up to 50 MB.` (start and submit). The original missing-size 400 was replaced by the planner's ruling P-1 below.
 - **Storage:** `@ethiopialearn/storage` gains a minimal `deleteObject(key)` for decision 10.
 - **Multipart duration:** a failed duration follow-up PUT is silent. The upload ends as done and the lesson stays unmeasured.
 - **`proctorReport`:** it returns `breakdown: null` to the learner while retries remain (the shape it already used); the submit response omits the field.
