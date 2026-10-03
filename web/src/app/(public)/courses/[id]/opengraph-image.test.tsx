@@ -8,18 +8,16 @@ vi.mock('@/lib/server-api', () => ({ serverApi: (...args: unknown[]) => serverAp
 import Image from './opengraph-image';
 
 const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-// Where the controller looks at the renders; skipped when the folder isn't there (CI).
-const PROOF_DIR = process.env.OG_PROOF_DIR ?? '/home/kal/Documents/code/ethi0-web/.superpowers/sdd/plan';
+// Set OG_PROOF_DIR to also write the renders there for a visual check; unset, nothing is written.
+const PROOF_DIR = process.env.OG_PROOF_DIR;
 
 async function render(result: unknown, file: string) {
   serverApi.mockResolvedValue(result);
   const res = await Image({ params: { id: 'c1' } });
   const bytes = new Uint8Array(await res.arrayBuffer());
-  try {
+  if (PROOF_DIR) {
     await mkdir(PROOF_DIR, { recursive: true });
     await writeFile(`${PROOF_DIR}/${file}`, bytes);
-  } catch {
-    /* proof copy is optional */
   }
   return { res, bytes };
 }
