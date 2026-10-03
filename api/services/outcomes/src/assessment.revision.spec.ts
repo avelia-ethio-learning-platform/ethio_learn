@@ -106,9 +106,13 @@ function harness(opts: { course?: Row; rows?: Row[]; attempts?: Row[]; instituti
   const attempts = fakeRepo(opts.attempts ?? []);
   const internal = internalFor(opts.course ?? INSTITUTION_COURSE, opts.institutions ?? { ia1: 'inst1', ia2: 'inst2' });
   const bus = { publish: jest.fn(), subscribe: jest.fn() };
-  const storage = { getSignedUploadUrl: jest.fn(async () => ({ url: 'https://r2/put' })) };
+  const storage = {
+    getSignedUploadUrl: jest.fn(async () => ({ url: 'https://r2/put' })),
+    headObject: jest.fn(async (): Promise<{ size: number; content_type: string | null } | null> => ({ size: 1024, content_type: null })),
+    deleteObject: jest.fn(async () => undefined),
+  };
   const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, storage as never);
-  return { svc, assessments, attempts, internal, bus };
+  return { svc, assessments, attempts, internal, bus, storage };
 }
 
 const user = (id: string, role: Role) => ({ id, role, email: `${id}@x.et` });
@@ -473,13 +477,54 @@ describe('pendingForReview() (internal, for the quality officer’s revision dif
 });
 
 describe('project submission', () => {
-  it('always keeps the upload key issued at start, ignoring a client-supplied file_key', async () => {
-    const { svc, attempts } = harness({
+  const cap = 50 * 1024 * 1024;
+  const projectHarness = () =>
+    harness({
       rows: [{ id: 'proj', course_id: 'c1', type: AssessmentType.PROJECT, pass_score: 60, config: {}, state: 'live' }],
       attempts: [{ id: 'att1', assessment_id: 'proj', learner_id: 'l1', submitted_at: null, detail: { file_key: 'projects/l1/own-upload' } }],
     });
+
+  it('always keeps the upload key issued at start, ignoring a client-supplied file_key', async () => {
+    const { svc, attempts, storage } = projectHarness();
     const res = await svc.submitAttempt(learner, 'att1', { file_key: 'projects/someone-else/secret' } as never);
     expect(res.pending_review).toBe(true);
     expect(attempts.rows[0].detail.file_key).toBe('projects/l1/own-upload');
+    expect(storage.headObject).toHaveBeenCalledWith('projects/l1/own-upload');
+  });
+
+  it('accepts a file of exactly the cap', async () => {
+    const { svc, storage } = projectHarness();
+    storage.headObject.mockResolvedValueOnce({ size: cap, content_type: null });
+    await expect(svc.submitAttempt(learner, 'att1', {})).resolves.toMatchObject({ pending_review: true });
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('refuses a submit with no uploaded file, leaving the attempt open', async () => {
+    const { svc, attempts, storage, bus } = projectHarness();
+    storage.headObject.mockResolvedValueOnce(null);
+    const err = await svc.submitAttempt(learner, 'att1', {}).catch((e) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.message).toBe('Upload your file before submitting.');
+    expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
+    expect(attempts.rows[0].submitted_at).toBeNull();
+    expect(bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('deletes an oversized object and refuses, leaving the attempt open', async () => {
+    const { svc, attempts, storage } = projectHarness();
+    storage.headObject.mockResolvedValueOnce({ size: cap + 1, content_type: null });
+    const err = await svc.submitAttempt(learner, 'att1', {}).catch((e) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.message).toBe('Project files can be up to 50 MB.');
+    expect(storage.deleteObject).toHaveBeenCalledWith('projects/l1/own-upload');
+    expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
+    expect(attempts.rows[0].submitted_at).toBeNull();
+  });
+
+  it('lets a storage error through without claiming the result', async () => {
+    const { svc, attempts, storage } = projectHarness();
+    storage.headObject.mockRejectedValueOnce(new Error('storage down'));
+    await expect(svc.submitAttempt(learner, 'att1', {})).rejects.toThrow('storage down');
+    expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
   });
 });

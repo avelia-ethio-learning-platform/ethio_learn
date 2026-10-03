@@ -328,9 +328,15 @@ export class AssessmentService implements OnModuleInit {
    * after every finished attempt. Only finished attempts count towards
    * max_attempts and the cooldown. AI and storage calls run after commit.
    */
-  async startAttempt(ctx: UserContext, assessmentId: string) {
+  async startAttempt(ctx: UserContext, assessmentId: string, body?: { file_size?: number }) {
     const assessment = await this.assessmentOrThrow(assessmentId);
     if (assessment.state === 'pending') throw new NotFoundException('Assessment not available yet');
+    // A project upload is signed for its declared size, so a bad size costs nothing: no lock, no row.
+    const fileSize = body?.file_size;
+    if (assessment.type === AssessmentType.PROJECT) {
+      if (!Number.isInteger(fileSize) || (fileSize as number) < 1) throw new BadRequestException('Choose your project file first.');
+      if ((fileSize as number) > PROJECT_MAX_BYTES) throw new BadRequestException('Project files can be up to 50 MB.');
+    }
     const entitlement = await this.entitlement(ctx.id, assessment.course_id);
     const isQuiz = assessment.type === AssessmentType.QUIZ;
     const isProject = assessment.type === AssessmentType.PROJECT;
@@ -444,7 +450,7 @@ export class AssessmentService implements OnModuleInit {
 
     // project: hand back a signed upload URL for the attempt's key (max 50MB, spec §10.1)
     const key: string = started.detail.file_key;
-    const upload = await this.storage.getSignedUploadUrl(key, 'application/octet-stream');
+    const upload = await this.storage.getSignedUploadUrl(key, 'application/octet-stream', 900, fileSize);
     return {
       attempt_id: started.id,
       type: assessment.type,
@@ -489,6 +495,14 @@ export class AssessmentService implements OnModuleInit {
       // project — recorded, graded manually by the educator. The file is always
       // the key startAttempt issued (kept in attempt.detail): a client-supplied
       // key could point the educator's download at someone else's object.
+      // The upload must exist and fit the cap (the signed URL fixes the size,
+      // so an oversized object means a bypass: it is removed).
+      const stored = await this.storage.headObject(attempt.detail.file_key);
+      if (!stored) throw new BadRequestException('Upload your file before submitting.');
+      if (stored.size > PROJECT_MAX_BYTES) {
+        await this.storage.deleteObject(attempt.detail.file_key);
+        throw new BadRequestException('Project files can be up to 50 MB.');
+      }
       attempt.score = null;
       attempt.passed = null;
     }
