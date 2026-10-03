@@ -135,6 +135,7 @@ async function publishCourse(educator, qo) {
         category: 'tech',
         language: 'en',
         pricing_type: 'free',
+        thumbnail_url: 'https://placehold.co/640x360/2563eb/white?text=E2E', // required before submit
         sections: [
           {
             title: 'Watch and read',

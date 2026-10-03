@@ -66,7 +66,9 @@ async function main() {
   if (!token) throw new Error('cannot continue without a learner token');
 
   const enrollments = await call('/enrollments', { token });
-  const active = (enrollments.json ?? []).find((e) => e.entitlement_status === 'active');
+  // Newest first, and other scripts enrol the demo learner too: prefer the course demo-seed watched through.
+  const activeOnes = (enrollments.json ?? []).filter((e) => e.entitlement_status === 'active');
+  const active = activeOnes.find((e) => e.completed_at) ?? activeOnes[0];
   check('learner has an active enrollment (run demo-seed first)', !!active);
   if (active) {
     const course = await call(`/courses/${active.course_id}`, { token });
