@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import * as jwt from 'jsonwebtoken';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { timingSafeEqual } from 'crypto';
-import { Agent } from 'http';
+import { Agent, Server } from 'http';
 import { Agent as HttpsAgent } from 'https';
 import { assertProductionConfig, env, envInt, JsonLogger } from '@ethiopialearn/common';
 import { AuthMode, authModeFor, resolveRoute, upstreamOf } from './routes';
@@ -235,6 +235,20 @@ async function bootstrap() {
       if (specific) specific(req, res, () => proxy(req, res, next));
       else proxy(req, res, next);
     });
+  });
+
+  // Graceful shutdown (P2-15). On SIGTERM Nest closes the server: it stops
+  // accepting connections, drops idle keep-alive sockets and waits for the
+  // requests in flight. One still running after SHUTDOWN_GRACE_MS is cut so a
+  // deploy isn't held up. Once the server is closed, the upstream sockets go too.
+  app.enableShutdownHooks();
+  const server = app.getHttpServer() as Server;
+  process.once('SIGTERM', () => {
+    setTimeout(() => server.closeAllConnections(), envInt('SHUTDOWN_GRACE_MS', 10_000)).unref();
+  });
+  server.on('close', () => {
+    keepAliveAgent.destroy();
+    keepAliveHttpsAgent.destroy();
   });
 
   const port = envInt('PORT', 4000);

@@ -147,6 +147,20 @@ describe('InternalHttpClient.get', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
+    it('retries once after a dropped keep-alive socket (UND_ERR_SOCKET)', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new TypeError('fetch failed', { cause: { code: 'UND_ERR_SOCKET' } }))
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: 3 }) });
+      await expect(client.get(path)).resolves.toEqual({ ok: 3 });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('a timeout while reading the body is PeerUnavailableError, not retried', async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: () => Promise.reject(new DOMException('timed out', 'TimeoutError')) });
+      await expect(client.get(path)).rejects.toBeInstanceOf(PeerUnavailableError);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('neither the error message nor its body carries any part of the path', async () => {
       for (const status of [404, 500, 429]) {
         fetchMock.mockResolvedValue(reply(status));

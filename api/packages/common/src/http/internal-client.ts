@@ -97,13 +97,20 @@ export class InternalHttpClient {
       }
       throw new PeerUnavailableError();
     }
-    return (await res.json()) as T;
+    try {
+      return (await res.json()) as T;
+    } catch (err) {
+      // The timeout also covers reading the body: a peer that stalls mid-body is unavailable, not a 500.
+      this.logger.warn(`internal GET failed reading the body (${(err as Error).name}), path length ${path.length}`);
+      throw new PeerUnavailableError();
+    }
   }
 }
 
 function isFastConnectionFailure(err: unknown): boolean {
   const code = (err as { cause?: { code?: string } } | null)?.cause?.code;
-  return code === 'ECONNREFUSED' || code === 'ECONNRESET';
+  // UND_ERR_SOCKET: undici's "other side closed", e.g. a pooled keep-alive socket the peer had dropped.
+  return code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'UND_ERR_SOCKET';
 }
 
 /** Mirrors web/src/lib/hibernation.ts: a JSON 429 is a limiter, anything else is a sleeping service. */

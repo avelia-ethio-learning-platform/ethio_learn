@@ -240,8 +240,8 @@ At `2cdccf9`, plus 6a (`internalPath` brand on all ~75 internal call sites), 6c 
 | `POST /bulk-purchases/:id/assign` (changed) | as today | as today | per-email result adds `already_assigned` |
 
 ## Steps
-- [ ] 1. Branch `fix/calls-and-jobs` from `fix/outbox`.
-- [ ] 2. Internal client errors and retry (decision 1), plus the web `service_waking` → `WakingError` mapping. · Specs: 404 → `PeerNotFoundError`; hibernation 429 (with header, and a plain-text 429 without it) → `PeerAsleepError`; 5xx and timeout → `PeerUnavailableError`; a fast network error (refused or reset) is retried once after 500 ms, and a timeout is not retried; the thrown message has no path; the web vitest.
+- [x] 1. Branch `fix/calls-and-jobs` from `fix/outbox`.
+- [x] 2. Internal client errors and retry (decision 1), plus the web `service_waking` → `WakingError` mapping. · Specs: 404 → `PeerNotFoundError`; hibernation 429 (with header, and a plain-text 429 without it) → `PeerAsleepError`; 5xx and timeout → `PeerUnavailableError`; a fast network error (refused or reset) is retried once after 500 ms, and a timeout is not retried; the thrown message has no path; the web vitest.
 - [ ] 3. Fail-closed lookups (decisions 2, 3): `ownsCourse`; the referral-invite lookup (decision 2, 6a S3); the bank-transfer learner check switches to `PeerNotFoundError` (decision 2, 6c R2); the receipt lookup, which moved to notification's `PaymentConfirmed` handler (decision 2); `progressPercent` null plus the dashboard "—"; the review of the remaining sites, logged in Progress.
   - Specs:
     - checkout with the enrollment peer down → 503 and no payment row;
@@ -249,7 +249,7 @@ At `2cdccf9`, plus 6a (`internalPath` brand on all ~75 internal call sites), 6c 
     - notification's `PaymentConfirmed` handler with a blank email and auth down → throws (retried), and with auth up → looks up the email and sends the receipt;
     - a deleted learner → notification skips with a warn.
   - **Drift D1:** at 9a, `userInfo` (`notification.service.ts:640`) degrades every error to blank and has eight callers whose fallback is intended (`userName`, the follower fan-out, `CourseUpdated`, PayRequest, wallet and staff notices). Leave it as it is. Add a separate `requireUserEmail(id)`: it rethrows `PeerAsleepError`/`PeerUnavailableError` and returns `null` on `PeerNotFoundError`. Use it only where the payload email is blank (the receipt and the other `deliver(…, p.learner_email, …)` handlers). The specs above name it.
-- [ ] 4. Chapa over `fetch` (decision 4). Fixture specs for initialize and verify request shapes; a Chapa email-validation 4xx on initialize triggers the fallback-email retry; a verify 401 → `ChapaUnavailableError`. Timeout → `ChapaUnavailableError`. The sweep stops its batch, the webhook still answers 200, reconcile flags `provider_unreachable`. Remove `chapa-nestjs`, then `pnpm install` and confirm `axios@1.2.1` is gone from `api/pnpm-lock.yaml`.
+- [x] 4. Chapa over `fetch` (decision 4). Fixture specs for initialize and verify request shapes; a Chapa email-validation 4xx on initialize triggers the fallback-email retry; a verify 401 → `ChapaUnavailableError`. Timeout → `ChapaUnavailableError`. The sweep stops its batch, the webhook still answers 200, reconcile flags `provider_unreachable`. Remove `chapa-nestjs`, then `pnpm install` and confirm `axios@1.2.1` is gone from `api/pnpm-lock.yaml`.
   - The mock-mode e2e (`e2e-payments.mjs`) stays green.
 - [ ] 5. Leases and job endpoints (decisions 5, 6): `job_leases` migrations; `runJob`; the crons through `runJob`; `JobsController`s; the gateway `jobs` auth mode and routes; `JOBS_TOKEN` in config and `.env.example`.
   - Specs:
@@ -259,8 +259,8 @@ At `2cdccf9`, plus 6a (`internalPath` brand on all ~75 internal call sites), 6c 
     - the gateway refuses without the token, refuses the wrong token, and the timing-safe compare is used;
     - the result rows hold no personal data.
 - [ ] 6. Sweep fairness, N1, N2 (decision 8): migration, query, attempt cap, reconcile accepting `failed`, the re-publish order. · Specs: with 30 pending rows, two sweeps cover all 30, oldest-unchecked first; reconcile on a failed row verifies; the re-publish order puts NULL `webhook_received_at` rows by `created_at`.
-- [ ] 7. Status codes (decision 9): `PageQuery` on the four endpoints; the `DbErrorFilter` mappings. · Specs: `limit=-5` → 400; `limit=1000` → 400; a 23505 → 409 with no detail in the body.
-- [ ] 8. Graceful shutdown (decision 10). · Check: start the gateway, open a slow request, send SIGTERM, and see the request complete and the process exit within the grace period. Record it.
+- [x] 7. Status codes (decision 9): `PageQuery` on the four endpoints; the `DbErrorFilter` mappings. · Specs: `limit=-5` → 400; `limit=1000` → 400; a 23505 → 409 with no detail in the body.
+- [x] 8. Graceful shutdown (decision 10). · Check: start the gateway, open a slow request, send SIGTERM, and see the request complete and the process exit within the grace period. Record it.
 - [ ] 9. Races (decision 11): migrations and code.
   - Specs:
     - concurrent `assignSeats` (two transactions, sequenced with the fake or the local DB) never exceed the seats;
@@ -268,7 +268,7 @@ At `2cdccf9`, plus 6a (`internalPath` brand on all ~75 internal call sites), 6c 
     - concurrent `codeFor` → no throw;
     - two concurrent wallet initiations → one 409, with the row inserted as `wallet` inside the lock (checked against the real local database, not the fake);
   - Add a concurrency case to `scripts/e2e-payments.mjs`: two parallel wallet buys of one course, one charge.
-- [ ] 10. Scheduler (decision 7): `.github/workflows/jobs.yml`.
+- [x] 10. Scheduler (decision 7): `.github/workflows/jobs.yml`.
   - Dry run with `workflow_dispatch` against the local stack is impossible from GitHub, so test the script part locally: a `scripts/run-jobs.mjs` that the workflow calls, run against the local gateway with a local `JOBS_TOKEN`.
   - The workflow itself is checked by `actionlint` if available, or by review.
 - [ ] 11. Docs:
@@ -324,3 +324,38 @@ At `2cdccf9`, plus 6a (`internalPath` brand on all ~75 internal call sites), 6c 
 - **`progress_percent: null`** is a response change. The dashboard and the bulk-purchase seat list (the only consumers) are updated in this phase.
 
 ## Progress and deviations (implementer)
+
+### Batch 1 (steps 2, 4, 7, 8, 10), 2026-10-03, ethio-impl
+Branch `fix/calls-and-jobs` from `fix/outbox` 99204b7, plan commit 01ca4ce; `fix/outbox` b55f76e (9b steps 1–3) merged in with no conflicts.
+
+- **Step 2** (5c62f68, b8195d5): `internal-errors.ts` (`PeerNotFoundError`, `PeerAsleepError`, `PeerUnavailableError`) and `PeerErrorFilter`, which adds `Retry-After: 30`.
+  - The client retries once after 500 ms on `ECONNREFUSED`, `ECONNRESET` or `UND_ERR_SOCKET` (the early-read nit). It never retries a timeout, a 429 or any HTTP answer.
+  - A stall while reading the body is a 503.
+  - The web maps `service_waking` to `WakingError`.
+  - **Deviation:** the two callers that matched the old `-> 404` message text now test `instanceof PeerNotFoundError`, with behaviour unchanged: `recordBankTransfer`'s learner check and notification's `userInfo`. Without that, step 2's message change would have broken both. Step 3 still owns the rest of decision 2.
+  - **Deviation:** `isHibernation` is duplicated in the client, because api can't import web.
+- **Step 4** (b98b047, 2ff6677): Chapa now goes over `fetch` with `CHAPA_TIMEOUT_MS` (10 s), and the timeout also covers reading the body.
+  - The wire format was copied from chapa-nestjs 1.3.1 and pinned in `chapa.provider.spec.ts`.
+  - A 4xx keeps its detail, so the fallback-email retry still fires.
+  - A verify 401/403 logs an error and throws `ChapaUnavailableError`.
+  - The sweep stops its batch on an outage, the webhook answers 200 with `provider unreachable`, and reconcile adds `provider_unreachable: true`.
+  - `chapa-nestjs`, `@nestjs/axios` and every axios are gone from the lockfile.
+  - **Deviation:** the SDK's client-side yup validation of the initialize options is dropped. Chapa validates on the server, and a 4xx maps to 400.
+- **Step 7** (761cbf6, 710363a): page and limit are validated on admin payments and admin users (default 20, max 100), search (12 and 50) and top educators (limit only, 12 and 50).
+  - `DbErrorFilter` maps 23505 → 409 and 23503/23502/22001/22003 → 400. The log carries only the code and table.
+  - The catalog page clamps a typed `?page` to 10000.
+- **Step 8** (f06f860): the gateway calls `enableShutdownHooks()` and cuts requests still open after `SHUTDOWN_GRACE_MS` (10 s), then destroys the keep-alive agents. `api/Dockerfile` runs under tini.
+  - **Check:** a built gateway with a slow upstream stub.
+    - A 3 s request that was in flight at SIGTERM finished with 200, and the process exited at +3.06 s.
+    - A 15 s request was cut at the grace limit, with exit at +11.0 s (SIGTERM was sent at +1 s).
+    - A new request after SIGTERM was refused.
+- **Step 10** (7cbb262): `scripts/run-jobs.mjs` and `.github/workflows/jobs.yml`.
+  - `node --test scripts/run-jobs.test.mjs` passes 4/4.
+  - The YAML was checked with PyYAML, because actionlint isn't installed.
+  - The run against the local gateway waits for step 5's endpoints.
+- **Gate on this head:**
+  - api build and typecheck are green.
+  - jest is green except `packages/ai/src/index.spec.ts`, which timed out at 5 s under a load average of about 26 and passes 57/57 alone.
+  - web vitest passes 647/647.
+
+**In flight / next:** steps 3, 5, 6 and 9, after 9b's step 4 (site conversions) is merged in.
