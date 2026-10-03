@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { authFile } from './support';
+import { authFile, BASE_URL } from './support';
 
 test.use({ storageState: authFile('platform_admin') });
 
@@ -8,8 +8,28 @@ test.use({ storageState: authFile('platform_admin') });
 
 const STATUS_URL = '**/admin/users/*/status';
 
+/**
+ * Answers the status call here, so no real account changes. The web and the API are on different
+ * origins and the call carries Authorization, so it preflights: OPTIONS gets the CORS headers
+ * (as in a11y.spec.ts) and only the POST bodies are recorded.
+ */
+async function stubStatus(page: Page) {
+  const bodies: unknown[] = [];
+  const cors = { 'access-control-allow-origin': BASE_URL, 'access-control-allow-credentials': 'true' };
+  await page.route(STATUS_URL, (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      return route.fulfill({ status: 204, headers: { ...cors, 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST' } });
+    }
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: '{}' });
+  });
+  return bodies;
+}
+
 async function openUsers(page: Page) {
   await page.goto('/admin');
+  // Wait for hydration before clicking: the default tab is selected once the console has rendered.
+  await expect(page.getByRole('tab', { name: 'Analytics' })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('tab', { name: 'Users' }).click();
   await expect(page.getByRole('tab', { name: 'Users' })).toHaveAttribute('aria-selected', 'true');
 }
@@ -22,10 +42,7 @@ async function firstSuspend(page: Page) {
 }
 
 test('Escape on the suspend dialog sends nothing (P0-10)', async ({ page }) => {
-  const statusCalls: string[] = [];
-  page.on('request', (req) => {
-    if (/\/admin\/users\/[^/]+\/status$/.test(req.url())) statusCalls.push(req.url());
-  });
+  const bodies = await stubStatus(page);
 
   await openUsers(page);
   const suspend = await firstSuspend(page);
@@ -36,27 +53,24 @@ test('Escape on the suspend dialog sends nothing (P0-10)', async ({ page }) => {
   await expect(dialog).toBeHidden();
   await page.waitForLoadState('networkidle');
 
-  expect(statusCalls).toEqual([]);
+  expect(bodies).toEqual([]);
   await expect(suspend).toBeFocused();
 });
 
-test('confirming with a reason sends it', async ({ page }) => {
-  const bodies: unknown[] = [];
-  await page.route(STATUS_URL, (route) => {
-    bodies.push(route.request().postDataJSON());
-    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
-  });
+test('confirming with a reason sends it, and focus returns to Suspend', async ({ page }) => {
+  const bodies = await stubStatus(page);
 
   await openUsers(page);
-  await (await firstSuspend(page)).click();
+  const suspend = await firstSuspend(page);
+  await suspend.click();
   const dialog = page.getByRole('dialog', { name: /^Suspend / });
   await dialog.getByLabel('Reason (optional)').fill('e2e: testing the dialog');
   await dialog.getByRole('button', { name: 'Suspend user' }).click();
 
   await expect(dialog).toBeHidden();
-  await expect.poll(() => bodies.length).toBe(1);
-  expect(bodies[0]).toEqual({ status: 'suspended', reason: 'e2e: testing the dialog' });
-  // Focus is not asserted here: the page disables the row buttons while the request runs, which drops focus. The cancel path above covers the return.
+  await expect(page.getByRole('status').filter({ hasText: /: Suspended\.$/ })).toBeVisible();
+  expect(bodies).toEqual([{ status: 'suspended', reason: 'e2e: testing the dialog' }]);
+  await expect(suspend).toBeFocused();
 });
 
 test('Tab never reaches anything behind the dialog', async ({ page }) => {
@@ -91,8 +105,9 @@ test('/admin?tab=users opens Users and a reload keeps it', async ({ page }) => {
 test('a name search finds a seeded user', async ({ page }) => {
   await openUsers(page);
   await page.getByRole('searchbox', { name: 'Search users' }).fill('Sara Tesfaye');
-  await expect(page.getByText('learner@ethiopialearn.et')).toBeVisible();
-  await expect(page.getByText('educator@ethiopialearn.et')).toHaveCount(0);
+  // Exactly one match: the count in the heading proves the search ran, not just that the row was already there.
+  await expect(page.getByRole('heading', { name: 'Users (1)' })).toBeVisible();
+  await expect(page.getByText('learner@ethiopialearn.et')).toHaveCount(1);
 });
 
 test('Next shows the second page of users', async ({ page }) => {
@@ -114,8 +129,10 @@ test('the Coupons tab triggers no 403', async ({ page }) => {
   });
 
   await page.goto('/admin');
+  await expect(page.getByRole('tab', { name: 'Analytics' })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('tab', { name: 'Coupons' }).click();
   await expect(page.getByRole('tab', { name: 'Coupons' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel')).toBeVisible();
   await page.waitForLoadState('networkidle');
 
   expect(forbidden).toEqual([]);

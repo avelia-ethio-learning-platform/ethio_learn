@@ -188,9 +188,11 @@ async function main() {
   const reactivate = await call(`/institutions/${iid}/instructors/${membershipId}/status`, { method: 'POST', token: owner.token, body: { status: 'active' } });
   check('reactivate the membership → 200', ok(reactivate) && reactivate.json.status === 'active', brief(reactivate));
   const listed = await call('/profiles/me/institution-memberships', { token: relogin.json?.access_token });
-  check('the member sees their active membership', ok(listed) && listed.json.some((m) => m.id === membershipId), brief(listed));
+  check('the member sees their active membership', ok(listed) && listed.json.some((m) => m.id === membershipId && m.status === 'active'), brief(listed));
+  const notTheirs = await call(`/profiles/me/institution-memberships/${membershipId}/leave`, { method: 'POST', token: owner.token });
+  check("someone else's membership id is 404", notTheirs.status === 404, brief(notTheirs));
   const left = await call(`/profiles/me/institution-memberships/${membershipId}/leave`, { method: 'POST', token: relogin.json?.access_token });
-  check('leave → 200 removed', ok(left) && left.json?.status === 'removed', brief(left));
+  check('leave → removed', ok(left) && left.json?.status === 'removed', brief(left));
   const removed = (await call(`/institutions/${iid}/instructors`, { token: owner.token })).json?.find?.((m) => m.membership_id === membershipId);
   check('the membership is removed, with the reason', removed?.status === 'removed' && removed.status_reason === 'Left the institution', JSON.stringify(removed));
   const listedAfter = await call('/profiles/me/institution-memberships', { token: relogin.json?.access_token });

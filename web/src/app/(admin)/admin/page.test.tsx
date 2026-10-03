@@ -142,10 +142,21 @@ describe('Admin users: suspend and ban', () => {
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Suspend user' }));
     await waitFor(() => expect(statusCalls()).toEqual([['/admin/users/u1/status', { method: 'POST', body: { status: 'suspended', reason: 'spam' } }]]));
 
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Ban' }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Ban' }).getAttribute('aria-disabled')).toBe('false'));
     fireEvent.click(screen.getByRole('button', { name: 'Ban' }));
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Ban user' }));
     await waitFor(() => expect(statusCalls()[1]).toEqual(['/admin/users/u1/status', { method: 'POST', body: { status: 'banned', reason: undefined } }]));
+  });
+
+  it('returns focus to the Suspend button after a confirmed suspend', async () => {
+    await openUsersTab();
+    const suspend = screen.getByRole('button', { name: 'Suspend' });
+    suspend.focus();
+    fireEvent.click(suspend);
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Suspend user' }));
+    await waitFor(() => expect(statusCalls()).toHaveLength(1));
+    await waitFor(() => expect(suspend.getAttribute('aria-disabled')).toBe('false'));
+    expect(document.activeElement).toBe(suspend);
   });
 
   it('shows a refusal as an error', async () => {

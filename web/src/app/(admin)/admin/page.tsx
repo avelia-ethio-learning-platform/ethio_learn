@@ -458,6 +458,7 @@ function UsersTab() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-users'] });
 
   const setUserStatus = async (u: any, next: 'active' | 'suspended' | 'banned') => {
+    if (busy) return; // aria-disabled, not disabled: the clicked button keeps the focus the dialog gives back
     let reason: string | undefined;
     if (next !== 'active') {
       const ban = next === 'banned';
@@ -524,15 +525,15 @@ function UsersTab() {
                 {!isMe &&
                   (u.status === 'active' ? (
                     <>
-                      <button type="button" className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-400" disabled={busy} onClick={() => setUserStatus(u, 'suspended')}>
+                      <button type="button" className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-400" aria-disabled={busy} onClick={() => setUserStatus(u, 'suspended')}>
                         Suspend
                       </button>
-                      <button type="button" className="text-xs font-medium text-red-600 hover:underline dark:text-red-400" disabled={busy} onClick={() => setUserStatus(u, 'banned')}>
+                      <button type="button" className="text-xs font-medium text-red-600 hover:underline dark:text-red-400" aria-disabled={busy} onClick={() => setUserStatus(u, 'banned')}>
                         Ban
                       </button>
                     </>
                   ) : (
-                    <button type="button" className="text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-400" disabled={busy} onClick={() => setUserStatus(u, 'active')}>
+                    <button type="button" className="text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-400" aria-disabled={busy} onClick={() => setUserStatus(u, 'active')}>
                       Reactivate
                     </button>
                   ))}
