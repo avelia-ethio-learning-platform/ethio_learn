@@ -44,6 +44,7 @@ import {
   type VideosReviewedRecord,
 } from '@/lib/qa';
 import { formatDate, formatETB } from '@/lib/format';
+import { categoryLabel, pricingLabel, statusLabel } from '@/lib/labels';
 import { useT } from '@/lib/i18n';
 
 function PreviewSkeleton() {
@@ -92,6 +93,7 @@ function Preview({ courseId }: { courseId: string }) {
   const hlsRef = useRef<Hls | null>(null);
   const back = useBackTarget(courseId);
   const [playing, setPlaying] = useState('');
+  const [playingId, setPlayingId] = useState('');
   const [err, setErr] = useState('');
   const { data: course, isError } = useQuery({ queryKey: ['preview', courseId], queryFn: () => api<any>(`/courses/${courseId}`) });
   const { data: reviews } = useQuery({ queryKey: ['preview-reviews', courseId], queryFn: () => api<any>(`/courses/${courseId}/reviews`), retry: false });
@@ -101,6 +103,7 @@ function Preview({ courseId }: { courseId: string }) {
   const play = async (lessonId: string, title: string) => {
     setErr('');
     setPlaying(title);
+    setPlayingId(lessonId);
     try {
       const res = await api<{ url: string }>(`/lessons/${lessonId}/stream-url`);
       const v = videoRef.current;
@@ -127,19 +130,24 @@ function Preview({ courseId }: { courseId: string }) {
       <BackButton fallback={back.fallback} label={back.label} />
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="min-w-0 animate-fade-in-up lg:col-span-2">
-          <span className="badge-warn">Preview · status: {course.status}</span>
+          <span className="badge-warn">Preview · {statusLabel(course.status).label}</span>
           <h1 className="mt-3 break-words text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">{course.title}</h1>
           <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start">
             <Thumbnail url={course.thumbnail_url} alt={`Thumbnail of ${course.title}`} className="w-full shrink-0 sm:w-56" />
             <p className="min-w-0 whitespace-pre-line break-words leading-relaxed text-gray-600">{course.description}</p>
           </div>
           <p className="mt-2 text-sm text-gray-500">
-            {course.category} · {course.pricing_type}
+            {categoryLabel(course.category)} · {pricingLabel(course.pricing_type)}
             {course.price_etb ? ` · ${formatETB(course.price_etb, locale)}` : ''}
             {reviews?.average_rating ? ` · ★ ${reviews.average_rating}` : ''}
           </p>
-          <div className="mt-5 overflow-hidden rounded-2xl bg-black shadow-floating">
-            <video ref={videoRef} controls playsInline className="aspect-video w-full" />
+          <div className="relative mt-5 overflow-hidden rounded-2xl bg-black shadow-floating">
+            <video ref={videoRef} controls playsInline poster={course.thumbnail_url || undefined} className="aspect-video w-full" />
+            {!playing && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-black/60 p-4 text-center text-sm font-medium text-white/80">
+                <Play className="h-5 w-5 shrink-0" aria-hidden /> Choose a lesson to start the preview
+              </div>
+            )}
           </div>
           {playing && <p className="mt-3 text-sm font-semibold text-foreground">Now playing: {playing}</p>}
           {err && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{err}</p>}
@@ -147,18 +155,19 @@ function Preview({ courseId }: { courseId: string }) {
         <aside className="min-w-0 animate-fade-in-up space-y-3">
           {course.sections?.map((s: any) => (
             <div key={s.id} className="card !p-4">
-              <h3 className="break-words text-sm font-bold text-foreground">
+              <h2 className="break-words text-sm font-bold text-foreground">
                 {s.title} {s.is_free_preview && <span className="text-xs font-medium text-brand-600">(free preview)</span>}
-              </h3>
+              </h2>
               <ul className="mt-2 space-y-1 text-sm">
                 {s.lessons.map((l: any) => (
                   <li key={l.id}>
                     <button
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-gray-600 transition-colors hover:bg-brand-500/5 hover:text-brand-600 disabled:cursor-not-allowed disabled:text-gray-500 disabled:hover:bg-transparent"
+                      aria-current={playingId === l.id ? 'true' : undefined}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-brand-500/5 hover:text-brand-600 disabled:cursor-not-allowed disabled:text-gray-500 disabled:hover:bg-transparent ${playingId === l.id ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600'}`}
                       disabled={!l.has_video}
                       onClick={() => play(l.id, l.title)}
                     >
-                      <Play className="h-3.5 w-3.5 shrink-0" />
+                      <Play className="h-3.5 w-3.5 shrink-0" aria-hidden />
                       <span className="min-w-0 flex-1 truncate">{l.title}</span>
                       {!l.has_video && <span className="shrink-0 text-xs text-gray-500">(no video)</span>}
                     </button>

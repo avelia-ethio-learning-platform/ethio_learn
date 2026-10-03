@@ -5,6 +5,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, LoaderCircle, ShoppingCart, UserPlus, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { StatusBadge } from '@/components/PageChrome';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { statusLabel } from '@/lib/labels';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 
@@ -29,20 +34,21 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
   const { data: orders } = useQuery({ queryKey: ['bulk-purchases'], queryFn: () => api<any[]>('/bulk-purchases/mine') });
   const { data: wallet } = useQuery({ queryKey: ['wallet'], queryFn: () => api<{ balance_etb: number }>('/wallet') });
   const [courseQuery, setCourseQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(courseQuery.trim());
   const { data: results } = useQuery({
-    queryKey: ['bulk-course-search', courseQuery],
-    queryFn: () => api<{ items: any[] }>(`/search?q=${encodeURIComponent(courseQuery)}&pricing_type=paid&limit=8`, { auth: false }),
-    enabled: courseQuery.length >= 2,
+    queryKey: ['bulk-course-search', debouncedQuery],
+    queryFn: () => api<{ items: any[] }>(`/search?q=${encodeURIComponent(debouncedQuery)}&pricing_type=paid&limit=8`, { auth: false }),
+    enabled: debouncedQuery.length >= 2,
   });
   const [course, setCourse] = useState<{ id: string; title: string } | null>(null);
   const [seats, setSeats] = useState(10);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clear] = useFormStatus();
 
   const getQuote = async () => {
     if (!course) return;
-    setError('');
+    clear();
     try {
       setQuote(await api<Quote>('/bulk-purchases/quote', { method: 'POST', body: { course_id: course.id, seats } }));
     } catch (err) {
@@ -53,7 +59,7 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
   const buy = async (useWallet: boolean) => {
     if (!course) return;
     setBusy(true);
-    setError('');
+    clear();
     try {
       const res = await api<{ checkout_url: string | null; confirmed: boolean }>('/bulk-purchases', {
         method: 'POST',
@@ -79,7 +85,11 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
         <p className="text-sm text-gray-600">Buy seats of any course for your staff at a volume discount (5+ seats 10% off, 10+ 20%, 50+ 30%), then assign them by email.</p>
         <div className="grid gap-2 sm:grid-cols-3">
           <div className="relative sm:col-span-2">
-            <input className="input" placeholder="Search a paid course…" value={course ? course.title : courseQuery} onChange={(e) => { setCourse(null); setQuote(null); setCourseQuery(e.target.value); }} />
+            <Field label="Course">
+              {(ids) => (
+                <input {...ids} className="input" placeholder="Search a paid course…" value={course ? course.title : courseQuery} onChange={(e) => { setCourse(null); setQuote(null); setCourseQuery(e.target.value); }} />
+              )}
+            </Field>
             {!course && results?.items?.length ? (
               <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border bg-card shadow-elevated" style={{ borderColor: 'var(--border)' }}>
                 {results.items.map((c) => (
@@ -92,8 +102,12 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
               </ul>
             ) : null}
           </div>
-          <div className="flex gap-2">
-            <input type="number" min={2} max={5000} className="input w-24" value={seats} onChange={(e) => { setSeats(+e.target.value); setQuote(null); }} />
+          <div className="flex min-w-0 items-end gap-2">
+            <div className="w-24 shrink-0">
+              <Field label="Seats">
+                {(ids) => <input {...ids} type="number" min={2} max={5000} className="input" value={seats} onChange={(e) => { setSeats(+e.target.value); setQuote(null); }} />}
+              </Field>
+            </div>
             <button className="btn-secondary flex-1" disabled={!course || seats < 2} onClick={getQuote}>
               Get quote
             </button>
@@ -106,7 +120,7 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
               <b className="text-brand-600">{formatETB(quote.total_etb, locale)}</b>
               {quote.discount_percent > 0 && <span className="text-xs text-gray-500"> (list {formatETB(quote.list_total_etb, locale)})</span>}
             </span>
-            <span className="flex gap-2">
+            <span className="flex flex-wrap gap-2">
               <button className="btn" disabled={busy} onClick={() => buy(false)}>
                 {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} Pay with Chapa
               </button>
@@ -118,7 +132,7 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
             </span>
           </div>
         )}
-        {error && <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
+        <FormStatus status={status} />
       </div>
 
       {orders && orders.length > 0 && (
@@ -136,19 +150,34 @@ function BulkOrder({ order: o }: { order: any }) {
   const { locale } = useT();
   const queryClient = useQueryClient();
   const [emails, setEmails] = useState('');
-  const [status, setStatus] = useState('');
+  const ask = useConfirm();
+  const [status, setOk, setError, clear] = useFormStatus();
+  const [busy, setBusy] = useState(false);
   const remaining = o.seats - o.seats_assigned;
   const assign = async (e: FormEvent) => {
     e.preventDefault();
-    setStatus('');
+    clear();
+    // One seat per person: the same email typed twice (in any case) counts once.
+    const list = Array.from(new Set(emails.split(/[\s,;]+/).filter(Boolean).map((x) => x.toLowerCase())));
+    if (!list.length) return;
+    if (
+      !(await ask({
+        title: `Assign ${list.length} seat${list.length === 1 ? '' : 's'} of ${o.course_title}?`,
+        body: `Assigned seats can't be moved to someone else. ${list.join(', ')}`,
+        confirmLabel: 'Assign seats',
+      }))
+    )
+      return;
+    setBusy(true);
     try {
-      const list = emails.split(/[\s,;]+/).filter(Boolean);
       const res = await api<{ assigned: number; results: { email: string; status: string }[] }>(`/bulk-purchases/${o.id}/assign`, { method: 'POST', body: { emails: list } });
-      setStatus(`${res.assigned} seat${res.assigned === 1 ? '' : 's'} assigned (${res.results.filter((r) => r.status === 'invited').length} invited to sign up).`);
+      setOk(`${res.assigned} seat${res.assigned === 1 ? '' : 's'} assigned (${res.results.filter((r) => r.status === 'invited').length} invited to sign up).`);
       setEmails('');
       queryClient.invalidateQueries({ queryKey: ['bulk-purchases'] });
     } catch (err) {
-      setStatus((err as Error).message);
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
   return (
@@ -164,13 +193,19 @@ function BulkOrder({ order: o }: { order: any }) {
       </div>
       {o.status === 'active' && remaining > 0 && (
         <form onSubmit={assign} className="mt-3 flex flex-wrap gap-2">
-          <input className="input flex-1" placeholder={`Up to ${remaining} emails, comma or space separated`} value={emails} onChange={(e) => setEmails(e.target.value)} />
-          <button className="btn !px-4" disabled={!emails.trim()}>
-            <UserPlus className="h-4 w-4" /> Assign seats
+          <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
+            <Field label="Staff emails" hint={`Up to ${remaining}, comma or space separated.`}>
+              {(ids) => <input {...ids} className="input" value={emails} onChange={(e) => setEmails(e.target.value)} />}
+            </Field>
+          </div>
+          <button className="btn w-full !px-4 sm:mt-6 sm:w-auto sm:self-start" disabled={busy || !emails.trim()}>
+            <UserPlus className="h-4 w-4" aria-hidden /> Assign seats
           </button>
         </form>
       )}
-      {status && <p className="mt-2 text-xs font-medium text-brand-600">{status}</p>}
+      <div className="mt-2">
+        <FormStatus status={status} />
+      </div>
       {o.assignments?.length > 0 && (
         <ul className="mt-3 divide-y text-xs" style={{ borderColor: 'var(--border)' }}>
           {o.assignments.map((a: any) => (
@@ -185,7 +220,7 @@ function BulkOrder({ order: o }: { order: any }) {
                     {a.progress.progress_percent}%{a.progress.lessons_complete ? ' ✓' : ''}
                   </span>
                 ) : (
-                  <span className="text-gray-500">{a.status === 'pending_claim' ? 'invited — not signed up yet' : a.status}</span>
+                  <span className="text-gray-500">{a.status === 'pending_claim' ? 'invited — not signed up yet' : statusLabel(a.status).label}</span>
                 )}
               </span>
             </li>

@@ -20,6 +20,9 @@ import {
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { RequireRole } from '@/components/RequireRole';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { ownerTypeLabel, qaTriggerLabel } from '@/lib/labels';
 import { PageHeader, PageShell } from '@/components/PageChrome';
 import {
   actionsForKind,
@@ -47,9 +50,6 @@ const KIND_CLASS: Record<QaItemKind, string> = {
   appeal: 'badge-warn',
   post_publish: 'badge-warn',
 };
-
-const DANGER_BTN =
-  'inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow transition-all hover:-translate-y-px hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-red-600';
 
 const ACTION_ICON = { approve: CheckCircle2, coach: MessageSquareText, flag: Flag, reject: XCircle } as const;
 
@@ -105,7 +105,7 @@ function QaQueue() {
     refetchInterval: 30_000,
   });
   const records = useVideoRecords(queue);
-  const [message, setMessage] = useState('');
+  const [status, setOk] = useFormStatus();
 
   return (
     <PageShell>
@@ -120,9 +120,7 @@ function QaQueue() {
         actions={queue?.length ? <span className="badge-info">{queue.length} open</span> : undefined}
       />
       <div className="space-y-6">
-        <p aria-live="polite" className={message ? 'badge-info w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm' : 'sr-only'}>
-          {message}
-        </p>
+        <FormStatus status={status} />
 
         {isLoading ? (
           <div className="space-y-4">
@@ -148,7 +146,7 @@ function QaQueue() {
               userId={user?.id ?? null}
               now={now}
               record={item.revision_id ? (records[item.revision_id] ?? null) : null}
-              onDecided={setMessage}
+              onDecided={setOk}
             />
           ))
         )}
@@ -171,11 +169,12 @@ function QueueCard({
   onDecided: (message: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const ask = useConfirm();
   const uid = useId();
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clear] = useFormStatus();
 
   const kind = itemKind(item);
   const isRevision = kind === 'revision';
@@ -193,7 +192,7 @@ function QueueCard({
 
   const onClaim = async () => {
     setBusy(true);
-    setError('');
+    clear();
     try {
       const updated = await api<QaQueueItem>(`/qa/items/${item.id}/claim`, { method: 'POST' });
       queryClient.setQueryData<QaQueueItem[]>(QUEUE_KEY, (rows) => rows?.map((r) => (r.id === item.id ? { ...r, ...updated } : r)));
@@ -212,9 +211,13 @@ function QueueCard({
       notesRef.current?.focus();
       return;
     }
-    if (opt.confirm && !window.confirm(opt.confirm)) return;
+    if (
+      opt.confirm &&
+      !(await ask({ title: `${opt.label}: ${item.course_title}?`, body: opt.confirm, confirmLabel: opt.label, tone: opt.tone === 'danger' ? 'danger' : 'default' }))
+    )
+      return;
     setBusy(true);
-    setError('');
+    clear();
     try {
       await api(`/qa/items/${item.id}/decision`, { method: 'POST', body: { action: opt.action, notes: notes.trim() || undefined } });
       onDecided(`${item.course_title}: ${opt.done}`);
@@ -253,8 +256,8 @@ function QueueCard({
         {item.course_title}
       </h2>
       <p className="mt-0.5 break-words text-xs text-gray-500">
-        by {item.owner_name || item.owner_email || item.owner_id} ({item.owner_type})
-        {!isRevision && ` · trigger: ${item.trigger}`}
+        by {item.owner_name || item.owner_email || item.owner_id} ({ownerTypeLabel(item.owner_type)})
+        {!isRevision && ` · ${qaTriggerLabel(item.trigger)}`}
       </p>
 
       {isRevision && (
@@ -330,7 +333,7 @@ function QueueCard({
             value={notes}
             onChange={(e) => {
               setNotes(e.target.value);
-              if (error) setError('');
+              clear();
             }}
           />
 
@@ -338,7 +341,7 @@ function QueueCard({
             {actions.map((opt) => {
               const Icon = ACTION_ICON[opt.action];
               const gated = opt.action === 'approve' && !gate.allowed;
-              const className = opt.tone === 'primary' ? 'btn' : opt.tone === 'danger' ? DANGER_BTN : 'btn-secondary';
+              const className = opt.tone === 'primary' ? 'btn' : opt.tone === 'danger' ? 'btn-danger' : 'btn-secondary';
               return (
                 <button
                   key={opt.action}
@@ -367,11 +370,9 @@ function QueueCard({
         </>
       )}
 
-      {error && (
-        <p role="alert" className="mt-3 text-sm font-medium text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
+      <div className="mt-3">
+        <FormStatus status={status} />
+      </div>
     </article>
   );
 }
