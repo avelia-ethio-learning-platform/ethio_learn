@@ -226,7 +226,23 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
 10. **A bad `LOG_FORMAT` or `LOG_LEVEL` value fails the boot** and names the allowed values (the `envInt` style).
 11. **A service's `user_id` in the context** comes from the gateway's `x-user-id`. Handlers only run after the internal-token check.
 
-### In flight / next step
-- Waiting on 9b step 4 (converted emit sites; the outbox default already covers them) and 9c step 5 (job runners). Merge them when they land, check that new log lines pass the guard, and check that the job runners start outside a request (9b's snapshot pattern or `requestContext.exit`).
-- Step 8 (trace drill) and step 10 (stack gate): in a stack window.
-- Step 11: code review by ethio-reviewer once 9a, 9b and 9c have merged, after `git merge origin/main`.
+### In flight / next step (checkpoint 2026-10-03, ethio-impl [796289])
+- **Head:** `feat/observability` @ `9b22e23` in `../ethi0-9d`, not pushed. It has merged `fix/outbox` `0d39ec3` and `fix/calls-and-jobs` `2f31a0d`.
+- **Waiting for the stack window:** ethio-impl (3) [688c71] (Phase 10) said at about 22:50 that it would message "ethio-impl [796289]" when its gate run ends and its backend is stopped.
+- **Step 8 drill, prepared:**
+  - scratch DB `el_e2e_9d` (compose Postgres, port 55432) has the schemas from `docker/postgres-init.sql` and `pnpm -C api seed`;
+  - the env: export every `api/.env.example` key (the worktree has no `api/.env`), set `DATABASE_URL` to `…/el_e2e_9d`, and set `LOG_FORMAT=json CHAPA_MODE=mock` with empty `CHAPA_SECRET_KEY SMTP_HOST SMTP_USER SMTP_PASS GROQ_API_KEY BREVO_API_KEY RESEND_API_KEY`. node22 is on PATH;
+  - then `bash scripts/start-backend.sh`, wait for `/ready` on 4101–4107, and run `node scripts/demo-seed.mjs`;
+  - then, as learner@, `POST /api/v1/enrollments` for a free course not yet enrolled (`GET /search?pricing_type=free`), with a fixed `x-request-id` UUID;
+  - `grep -l <id> .devlogs/*.log`: expect the gateway, enrollment, and the `EnrollmentCreated` consumers in course and notification, with their internal calls;
+  - then the email-regex grep from step 8 (only masked addresses or none);
+  - record both in Progress, run `bash scripts/stop-backend.sh`, drop `el_e2e_9d`, and tell the next stack holder.
+- **Waiting on peers:**
+  - 9b step 4 (converted emit sites; the outbox default already covers them);
+  - 9c step 5 (job runners: they must start outside a request, through 9b's snapshot pattern or `requestContext.exit`).
+
+  Merge each when it lands and rerun the guard spec.
+- **Then:**
+  - step 10, the stack gate, on the final head once 9a, 9b and 9c are on `main` (`git merge origin/main`);
+  - step 11, the code review by ethio-reviewer. Report to "ethio-planner [31d0d2]".
+- **11a:** when it merges, move the "Logs" section into its `docs/DEPLOYMENT.md` structure, resolve `ci.yml` (keep the `safe-typeorm-logger.db.spec.ts` addition) and keep `pnpm -C api lint` under the baseline (the `_parameters` args in `SafeTypeOrmLogger`).
