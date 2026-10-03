@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { apiGet, authFile, firstCourseId, headerBottom, horizontalOverflow, settle } from './support';
+import { apiGet, authFile, firstCourseId, headerBottom, horizontalOverflow, ownCourseId, settle } from './support';
 
 const WIDTHS = [375, 1440];
 
@@ -59,6 +59,40 @@ test.describe('no sideways overflow at 375 px', () => {
 
     test('teaching dashboard', async ({ page }) => {
       await page.goto('/teach');
+      await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+    });
+
+    test('"New course" sits fully inside the viewport', async ({ page }) => {
+      await page.goto('/teach');
+      const box = await page.getByRole('link', { name: 'New course' }).first().boundingBox();
+      expect(box, 'the New course link is rendered').not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+    });
+
+    test('course editor', async ({ page, request }) => {
+      await page.goto(`/teach/courses/${await ownCourseId(request)}`);
+      await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+    });
+  });
+
+  test.describe('institution admin', () => {
+    test.use({ storageState: authFile('institution_admin') });
+
+    test('/institution', async ({ page }) => {
+      await page.goto('/institution');
+      await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+    });
+  });
+
+  test.describe('platform admin', () => {
+    test.use({ storageState: authFile('platform_admin') });
+
+    test('/admin', async ({ page }) => {
+      await page.goto('/admin');
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
       expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
     });

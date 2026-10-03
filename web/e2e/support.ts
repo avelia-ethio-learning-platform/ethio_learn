@@ -67,6 +67,13 @@ export async function firstCourseId(request: APIRequestContext): Promise<string>
   return items[0].id;
 }
 
+/** The seeded educator's own course (a draft when there is one), for the editor at /teach/courses/{id}. */
+export async function ownCourseId(request: APIRequestContext): Promise<string> {
+  const courses = await apiGet<{ id: string; status: string }[]>(request, '/courses', 'educator');
+  expect(courses.length, 'the seeded educator has a course (scripts/demo-seed.mjs)').toBeGreaterThan(0);
+  return (courses.find((c) => c.status === 'draft') ?? courses[0]).id;
+}
+
 export async function learnerCertificateUid(request: APIRequestContext): Promise<string> {
   const certs = await apiGet<{ certificate_uid: string }[]>(request, '/me/certificates', 'learner');
   expect(certs.length, 'the seeded learner has a certificate (scripts/demo-seed.mjs)').toBeGreaterThan(0);
