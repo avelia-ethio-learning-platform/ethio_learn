@@ -9,6 +9,8 @@ interface UseDismissOptions {
   onClose: () => void;
   containerRef: RefObject<HTMLElement | null>;
   triggerRef: RefObject<HTMLElement | null>;
+  /** Set false for an overlay that hosts other overlays (the mobile menu holds the theme menu). */
+  closeOnOtherOpen?: boolean;
 }
 
 /**
@@ -16,7 +18,7 @@ interface UseDismissOptions {
  * back to the trigger), and closing when another overlay opens. Opening is
  * broadcast on `window` with the instance id; an overlay ignores its own.
  */
-export function useDismiss({ open, onClose, containerRef, triggerRef }: UseDismissOptions) {
+export function useDismiss({ open, onClose, containerRef, triggerRef, closeOnOtherOpen = true }: UseDismissOptions) {
   const id = useId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -37,7 +39,7 @@ export function useDismiss({ open, onClose, containerRef, triggerRef }: UseDismi
       triggerRef.current?.focus();
     };
     const onOtherOpen = (e: Event) => {
-      if ((e as CustomEvent<string>).detail === id) return;
+      if (!closeOnOtherOpen || (e as CustomEvent<string>).detail === id) return;
       onCloseRef.current();
     };
 
@@ -51,5 +53,5 @@ export function useDismiss({ open, onClose, containerRef, triggerRef }: UseDismi
       document.removeEventListener('keydown', onKeyDown);
       window.removeEventListener(OVERLAY_OPEN_EVENT, onOtherOpen);
     };
-  }, [open, id, containerRef, triggerRef]);
+  }, [open, id, containerRef, triggerRef, closeOnOtherOpen]);
 }

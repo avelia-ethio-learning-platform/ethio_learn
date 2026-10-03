@@ -51,6 +51,20 @@ describe('useDismiss', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('closes on a touch outside (touchstart), but not on a touch inside', () => {
+    render(
+      <>
+        <Overlay name="A" />
+        <p>elsewhere</p>
+      </>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'A' }));
+    fireEvent.touchStart(screen.getByRole('button', { name: 'A inside' }));
+    expect(screen.queryByRole('dialog')).not.toBeNull();
+    fireEvent.touchStart(screen.getByText('elsewhere'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('closes when a second overlay opens, and not because of its own opening', () => {
     render(
       <>
