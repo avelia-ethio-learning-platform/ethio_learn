@@ -281,3 +281,13 @@ Shared by all: 87.7 kB, then 87.8 kB at the gate. The Amharic dictionary is a se
 9. **The Amharic dictionary loads on first use** (a dynamic import in `lib/i18n.tsx`), so English readers don't download it. Until it arrives the page stays English, and text, prices and dates then switch together. The toggle's own vitest waits for it.
 10. **Status badges are translated on every page**, not only on the learner path. It is one map (`status_*` keys), so the role pages' badges are Amharic in Amharic mode too, inside pages that otherwise show the English-only notice.
 11. **The coupon line loses the bold on the discounted price.** Amharic puts the two prices in the other order, so the sentence is one translated string with both amounts filled in.
+
+## In flight / next step (checkpoint 2026-10-03)
+
+- **State:** steps 1–9 done, everything committed on `feat/web-hardening` (local, not pushed). The gate is green on this tip; see Step 9 above. The stack is released and nothing is running.
+- **Step 10 in flight:** code review round 1 requested from ethio-plan-review [f903ba] on 2026-10-03 (branch, base `f8e70bc`, this plan, gate result).
+- **Next:**
+  1. Answer the review findings inline in `code-review.md`. Re-run the affected checks (claim the stack from the impl sessions for any Playwright run), commit, and send "Round N addressed".
+  2. On APPROVED: merge origin/main again (re-gate if it moved), push `feat/web-hardening` and open the PR. Tell ethio-planner, because 7c starts from this tip.
+  3. Merge (`gh pr merge N --merge`) only once CI is green and USER-ACTIONS has `NEXT_PUBLIC_MEDIA_ORIGINS` (Vercel Production) and item 9 (`NEXT_PUBLIC_SITE_URL`) done.
+- **After that:** Phase 7c (color system), from docs/plans/2026-10-03-color-system/ in the main repo, on `feat/color-system`. It includes the `UploadVideoButton` contrast fix.
