@@ -2,6 +2,8 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 
 // (Index/PrimaryGeneratedColumn used by InboxNotification below)
 
 @Entity({ name: 'notification_log' })
+// A redelivered event looks up whether it already reached this address (deliver()).
+@Index('IDX_notification_log_sent_event', ['event_id', 'recipient', 'event_type'], { where: `"status" = 'sent'` })
 export class NotificationLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -34,6 +36,10 @@ export class NotificationLog {
 
   @CreateDateColumn({ type: 'timestamptz' })
   sent_at: Date;
+
+  /** The bus event this email was sent for (null for older rows and sends outside a handler). */
+  @Column({ type: 'uuid', nullable: true })
+  event_id: string | null;
 }
 
 @Entity({ name: 'notification_preferences' })
@@ -185,6 +191,12 @@ export class DmMessage {
  * review queue), so events can notify staff without enumerating user ids.
  */
 @Entity({ name: 'inbox_notifications' })
+// One row per (event, recipient, type). The migration builds it NULLS NOT DISTINCT, so a role
+// row (user_id null) dedupes too; TypeORM can't express that, so it's declared here by name.
+@Index('UQ_inbox_notifications_source_event', ['source_event_id', 'user_id', 'target_role', 'type'], {
+  unique: true,
+  where: `"source_event_id" IS NOT NULL`,
+})
 export class InboxNotification {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -214,4 +226,8 @@ export class InboxNotification {
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
+
+  /** The bus event that wrote this row (null for older rows): its dedupe key. */
+  @Column({ type: 'uuid', nullable: true })
+  source_event_id: string | null;
 }

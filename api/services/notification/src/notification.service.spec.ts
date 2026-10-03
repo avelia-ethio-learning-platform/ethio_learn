@@ -1,18 +1,32 @@
 import { QaDecisionAction, Role } from '@ethiopialearn/contracts';
+import { eventContext } from '@ethiopialearn/common';
 import { NotificationService } from './notification.service';
 
 type Handler = (payload: unknown) => unknown;
 
 function setup(opts: { courseStatus?: string; userEmail?: string; userName?: string; followers?: object[] } = {}) {
   const inboxRows: Array<Record<string, unknown>> = [];
-  const inboxRepo = {
-    create: jest.fn((row: Record<string, unknown>) => row),
-    save: jest.fn(async (row: Record<string, unknown>) => {
-      inboxRows.push(row);
-      return row;
+  // INSERT … ON CONFLICT DO NOTHING against the partial unique (source_event_id, user_id, target_role, type).
+  const sameEventRow = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+    a.source_event_id != null && (['source_event_id', 'user_id', 'target_role', 'type'] as const).every((k) => a[k] === b[k]);
+  const insertQuery: Record<string, jest.Mock> = {};
+  let pending: Record<string, unknown> = {};
+  Object.assign(insertQuery, {
+    insert: jest.fn(() => insertQuery),
+    into: jest.fn(() => insertQuery),
+    values: jest.fn((row: Record<string, unknown>) => ((pending = row), insertQuery)),
+    orIgnore: jest.fn(() => insertQuery),
+    execute: jest.fn(async () => {
+      if (!inboxRows.some((r) => sameEventRow(r, pending))) inboxRows.push(pending);
     }),
+  });
+  const inboxRepo = { createQueryBuilder: jest.fn(() => insertQuery) };
+  const logRows: Array<Record<string, unknown>> = [];
+  const log = {
+    create: jest.fn((row: Record<string, unknown>) => row),
+    save: jest.fn(async (row: Record<string, unknown>) => (logRows.push(row), row)),
+    exists: jest.fn(async ({ where }: { where: Record<string, unknown> }) => logRows.some((r) => Object.entries(where).every(([k, v]) => r[k] === v))),
   };
-  const log = { create: jest.fn((row: object) => row), save: jest.fn(async (row: object) => row) };
   const followerQuery: Record<string, jest.Mock> = {};
   Object.assign(followerQuery, { where: jest.fn(() => followerQuery), limit: jest.fn(() => followerQuery), getMany: jest.fn(async () => opts.followers ?? []) });
   const prefs = { findOne: jest.fn().mockResolvedValue(null), createQueryBuilder: jest.fn(() => followerQuery) };
@@ -32,14 +46,14 @@ function setup(opts: { courseStatus?: string; userEmail?: string; userName?: str
   const service = new NotificationService(log as never, inboxRepo as never, prefs as never, email as never, bus as never, internal as never);
   service.onModuleInit();
   const handlers = new Map<string, Handler>(bus.subscribe.mock.calls.map(([type, fn]) => [type as string, fn as Handler]));
-  const emit = async (type: string, payload: unknown) => {
-    await handlers.get(type)!(payload);
-    // Some handlers fire the inbox write / email without awaiting them.
-    await new Promise((resolve) => setImmediate(resolve));
+  /** Runs the handler as the bus does: inside the event's context when an event id is given. */
+  const emit = async (type: string, payload: unknown, eventId?: string) => {
+    const run = () => handlers.get(type)!(payload);
+    await (eventId ? eventContext.run({ event_id: eventId, event_type: type, correlation_id: eventId, handler: `notification:${type}` }, run) : run());
   };
   const emails = () => email.send.mock.calls.map(([m]) => m as { to: string; subject: string; html: string });
   const subscribedTypes = () => [...handlers.keys()];
-  return { emit, inboxRows, emails, prefs, internal, subscribedTypes, log, bus };
+  return { emit, inboxRows, emails, prefs, internal, subscribedTypes, log, logRows, bus, email, inboxRepo };
 }
 
 const diffSummary = {
@@ -569,5 +583,61 @@ describe('RefundApproved email (P1-63)', () => {
     const [mail] = t.emails();
     expect(mail.html).toContain('was approved.');
     expect(mail.html).not.toMatch(/revoked/);
+  });
+});
+
+describe('NotificationService: a redelivered event (P1-16)', () => {
+  const refund = {
+    refund_request_id: 'r1', payment_id: 'p1', tx_ref: 'TX', learner_id: 'u1', learner_email: 'l@e.et',
+    course_id: 'c1', course_title: 'Soil Science', amount_etb: 500, reason: 'auto',
+  };
+
+  it('the same event twice writes each inbox row once and sends one email', async () => {
+    const t = setup();
+    await t.emit('RefundApproved', refund, 'evt-1');
+    await t.emit('RefundApproved', refund, 'evt-1');
+
+    expect(t.inboxRows.map((r) => [r.user_id, r.target_role, r.source_event_id])).toEqual([
+      ['u1', null, 'evt-1'],
+      [null, Role.PLATFORM_ADMIN, 'evt-1'],
+    ]);
+    expect(t.emails()).toHaveLength(1);
+    expect(t.logRows).toEqual([expect.objectContaining({ status: 'sent', event_id: 'evt-1', recipient: 'l@e.et' })]);
+  });
+
+  it('a different event for the same refund notifies again', async () => {
+    const t = setup();
+    await t.emit('RefundApproved', refund, 'evt-1');
+    await t.emit('RefundApproved', refund, 'evt-2');
+    expect(t.inboxRows).toHaveLength(4);
+    expect(t.emails()).toHaveLength(2);
+  });
+
+  it('a provider failure logs a failed row and throws, and the retry sends once and logs sent', async () => {
+    const t = setup();
+    t.email.send.mockRejectedValueOnce(new Error('SMTP 421 try later'));
+
+    await expect(t.emit('RefundApproved', refund, 'evt-1')).rejects.toThrow('SMTP 421');
+    expect(t.logRows).toEqual([expect.objectContaining({ status: 'failed', event_id: 'evt-1', error: 'SMTP 421 try later' })]);
+
+    await t.emit('RefundApproved', refund, 'evt-1');
+    expect(t.emails()).toHaveLength(2); // the failed try, then the retry
+    expect(t.logRows.map((r) => r.status)).toEqual(['failed', 'sent']);
+    expect(t.inboxRows).toHaveLength(2); // the retry wrote no second inbox rows
+  });
+
+  it('an inbox write that fails makes the handler throw, so the bus retries it', async () => {
+    const t = setup();
+    t.inboxRepo.createQueryBuilder.mockImplementationOnce(() => {
+      throw new Error('connection reset');
+    });
+    await expect(t.emit('RefundApproved', refund, 'evt-1')).rejects.toThrow('connection reset');
+  });
+
+  it('a lost NotificationSent publish does not fail an email that went out', async () => {
+    const t = setup();
+    t.bus.publish.mockRejectedValueOnce(new Error('broker unavailable'));
+    await t.emit('RefundApproved', refund, 'evt-1');
+    expect(t.logRows.map((r) => r.status)).toEqual(['sent']);
   });
 });
