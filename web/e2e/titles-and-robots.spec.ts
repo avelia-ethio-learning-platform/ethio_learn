@@ -42,6 +42,7 @@ const ROUTES: [string, string, boolean][] = [
   ['/admin', 'Admin', true],
   ['/qa', 'Quality review', true],
   [`/preview/${UNKNOWN_ID}`, 'Course preview', true],
+  ['/offline', 'You are offline', true],
 ];
 
 const metaTags = (html: string, attr: 'name' | 'property', key: string) =>

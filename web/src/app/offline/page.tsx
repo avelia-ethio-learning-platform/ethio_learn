@@ -1,8 +1,9 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { WifiOff } from 'lucide-react';
 import { PageShell } from '@/components/PageChrome';
 
-export const metadata = { title: 'You are offline' };
+export const metadata: Metadata = { title: 'You are offline', robots: { index: false } };
 
 /** Shown by the service worker when a page is requested with no connectivity and no cached copy. */
 export default function OfflinePage() {
