@@ -225,7 +225,7 @@ Phase 2 pattern; entities updated so `db:check` stays at 0.
 - [x] 5. Email caps, decisions 9–10, with unit tests per path.
 - [x] 6. Financial and auth migrations. `db:check` at 0 on a fresh and an existing local DB. Revert round-trips with `-t none`.
 - [x] 7. Coupon hold and per-user limit, decisions 11–14, with unit tests and a coupon-manager field.
-- [ ] 8. `scripts/e2e-security.mjs` (added to CI e2e before the smoke step):
+- [x] 8. `scripts/e2e-security.mjs` (added to CI e2e before the smoke step):
   - the P1-01 probe → 400;
   - password change without the current password → 400, with it → 200 and still signed in;
   - referral invite to an existing user → `invited: 0`;
@@ -237,7 +237,7 @@ Phase 2 pattern; entities updated so `db:check` stays at 0.
     - a well-formed unknown token → 404;
     - a malformed token (wrong alphabet or length) → 400;
     - `POST /api/v1/pay-requests/<token>/pay` → 401.
-- [ ] 9. Full gate: api build, tests and `db:check`; web typecheck, tests and build; every e2e script; both image builds.
+- [x] 9. Full gate: api build, tests and `db:check`; web typecheck, tests and build; every e2e script; both image builds.
 - [ ] 10. Code review by ethio-reviewer. The user approves push and PR (same-day merge and deploy).
 
 ## Test plan
@@ -338,31 +338,53 @@ Deviations:
   - S3 is deferred to Phase 9c (ruling R13). ethio-planner added it to 9c decision 2 and step 3.
 - **Merge:** `origin/main` is merged in as `8d3bccc`. It brings #17–#22, the Groq model fix and `.gitleaks.toml` `9274e9f`, with no conflicts. After the merge, api typecheck is clean with 61 suites and 997 tests passing, and web typecheck is clean with 30 files and 377 tests passing. The code review base is now `origin/main`.
 
-### In flight / next step (checkpoint 2, 2026-10-03)
-- **Method:** subagent-driven development. The workspace is `.superpowers/sdd/plan/` (git-ignored), and `progress.md` is the ledger, with rulings R3–R12, the deferred minors and the agent ids. Steps 2, 3, 3a, 4, 6 and 5 are complete and have passed task review.
-- **In flight:** step 7 is implemented on opus from base `ff56ebe` (`f8800bc`, `9de4954`, `23d5bdc`, `a1fb767`); its report is `.superpowers/sdd/plan/task-7-report.md`. Its task review hasn't run yet. Next action: `review-package <plan> ff56ebe a1fb767`, then dispatch the task reviewer on opus (money, concurrency, lock order). The reviewer must judge the implementer's decisions beyond the brief, which are listed in the ledger:
-  - a settlement confirms only a still-pending row, and returns 409 to the losing double-submit;
-  - a confirmation takes the coupon lock first;
-  - a post-insert failure marks every checkout failed.
-- **Pre-existing issues step 7 found (outside 6a; tell the user and the planner):**
-  - the abandoned-checkout reminder job saves the whole payment row after its HTTP calls, so a webhook confirmation in that gap can be reverted to `pending`;
-  - reconcile and the sweep skip failed rows;
-  - a refused gift or pay request leaves its sponsorship row behind.
-- **ethio-reviewer's early read of steps 2–6** (at `ff56ebe`, no verdict yet; see `code-review.md` in this folder, which is local and excluded). Fold these in before asking for round 1, and fix them through a fix dispatch, not in the controller:
-  - **B1 (blocker):** `changePassword` issues a fresh session without `assertActive`, so a suspended or banned user can keep renewing access tokens. Fix: run the same active check login uses before `startSession`, and add a test.
-  - **S1:** `/teach/analytics` returns 400 past 25 courses, because step 3's `course_ids` max is 25. Fix it on the page (slice, or batch in chunks of 25).
-  - **S2:** the password page hides the required current-password field when `/profiles/me` fails. This is the same item as the ledger's deferred Task 4 minor.
-  - **S3:** the referral invite's by-email lookup treats any error as "not an account". The reviewer proposes deferring it to 9c and is asking the planner. Same as the ledger's deferred Task 5 minor.
-- **Then:**
-  - Step 8: the brief `task-8-brief.md` is ready. It needs the stack rebuilt on branch code, using the scratchpad runners `/tmp/claude-1000/-home-kal-Documents-code-ethi0-learning-platform/6ddd59df-625a-442a-b5ba-23a48a35d507/scratchpad/{e2e-up.sh,e2e-run.sh}`.
-  - Step 9: the gate.
-  - The final whole-branch review. The ledger lists the deferred minors for it to triage. Two are flagged "FINAL REVIEW SHOULD TRIAGE": the password page hides the current-password field when the `/profiles/me` fetch fails, and a referral invite treats any auth error as "not an account".
-  - Code review by ethio-reviewer (base `origin/main` after the merge).
-- **Merge, now due:** Phase 4 is in main as #21, and Phase 5 merged as #22 (`4b4a64c`, per ethio-reviewer). Do the one `git fetch && git merge origin/main` into this branch at the next step boundary, which is after step 7's task review, before step 8. `merge-tree` says it's clean. Then rerun the api and web tests. It brings in `.gitleaks.toml` `9274e9f`. Code review base becomes `origin/main`, not `fix/web-p0`.
-- **Local stack:** the backend still runs on `el_e2e` at pre-6a API code, and nothing serves `:3000`. Restore the dev stack after 6a's e2e.
-- **Sharing with ethio-planner, who is running Phase 7a web in parallel** (worktree `/home/kal/Documents/code/ethi0-web`, `feat/ui-foundations`; their web is on `:3200`, with the cold twin on `:3300`):
-  - We still own docker and the API stack on `:4000`.
-  - To restart our web server, kill only the PID on `:3000` (`lsof -ti :3000`), never every `next-server`.
-  - Message the planner before restarting the stack or running e2e (we share the per-IP login limiter), and again when done. If they've asked for a Playwright window, hold restarts and e2e until they say done.
-  - 7a also edits `account/password/page.tsx`. Whichever branch merges second resolves that conflict, probably 6a.
-- **Environment:** `export PATH="/home/kal/.local/opt/node22/bin:$PATH"`. Stage explicit paths. Production is off-limits.
+- **Step 8 (`c76f5e6`, `ebc9e61`, `7c4678f`):**
+  - `scripts/e2e-security.mjs` makes 27 checks covering every line of step 8. The CI step "Security hardening (internal paths, password change, email caps, coupons, pay links)" runs it after "Exactly-once payments" and before "Build web".
+  - Accounts, coupon codes and invitee addresses (`@example.test`) are unique per run, so the script re-runs on the same DB. It ran 3 times on one DB.
+  - The 429 retry covers `/auth/` and `/profiles/password`, but never the call whose 429 is being asserted. The daily-cap 429 is matched by its message, so a 429 from the per-minute limiter can't pass for it.
+  - Two checks were added after the task review:
+    - Before the password change, session B must hold a refresh cookie and must refresh with a 200.
+    - The post-change 401 then uses B's rotated cookie. Without this, a missing cookie could have produced the 401.
+- **Step 9 gate (2026-10-03, at `7c4678f`, merged with `origin/main`):**
+  - **API:** typecheck is clean; 61 suites and 997 tests pass.
+  - **Web:** typecheck is clean; 30 files and 377 tests pass. The build, run in a clean env with the stack up, passes.
+  - **Stack and migrations:** a fresh `el_e2e` stack has no `db:check` drift.
+  - **E2E, in CI order, all passing:** `demo-seed`, `e2e-revisions`, `e2e-institution`, `e2e-payments`, `e2e-security` (27/27), Playwright (27 passed) and `e2e-smoke` (with `E2E_CHECK_RATE_LIMIT=1`).
+  - **Images:** all 8 api images (CI's `docker-api` matrix) and the web image build. The financial image ships `CouponPerUserLimit` and `CapIndexes`; the auth image ships `InvitedAt` and `InvitedAtIndex`.
+- **Deferred minors for the code review to triage.** These come from the per-task reviews. None of them blocked a task.
+  - **Internal paths:**
+    - The spec doesn't assert the rejection log's content (reason and length, never the value).
+    - There's no spec case for a single-dot value.
+  - **Route params:**
+    - The guard spec checks only that a `ParseUUIDPipe` instance is present. It doesn't cover uuid `@Query` values or an unnamed `@Param()` (ruling R8).
+    - The test-only `unpipedRouteParams` is exported from the runtime `common` entry.
+    - `params.spec.ts` runs expects inside a describe-time IIFE.
+    - `pay-request-public.spec.ts` has duplicate imports.
+  - **Password:**
+    - `?first=1` hides the current-password field for any signed-in user. It's UX only; the server still enforces the rule, and S2 now reveals the field on the server's 400.
+    - `auth.password.spec.ts` sets `JWT_SECRET` globally without restoring it.
+  - **Migrations:**
+    - The coupon `CHECK` validates under ACCESS EXCLUSIVE. The table is small and the new column all NULL.
+    - The `invited_at` backfill is one unbatched `UPDATE`.
+    - The migration specs only assert statement order.
+  - **Email caps:**
+    - The dashboard says "Sent 0 invitations." when every address was skipped.
+    - The referral 24 h allowance also counts `signed_up` rows that `claim()` creates.
+    - The institution cap check runs before the 409 already-active check.
+  - **Coupons:**
+    - No test shows that a refusal after a supersede rolls the supersede back.
+    - `COUPON_HOLD_MINUTES` is parsed on every checkout. A malformed value makes every coupon checkout a 500, and 0 turns holds off.
+    - The nudge cron can revert a supersede if the window is over 60 minutes. That's fixed by 6c A1; until then, keep the window at 60 minutes or less.
+    - `payment.service.ts` grew to 1013 lines.
+    - The `couponUnavailable` type narrowing is awkward.
+    - The return page stops polling once a row shows `failed`.
+    - `reconcile` re-verifies a mismatched failed row, with its error log, on every call.
+    - A Chapa double-click without a coupon still opens two pending checkouts. This is pre-existing.
+  - **E2E:**
+    - The two malformed-token cases share one check.
+    - `coupons.uses` is read right after the confirmed-payment poll.
+    - The `/profiles/password` retry also wraps the wrong-password call.
+- **Method:** subagent-driven development, with a task review per step and a scoped re-review per fix round. Every ruling (R3–R18) is in this section or in the step notes above.
+
+### Status (2026-10-03)
+Steps 1–9 are done. Code review round 1 has been requested from ethio-reviewer (base `origin/main`). Not pushed. Push and PR wait until the user can merge and deploy 6a the same day.
