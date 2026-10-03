@@ -92,8 +92,12 @@ export class LiveChapaProvider implements ChapaProvider {
     let body: any = null;
     try {
       body = await res.json();
-    } catch {
-      /* non-JSON body: handled by status */
+    } catch (err) {
+      // An unparseable body is judged by its status; a timeout or network error mid-body is an outage.
+      if (!(err instanceof SyntaxError)) {
+        this.logger.warn(`chapa unreachable while reading the body: ${(err as Error).name}: ${(err as Error).message}`);
+        throw new ChapaUnavailableError();
+      }
     }
     return { status: res.status, body };
   }
@@ -110,7 +114,7 @@ export class LiveChapaProvider implements ChapaProvider {
     }
     if (status >= 400) {
       // Chapa's raw validation body — log it in full, hand the caller something readable.
-      const detail = JSON.stringify(body?.message ?? body) ?? String(status);
+      const detail = body == null ? `HTTP ${status}` : (JSON.stringify(body.message ?? body) ?? `HTTP ${status}`);
       this.logger.error(`chapa initialize rejected: ${detail.slice(0, 400)}`);
       throw new BadRequestException(`Payment gateway rejected the request: ${detail.slice(0, 200)}`);
     }

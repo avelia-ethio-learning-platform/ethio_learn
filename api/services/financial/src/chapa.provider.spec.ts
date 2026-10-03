@@ -83,6 +83,25 @@ describe('LiveChapaProvider.initialize', () => {
   });
 });
 
+describe('LiveChapaProvider: failures while reading the body', () => {
+  const timeoutMidBody = () => ({ status: 200, json: async () => { throw new DOMException('timed out', 'TimeoutError'); } }) as unknown as Response;
+
+  it('initialize: a timeout mid-body is unavailable', async () => {
+    fetchMock.mockResolvedValue(timeoutMidBody());
+    await expect(new LiveChapaProvider().initialize(OPTIONS)).rejects.toBeInstanceOf(ChapaUnavailableError);
+  });
+
+  it('verify: a timeout mid-body is unavailable', async () => {
+    fetchMock.mockResolvedValue(timeoutMidBody());
+    await expect(new LiveChapaProvider().verify('TX-1')).rejects.toBeInstanceOf(ChapaUnavailableError);
+  });
+
+  it('initialize: a non-JSON 4xx reports the status, not "null"', async () => {
+    fetchMock.mockResolvedValue({ status: 400, json: async () => { throw new SyntaxError('Unexpected token <'); } } as unknown as Response);
+    await expect(new LiveChapaProvider().initialize(OPTIONS)).rejects.toThrow('Payment gateway rejected the request: HTTP 400');
+  });
+});
+
 describe('LiveChapaProvider.verify', () => {
   const verified = (status: string, extra: object = {}) => reply(200, { status: 'success', message: 'ok', data: { status, ...extra } });
 
