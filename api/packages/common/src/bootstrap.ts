@@ -8,6 +8,7 @@ import { requestContextMiddleware } from './context';
 import { EventBusService } from './events/event-bus.service';
 import { setServiceName } from './health.controller';
 import { DbErrorFilter } from './http/db-error.filter';
+import { JsonLogger } from './logging/json-logger';
 import { PeerErrorFilter } from './http/internal-errors';
 import { Readiness } from './ready';
 
@@ -36,7 +37,11 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
     rules: options.productionRules,
   });
   setServiceName(options.serviceName);
-  const app = await NestFactory.create(appModule as any, { rawBody: options.rawBody ?? false });
+  const app = await NestFactory.create(appModule as any, {
+    rawBody: options.rawBody ?? false,
+    // JSON lines in production (LOG_FORMAT, LOG_LEVEL), Nest's readable output locally.
+    logger: new JsonLogger({ service: options.serviceName }),
+  });
 
   // First, so everything after it (the token check, the body parser, the handler)
   // runs with the request's id: log lines, internal calls and published events carry it.

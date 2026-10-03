@@ -10,7 +10,7 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import { timingSafeEqual } from 'crypto';
 import { Agent } from 'http';
 import { Agent as HttpsAgent } from 'https';
-import { assertProductionConfig, env, envInt } from '@ethiopialearn/common';
+import { assertProductionConfig, env, envInt, JsonLogger } from '@ethiopialearn/common';
 import { AuthMode, authModeFor, resolveRoute } from './routes';
 import { matchPath } from './request-path';
 import { classifyRequest, DEFAULT_LIMITS_PER_MIN as DEFAULTS, RatePolicy } from './rate-policy';
@@ -68,7 +68,10 @@ async function bootstrap() {
   // bodyParser disabled: requests stream straight through the proxy, which
   // both preserves the raw webhook body for HMAC verification (spec §6) and
   // avoids re-serialization overhead.
-  const app = await NestFactory.create<NestExpressApplication>(GatewayModule, { bodyParser: false });
+  const app = await NestFactory.create<NestExpressApplication>(GatewayModule, {
+    bodyParser: false,
+    logger: new JsonLogger({ service: 'gateway' }),
+  });
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   app.use(helmet());

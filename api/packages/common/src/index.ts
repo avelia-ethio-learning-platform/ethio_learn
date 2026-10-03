@@ -5,6 +5,7 @@ export * from './events/event-bus.service';
 export * from './events/event-bus.module';
 export * from './events/event-context';
 export * from './context';
+export * from './logging/json-logger';
 export * from './events/run-once';
 export * from './events/outbox';
 export * from './auth/user-context';
