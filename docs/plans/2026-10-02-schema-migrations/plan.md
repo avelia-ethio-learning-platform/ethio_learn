@@ -1,6 +1,6 @@
 # Phase 2: Schema migrations, `synchronize` off
 
-Status: implemented, code review APPROVED (round 2); not pushed yet
+Status: done. Merged to main via PR #19 (merge `c89de3f`, 2026-10-03).
 Size: L (sessions: 4 — ethio-impl implements, ethio-reviewer reviews code)
 Base branch: `origin/main` after Phase 1 (`fix/ci-green`) merges; if it hasn't merged when work starts, branch from `fix/ci-green` and rebase. · Feature branch: `feat/schema-migrations`
 Roadmap: [../2026-10-02-refinement-audit/roadmap.md](../2026-10-02-refinement-audit/roadmap.md) · Finding: P0-06 (and P2-14 as the first real migration)

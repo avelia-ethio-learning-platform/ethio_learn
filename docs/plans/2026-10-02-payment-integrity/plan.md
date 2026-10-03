@@ -1,6 +1,6 @@
 # Phase 4: Payment integrity
 
-Status: implemented, code review APPROVED (round 2); waiting for the user to approve push and PR (after #19 and Phase 3 merge)
+Status: done. Merged to main via PR #21 (merge `8752f9e`, 2026-10-03).
 Size: L (sessions: 4 — ethio-impl implements, ethio-reviewer reviews code)
 Base branch: `origin/main` once Phase 3 (`fix/access-control`) has merged; until then branch from it and rebase. · Feature branch: `fix/payment-integrity`
 Roadmap: phase 4 (see the change log in the roadmap) · Findings: P0-04, P0-05, P1-03, P1-12, P1-14
