@@ -25,8 +25,10 @@ function sources(dir: string): string[] {
 
 function scanned(): string[] {
   const services = join(API_ROOT, 'services');
+  const packages = join(API_ROOT, 'packages');
   return [
     ...readdirSync(services).flatMap((s) => sources(join(services, s, 'src'))),
+    ...readdirSync(packages).flatMap((p) => sources(join(packages, p, 'src'))),
     ...sources(join(API_ROOT, 'gateway/src')),
   ];
 }
@@ -132,7 +134,7 @@ describe('no personal data in log calls', () => {
     expect(piiInLogCalls('fixture.ts', source)).toEqual([]);
   });
 
-  it('holds for every logger call in the services and the gateway', () => {
+  it('holds for every logger call in the services, the packages and the gateway', () => {
     const found = scanned().flatMap((file) => piiInLogCalls(relative(API_ROOT, file), readFileSync(file, 'utf8')));
     expect(found).toEqual([]);
   });
