@@ -126,6 +126,48 @@ describe('useDismiss', () => {
     expect(document.activeElement).toBe(outer);
   });
 
+  it('a closed-by-outside-press overlay leaves nothing on the Escape stack', () => {
+    render(
+      <>
+        <Overlay name="A" />
+        <Overlay name="B" />
+        <p>elsewhere</p>
+      </>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'A' }));
+    fireEvent.mouseDown(screen.getByText('elsewhere'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const b = screen.getByRole('button', { name: 'B' });
+    fireEvent.click(b);
+    screen.getByRole('button', { name: 'B inside' }).focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(b);
+  });
+
+  it('an overlay unmounted while open leaves nothing on the Escape stack', () => {
+    function Host() {
+      const [showA, setShowA] = useState(true);
+      return (
+        <>
+          {showA && <Overlay name="A" />}
+          <button onClick={() => setShowA(false)}>remove A</button>
+          <Overlay name="B" />
+        </>
+      );
+    }
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'remove A' }));
+    expect(screen.queryByRole('button', { name: 'A' })).toBeNull();
+    const b = screen.getByRole('button', { name: 'B' });
+    fireEvent.click(b);
+    screen.getByRole('button', { name: 'B inside' }).focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(b);
+  });
+
   it('ignores Escape while closed', () => {
     render(<Overlay name="A" />);
     fireEvent.keyDown(document.body, { key: 'Escape' });

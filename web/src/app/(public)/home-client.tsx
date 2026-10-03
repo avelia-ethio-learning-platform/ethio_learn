@@ -341,7 +341,7 @@ export function HomeClient({
               viewport={{ once: true }}
               transition={{ duration: 0.5 }}
             >
-              <Link href="/courses" className="inline-flex transition hover:scale-[1.02] active:scale-[.98] btn !rounded-2xl !px-8 !py-4 !text-base">
+              <Link href="/courses" className="btn inline-flex !rounded-2xl !px-8 !py-4 !text-base">
                 {t('view_all_courses')} <ArrowRight className="h-5 w-5" />
               </Link>
             </motion.div>
@@ -451,7 +451,7 @@ export function HomeClient({
                   {t('teach_cta_title_1')} <span className="gradient-text-blue">{t('teach_cta_title_2')}</span>
                 </h2>
                 <p className="mt-4 max-w-xl leading-relaxed text-gray-500">{t('teach_cta_sub')}</p>
-                <Link href="/signup?role=educator" className="mt-7 inline-flex transition hover:scale-[1.02] active:scale-[.98] btn !rounded-2xl !px-8 !py-4 !text-base">
+                <Link href="/signup?role=educator" className="btn mt-7 inline-flex !rounded-2xl !px-8 !py-4 !text-base">
                   {t('become_educator')} <ArrowRight className="h-5 w-5" />
                 </Link>
               </div>
@@ -488,7 +488,7 @@ export function HomeClient({
               {t('final_cta_sub')}
             </motion.p>
             <motion.div variants={fadeUp} className="mt-7 flex flex-wrap items-center justify-center gap-4">
-              <Link href="/signup" className="transition hover:scale-[1.02] active:scale-[.98] btn !rounded-2xl !px-8 !py-4 !text-base">
+              <Link href="/signup" className="btn !rounded-2xl !px-8 !py-4 !text-base">
                 {t('get_started')} <ArrowRight className="h-5 w-5" />
               </Link>
               <Link href="/courses" className="btn-secondary !rounded-2xl !px-8 !py-4 !text-base">

@@ -191,7 +191,7 @@ export function Header() {
                 <Link href="/login" className="btn-ghost">
                   {t('login')}
                 </Link>
-                <Link href="/signup" className="btn transition hover:scale-[1.03] active:scale-[.98]">
+                <Link href="/signup" className="btn">
                   {t('signup')}
                 </Link>
               </>
