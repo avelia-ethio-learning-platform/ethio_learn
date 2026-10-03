@@ -190,14 +190,14 @@ New optional env, with defaults that work locally and on Render. They go in `api
 Changing `EVENT_RETRY_DELAY_MS` after the retry queue exists would hit `PRECONDITION_FAILED`, so the queue name includes the delay: `<service>.events.retry.<seconds>s`. A changed value then declares a new queue, and the old one drains through its own TTL.
 
 ## Steps
-- [ ] 1. Branch `fix/event-delivery` from the base above.
-- [ ] 2. Extend the amqplib fake in `event-bus.service.spec.ts`:
+- [x] 1. Branch `fix/event-delivery` from the base above.
+- [x] 2. Extend the amqplib fake in `event-bus.service.spec.ts`:
   - consume and deliver;
   - `assertQueue` with arguments, `bindQueue`, `prefetch`, `ack`/`nack`;
   - default-exchange publish to a named queue;
   - connection and channel `error`/`close` events;
   - a connect that fails N times.
-- [ ] 3. Supervisor and publish (decisions 1, 2):
+- [x] 3. Supervisor and publish (decisions 1, 2):
   - reconnect forever with backoff;
   - heartbeat;
   - listeners;
@@ -214,7 +214,7 @@ Changing `EVENT_RETRY_DELAY_MS` after the retry queue exists would hit `PRECONDI
   - a connection `error` event → no throw;
   - `publish` while down → `BrokerPublishError` within the wait;
   - a late confirm rejection after a timeout → no unhandled rejection (a `process.on('unhandledRejection')` spy in the test).
-- [ ] 4. Consumer safety (decision 3): `prefetch`; retry and park queues and headers; the never-throwing callback; the safe ack and nack; commands parking.
+- [x] 4. Consumer safety (decision 3): `prefetch`; retry and park queues and headers; the never-throwing callback; the safe ack and nack; commands parking.
 
   Specs:
   - a throwing handler → copy to the retry queue with `x-attempts: 1`, then ack;
@@ -223,8 +223,8 @@ Changing `EVENT_RETRY_DELAY_MS` after the retry queue exists would hit `PRECONDI
   - the retry republish fails → `nack(requeue)`;
   - `ack` on a closed channel → swallowed and logged;
   - the main queue is asserted with no arguments.
-- [ ] 5. Event context and handler names (decision 4): the `AsyncLocalStorage` store, `currentEvent()`, and `subscribe(…, { name })`. · Spec: `currentEvent()` inside a handler returns its envelope's ids, and nothing outside one.
-- [ ] 6. `processed_events` entity and `runOnce` in common, plus quality and course migrations. Then:
+- [x] 5. Event context and handler names (decision 4): the `AsyncLocalStorage` store, `currentEvent()`, and `subscribe(…, { name })`. · Spec: `currentEvent()` inside a handler returns its envelope's ids, and nothing outside one.
+- [x] 6. `processed_events` entity and `runOnce` in common, plus quality and course migrations. Then:
   - the quality stat handlers (atomic upsert plus `runOnce`);
   - the quality enqueue handlers, with resume-on-skip for the AI screen;
   - the course `EnrollmentCreated` counter;
@@ -236,7 +236,7 @@ Changing `EVENT_RETRY_DELAY_MS` after the retry queue exists would hit `PRECONDI
   - the screen step throws once → the retry records the screen and raises the plagiarism signal, and only one item exists (plan-review B1);
   - `runOnce` returns the stored result on a skip, and refuses a handler without a `name`;
   - a duplicate `issue()` → one certificate, no throw.
-- [ ] 7. Notification (decision 5):
+- [x] 7. Notification (decision 5):
   - the migration;
   - `inbox()`/`deliver()` with the event id from context, dedupe, and throwing on failure;
   - every handler awaits.
@@ -245,7 +245,7 @@ Changing `EVENT_RETRY_DELAY_MS` after the retry queue exists would hit `PRECONDI
   - the same envelope twice → one inbox row and one send;
   - a provider failure → a `failed` log row and the handler throws;
   - after a failed attempt, the retry sends once and logs `sent`.
-- [ ] 8. Health (decision 6):
+- [x] 8. Health (decision 6):
   - `HealthController` reports the bootstrap name;
   - `ReadyController` (DB, bus, Redis for auth) registered by `bootstrapService`;
   - the gateway's `/health` is unchanged.
@@ -318,3 +318,18 @@ The roadmap's Phase 9 covers 12 findings across every service: P1-15 to P1-23, P
 - **9e:** read paths (P1-22 batched internal reads, P2-04 unbounded reads). Split from 9d after planning showed about 25 more files of N+1 and pagination work.
 
 ## Progress and deviations (implementer)
+
+Commits on `fix/event-delivery` (base `03fd049`): `3c6f164` plan docs · `ccef60d` bus (steps 2–5) · `8bd28dd` runOnce and consumers (step 6) · `ea99c7d` notification (step 7) · `7edbd06` /ready (step 8).
+
+**Steps 1–8 done.** Unit gate on `7edbd06`: build ok; `pnpm -C api test` → 1324 passed, 1 skipped; typecheck ok. Migrations: every service migrates a fresh DB, `db:check` no drift, `migration:revert` then `migration:run` round-trips each of the three new ones; on a copy of the dev DB the pending migrations (main's and 9a's) apply and `db:check` has no drift. `runOnce` and the stats upsert were also checked on real Postgres (scratch DB): a redelivery skips with the stored result, two concurrent duplicates run the effect once, 20 concurrent upserts count 20.
+
+**Deviations and choices:**
+- **Handler names.** The handlers with effects pass explicit, stable names: `quality:CourseSubmitted:enqueue`, `quality:CourseAppealSubmitted:enqueue`, `quality:CourseRevisionSubmitted:enqueue`, `quality:CourseCompleted:stats`, `quality:PaymentConfirmed:stats`, `quality:RefundApproved:stats`, `course:EnrollmentCreated:enrolled-count`. Every other handler keeps the positional default `<service>:<type>:<index>`, used only in logs and park headers. `runOnce(dataSource, consumer, eventId, fn)` takes the name and event id explicitly and throws on an empty one, so a handler can't dedupe under a positional name.
+- **Quality enqueue resume (B1).** On a skip, the enqueue handlers get `{ item_id }` back from the marker and rerun the screen only when that item is still open with `plagiarism.pending`. The screen, the stored result and the signal happen after the commit, as before.
+- **Notification: `NotificationSent` is best-effort** (caught and logged as a warning). Before, a publish failure after a successful send fell into the `catch` and wrote a `failed` row for an email that went out; now that a failure throws and retries, it would also resend it. It is telemetry only.
+- **Notification fan-out.** `notifyNewCourseFollowers` no longer swallows one recipient's failure: it throws, the bus retries the event, and the dedupe skips the recipients already notified. Its follower-query failure is still logged and skipped, as before.
+- **Unique inbox index.** The entity declares `UQ_inbox_notifications_source_event` by name with its `WHERE`; the migration adds `NULLS NOT DISTINCT`, which TypeORM can't express (db:check accepts it). The indexes are built `CONCURRENTLY` in a `transaction = false` migration, and every statement is repeatable after a part-way failure.
+- **`/ready` is a plain route, not a Nest controller.** `bootstrapService` registers it on the HTTP adapter with a `Readiness` instance (`common/src/ready.ts`), outside the prefix and the internal-token check like `/health`. Auth adds its Redis `PING` through a new `readyChecks` bootstrap option. This avoided wrapping every app module to inject the database, the bus and auth's Redis into one controller. `/health` gets the name through `setServiceName`, which `bootstrapService` calls before the app is built.
+- **CI.** The gateway's wait now fails the step on timeout, and the per-service wait in the drift-check step polls `/ready` and prints the failing body.
+- **Spec helper.** Quality's fake `DataSource` lives in `src/testing/` and is excluded from the build, as financial's helpers are.
+- **Step 10 runs on the real broker** with no test-only code: the drill restarts notification with SMTP on a closed port, a 3 s retry delay and 3 attempts, and starts a small SMTP sink for the success path (scratch script, not committed).
