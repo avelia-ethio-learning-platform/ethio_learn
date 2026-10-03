@@ -10,7 +10,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
 import { In, IsNull, LessThan, MoreThan, Repository } from 'typeorm';
-import { envInt, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
 import {
   CourseCompletedPayload,
   CourseProgressMilestonePayload,
@@ -217,17 +217,29 @@ export class EnrollmentService implements OnModuleInit {
     positionSeconds: number,
     durationSeconds: number,
   ): Promise<VideoProgress> {
-    const row =
-      (await this.videoProgress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } })) ??
-      this.videoProgress.create({ enrollment_id: enrollment.id, lesson_id: lessonId });
-    row.duration_seconds = Math.max(row.duration_seconds ?? 0, durationSeconds);
-    const required = requiredSeconds(lesson, row);
-    row.position_seconds = Math.min(Math.max(0, positionSeconds), required + 5);
-    const percent = required > 0 ? Math.min(100, Math.round((row.position_seconds / required) * 100)) : 0;
-    row.percent_watched = Math.max(row.percent_watched ?? 0, percent);
-    // COALESCE(started_at, now): the first heartbeat of this video starts the clock; later ones never move it.
-    row.started_at ??= new Date();
-    const saved = await this.videoProgress.save(row);
+    const where = { enrollment_id: enrollment.id, lesson_id: lessonId };
+    const apply = (row: VideoProgress) => {
+      row.duration_seconds = Math.max(row.duration_seconds ?? 0, durationSeconds);
+      const required = requiredSeconds(lesson, row);
+      row.position_seconds = Math.min(Math.max(0, positionSeconds), required + 5);
+      const percent = required > 0 ? Math.min(100, Math.round((row.position_seconds / required) * 100)) : 0;
+      row.percent_watched = Math.max(row.percent_watched ?? 0, percent);
+      // COALESCE(started_at, now): the first heartbeat of this video starts the clock; later ones never move it.
+      row.started_at ??= new Date();
+      return row;
+    };
+    const existing = await this.videoProgress.findOne({ where });
+    let saved: VideoProgress;
+    try {
+      saved = await this.videoProgress.save(apply(existing ?? this.videoProgress.create(where)));
+    } catch (err) {
+      // First heartbeats sent together (pause, ended, /complete) all insert; the
+      // unique constraint keeps one row, and the others are applied to it.
+      if (existing || !isUniqueViolation(err)) throw err;
+      const row = await this.videoProgress.findOne({ where });
+      if (!row) throw err;
+      saved = await this.videoProgress.save(apply(row));
+    }
     await this.touch(enrollment);
     return saved;
   }

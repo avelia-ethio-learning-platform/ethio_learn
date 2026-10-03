@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
+import { QueryFailedError } from 'typeorm';
 import { EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { EnrollmentService } from './enrollment.service';
 
@@ -271,6 +272,23 @@ describe('EnrollmentService: the video completion rule', () => {
       expect(result.completed).toBe(false);
       expect(progress.save).not.toHaveBeenCalled();
       expect(Date.now() - (videoRows[0].started_at as Date).getTime()).toBeLessThan(1000);
+    });
+
+    it('applies a first heartbeat that lost the insert race to the row the winner created', async () => {
+      // pause, ended and /complete can all find no row and insert at once; the unique constraint keeps one.
+      const winner = watching({ id: 'vp1', position_seconds: 60, percent_watched: 50, started_at: ago(70) });
+      const { service, videoProgress, videoRows, progress } = setup({ hasVideo: true });
+      videoProgress.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(winner);
+      videoProgress.save.mockRejectedValueOnce(
+        new QueryFailedError('INSERT INTO video_progress', [], Object.assign(new Error('duplicate key'), { code: '23505' })),
+      );
+      const result = await service.saveVideoProgress(ctx, 'l1', 110, 120); // 92%, 70 s after the winner's start
+      expect(videoProgress.findOne).toHaveBeenCalledTimes(2);
+      expect(videoProgress.save).toHaveBeenCalledTimes(2);
+      expect(videoRows).toEqual([winner]);
+      expect(winner).toEqual(expect.objectContaining({ position_seconds: 110, percent_watched: 92 }));
+      expect(result).toEqual(expect.objectContaining({ position_seconds: 110, percent_watched: 92, completed: true }));
+      expect(progress.save).toHaveBeenCalledWith(expect.objectContaining({ lesson_id: 'l1', enrollment_id: 'e1' }));
     });
 
     it('reports completed for a lesson completed earlier, even below 90%', async () => {
