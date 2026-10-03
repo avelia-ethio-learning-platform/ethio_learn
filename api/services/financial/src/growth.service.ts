@@ -307,6 +307,23 @@ export class GrowthService {
   }
 
   /**
+   * Voids the pending cashback and referral reward a purchase earned, in the
+   * caller's transaction: the refund approval that has just flipped the
+   * payment to refunded, so this runs at most once per payment. Only pending
+   * rows change. None has been released, since a credit never releases while
+   * its payment carries a refund request, and the refund window closes before
+   * any matures. Returns how many were voided.
+   */
+  async voidPurchaseCredits(m: EntityManager, paymentId: string): Promise<number> {
+    // UPDATE through query() resolves to [rows, rowCount].
+    const [, voided]: [unknown[], number] = await m.query(
+      `UPDATE ${this.table(m, WalletTransaction)} SET state = 'void' WHERE payment_id = $1 AND state = 'pending' AND kind IN ('cashback', 'referral_reward')`,
+      [paymentId],
+    );
+    return voided;
+  }
+
+  /**
    * Debit inside the caller's transaction, under the same rules as creditWith.
    * The balance check and the update are one statement; when the balance is
    * too low this throws, which rolls back the movement row with the caller's

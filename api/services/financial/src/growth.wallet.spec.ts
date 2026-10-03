@@ -309,6 +309,31 @@ describe('GrowthService pending purchase credits: lazy release', () => {
   });
 });
 
+describe('GrowthService.voidPurchaseCredits', () => {
+  it("voids the purchase's pending cashback and referral reward in the caller's transaction, once, and nothing else", async () => {
+    const t = ledger();
+    t.db.repo(Referral).rows.push({ id: 'ref-1', referrer_id: 'referrer', referred_user_id: 'buyer', status: 'signed_up', reward_etb: '0' });
+    await t.svc.credit('buyer', 10, 'topup', 'pay-0', 'Wallet top-up');
+    await t.db.dataSource.transaction(async (m) => {
+      await t.svc.creditCashback(m as never, purchase(), new Date());
+      await t.svc.rewardReferrer(m as never, purchase(), 'Buyer', new Date());
+      await t.svc.creditCashback(m as never, purchase({ id: 'pay-2' }), new Date());
+    });
+    const voidPay1 = () => t.db.dataSource.transaction((m) => t.svc.voidPurchaseCredits(m as never, 'pay-1'));
+
+    await expect(voidPay1()).resolves.toBe(2);
+    await expect(voidPay1()).resolves.toBe(0);
+
+    expect(t.db.repo(WalletTransaction).rows.map((m) => [m.user_id, m.kind, m.reference, m.state])).toEqual([
+      ['buyer', 'topup', 'pay-0', 'available'],
+      ['buyer', 'cashback', 'pay-1', 'void'],
+      ['referrer', 'referral_reward', 'ref-1', 'void'],
+      ['buyer', 'cashback', 'pay-2', 'pending'],
+    ]);
+    expect(t.balance('buyer')).toBe(10);
+  });
+});
+
 describe('GrowthService.recordCouponUse', () => {
   it("counts the use through the caller's transaction", async () => {
     const { db, svc } = ledger();
