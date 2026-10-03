@@ -64,8 +64,8 @@ function NotificationsList() {
                 {!n.read && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />}
                 <span className="min-w-0 flex-1">{n.title}</span>
               </p>
-              {n.body && <p className="mt-1 text-xs leading-relaxed text-gray-500">{n.body}</p>}
-              <p className="mt-1 text-xs text-gray-500">{formatDate(n.created_at, locale, 'datetime')}</p>
+              {n.body && <p className={`mt-1 text-xs leading-relaxed ${n.read ? 'text-gray-500' : 'text-gray-600'}`}>{n.body}</p>}
+              <p className={`mt-1 text-xs ${n.read ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(n.created_at, locale, 'datetime')}</p>
             </button>
           ))}
         </div>

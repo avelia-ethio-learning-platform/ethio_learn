@@ -59,7 +59,7 @@ test.describe('375 px', () => {
       await bell.click();
       await expect(bell).toHaveAttribute('aria-expanded', 'true');
 
-      const panel = page.locator(`#${await bell.getAttribute('aria-controls')}`);
+      const panel = page.locator(`[id="${await bell.getAttribute('aria-controls')}"]`);
       await expect(panel).toBeVisible();
       // Let the 150 ms scale/fade finish so the box is measured at rest.
       await expect.poll(async () => Math.round((await panel.boundingBox())?.width ?? 0)).toBe(375 - 32);
