@@ -39,7 +39,7 @@ function setup(opts: { courseStatus?: string; userEmail?: string; userName?: str
   };
   const emails = () => email.send.mock.calls.map(([m]) => m as { to: string; subject: string; html: string });
   const subscribedTypes = () => [...handlers.keys()];
-  return { emit, inboxRows, emails, prefs, internal, subscribedTypes };
+  return { emit, inboxRows, emails, prefs, internal, subscribedTypes, log, bus };
 }
 
 const diffSummary = {
@@ -433,7 +433,7 @@ describe('NotificationService: user text is escaped in every email', () => {
     // Guard against the sweep silently testing nothing.
     expect(new Set(covered)).toEqual(
       new Set([
-        'UserRegistered', 'PasswordResetRequested', 'StaffInvited', 'InstructorInvited', 'InstructorLinked', 'CourseReviewed', 'CourseRevisionReviewed',
+        'UserRegistered', 'VerificationEmailRequested', 'PasswordResetRequested', 'StaffInvited', 'InstructorInvited', 'InstructorLinked', 'CourseReviewed', 'CourseRevisionReviewed',
         'CourseRevisionClosed', 'CoursePublished', 'PaymentConfirmed', 'PaymentFailed', 'EnrollmentCreated', 'CertificateIssued',
         'PayoutCompleted', 'FraudFlagRaised', 'FraudFlagResolved', 'RefundRequested', 'RefundApproved', 'RefundDenied',
         'CourseCompleted', 'AssessmentFailed', 'SponsorshipGranted', 'SponsorshipInvited', 'PayRequestCreated', 'ReferralInviteSent',
@@ -456,6 +456,38 @@ describe('NotificationService: user text is escaped in every email', () => {
     expect(mail.html).toContain('&lt;a href=&quot;https://evil.example/claim&quot;&gt;Claim your certificate&lt;/a&gt;');
     // The platform's own button is still a real link.
     expect(mail.html).toMatch(/<a href="http:\/\/localhost:3000\/learn\/c1\?changelog=1"/);
+  });
+});
+
+describe('NotificationService: verification email', () => {
+  const link = 'http://localhost:3000/verify-email?token=abc123';
+
+  it('VerificationEmailRequested sends one email with the link, logged under that event type', async () => {
+    const t = setup();
+    await t.emit('VerificationEmailRequested', { user_id: 'u1', email: 'u1@e.et', name: 'Abebe', verification_url: link });
+
+    expect(t.emails()).toHaveLength(1);
+    const [mail] = t.emails();
+    expect(mail).toMatchObject({ to: 'u1@e.et', subject: 'Verify your EthiopiaLearn account' });
+    expect(mail.html).toContain(`<a href="${link}"`);
+    expect(mail.html).toContain('The link expires in 24 hours.');
+    expect(t.log.create).toHaveBeenCalledTimes(1);
+    expect(t.log.create).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: 'u1', event_type: 'VerificationEmailRequested', channel: 'email', recipient: 'u1@e.et', status: 'sent' }),
+    );
+    expect(t.bus.publish).toHaveBeenCalledWith('NotificationSent', { user_id: 'u1', event_type: 'VerificationEmailRequested', channel: 'email' });
+    expect(t.inboxRows).toEqual([]);
+  });
+
+  it('sends the same email as signup does', async () => {
+    const t = setup();
+    const payload = { user_id: 'u1', email: 'u1@e.et', name: 'Abebe', verification_url: link };
+    await t.emit('UserRegistered', { ...payload, role: 'learner' });
+    await t.emit('VerificationEmailRequested', payload);
+
+    const [signup, resend] = t.emails();
+    expect(resend).toEqual(signup);
+    expect(t.log.create.mock.calls.map(([row]) => (row as { event_type: string }).event_type)).toEqual(['UserRegistered', 'VerificationEmailRequested']);
   });
 });
 
