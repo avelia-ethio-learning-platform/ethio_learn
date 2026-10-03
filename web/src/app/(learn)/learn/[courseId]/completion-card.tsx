@@ -38,7 +38,8 @@ export function CompletionCard({ courseId }: { courseId: string }) {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   if (!certificates) return null;
   const certificate = certificates.find((c) => c.course_id === courseId);
-  const assessmentsLeft = !!assessments?.some((a) => a.is_required && !attempts?.some((t) => t.assessment_id === a.id && t.passed));
+  // Both lists must be loaded: with attempts still loading, every assessment would look unpassed.
+  const assessmentsLeft = !!attempts && !!assessments?.some((a) => a.is_required && !attempts.some((t) => t.assessment_id === a.id && t.passed));
 
   return (
     <div className="card mt-4 !p-4 text-sm">
