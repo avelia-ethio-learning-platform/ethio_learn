@@ -277,7 +277,7 @@ Financial migrations, timestamps after 6a's, registered in `migrations/index.ts`
   - refund vs payout, in sequence (drift D1: a payment is claimable only after the 7-day hold, and the refund window closes at 7 days on the same clock, so a concurrent race on an eligible payment would only ever be auto-denied and couldn't fail). On a new paid course (not `checkout.payment_id`, which the script expects paid out): make an in-window 20–50 % refund request (it stays pending), backdate the payment's `webhook_received_at` and `created_at` past the hold, run payouts → the payment is unclaimed; deny the refund, run payouts again → it is claimed;
   - record the same bank transfer twice concurrently → one payment;
   - (A3) a gift with a fully used coupon → 400, and the sponsor's gift count is unchanged. A1 and A2 can't be reached in mock mode (a cron, and a live-only sweep), so they are unit-tested only.
-- [ ] 9. Full gate: api build + tests + typecheck + `db:check`, web typecheck + test + build, all e2e scripts, both images build.
+- [x] 9. Full gate: api build + tests + typecheck + `db:check`, web typecheck + test + build, all e2e scripts, both images build.
 - [ ] 10. Code review by ethio-reviewer; the user approves push/PR (same-day merge and deploy); rollout below.
 
 ## Test plan
@@ -386,21 +386,21 @@ Branch `fix/money-integrity`, created from `fix/security-platform` @ `e2c4014` (
   - A refund on a duplicate purchase revokes an entitlement that another payment still pays for (enrollment side).
 - **Deferred minors from the task reviews:** in the SDD ledger, for the final review to triage. They are test-pinning gaps, the payee listing including marked-only payees, bank-transfer refusals not logged with the admin id, and different references for one (learner, course) not being serialized.
 
-### In flight / next step (checkpoint 2, 2026-10-03)
-- **Done:** steps 1–8, the SDD final whole-branch review and its fix wave (re-reviewed: all addressed). Head `abb9beb` plus this docs commit. No push yet.
-- **Step 9 gate:**
-  - Run 1, on `c08be3a`, passed everything except two Playwright specs from 7a:
-    - a11y "light mode › public pages" hit its 30 s timeout under load;
-    - keyboard "375 px › theme menu" found no mobile-menu panel.
-  - Both passed when re-run (18/18), so they're timing flakes on public pages 6c doesn't touch.
-  - The 8 api images build. The web image hung at 0 % CPU once, then built cleanly on retry.
-  - **Still to do:** re-run the whole gate on the fix-wave head with scratchpad `full-gate.sh` (it runs `e2e-up.sh` from the main tree on a fresh `el_e2e`). The fix wave touched api (bank transfer, migration order) and web (admin decide, wallet card).
-- **Stack:** lent to ethio-planner for roadmap 7b's Playwright and screenshots. It serves `../ethi0-web` @ `bfcd255` on `el_e2e`. Wait for its "window closed" before running the gate; the gate's `e2e-up.sh` restarts the stack from this tree. Remove `../ethi0-stack-main` after 6c's e2e (nothing serves from it now).
-- **Then:**
-  1. Message ethio-reviewer: "Ready for code review (round 1): branch `fix/money-integrity`, base `origin/main` (`ebc1eba`), plan `docs/plans/2026-10-02-money-integrity/plan.md`." Include the gate results and the SDD ledger path, which has the rulings and deferred minors.
-  2. Tell ethio-planner two things:
-     - the post-deploy refund-mark check (DEPLOYMENT.md, Phase 6c, I1) belongs with `verify 6c` or in USER-ACTIONS;
-     - the backlog items above.
+- **Step 9 (gate on `c08d1db`, the fix-wave head plus docs):**
+  - Run 1, on `c08be3a`, before the fix wave, passed everything except two 7a Playwright specs that timed out under load and passed on re-run.
+  - Run 2, on `c08d1db`, passed everything:
+    - api: build and typecheck clean, 62 suites and 1101 tests pass;
+    - web: typecheck clean, 55 files and 482 tests pass;
+    - a fresh `el_e2e` seeded with `db:check` "No drift";
+    - e2e: demo-seed, revisions, institution, payments (42 checks), security and smoke all pass;
+    - the web build passes in a clean env, and Playwright passes 75/75 with no flakes;
+    - all 9 images build (8 api and the web).
+  - Migrations: applied on a fresh and an existing DB, with the revert round-trip, in step 2. Re-verified after M3's reorder (`1d9a0d0`).
+
+### In flight / next step (2026-10-03, after step 9)
+- **Done:** steps 1–9. No push yet.
+- **Next:** step 10, code review round 1 by ethio-reviewer (base `origin/main` = `ebc1eba`). After APPROVED, ethio-planner merges 6c (USER-ACTIONS item 6, the read-only pre-checks, is done).
+- **Stack:** served from this tree on `el_e2e`. ethio-planner needs one more short window for its Task 11 gate.
 - **SDD workspace:** `.superpowers/sdd/plan-2026-10-02-money-integrity/`.
   - `progress.md` is the ledger, with every ruling from P1 to R7 and the triaged deferred minors.
   - `final-review-report.md` and `final-fix-report.md`.
