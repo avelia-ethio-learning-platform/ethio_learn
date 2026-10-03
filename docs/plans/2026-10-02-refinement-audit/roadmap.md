@@ -1,6 +1,6 @@
 # Refinement roadmap — 2026-10-02
 
-Source: `audit.md` in this folder (127 findings as of 2026-10-03: 19 P0, 62 P1, 46 P2). It is kept local and git-ignored until the security phases (3, 4 and 6a–6c) are deployed, because the repo is public and it describes unfixed vulnerabilities. Visual direction: https://claude.ai/artifact/1KNuTFQ4NeRfsnuAJTxj5k
+Source: `audit.md` in this folder (129 findings as of 2026-10-03: 19 P0, 63 P1, 47 P2). It is kept local and git-ignored until the security phases (3, 4 and 6a–6c) are deployed, because the repo is public and it describes unfixed vulnerabilities. Visual direction: https://claude.ai/artifact/1KNuTFQ4NeRfsnuAJTxj5k
 
 Status: approved by the user on 2026-10-02 (check-in answers below). Phases re-cut on 2026-10-02 and 2026-10-03; see the change log.
 
@@ -23,8 +23,9 @@ One plan, one branch and one PR per phase. Each phase runs through the team work
 | 4 | Payment integrity | P0-04, P0-05, P1-03, P1-12, P1-14 | L | impl / review | done (#21) |
 | 5 | Web P0 fixes and a browser E2E harness | P0-09 (code part), P0-11 to P0-18, P1-30, P1-58 | M | impl / plan-review | done (#22) |
 | 6a | Security hardening I: platform | P0-19, P1-01, P1-05, P1-11, P1-13 | L | impl / review | done (#24) |
-| 6c | Money integrity II | P1-59, P1-60, P1-61, P1-62, P2-42, P2-46 | L | impl / review | planned |
+| 6c | Money integrity II | P1-59, P1-60, P1-61, P1-62, P2-42, P2-46 | L | impl / review | done (#26) |
 | 6b | Security hardening II: learning integrity | P1-04, P1-09, P1-10 | L | impl / review | planned |
+| 6d | Money integrity III: pay-request writes, refunds of duplicate purchases | P1-63, P2-47, 6c review nits N1–N3 | L | impl / review | planned |
 | 7a | UI foundations and accessibility | P1-33, P1-37, P1-38, P1-40, P1-43, P1-45, P1-47 (bell panel), P1-48 to P1-52, P1-53 (titles, robots, site OG image), P1-54, P1-57, P2-23, P2-24, P2-27, P2-29 (shared chrome), P2-33, P2-40 | M (web only) | planner / plan-review | done (#25) |
 | 7b | Public and learner pages | P1-32, P1-34, P1-35, P1-36, P1-39, P2-22, P2-25, P2-30, P2-32, P2-35 | M (web and one auth endpoint) | impl / plan-review | planned |
 | 8 | UI polish II: role dashboards (two PRs, 8a and 8b) | P1-41, P1-42, P1-44, P1-46, P1-47 (rest), the role-page parts of P1-43, P1-45 and P1-48, P2-38, P2-39, P2-41, member "Leave institution" | M | impl / plan-review | planned |
@@ -49,6 +50,7 @@ Remaining P2s are picked up opportunistically inside the phase that touches the 
 - **2026-10-02:** the old phase 5 was split into 7a (shared foundations and app-wide sweeps) and 7b (page-level UX). About 30 findings across the shared chrome and every public and learner page was too broad for one PR. P1-58 moved to Phase 5.
 - **2026-10-02 and 2026-10-03:** for the same reason, phase 8 ships as two PRs (8a, 8b), phase 9 was split into 9a–9e and phase 11 into 11a–11c.
 - **2026-10-03:** 6a gained P0-19, found during Phase 5.
+- **2026-10-03:** 6d was added for two money gaps found in the Phase 6c code review (P1-63, P2-47) plus its three nits, so 6c didn't grow mid-review. It goes after 6b.
 
 ## User decisions (2026-10-02 check-in)
 - **Hosting:** stay on the free tier (Render free for the API, Vercel for web). So P0-09 is handled in code: fetch timeouts, ISR where possible, a friendly "waking up" state, and crons triggered by an external free scheduler instead of in-process timers on sleeping instances.

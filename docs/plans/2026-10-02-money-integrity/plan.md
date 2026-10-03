@@ -1,6 +1,6 @@
 # Phase 6c: Money integrity II
 
-Status: approved (round 2); amendment A approved in round 3 with S1–S3 folded in; drift check (2026-10-03) folded in
+Status: done. Merged to main via PR #26 (merge `5f5fe7d`, 2026-10-03).
 Size: L (sessions: 4; ethio-impl implements, ethio-reviewer reviews the code)
 Base branch: `fix/security-platform` (Phase 6a), stacked. 6a changes `createSession`, `failPayment`, `reconcile`, the financial migrations and every internal call (its `internalPath` helper), so this plan builds on its code. No push or PR until 6a has merged; then `git merge origin/main` once. · Feature branch: `fix/money-integrity`
 Roadmap: phase 6c, added after the Phase 4 code review (ethio-reviewer's security pass found three money gaps outside Phase 4's scope). Runs after 6a and before 6b, by the user's decision on 2026-10-02.
