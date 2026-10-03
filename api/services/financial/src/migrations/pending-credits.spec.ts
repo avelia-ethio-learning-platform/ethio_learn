@@ -13,7 +13,7 @@ function runner() {
 }
 
 describe('PendingCreditsRefundMark migration', () => {
-  it('adds the state column with the named CHECK, then the credit and refund columns', async () => {
+  it('adds the refund mark, then the state column with the named CHECK and the credit columns', async () => {
     const { sql, queryRunner } = runner();
     await new PendingCreditsRefundMark1790966512490().up(queryRunner);
 
@@ -22,6 +22,9 @@ describe('PendingCreditsRefundMark migration', () => {
     expect(sql.some((s) => s.includes('ADD "available_at" TIMESTAMP WITH TIME ZONE'))).toBe(true);
     expect(sql.some((s) => s.includes('ADD "payment_id" uuid'))).toBe(true);
     expect(sql.some((s) => s.includes('ADD "refund_requested_at" TIMESTAMP WITH TIME ZONE'))).toBe(true);
+    // The app's lock order: every payments statement before any wallet_transactions one.
+    const lastPayments = sql.map((s) => s.includes('"financial"."payments"')).lastIndexOf(true);
+    expect(lastPayments).toBeLessThan(sql.findIndex((s) => s.includes('"financial"."wallet_transactions"')));
   });
 
   it('backfills the mark only from pending refund requests, after adding the column', async () => {

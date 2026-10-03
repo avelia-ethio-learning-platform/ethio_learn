@@ -13,16 +13,18 @@ export class PendingCreditsRefundMark1790966512490 implements MigrationInterface
   name = 'PendingCreditsRefundMark1790966512490';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // payments first: the app locks payments before wallet_transactions, so the
+    // same order here can't deadlock with a confirmation during the deploy.
+    await queryRunner.query(`ALTER TABLE "financial"."payments" ADD "refund_requested_at" TIMESTAMP WITH TIME ZONE`);
+    await queryRunner.query(
+      `UPDATE "financial"."payments" p SET refund_requested_at = r.created_at FROM "financial"."refund_requests" r WHERE r.payment_id = p.id AND r.status = 'pending'`,
+    );
     await queryRunner.query(`ALTER TABLE "financial"."wallet_transactions" ADD "state" character varying(16) NOT NULL DEFAULT 'available'`);
     await queryRunner.query(
       `ALTER TABLE "financial"."wallet_transactions" ADD CONSTRAINT "CHK_wallet_transactions_state" CHECK (state IN ('available', 'pending', 'void'))`,
     );
     await queryRunner.query(`ALTER TABLE "financial"."wallet_transactions" ADD "available_at" TIMESTAMP WITH TIME ZONE`);
     await queryRunner.query(`ALTER TABLE "financial"."wallet_transactions" ADD "payment_id" uuid`);
-    await queryRunner.query(`ALTER TABLE "financial"."payments" ADD "refund_requested_at" TIMESTAMP WITH TIME ZONE`);
-    await queryRunner.query(
-      `UPDATE "financial"."payments" p SET refund_requested_at = r.created_at FROM "financial"."refund_requests" r WHERE r.payment_id = p.id AND r.status = 'pending'`,
-    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
