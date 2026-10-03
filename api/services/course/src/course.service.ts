@@ -456,7 +456,7 @@ export class CourseService implements OnModuleInit {
 
   private assertPricing(c: { pricing_type: PricingType; price_etb: string | null }) {
     if ((c.pricing_type === PricingType.PAID || c.pricing_type === PricingType.FREEMIUM) && !c.price_etb) {
-      throw new BadRequestException(`Set a price (price_etb) for a ${c.pricing_type} course.`);
+      throw new BadRequestException(`Set a price for a ${c.pricing_type === PricingType.PAID ? 'paid' : 'freemium'} course.`);
     }
   }
 

@@ -57,21 +57,26 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
   const ask = useConfirm();
   const [editing, setEditing] = useState(false);
   const [status, , setError, clearStatus] = useFormStatus();
+  const [removeBusy, setRemoveBusy] = useState(false);
   const removing = section.pending_state === 'removed';
   const editable = edit.canEdit && !edit.locked && !removing;
 
   const remove = async () => {
+    if (removeBusy) return; // aria-disabled, not disabled: the clicked button keeps the focus the dialog gives back
     const staged = edit.live && section.pending_state !== 'added';
     const question = staged
       ? 'Remove this section and its lessons? Learners keep them until your changes are approved.'
       : 'Delete this section and all its lessons?';
     if (!(await ask({ title: `${staged ? 'Remove' : 'Delete'} the section “${section.title}”?`, body: question, confirmLabel: staged ? 'Remove section' : 'Delete section', tone: 'danger' }))) return;
     clearStatus();
+    setRemoveBusy(true);
     try {
       await api(`/sections/${section.id}`, { method: 'DELETE' });
       refresh();
     } catch (err) {
       setError(errorText(err));
+    } finally {
+      setRemoveBusy(false);
     }
   };
 
@@ -98,6 +103,7 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
             <button
               className="btn-ghost btn-sm inline-flex items-center gap-1 !text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:!text-red-400"
               disabled={!editable}
+              aria-disabled={removeBusy}
               onClick={remove}
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete section
@@ -131,19 +137,24 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
   const ask = useConfirm();
   const [editing, setEditing] = useState(false);
   const [status, , setError, clearStatus] = useFormStatus();
+  const [removeBusy, setRemoveBusy] = useState(false);
   const removing = sectionState === 'removed' || lesson.pending_state === 'removed';
   const editable = edit.canEdit && !edit.locked && !removing;
 
   const remove = async () => {
+    if (removeBusy) return; // aria-disabled, not disabled: the clicked button keeps the focus the dialog gives back
     const staged = edit.live && lesson.pending_state !== 'added' && sectionState !== 'added';
     const body = staged ? 'Learners keep it until your changes are approved.' : undefined;
     if (!(await ask({ title: `Remove the lesson “${lesson.title}”?`, body, confirmLabel: 'Remove lesson', tone: 'danger' }))) return;
     clearStatus();
+    setRemoveBusy(true);
     try {
       await api(`/lessons/${lesson.id}`, { method: 'DELETE' });
       refresh();
     } catch (err) {
       setError(errorText(err));
+    } finally {
+      setRemoveBusy(false);
     }
   };
 
@@ -179,6 +190,7 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
               className="btn-ghost btn-sm !text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:!text-red-400"
               disabled={!editable}
               aria-label={`Remove lesson ${lesson.title}`}
+              aria-disabled={removeBusy}
               onClick={remove}
             >
               remove
@@ -317,25 +329,30 @@ function EditSectionForm({ section, onDone, onCancel }: { section: WorkingSectio
 }
 
 function AddSection({ courseId, disabled, onDone }: { courseId: string; disabled: boolean; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
   const [status, , setError, clearStatus] = useFormStatus();
   return (
     <form
       className="card flex flex-wrap items-center gap-2"
       onSubmit={async (e) => {
         e.preventDefault();
+        if (busy) return;
         const formEl = e.currentTarget;
         const form = new FormData(formEl);
         clearStatus();
+        setBusy(true);
         try {
           await api(`/courses/${courseId}/sections`, { method: 'POST', body: { title: String(form.get('title')).trim(), is_free_preview: form.get('preview') === 'on' } });
           formEl.reset();
           onDone();
         } catch (err) {
           setError(errorText(err));
+        } finally {
+          setBusy(false);
         }
       }}
     >
-      <fieldset disabled={disabled} className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <fieldset disabled={disabled || busy} className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
         <input name="title" required minLength={2} maxLength={160} placeholder="New section title" className="input min-w-0 flex-1 basis-full sm:basis-auto" />
         <label className="flex items-center gap-1 text-sm text-gray-600">
           <input type="checkbox" name="preview" /> free preview

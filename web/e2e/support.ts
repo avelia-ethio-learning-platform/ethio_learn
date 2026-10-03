@@ -67,7 +67,6 @@ export async function firstCourseId(request: APIRequestContext): Promise<string>
   return items[0].id;
 }
 
-/** The seeded educator's own course (a draft when there is one), for the editor at /teach/courses/{id}. */
 /** One of the seeded educator's draft courses; the seed publishes its courses, so a draft is created when there is none. */
 export async function ownCourseId(request: APIRequestContext): Promise<string> {
   const courses = await apiGet<{ id: string; status: string }[]>(request, '/courses', 'educator');

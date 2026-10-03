@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
-import { knowledgeSourceLabel } from '@/lib/labels';
+import { knowledgeSourceLabel, sentenceCase } from '@/lib/labels';
 import { noteRemoval, type KnowledgeDoc } from './working';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
@@ -23,9 +23,11 @@ export function ChangelogTool({ courseId, published }: { courseId: string; publi
   const { data: entries } = useQuery({ queryKey: ['changelog', courseId], queryFn: () => api<any[]>(`/courses/${courseId}/changelog`) });
   const [summary, setSummary] = useState('');
   const [status, setOk, setError, clearStatus] = useFormStatus();
+  const [posting, setPosting] = useState(false);
   const post = async (e: FormEvent) => {
     e.preventDefault();
     clearStatus();
+    setPosting(true);
     try {
       await api(`/courses/${courseId}/changelog`, { method: 'POST', body: { summary } });
       setOk('Posted to the change log.');
@@ -33,6 +35,8 @@ export function ChangelogTool({ courseId, published }: { courseId: string; publi
       queryClient.invalidateQueries({ queryKey: ['changelog', courseId] });
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setPosting(false);
     }
   };
   return (
@@ -52,7 +56,7 @@ export function ChangelogTool({ courseId, published }: { courseId: string; publi
               <textarea {...ids} className="input" rows={2} required minLength={3} maxLength={1000} placeholder="What changed? e.g. 'Fixed a typo in the lesson 2 summary.'" value={summary} onChange={(e) => setSummary(e.target.value)} />
             )}
           </Field>
-          <button className="btn !px-4 !py-1.5 !text-xs" disabled={summary.trim().length < 3}>
+          <button className="btn !px-4 !py-1.5 !text-xs" disabled={posting || summary.trim().length < 3}>
             Post note
           </button>
           <FormStatus status={status} />
@@ -64,7 +68,7 @@ export function ChangelogTool({ courseId, published }: { courseId: string; publi
         <ul className="mt-3 space-y-1 text-xs text-gray-600">
           {entries.slice(0, 8).map((c) => (
             <li key={c.id} className="flex gap-2">
-              <span className={c.kind === 'major' ? 'badge-info' : 'badge-neutral'}>{c.kind}</span>
+              <span className={c.kind === 'major' ? 'badge-info' : 'badge-neutral'}>{sentenceCase(c.kind)}</span>
               <span>
                 {c.summary} <span className="text-gray-500">· {formatDate(c.created_at, locale)}</span>
               </span>
@@ -90,6 +94,7 @@ export function TutorKnowledgeTool({ courseId, live, locked }: { courseId: strin
   const ask = useConfirm();
   const [status, setOk, setError, clearStatus, setInfo] = useFormStatus();
   const [busy, setBusy] = useState(false);
+  const [removeBusy, setRemoveBusy] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   // Pending notes count as staged changes on the course page.
   const invalidate = () => {
@@ -199,15 +204,20 @@ export function TutorKnowledgeTool({ courseId, live, locked }: { courseId: strin
                     // Locked while in review like every other edit: a pending note is part of the
                     // reviewed change set, and removing one makes the approval apply nothing.
                     disabled={locked}
+                    aria-disabled={removeBusy}
                     title={locked ? 'Withdraw your changes from review to remove notes' : undefined}
                     onClick={async () => {
+                      if (removeBusy) return; // aria-disabled, not disabled: the clicked button keeps the focus the dialog gives back
                       if (removal.confirm && !(await ask({ title: `Remove the tutor note “${d.title}”?`, body: removal.confirm, confirmLabel: 'Remove note', tone: 'danger' }))) return;
                       clearStatus();
+                      setRemoveBusy(true);
                       try {
                         await api(`/courses/${courseId}/${removal.path}`, { method: 'DELETE' });
                         setOk(`Removed "${d.title}".`);
                       } catch (err) {
                         setError((err as Error).message);
+                      } finally {
+                        setRemoveBusy(false);
                       }
                       invalidate();
                     }}

@@ -142,8 +142,9 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
             <button
               type="button"
               className="btn-ghost !text-red-600 dark:!text-red-400"
-              disabled={busy}
+              aria-disabled={busy}
               onClick={async () => {
+                if (busy) return; // aria-disabled, not disabled: the clicked button keeps the focus the dialog gives back
                 const ok = await ask({
                   title: 'Discard all staged changes?',
                   body: 'New sections, lessons, videos and notes you added since approval are deleted. This cannot be undone.',

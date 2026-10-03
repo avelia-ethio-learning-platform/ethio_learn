@@ -84,3 +84,18 @@ describe('SectionsAndLessons removal', () => {
     expect(screen.getAllByRole('alert').some((n) => n.textContent === 'Section is locked')).toBe(true);
   });
 });
+
+describe('Add section', () => {
+  it('a double click posts once while the request runs', async () => {
+    let resolve!: (v: unknown) => void;
+    apiMock.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    renderEditor();
+    fireEvent.change(screen.getByPlaceholderText('New section title'), { target: { value: 'Water' } });
+    const add = screen.getByRole('button', { name: 'Add section' });
+    fireEvent.click(add);
+    fireEvent.click(add);
+    await settle();
+    expect(apiMock.mock.calls.filter(([path]) => path === '/courses/c1/sections')).toHaveLength(1);
+    await act(async () => resolve({}));
+  });
+});

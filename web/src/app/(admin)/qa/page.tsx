@@ -205,6 +205,7 @@ function QueueCard({
   };
 
   const decide = async (opt: QaActionOption) => {
+    if (busy) return; // aria-disabled, not disabled: the clicked button keeps the focus the dialog gives back
     const notesError = decisionNotesError(opt.action, notes);
     if (notesError) {
       setError(notesError);
@@ -346,11 +347,12 @@ function QueueCard({
                 <button
                   key={opt.action}
                   className={className}
-                  disabled={busy || gated}
+                  disabled={gated}
+                  aria-disabled={busy}
                   aria-describedby={gated ? gateId : undefined}
                   onClick={() => decide(opt)}
                 >
-                  <Icon className="h-4 w-4" /> {opt.label}
+                  <Icon className="h-4 w-4" aria-hidden /> {opt.label}
                 </button>
               );
             })}
