@@ -125,6 +125,8 @@
   body {
     @apply bg-background font-sans text-foreground antialiased;
     overflow-x: clip;
+    /* The course page's mobile buy bar sets --buy-bar-h while it is showing, so it never covers the footer. */
+    padding-bottom: var(--buy-bar-h, 0px);
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 

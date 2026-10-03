@@ -1,9 +1,13 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { BadgeCheck, Clock, Layers, PlayCircle, Star, Wallet } from 'lucide-react';
+import Link from 'next/link';
+import { BadgeCheck, Clock, Globe, Layers, PlayCircle, Star, UserRound, Wallet } from 'lucide-react';
 import { serverApi, SITE_URL } from '@/lib/server-api';
-import { categoryLabel } from '@/lib/labels';
+import { categoryLabel, hasRealThumbnail } from '@/lib/categories';
+import { BUY_BULLET_TEXT, buyBullets, hasPlayablePreview, sectionHasPreview, type BuyBullet } from '@/lib/course-page';
 import { priceLabel } from '@/components/CourseCard';
+import { CourseCover } from '@/components/CourseCover';
+import { MobileBuyBar } from '@/components/MobileBuyBar';
 import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
@@ -18,6 +22,9 @@ interface CourseDetail {
   title: string;
   description: string;
   category: string;
+  language?: string | null;
+  instructor_id?: string | null;
+  instructor_name?: string | null;
   thumbnail_url: string | null;
   pricing_type: 'free' | 'freemium' | 'paid';
   price_etb: number | null;
@@ -91,37 +98,83 @@ export default async function CoursePage({ params }: { params: { id: string } })
     },
   };
 
-  const metaChips = [
+  const LANGUAGES: Record<string, string> = { en: 'English', am: 'Amharic' };
+  const facts = [
     { icon: Layers, label: `${course.sections.length} sections` },
     { icon: PlayCircle, label: `${totalLessons} lessons` },
     { icon: Clock, label: `~${totalMinutes} min` },
+    ...(course.language ? [{ icon: Globe, label: LANGUAGES[course.language] ?? course.language.toUpperCase() }] : []),
+    { icon: BadgeCheck, label: 'Certificate' },
     ...(reviews?.average_rating ? [{ icon: Star, label: `${reviews.average_rating} (${reviews.review_count})` }] : []),
   ];
+  const price = priceLabel(course);
+  const educatorName = course.instructor_name?.trim();
+  const bulletIcons: Record<BuyBullet, typeof BadgeCheck> = { certificate: BadgeCheck, payment: Wallet, refund: Clock };
 
   return (
     <PageShell>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }} />
       <BackButton fallback="/courses" label="Browse courses" />
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        <div className="animate-fade-in-up min-w-0 lg:col-span-2">
-          <span className="badge-info uppercase tracking-wider">{categoryLabel(course.category)}</span>
-          {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
-            <span className="badge-success ml-2">Recently updated</span>
-          )}
-          <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-foreground md:text-4xl">{course.title}</h1>
-          <p className="mt-4 leading-relaxed text-gray-600">{course.description}</p>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            {metaChips.map((chip) => (
-              <span key={chip.label} className="section-badge !px-3 !py-1.5 !text-xs">
-                <chip.icon className="h-3.5 w-3.5 text-brand-500" />
-                {chip.label}
-              </span>
-            ))}
+      {/* One buy box, placed by grid order: right after the header below lg, the sticky right column from lg. */}
+      <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-3">
+        <header className="animate-fade-in-up min-w-0 lg:col-span-2 lg:row-start-1">
+          <div className="overflow-hidden rounded-2xl">
+            {hasRealThumbnail(course.thumbnail_url) ? (
+              // eslint-disable-next-line @next/next/no-img-element -- next/image is Phase 10
+              <img src={course.thumbnail_url as string} alt="" className="h-28 w-full object-cover sm:h-32" />
+            ) : (
+              <CourseCover title={course.title} category={course.category} size="strip" decorative />
+            )}
           </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="badge-info uppercase tracking-wider">{categoryLabel(course.category)}</span>
+            {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
+              <span className="badge-success">Recently updated</span>
+            )}
+          </div>
+          <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-foreground md:text-4xl">{course.title}</h1>
+          <p className="mt-4 line-clamp-3 leading-relaxed text-gray-600 lg:line-clamp-none">{course.description}</p>
+          {educatorName && course.instructor_id && (
+            <p className="mt-4 flex items-center gap-2 text-sm text-gray-600">
+              <UserRound className="h-4 w-4 shrink-0 text-brand-500" aria-hidden />
+              <span>
+                By{' '}
+                <Link href={`/educators/${course.instructor_id}`} className="font-semibold text-brand-600 hover:underline">
+                  {educatorName}
+                </Link>
+              </span>
+            </p>
+          )}
+          <ul className="mt-5 flex flex-wrap gap-2">
+            {facts.map((fact) => (
+              <li key={fact.label} className="section-badge !px-3 !py-1.5 !text-xs">
+                <fact.icon className="h-3.5 w-3.5 text-brand-500" aria-hidden />
+                {fact.label}
+              </li>
+            ))}
+          </ul>
+        </header>
 
-          {(course.pricing_type === 'freemium' || course.pricing_type === 'free') && <CoursePreviewPlayer sections={course.sections} />}
+        <aside id="buy-box" tabIndex={-1} className="animate-fade-in-up min-w-0 lg:col-start-3 lg:row-span-2 lg:row-start-1">
+          <div className="card sticky top-28 !rounded-3xl !p-6 shadow-elevated">
+            <p className="gradient-text-blue text-3xl font-extrabold">{price}</p>
+            <EnrollPanel courseId={course.id} pricingType={course.pricing_type} price={course.price_etb} />
+            <ul className="mt-5 space-y-2.5 text-sm text-gray-600">
+              {buyBullets(course.pricing_type).map((b) => {
+                const Icon = bulletIcons[b];
+                return (
+                  <li key={b} className="flex items-center gap-2.5">
+                    <Icon className="h-4 w-4 shrink-0 text-brand-500" aria-hidden /> {BUY_BULLET_TEXT[b]}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </aside>
+
+        <div className="animate-fade-in-up min-w-0 lg:col-span-2 lg:row-start-2">
+          {hasPlayablePreview(course.sections) && <CoursePreviewPlayer sections={course.sections} />}
 
           <h2 className="mt-10 text-xl font-bold text-foreground">Course content</h2>
           <div className="mt-4 space-y-3">
@@ -132,7 +185,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
                     {idx + 1}
                   </span>
                   <h3 className="min-w-0 flex-1 font-semibold text-foreground">{section.title}</h3>
-                  {section.is_free_preview && <span className="badge-success shrink-0">Free preview</span>}
+                  {sectionHasPreview(section) && <span className="badge-success shrink-0">Free preview</span>}
                 </div>
                 <ul className="px-5 py-3">
                   {section.lessons.map((lesson) => (
@@ -169,27 +222,9 @@ export default async function CoursePage({ params }: { params: { id: string } })
           )}
         </div>
 
-        <aside className="animate-fade-in-up min-w-0">
-          <div className="card sticky top-28 !rounded-3xl !p-6 shadow-elevated">
-            <p className="gradient-text-blue text-3xl font-extrabold">{priceLabel(course)}</p>
-            <EnrollPanel courseId={course.id} pricingType={course.pricing_type}  price={course.price_etb} />
-            <ul className="mt-5 space-y-2.5 text-sm text-gray-600">
-              <li className="flex items-center gap-2.5">
-                <PlayCircle className="h-4 w-4 shrink-0 text-brand-500" /> Adaptive HLS video streaming
-              </li>
-              <li className="flex items-center gap-2.5">
-                <BadgeCheck className="h-4 w-4 shrink-0 text-brand-500" /> Verifiable certificate on completion
-              </li>
-              <li className="flex items-center gap-2.5">
-                <Wallet className="h-4 w-4 shrink-0 text-brand-500" /> Pay with Telebirr, CBE Birr &amp; 18+ banks
-              </li>
-              <li className="flex items-center gap-2.5">
-                <Clock className="h-4 w-4 shrink-0 text-brand-500" /> 7-day refund window
-              </li>
-            </ul>
-          </div>
-        </aside>
       </div>
+
+      <MobileBuyBar targetId="buy-box" price={price} actionLabel="Enroll" />
     </PageShell>
   );
 }
