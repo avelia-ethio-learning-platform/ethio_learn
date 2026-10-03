@@ -1,6 +1,6 @@
 # Phase 7a: UI foundations and accessibility
 
-Status: approved (round 2)
+Status: done. Merged to main via PR #25 (merge `ebc1eba`, 2026-10-03).
 Size: M (sessions: 3 — ethio-impl, or `ethio-impl-web` if the user adds it, implements; ethio-plan-review reviews plan and code)
 Base branch: `origin/main` after Phase 5 (`fix/web-p0`) has merged. Phase 5 rewrites the root layout spacing, the mobile menu, `overflow-x` in `globals.css` and adds Playwright, all of which this phase builds on. · Feature branch: `feat/ui-foundations`
 Roadmap: phase 7, split into 7a (this plan) and 7b (public and learner pages, planned next). See "Roadmap change" at the end.
