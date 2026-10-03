@@ -3,25 +3,36 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Compass, RotateCcw, Search, SlidersHorizontal, Tag, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Compass, RotateCcw, Search, SearchX, SlidersHorizontal, Tag, X } from 'lucide-react';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
 import { useT } from '@/lib/i18n';
+import { Field } from '@/components/form/Field';
 
 const CATEGORIES = ['tech', 'business', 'freelancing', 'healthcare', 'other'] as const;
 const PRICING = ['free', 'freemium', 'paid'] as const;
 const PAGE_SIZES = [12, 24, 48] as const;
 const DEFAULT_LIMIT = 12;
+const SORTS = [
+  { value: 'top', label: 'Recommended' },
+  { value: 'new', label: 'Newest' },
+  { value: 'popular', label: 'Most popular' },
+  { value: 'price_asc', label: 'Price: low to high' },
+  { value: 'price_desc', label: 'Price: high to low' },
+] as const;
+const DEFAULT_SORT = 'top';
 
 export interface ExploreFilters {
   q?: string;
   category?: string;
   pricing_type?: string;
+  sort?: string;
 }
 
 type NavPatch = Partial<{
   q: string | undefined;
   category: string | undefined;
   pricing_type: string | undefined;
+  sort: string;
   page: number;
   limit: number;
 }>;
@@ -82,18 +93,23 @@ export function ExploreClient({
 
   const activeCategory = CATEGORIES.find((c) => c === filters.category);
   const activePricing = PRICING.find((p) => p === filters.pricing_type);
+  const activeSort = SORTS.find((s) => s.value === filters.sort)?.value ?? DEFAULT_SORT;
   const hasFilters = Boolean(filters.q || activeCategory || activePricing);
+  const activeCount = [filters.q, activeCategory, activePricing].filter(Boolean).length;
+  // Below md the filters sit behind a button; they start open when a filter is already applied.
+  const [filtersOpen, setFiltersOpen] = useState(hasFilters);
 
   const totalPages = Math.max(Math.ceil(total / limit), 1);
   const from = total === 0 ? 0 : (page - 1) * limit + 1;
   const to = Math.min(page * limit, total);
 
   const navigate = (patch: NavPatch, { scroll = false } = {}) => {
-    const merged = { ...filters, page, limit, ...patch };
+    const merged = { ...filters, sort: activeSort, page, limit, ...patch };
     const params = new URLSearchParams();
     if (merged.q) params.set('q', merged.q);
     if (merged.category) params.set('category', merged.category);
     if (merged.pricing_type) params.set('pricing_type', merged.pricing_type);
+    if (merged.sort !== DEFAULT_SORT) params.set('sort', merged.sort);
     if (merged.page > 1) params.set('page', String(merged.page));
     if (merged.limit !== DEFAULT_LIMIT) params.set('limit', String(merged.limit));
     const qs = params.toString();
@@ -165,17 +181,31 @@ export function ExploreClient({
             <button className="btn shrink-0">{t('search')}</button>
           </form>
 
-          <div className="mt-5 space-y-4">
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((o) => !o)}
+            aria-expanded={filtersOpen}
+            aria-controls="catalog-filters"
+            className="btn-secondary mt-4 flex w-full items-center justify-between md:hidden"
+          >
+            <span className="inline-flex items-center gap-2">
+              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+              {activeCount > 0 ? `Filters (${activeCount} active)` : 'Filters'}
+            </span>
+            <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+          </button>
+
+          <div id="catalog-filters" className={`mt-5 space-y-4 ${filtersOpen ? 'block' : 'hidden md:block'}`}>
             {/* Category */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="mr-1 inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
                 <SlidersHorizontal className="h-3.5 w-3.5" /> {t('filter_category')}
               </span>
-              <button onClick={() => navigate({ category: undefined, page: 1 })} className={!activeCategory ? 'pill-active' : 'pill'}>
+              <button onClick={() => navigate({ category: undefined, page: 1 })} aria-pressed={!activeCategory} className={!activeCategory ? 'pill-active' : 'pill'}>
                 {t('all')}
               </button>
               {CATEGORIES.map((c) => (
-                <button key={c} onClick={() => navigate({ category: c, page: 1 })} className={activeCategory === c ? 'pill-active' : 'pill'}>
+                <button key={c} onClick={() => navigate({ category: c, page: 1 })} aria-pressed={activeCategory === c} className={activeCategory === c ? 'pill-active' : 'pill'}>
                   {t(`cat_${c}`)}
                 </button>
               ))}
@@ -186,11 +216,11 @@ export function ExploreClient({
               <span className="mr-1 inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
                 <Tag className="h-3.5 w-3.5" /> {t('filter_pricing')}
               </span>
-              <button onClick={() => navigate({ pricing_type: undefined, page: 1 })} className={!activePricing ? 'pill-active' : 'pill'}>
+              <button onClick={() => navigate({ pricing_type: undefined, page: 1 })} aria-pressed={!activePricing} className={!activePricing ? 'pill-active' : 'pill'}>
                 {t('all')}
               </button>
               {PRICING.map((p) => (
-                <button key={p} onClick={() => navigate({ pricing_type: p, page: 1 })} className={activePricing === p ? 'pill-active' : 'pill'}>
+                <button key={p} onClick={() => navigate({ pricing_type: p, page: 1 })} aria-pressed={activePricing === p} className={activePricing === p ? 'pill-active' : 'pill'}>
                   {t(p)}
                 </button>
               ))}
@@ -201,7 +231,7 @@ export function ExploreClient({
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">{t('per_page')}</span>
                 {PAGE_SIZES.map((n) => (
-                  <button key={n} onClick={() => navigate({ limit: n, page: 1 })} className={limit === n ? 'pill-active !px-3' : 'pill !px-3'}>
+                  <button key={n} onClick={() => navigate({ limit: n, page: 1 })} aria-pressed={limit === n} className={limit === n ? 'pill-active !px-3' : 'pill !px-3'}>
                     {n}
                   </button>
                 ))}
@@ -218,12 +248,27 @@ export function ExploreClient({
         {/* Results meta + active filter chips */}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <p className="flex items-center gap-2 text-sm text-gray-500">
-            <span className="font-semibold text-foreground">
-              {from}–{to}
+            <span>
+              Showing <span className="font-semibold text-foreground">{from}–{to}</span> of {total} courses
             </span>
-            / {total} · {t('courses')}
             {isPending && <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />}
           </p>
+          <Field label="Sort by">
+            {(ids) => (
+              <select
+                {...ids}
+                value={activeSort}
+                onChange={(e) => navigate({ sort: e.target.value, page: 1 })}
+                className="input !w-auto"
+              >
+                {SORTS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
           {hasFilters && (
             <div className="flex flex-wrap items-center gap-2">
               {filters.q && <Chip label={`“${filters.q}”`} onRemove={() => navigate({ q: undefined, page: 1 })} />}
@@ -236,7 +281,7 @@ export function ExploreClient({
         {/* Grid */}
         {courses.length === 0 ? (
           <div className="card mx-auto mt-8 max-w-lg py-12 text-center">
-            <p className="text-4xl">🔎</p>
+            <SearchX className="mx-auto h-10 w-10 text-gray-500" aria-hidden="true" />
             <p className="mt-3 text-lg font-medium text-foreground">{t('no_courses')}</p>
             <p className="mt-2 text-sm text-gray-500">{t('try_adjusting')}</p>
             {hasFilters && (
@@ -247,7 +292,7 @@ export function ExploreClient({
           </div>
         ) : (
           <motion.div
-            key={`${filters.q ?? ''}|${activeCategory ?? ''}|${activePricing ?? ''}|${page}|${limit}`}
+            key={`${filters.q ?? ''}|${activeCategory ?? ''}|${activePricing ?? ''}|${activeSort}|${page}|${limit}`}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
