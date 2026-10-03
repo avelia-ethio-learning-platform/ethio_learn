@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Inbox, PartyPopper, Search, ShieldCheck, UserPlus } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -121,6 +121,9 @@ function PaymentsTab() {
 function BankTransferForm() {
   const [learner, setLearner] = useState<{ id: string; label: string } | null>(null);
   const [course, setCourse] = useState<{ id: string; label: string } | null>(null);
+  // The bank's own reference for the transfer: recording it twice records one payment.
+  const [reference, setReference] = useState('');
+  const referenceId = useId();
   return (
     <div className="flex flex-wrap items-end gap-2 text-xs">
       <SearchPicker
@@ -140,12 +143,28 @@ function BankTransferForm() {
         onSelect={setCourse}
         fetcher={async (q) => (await api<any[]>(`/admin/courses?q=${encodeURIComponent(q)}`)).map((c) => ({ id: c.id, label: `${c.title} [${c.status}]` }))}
       />
+      <div>
+        <label htmlFor={referenceId} className="mb-0.5 block text-[10px] uppercase text-gray-400">
+          Bank reference
+        </label>
+        <input
+          id={referenceId}
+          className="input w-40 text-xs"
+          placeholder="from the bank slip"
+          required
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+        />
+      </div>
       <button
         className="btn-secondary text-xs"
-        disabled={!learner || !course}
+        disabled={!learner || !course || !reference.trim()}
         onClick={async () => {
           try {
-            await api('/admin/payments/bank-transfer', { method: 'POST', body: { learner_id: learner!.id, course_id: course!.id } });
+            await api('/admin/payments/bank-transfer', {
+              method: 'POST',
+              body: { learner_id: learner!.id, course_id: course!.id, bank_reference: reference.trim() },
+            });
             alert('Bank transfer recorded — entitlement grants via PaymentConfirmed.');
           } catch (err) {
             alert((err as Error).message);
