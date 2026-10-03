@@ -118,6 +118,23 @@ describe('Header overlays', () => {
     expect(burger.getAttribute('aria-expanded')).toBe('true');
   });
 
+  it('Escape with the theme menu open in the mobile menu closes only the theme menu, then the mobile menu', () => {
+    renderHeader();
+    const burger = screen.getByRole('button', { name: 'Menu' });
+    fireEvent.click(burger);
+    const panel = screen.getByTestId('mobile-menu-panel');
+    const themeTrigger = within(panel).getByRole('button', { name: 'Theme' });
+    fireEvent.click(themeTrigger);
+    expect(themeTrigger.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(themeTrigger.getAttribute('aria-expanded')).toBe('false');
+    expect(burger.getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(themeTrigger);
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(burger.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(burger);
+  });
+
   it('keeps the selectors the e2e specs use: nav "Main" and both test ids', () => {
     renderHeader();
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeTruthy();

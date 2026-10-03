@@ -4,6 +4,9 @@ import { useEffect, useId, useRef, type RefObject } from 'react';
 
 export const OVERLAY_OPEN_EVENT = 'el-overlay-open';
 
+/** Ids of open overlays, innermost last. Escape only acts on the top one. */
+const openStack: string[] = [];
+
 interface UseDismissOptions {
   open: boolean;
   onClose: () => void;
@@ -25,6 +28,7 @@ export function useDismiss({ open, onClose, containerRef, triggerRef, closeOnOth
 
   useEffect(() => {
     if (!open) return;
+    openStack.push(id);
     window.dispatchEvent(new CustomEvent(OVERLAY_OPEN_EVENT, { detail: id }));
 
     const onPointerDown = (e: MouseEvent | TouchEvent) => {
@@ -34,7 +38,7 @@ export function useDismiss({ open, onClose, containerRef, triggerRef, closeOnOth
       onCloseRef.current();
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || openStack[openStack.length - 1] !== id) return;
       onCloseRef.current();
       triggerRef.current?.focus();
     };
@@ -48,6 +52,8 @@ export function useDismiss({ open, onClose, containerRef, triggerRef, closeOnOth
     document.addEventListener('keydown', onKeyDown);
     window.addEventListener(OVERLAY_OPEN_EVENT, onOtherOpen);
     return () => {
+      const at = openStack.lastIndexOf(id);
+      if (at !== -1) openStack.splice(at, 1);
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('touchstart', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);

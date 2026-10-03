@@ -90,6 +90,42 @@ describe('useDismiss', () => {
     expect(typeof seen.mock.calls[0][0]).toBe('string');
   });
 
+  it('Escape closes only the innermost of nested overlays, then the outer one', () => {
+    function Nested() {
+      const [outerOpen, setOuterOpen] = useState(false);
+      const [innerOpen, setInnerOpen] = useState(false);
+      const outerTrigger = useRef<HTMLButtonElement>(null);
+      const outerBox = useRef<HTMLDivElement>(null);
+      const innerTrigger = useRef<HTMLButtonElement>(null);
+      useDismiss({ open: outerOpen, onClose: () => setOuterOpen(false), containerRef: outerBox, triggerRef: outerTrigger, closeOnOtherOpen: false });
+      useDismiss({ open: innerOpen, onClose: () => setInnerOpen(false), containerRef: outerBox, triggerRef: innerTrigger });
+      return (
+        <div>
+          <button ref={outerTrigger} onClick={() => setOuterOpen((o) => !o)}>outer</button>
+          {outerOpen && (
+            <div ref={outerBox} role="dialog" aria-label="outer panel">
+              <button ref={innerTrigger} onClick={() => setInnerOpen((o) => !o)}>inner</button>
+              {innerOpen && <div role="dialog" aria-label="inner panel" />}
+            </div>
+          )}
+        </div>
+      );
+    }
+    render(<Nested />);
+    const outer = screen.getByRole('button', { name: 'outer' });
+    fireEvent.click(outer);
+    const inner = screen.getByRole('button', { name: 'inner' });
+    fireEvent.click(inner);
+    expect(screen.getByRole('dialog', { name: 'inner panel' })).toBeTruthy();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'inner panel' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'outer panel' })).toBeTruthy();
+    expect(document.activeElement).toBe(inner);
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'outer panel' })).toBeNull();
+    expect(document.activeElement).toBe(outer);
+  });
+
   it('ignores Escape while closed', () => {
     render(<Overlay name="A" />);
     fireEvent.keyDown(document.body, { key: 'Escape' });
