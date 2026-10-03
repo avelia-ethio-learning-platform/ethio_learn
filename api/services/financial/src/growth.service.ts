@@ -7,6 +7,12 @@ import { PaymentMethod, PaymentPurpose, ReferralInviteSentPayload, Role, WalletC
 import { Coupon, CouponKind, Payment, Referral, ReferralCode, Wallet, WalletTransaction, WalletTxKind } from './entities';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long a purchase's cashback and referral reward stay pending after its
+ * confirmation: the 7-day refund window plus an hour, so every release lands
+ * after the window has closed, whatever the clock skew between app and DB.
+ */
+const PURCHASE_CREDIT_HOLD_MS = 7 * DAY_MS + 60 * 60 * 1000;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I confusion
 
 export function randomCode(length: number): string {
@@ -23,6 +29,13 @@ export interface WalletCredit {
   balance_etb: number;
   kind: WalletTxKind;
   note: string;
+}
+
+/** A credit held out of the balance until available_at (see releaseMatured), for the purchase that earned it. */
+export interface PendingCredit {
+  state: 'pending';
+  available_at: Date;
+  payment_id: string;
 }
 
 /** Credit kinds the owner is told about (an in-app ping). */
@@ -205,16 +218,20 @@ export class GrowthService {
 
   // ---- Wallet ------------------------------------------------------------
 
+  /** The owner's wallet, after releasing their matured credits in the same transaction. */
   async wallet(userId: string) {
-    const w = await this.wallets.findOne({ where: { user_id: userId } });
-    const tx = await this.walletTx.find({ where: { user_id: userId }, order: { created_at: 'DESC' }, take: 50 });
-    return {
-      user_id: userId,
-      balance_etb: Number(w?.balance_etb ?? 0),
-      transactions: tx.map((t) => ({ id: t.id, amount_etb: Number(t.amount_etb), kind: t.kind, note: t.note, reference: t.reference, created_at: t.created_at })),
-      referral_reward_etb: this.referralReward(),
-      cashback_percent: this.cashbackPercent(),
-    };
+    return this.dataSource.transaction(async (m) => {
+      await this.releaseMatured(m, userId);
+      const w = await m.getRepository(Wallet).findOne({ where: { user_id: userId } });
+      const tx = await m.getRepository(WalletTransaction).find({ where: { user_id: userId }, order: { created_at: 'DESC' }, take: 50 });
+      return {
+        user_id: userId,
+        balance_etb: Number(w?.balance_etb ?? 0),
+        transactions: tx.map((t) => ({ id: t.id, amount_etb: Number(t.amount_etb), kind: t.kind, note: t.note, reference: t.reference, created_at: t.created_at })),
+        referral_reward_etb: this.referralReward(),
+        cashback_percent: this.cashbackPercent(),
+      };
+    });
   }
 
   async balance(userId: string): Promise<number> {
@@ -244,8 +261,10 @@ export class GrowthService {
    * with ON CONFLICT DO NOTHING against the unique (kind, reference) index, so
    * a replay inserts nothing and the balance is left alone; catching 23505
    * instead would abort the caller's transaction. The balance changes in one
-   * atomic UPDATE, so concurrent credits never lose each other. Returns null
-   * when nothing was credited; the caller announces the credit after commit.
+   * atomic UPDATE, so concurrent credits never lose each other. A `pending`
+   * credit is only recorded: the balance is left alone until releaseMatured.
+   * Returns null when nothing was credited; the caller announces the credit
+   * after commit.
    */
   async creditWith(
     m: EntityManager,
@@ -254,22 +273,37 @@ export class GrowthService {
     kind: WalletTxKind,
     reference: string,
     note: string,
+    pending?: PendingCredit,
   ): Promise<WalletCredit | null> {
     if (amount <= 0) return null;
     const value = amount.toFixed(2);
     const inserted: { id: string }[] = await m.query(
-      `INSERT INTO ${this.table(m, WalletTransaction)} (user_id, amount_etb, kind, reference, note) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING id`,
-      [userId, value, kind, reference, note],
+      `INSERT INTO ${this.table(m, WalletTransaction)} (user_id, amount_etb, kind, reference, note, state, available_at, payment_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING RETURNING id`,
+      [userId, value, kind, reference, note, pending?.state ?? 'available', pending?.available_at ?? null, pending?.payment_id ?? null],
     );
     if (inserted.length === 0) return null;
-    const wallets = this.table(m, Wallet);
-    await m.query(`INSERT INTO ${wallets} (user_id, balance_etb) VALUES ($1, 0) ON CONFLICT (user_id) DO NOTHING`, [userId]);
-    // UPDATE through query() resolves to [rows, rowCount].
-    const [rows]: [{ balance_etb: string }[], number] = await m.query(
-      `UPDATE ${wallets} SET balance_etb = balance_etb + $2, updated_at = now() WHERE user_id = $1 RETURNING balance_etb`,
-      [userId, value],
+    const balance = pending ? await this.balanceWith(m, userId) : await this.addToBalance(m, userId, value);
+    return { user_id: userId, amount_etb: amount, balance_etb: balance, kind, note };
+  }
+
+  /**
+   * Moves the owner's matured pending credits into the balance, in the
+   * caller's transaction (a wallet read, or a debit before its overspend
+   * check). The conditional state change is the once-only guarantee: of two
+   * concurrent releases, the second finds the rows already available under
+   * the row lock. A credit never releases while its purchase is marked with
+   * a refund request (refund_requested_at) or is no longer confirmed. A
+   * release of nothing writes nothing. Returns the amount released.
+   */
+  async releaseMatured(m: EntityManager, userId: string): Promise<number> {
+    const [rows]: [{ amount_etb: string }[], number] = await m.query(
+      `UPDATE ${this.table(m, WalletTransaction)} SET state = 'available' WHERE user_id = $1 AND state = 'pending' AND available_at <= now() AND NOT EXISTS (SELECT 1 FROM ${this.table(m, Payment)} p WHERE p.id = wallet_transactions.payment_id AND (p.refund_requested_at IS NOT NULL OR p.status <> 'confirmed')) RETURNING amount_etb`,
+      [userId],
     );
-    return { user_id: userId, amount_etb: amount, balance_etb: Number(rows[0].balance_etb), kind, note };
+    if (rows.length === 0) return 0;
+    const released = rows.reduce((sum, r) => sum + Number(r.amount_etb), 0);
+    await this.addToBalance(m, userId, released.toFixed(2));
+    return released;
   }
 
   /**
@@ -286,6 +320,7 @@ export class GrowthService {
       [userId, (-amount).toFixed(2), kind, reference, note],
     );
     if (inserted.length === 0) return this.balanceWith(m, userId); // this purchase was already paid for
+    await this.releaseMatured(m, userId); // so the spend can use credits that have matured
     const [rows]: [{ balance_etb: string }[], number] = await m.query(
       `UPDATE ${this.table(m, Wallet)} SET balance_etb = balance_etb - $2, updated_at = now() WHERE user_id = $1 AND balance_etb >= $2 RETURNING balance_etb`,
       [userId, value],
@@ -314,7 +349,19 @@ export class GrowthService {
     return Number(rows[0]?.balance_etb ?? 0);
   }
 
-  private table(m: EntityManager, entity: typeof Wallet | typeof WalletTransaction): string {
+  /** Adds `value` to the balance in one atomic UPDATE, creating the wallet first if needed. Returns the balance. */
+  private async addToBalance(m: EntityManager, userId: string, value: string): Promise<number> {
+    const wallets = this.table(m, Wallet);
+    await m.query(`INSERT INTO ${wallets} (user_id, balance_etb) VALUES ($1, 0) ON CONFLICT (user_id) DO NOTHING`, [userId]);
+    // UPDATE through query() resolves to [rows, rowCount].
+    const [rows]: [{ balance_etb: string }[], number] = await m.query(
+      `UPDATE ${wallets} SET balance_etb = balance_etb + $2, updated_at = now() WHERE user_id = $1 RETURNING balance_etb`,
+      [userId, value],
+    );
+    return Number(rows[0].balance_etb);
+  }
+
+  private table(m: EntityManager, entity: typeof Wallet | typeof WalletTransaction | typeof Payment): string {
     return m.getRepository(entity).metadata.tablePath;
   }
 
@@ -473,19 +520,32 @@ export class GrowthService {
     return payment.method === PaymentMethod.CHAPA || payment.method === PaymentMethod.BANK_TRANSFER;
   }
 
-  /** Cashback to the buyer, once per payment, inside the confirmation. */
-  async creditCashback(m: EntityManager, payment: Payment): Promise<WalletCredit | null> {
+  /**
+   * Cashback to the buyer, once per payment, inside the confirmation. Pending
+   * until the refund window has passed; `confirmedAt` is the confirmation's
+   * own time (the in-memory payment's is set only after commit).
+   */
+  async creditCashback(m: EntityManager, payment: Payment, confirmedAt: Date): Promise<WalletCredit | null> {
     if (!this.rewardsApply(payment)) return null;
     const cashback = Number(((Number(payment.amount_etb) * this.cashbackPercent()) / 100).toFixed(2));
-    return this.creditWith(m, payment.learner_id, cashback, 'cashback', payment.id, `${this.cashbackPercent()}% cashback on "${payment.course_title}"`);
+    return this.creditWith(
+      m,
+      payment.learner_id,
+      cashback,
+      'cashback',
+      payment.id,
+      `${this.cashbackPercent()}% cashback on "${payment.course_title}"`,
+      this.heldFor(payment, confirmedAt),
+    );
   }
 
   /**
    * On the buyer's first purchase, reward whoever referred them. The status
    * change is conditional, so two first purchases confirming at once reward
-   * the referrer once.
+   * the referrer once. Pending like the cashback, and tied to the same
+   * purchase through payment_id (the reference is the referral).
    */
-  async rewardReferrer(m: EntityManager, payment: Payment, buyerName: string): Promise<WalletCredit | null> {
+  async rewardReferrer(m: EntityManager, payment: Payment, buyerName: string, confirmedAt: Date): Promise<WalletCredit | null> {
     if (!this.rewardsApply(payment)) return null;
     const referrals = m.getRepository(Referral);
     const referral = await referrals.findOne({ where: { referred_user_id: payment.learner_id, status: 'signed_up' } });
@@ -497,7 +557,19 @@ export class GrowthService {
     );
     if (won.affected !== 1) return null;
     this.logger.log(`referral ${referral.id} rewarded ${reward} ETB to ${referral.referrer_id}`);
-    return this.creditWith(m, referral.referrer_id, reward, 'referral_reward', referral.id, `Referral reward — ${buyerName || 'your invitee'} made their first purchase`);
+    return this.creditWith(
+      m,
+      referral.referrer_id,
+      reward,
+      'referral_reward',
+      referral.id,
+      `Referral reward — ${buyerName || 'your invitee'} made their first purchase`,
+      this.heldFor(payment, confirmedAt),
+    );
+  }
+
+  private heldFor(payment: Payment, confirmedAt: Date): PendingCredit {
+    return { state: 'pending', available_at: new Date(confirmedAt.getTime() + PURCHASE_CREDIT_HOLD_MS), payment_id: payment.id };
   }
 
   private async codeFor(userId: string): Promise<string> {

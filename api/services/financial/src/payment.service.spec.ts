@@ -9,6 +9,9 @@ import { PaymentService } from './payment.service';
 import { fakeDb, Row } from './testing/fake-db';
 
 const SECRET = 'test-webhook-secret-0123456789';
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Purchase credits are held for the 7-day refund window plus an hour. */
+const HOLD_MS = 7 * DAY_MS + 60 * 60 * 1000;
 
 function sign(raw: Buffer | string, secret = SECRET): string {
   return createHmac('sha256', secret).update(raw).digest('hex');
@@ -298,8 +301,8 @@ describe('PaymentService: exactly-once confirmation under races (P0-04)', () => 
     await Promise.all([t.service.handleWebhook(successBody, signed(successBody)), t.service.handleWebhook(successBody, signed(successBody))]);
 
     expect(t.published('PaymentConfirmed')).toHaveLength(1);
-    expect(t.walletRows('cashback')).toHaveLength(1);
-    expect(t.balance('u1')).toBe(25);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ amount_etb: '25.00', state: 'pending', payment_id: 'pay-1' })]);
+    expect(t.balance('u1')).toBe(0); // pending until the refund window has passed
     expect(t.db.repo(Coupon).rows[0].uses).toBe(1);
   });
 
@@ -310,6 +313,66 @@ describe('PaymentService: exactly-once confirmation under races (P0-04)', () => 
     await Promise.all([t.service.handleWebhook(successBody, signed(successBody)), t.service.handleWebhook(successBody, signed(successBody))]);
     expect(t.walletRows('referral_reward')).toHaveLength(1);
     expect(t.walletRows('referral_reward')[0].note).toContain('Learner made their first purchase');
+  });
+});
+
+describe('PaymentService: purchase credits are held until the refund window has passed', () => {
+  const learner = { id: 'u1', role: 'learner', email: 'u1@x.et' } as never;
+  /** An earlier Chapa purchase by u1 and its 25 ETB cashback, confirmed at confirmedAt. */
+  const earnCashback = async (t: ReturnType<typeof setup>, confirmedAt: Date) => {
+    const earlier = t.seed({ id: 'pay-0', chapa_tx_ref: 'TX-0', course_id: 'c0', status: PaymentStatus.CONFIRMED, webhook_received_at: confirmedAt });
+    await t.db.dataSource.transaction((m) => t.growth.creditCashback(m as never, earlier as Payment, confirmedAt));
+  };
+
+  it('holds cashback and the referral reward from the confirmation, not from an earlier failure', async () => {
+    const t = setup();
+    t.db.repo(Referral).rows.push({ id: 'ref-1', referrer_id: 'friend', referred_user_id: 'u1', status: 'signed_up', reward_etb: '0' });
+    const failedAt = new Date(Date.now() - 3 * DAY_MS);
+    t.seed({ status: PaymentStatus.FAILED, webhook_received_at: failedAt });
+
+    expect(await t.service.handleWebhook(successBody, signed(successBody))).toEqual({ processed: true, reason: 'confirmed' });
+
+    const confirmedAt: Date = t.row().webhook_received_at;
+    expect(confirmedAt.getTime()).toBeGreaterThan(failedAt.getTime());
+    const availableAt = new Date(confirmedAt.getTime() + HOLD_MS);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ user_id: 'u1', state: 'pending', available_at: availableAt, payment_id: 'pay-1' })]);
+    expect(t.walletRows('referral_reward')).toEqual([
+      expect.objectContaining({ user_id: 'friend', reference: 'ref-1', state: 'pending', available_at: availableAt, payment_id: 'pay-1' }),
+    ]);
+    expect(t.balance('u1')).toBe(0);
+    expect(t.balance('friend')).toBe(0);
+  });
+
+  it('a wallet purchase can spend cashback once it has matured', async () => {
+    const t = setup();
+    await t.growth.credit('u1', 480, 'topup', 'pay-top', 'Wallet top-up');
+    await earnCashback(t, new Date(Date.now() - 8 * DAY_MS));
+
+    const result = await t.service.initiate(learner, 'c1', { use_wallet: true });
+
+    expect(result).toMatchObject({ confirmed: true, amount_etb: 500 });
+    expect(t.balance('u1')).toBe(5);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ state: 'available' })]);
+  });
+
+  it('a wallet purchase cannot spend cashback that is still pending', async () => {
+    const t = setup();
+    await t.growth.credit('u1', 480, 'topup', 'pay-top', 'Wallet top-up');
+    await earnCashback(t, new Date());
+
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).rejects.toThrow('Wallet balance (480.00 ETB) is not enough for 500.00 ETB');
+    expect(t.balance('u1')).toBe(480);
+    expect(t.walletRows('cashback')).toEqual([expect.objectContaining({ state: 'pending' })]);
+    expect(t.walletRows('purchase')).toHaveLength(0);
+  });
+
+  it('a top-up still lands in the balance at confirmation, with no hold', async () => {
+    const t = setup();
+    t.seed({ purpose: PaymentPurpose.WALLET_TOPUP });
+    await t.service.handleWebhook(successBody, signed(successBody));
+
+    expect(t.balance('u1')).toBe(500);
+    expect(t.walletRows('topup')).toEqual([expect.objectContaining({ amount_etb: '500.00', state: 'available', available_at: null, payment_id: null })]);
   });
 });
 

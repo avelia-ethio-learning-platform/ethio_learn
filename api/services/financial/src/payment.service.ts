@@ -629,7 +629,8 @@ export class PaymentService {
    * - In the transaction, with the status change: the effects that ARE the
    *   purchase (wallet debit, top-up credit). They commit or roll back with it.
    * - In a savepoint each: coupon use, cashback, referral reward. A failure
-   *   there rolls back only that savepoint and never blocks access.
+   *   there rolls back only that savepoint and never blocks access. The
+   *   cashback and reward are pending, held from this confirmation's `now`.
    * - After commit, winner only: WalletCredited, then the access events
    *   (completeEffects), which the re-publish cron retries if they fail.
    *
@@ -669,9 +670,9 @@ export class PaymentService {
 
       await this.inSavepoint(m, payment, 'coupon use', (sp) => this.growth.recordCouponUse(payment.coupon_code ?? null, sp));
       if (purpose !== PaymentPurpose.WALLET_TOPUP) {
-        const cashback = await this.inSavepoint(m, payment, 'cashback', (sp) => this.growth.creditCashback(sp, payment));
+        const cashback = await this.inSavepoint(m, payment, 'cashback', (sp) => this.growth.creditCashback(sp, payment, now));
         if (cashback) credits.push(cashback);
-        const reward = await this.inSavepoint(m, payment, 'referral reward', (sp) => this.growth.rewardReferrer(sp, payment, buyerName));
+        const reward = await this.inSavepoint(m, payment, 'referral reward', (sp) => this.growth.rewardReferrer(sp, payment, buyerName, now));
         if (reward) credits.push(reward);
       }
       return true;
