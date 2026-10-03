@@ -354,8 +354,8 @@ Step 10, `node scripts/e2e-retry-drill.mjs`, 11/11:
 
 **Code review round 1 fixes** (`a6f2dd2`, see code-review.md): B1, S1, S2 and N1–N3. Unit gate on `a6f2dd2`: build ok; `pnpm -C api test` 1333 passed, 1 skipped (9 new specs); typecheck ok. No entity or migration changed. The drills weren't rerun on `a6f2dd2`, because the stack window went back to 8b. S1 changes the supervisor's `kick()`, which the outage drill exercises, so 9b's stack gate, which builds on this branch, reruns both drills.
 
-**In flight / next step (2026-10-03, 22:2x):**
-- Code review round 1 was CHANGES REQUESTED. Every finding is fixed in `a6f2dd2`, with the response in code-review.md. Round 2 is requested from ethio-reviewer.
-- The scratch DBs `el_9a_*` are dropped.
-- 9b has started in `../ethi0-9b` on `fix/outbox`, branched from this branch. Later 9a review fixes land here first, then get merged into `fix/outbox`.
-- After APPROVED: don't push. Tell ethio-planner [aeff2b]. 9a ships with 9b, once 9b is APPROVED too.
+**Code review:** round 1 CHANGES REQUESTED, fixed in `a6f2dd2`. Round 2 APPROVED, with S3 (a flaky certificate spec) fixed in `15a7834`; the full api suite was then green 5 of 5 times.
+
+**In flight / next step:**
+- 9a is APPROVED and held: no push. It ships with 9b (`fix/outbox`, branched from here, in `../ethi0-9b`) once 9b is APPROVED. ethio-planner [aeff2b] is told.
+- Any later 9a fix lands here first and is then merged into `fix/outbox`.
