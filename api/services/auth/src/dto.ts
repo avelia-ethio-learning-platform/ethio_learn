@@ -68,6 +68,12 @@ export class ResetPasswordDto {
   email: string;
 }
 
+export class ResendVerificationDto {
+  @IsEmail()
+  @MaxLength(254)
+  email: string;
+}
+
 export class ResetPasswordConfirmDto {
   @IsString()
   token: string;

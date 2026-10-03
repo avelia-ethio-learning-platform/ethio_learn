@@ -1,12 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, MoreThan, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { randomBytes, randomUUID } from 'crypto';
 import Redis from 'ioredis';
 import { env, EventBusService } from '@ethiopialearn/common';
-import { PasswordResetRequestedPayload, Role, UserRegisteredPayload, UserStatus } from '@ethiopialearn/contracts';
+import { PasswordResetRequestedPayload, Role, UserRegisteredPayload, UserStatus, VerificationEmailRequestedPayload } from '@ethiopialearn/contracts';
 import { EmailVerification, InstitutionInstructor, PasswordReset, User } from './entities';
 import { ChangePasswordDto, LoginDto, SignupDto } from './dto';
 
@@ -32,6 +32,17 @@ const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 3600; // 7 days (spec §0.3)
 const VERIFY_TOKEN_TTL_HOURS = 24;
 const RESET_TOKEN_TTL_MINUTES = 30;
 const INVITE_TOKEN_TTL_DAYS = 7; // invited staff / instructors set their own password within a week
+// Resend caps per account, counted from email_verifications rows (signup's link included).
+const RESEND_INTERVAL_MS = 60 * 1000; // at most 1 link in the last 60 s
+const RESEND_WINDOW_MS = 24 * 3600 * 1000;
+const RESEND_MAX_PER_WINDOW = 5; // and 5 in the last 24 h
+
+/** The only answer resend-verification gives to a valid request. */
+export const RESEND_VERIFICATION_MESSAGE = "If an unverified account exists for that email, we've sent a new link.";
+
+type ResendResult =
+  | { outcome: 'unknown' | 'inactive' | 'already_verified' | 'capped' }
+  | { outcome: 'sent'; user: User; token: string };
 
 @Injectable()
 export class AuthService {
@@ -45,6 +56,7 @@ export class AuthService {
     @InjectRepository(PasswordReset) private readonly resets: Repository<PasswordReset>,
     @InjectRepository(InstitutionInstructor) private readonly memberships: Repository<InstitutionInstructor>,
     private readonly bus: EventBusService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async signup(dto: SignupDto): Promise<{ user_id: string }> {
@@ -63,25 +75,72 @@ export class AuthService {
       }),
     );
 
-    const token = randomBytes(32).toString('hex');
-    await this.verifications.save(
-      this.verifications.create({
-        user_id: user.id,
-        token,
-        expires_at: new Date(Date.now() + VERIFY_TOKEN_TTL_HOURS * 3600 * 1000),
-        used_at: null,
-      }),
-    );
+    const verification = this.newVerification(user.id);
+    await this.verifications.save(this.verifications.create(verification));
 
     await this.bus.publish<UserRegisteredPayload>('UserRegistered', {
       user_id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
-      verification_url: `${this.webUrl}/verify-email?token=${token}`,
+      verification_url: this.verificationUrl(verification.token),
     });
 
     return { user_id: user.id };
+  }
+
+  /**
+   * Send a fresh verification link to an unverified account (P1-34). The answer
+   * is the same whether the account is unknown, verified, suspended, banned or
+   * over its cap, so it never tells anyone which emails have accounts (a 429
+   * here would). Per account: 1 link in the last 60 s and 5 in the last 24 h.
+   *
+   * The check runs under a lock on the user row (SELECT … FOR UPDATE), so
+   * parallel resends for one account queue there and each reads the rows the
+   * one before it committed. Without it a burst would all read "none in the
+   * last minute" and each send an email. The event goes out after the commit.
+   */
+  async resendVerification(email: string): Promise<{ message: string }> {
+    const found = await this.users.findOne({ select: { id: true }, where: { email: email.toLowerCase().trim() } });
+    if (!found) {
+      this.logger.log('resend_verification outcome=unknown');
+      return { message: RESEND_VERIFICATION_MESSAGE };
+    }
+
+    const result = await this.dataSource.transaction(async (m): Promise<ResendResult> => {
+      const user = await m.getRepository(User).findOne({ where: { id: found.id }, lock: { mode: 'pessimistic_write' } });
+      if (!user) return { outcome: 'unknown' };
+      if (user.status !== UserStatus.ACTIVE) return { outcome: 'inactive' };
+      if (user.email_verified_at) return { outcome: 'already_verified' };
+      const verifications = m.getRepository(EmailVerification);
+      const issuedWithin = (ms: number) =>
+        verifications.count({ where: { user_id: user.id, created_at: MoreThan(new Date(Date.now() - ms)) } });
+      if ((await issuedWithin(RESEND_INTERVAL_MS)) > 0 || (await issuedWithin(RESEND_WINDOW_MS)) >= RESEND_MAX_PER_WINDOW) {
+        return { outcome: 'capped' };
+      }
+      const verification = this.newVerification(user.id);
+      await verifications.save(verifications.create(verification));
+      return { outcome: 'sent', user, token: verification.token };
+    });
+
+    if (result.outcome !== 'sent') {
+      this.logger.log(`resend_verification outcome=${result.outcome} user_id=${found.id}`);
+      return { message: RESEND_VERIFICATION_MESSAGE };
+    }
+    try {
+      await this.bus.publish<VerificationEmailRequestedPayload>('VerificationEmailRequested', {
+        user_id: result.user.id,
+        email: result.user.email,
+        name: result.user.name,
+        verification_url: this.verificationUrl(result.token),
+      });
+      this.logger.log(`resend_verification outcome=sent user_id=${found.id}`);
+    } catch (err) {
+      // Still the same answer: an error only here would say "this account exists and is unverified".
+      // The saved link counts toward the cap, so the learner can try again after 60 s.
+      this.logger.error(`resend_verification user_id=${found.id}: link saved but VerificationEmailRequested not published: ${(err as Error).message}`);
+    }
+    return { message: RESEND_VERIFICATION_MESSAGE };
   }
 
   async verifyEmail(token: string): Promise<{ message: string }> {
@@ -397,6 +456,20 @@ export class AuthService {
       issuer: 'ethiopialearn',
       algorithm: 'HS256', // pinned; the gateway verifies with algorithms:['HS256']
     });
+  }
+
+  /** A single-use verification link (24 h), the same for signup and resend. */
+  private newVerification(userId: string): Pick<EmailVerification, 'user_id' | 'token' | 'expires_at' | 'used_at'> {
+    return {
+      user_id: userId,
+      token: randomBytes(32).toString('hex'),
+      expires_at: new Date(Date.now() + VERIFY_TOKEN_TTL_HOURS * 3600 * 1000),
+      used_at: null,
+    };
+  }
+
+  private verificationUrl(token: string): string {
+    return `${this.webUrl}/verify-email?token=${token}`;
   }
 
   private assertActive(user: User) {

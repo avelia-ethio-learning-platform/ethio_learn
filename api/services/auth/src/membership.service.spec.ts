@@ -458,7 +458,7 @@ describe('AuthService.acceptInvite (the emailed setup link)', () => {
 
   function authFor(t: ReturnType<typeof setup>, userId: string) {
     const resets = memRepo([{ id: 'r1', user_id: userId, token: 'tok', expires_at: new Date(Date.now() + 3600_000), used_at: null }], 'r');
-    const auth = new AuthService(t.users as never, {} as never, resets as never, t.members as never, t.bus as never);
+    const auth = new AuthService(t.users as never, {} as never, resets as never, t.members as never, t.bus as never, {} as never);
     // Swap the ioredis connection opened at field init for a stub (only token issuing is used here).
     const real = (auth as unknown as { redis: { disconnect?: () => void } }).redis;
     real?.disconnect?.();
