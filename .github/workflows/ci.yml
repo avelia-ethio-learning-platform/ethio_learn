@@ -203,6 +203,8 @@ jobs:
             web/pnpm-lock.yaml
       - run: pnpm -C api install --frozen-lockfile
       - run: pnpm -C web install --frozen-lockfile
+      # The api packages' types point at dist: unbuilt, type-aware rules can't see them.
+      - run: pnpm -C api build
       - run: node scripts/lint-check.mjs
 
   # ---- audit: known vulnerabilities in production dependencies; never fails ----

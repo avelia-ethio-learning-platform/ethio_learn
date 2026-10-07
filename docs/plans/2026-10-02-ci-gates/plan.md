@@ -273,8 +273,9 @@ ethio-impl, worktree `../ethi0-11a`, branch `chore/ci-gates` (from origin/main; 
   - steps 1–8 are done; step 9's local gate is green;
   - draft PR #32 is pushed at `8987efc`. CI on `8987efc`: api, web, lint, audit and secret-scan pass; `e2e` was still running at the checkpoint (it passed on `220e2c0`, and the later commits change only `ci.yml`'s audit steps and docs). Check it with `gh pr checks 32`.
 - **2026-10-07, ethio-impl [5d9058]:** CI on `8987efc` is all green, `e2e` included (12 m 49 s). The Rollout commands went to ethio-planner [5b0124] for USER-ACTIONS, and code review round 1 was requested from ethio-plan-review [1a4214]. `origin/main` is still `f8e70bc`, the branch's merge base.
+- **2026-10-07, round 1 APPROVED** (ethio-plan-review): S1 fixed (the `lint` job builds api; baseline regenerated with api built, `no-floating-promises` 55), N1 and N2 taken, in one commit with the review file. See `code-review.md`.
 - **Next:**
-  1. Answer the review findings inline in `code-review.md`, commit and send "Round N addressed".
+  1. CI green on the fix commit, then mark PR #32 ready and merge it (`gh pr merge 32 --merge`). Tell ethio-planner, so 11d can follow.
   3. Before the merge: merge origin/main (keep 9a's `/ready` wait and 9c's `tini` if they've landed), regenerate the lint baseline (`node scripts/lint-check.mjs --update`), then mark the PR ready.
 - **Rollout commands to send** (the owner's token has admin and `repo`; all were checked read-only, never run):
   1. After the merge, from an up-to-date `main` checkout: `gh api -X POST repos/avelia-ethio-learning-platform/ethio_learn/rulesets --input .github/rulesets/main.json`. Verify with `gh api repos/avelia-ethio-learning-platform/ethio_learn/rulesets --jq '.[] | "\(.name) \(.enforcement)"'`, which should print `main active`.

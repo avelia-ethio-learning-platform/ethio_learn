@@ -116,7 +116,7 @@ The log names each variable, never its value, so a failed boot says what to set.
 
 **Lint:**
 - the `lint` job fails only when a rule's problem count rises above [`.github/lint-baseline.json`](../.github/lint-baseline.json);
-- when a PR lowers it, run `node scripts/lint-check.mjs --update` and commit the new baseline.
+- when a PR lowers it, run `pnpm -C api build && node scripts/lint-check.mjs --update` and commit the new baseline. Without the build, type-aware rules can't see the api packages' types, and the counts come out lower.
 
 ## Environments
 

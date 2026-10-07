@@ -4,12 +4,14 @@
 // rule whose count went up does, and its findings are printed.
 //   node scripts/lint-check.mjs            # check (CI's `lint` job)
 //   node scripts/lint-check.mjs --update   # rewrite the baseline (after a PR lowers it)
-// Needs both workspaces installed (pnpm install in api/ and web/).
+// Needs both workspaces installed (pnpm install in api/ and web/), and api built
+// (pnpm -C api build), so the api packages' types resolve.
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE = join(ROOT, '.github/lint-baseline.json');
 const PACKAGES = ['api', 'web'];
 

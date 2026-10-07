@@ -46,3 +46,7 @@ updates:
     directories: [/api, /web]
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 5
+    ignore:
+      # The digest and Node 22's minors only; a new Node major is a planned change.
+      - dependency-name: node
+        update-types: [version-update:semver-major]

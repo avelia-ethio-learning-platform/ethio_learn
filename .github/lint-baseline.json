@@ -1,7 +1,7 @@
 {
   "api": {
     "@typescript-eslint/no-explicit-any": 131,
-    "@typescript-eslint/no-floating-promises": 48,
+    "@typescript-eslint/no-floating-promises": 55,
     "@typescript-eslint/no-require-imports": 1,
     "@typescript-eslint/no-unsafe-function-type": 10,
     "@typescript-eslint/no-unused-vars": 13,

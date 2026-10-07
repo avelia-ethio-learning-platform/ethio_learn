@@ -96,7 +96,7 @@ node scripts/demo-seed.mjs
 | Frontend unit/component (vitest) | i18n en/am key parity, `api()` error/refresh handling, `<PasswordStrength />` | `pnpm -C web test` |
 | End-to-end (against a running stack) | full business flow: educator → QO approval → publish → enroll → complete → certificate | `node scripts/demo-seed.mjs` |
 | E2E smoke assertions | security envelope (401/403/404, header spoofing, internal token), video watch-progress flow, optional brute-force 429 | `node scripts/e2e-smoke.mjs` (add `E2E_CHECK_RATE_LIMIT=1` to include the 429 check — throttles your IP for ~1 min) |
-| Lint | ESLint (`typescript-eslint` in api, `next/core-web-vitals` in web); fails only when a rule's count rises above `.github/lint-baseline.json` | `node scripts/lint-check.mjs` |
+| Lint | ESLint (`typescript-eslint` in api, `next/core-web-vitals` in web); fails only when a rule's count rises above `.github/lint-baseline.json` | `pnpm -C api build && node scripts/lint-check.mjs` (api's package types come from its build) |
 | Schema drift | every entity matches the database, i.e. no entity change shipped without its migration (read-only) | `pnpm -C api db:check` |
 
 Watch mode while developing: `pnpm -C api test -- --watch` / `pnpm -C web exec vitest`.
