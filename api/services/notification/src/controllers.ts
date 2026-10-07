@@ -51,7 +51,7 @@ class PreferencesDto {
   inactivity_emails?: boolean;
 }
 
-/** Platform announcement: new feature, maintenance, campaign. In-app only (see notes in FEATURES_ADDED.md). */
+/** Platform announcement: new feature, maintenance, campaign. In-app only (see notes in docs/history/FEATURES_ADDED.md). */
 class BroadcastDto {
   @IsString()
   @MaxLength(120)

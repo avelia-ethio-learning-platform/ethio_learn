@@ -1,0 +1,44 @@
+name: Docker build
+
+# Build-only check of the images (nothing is pushed: Render builds from the
+# repo). Runs only on PRs that touch what the images are built from. Not a
+# required check, since it doesn't run on every PR.
+on:
+  pull_request:
+    paths:
+      - api/Dockerfile
+      - api/.dockerignore
+      - api/pnpm-lock.yaml
+      - web/Dockerfile
+      - web/.dockerignore
+      - web/pnpm-lock.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: gateway, context: api, pkg: '@ethiopialearn/gateway' }
+          - { name: auth, context: api, pkg: '@ethiopialearn/auth-service' }
+          - { name: course, context: api, pkg: '@ethiopialearn/course-service' }
+          - { name: enrollment, context: api, pkg: '@ethiopialearn/enrollment-service' }
+          - { name: outcomes, context: api, pkg: '@ethiopialearn/outcomes-service' }
+          - { name: financial, context: api, pkg: '@ethiopialearn/financial-service' }
+          - { name: quality, context: api, pkg: '@ethiopialearn/quality-service' }
+          - { name: notification, context: api, pkg: '@ethiopialearn/notification-service' }
+          - { name: web, context: web, pkg: '' }
+    name: docker-build (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v7
+      - name: docker build
+        run: docker build --build-arg "PKG=${{ matrix.pkg }}" -t "check-${{ matrix.name }}" ${{ matrix.context }}

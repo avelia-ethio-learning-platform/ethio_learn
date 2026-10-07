@@ -9,14 +9,18 @@
     "test": "jest",
     "typecheck": "turbo run typecheck",
     "seed": "pnpm --filter @ethiopialearn/auth-service seed",
-    "db:check": "turbo run build --output-logs=errors-only && node scripts/db-check.mjs"
+    "db:check": "turbo run build --output-logs=errors-only && node scripts/db-check.mjs",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "@eslint/js": "^9",
     "@types/jest": "^30.0.0",
+    "eslint": "^9",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
     "turbo": "^2.0.6",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8"
   },
   "packageManager": "pnpm@9.4.0",
   "engines": {

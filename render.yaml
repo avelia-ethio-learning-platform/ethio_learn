@@ -9,6 +9,10 @@
 # Render prompts once for every `sync: false` value (the secrets); nothing
 # sensitive is committed here.
 #
+# Deploys: every service has `autoDeployTrigger: checksPass`, so a push to main
+# deploys only once every GitHub check on that commit has passed (CI's api, web,
+# e2e, secret-scan, lint and audit). See docs/DEPLOYMENT.md, "Gates".
+#
 # Region note: Neon lives in us-east-2, so `ohio` keeps query latency low.
 # Every service must stay in the same region to keep the mesh calls cheap.
 
@@ -145,6 +149,7 @@ services:
     runtime: docker
     repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
     branch: main
+    autoDeployTrigger: checksPass
     region: ohio
     plan: free
     dockerfilePath: ./api/Dockerfile
@@ -184,6 +189,7 @@ services:
     runtime: docker
     repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
     branch: main
+    autoDeployTrigger: checksPass
     region: ohio
     plan: free
     dockerfilePath: ./api/Dockerfile
@@ -199,6 +205,7 @@ services:
     runtime: docker
     repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
     branch: main
+    autoDeployTrigger: checksPass
     region: ohio
     plan: free
     dockerfilePath: ./api/Dockerfile
@@ -214,6 +221,7 @@ services:
     runtime: docker
     repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
     branch: main
+    autoDeployTrigger: checksPass
     region: ohio
     plan: free
     dockerfilePath: ./api/Dockerfile
@@ -229,6 +237,7 @@ services:
     runtime: docker
     repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
     branch: main
+    autoDeployTrigger: checksPass
     region: ohio
     plan: free
     dockerfilePath: ./api/Dockerfile
@@ -244,6 +253,7 @@ services:
     runtime: docker
     repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
     branch: main
+    autoDeployTrigger: checksPass
     region: ohio
     plan: free
     dockerfilePath: ./api/Dockerfile
@@ -259,6 +269,7 @@ services:
     runtime: docker
     repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
     branch: main
+    autoDeployTrigger: checksPass
     region: ohio
     plan: free
     dockerfilePath: ./api/Dockerfile
@@ -274,6 +285,7 @@ services:
     runtime: docker
     repo: https://github.com/avelia-ethio-learning-platform/ethio_learn
     branch: main
+    autoDeployTrigger: checksPass
     region: ohio
     plan: free
     dockerfilePath: ./api/Dockerfile

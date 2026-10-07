@@ -10,7 +10,7 @@ Browser ──► Next.js web (SSR/ISR public pages, CSR dashboards, en/am i18n)
                 ▼
         API Gateway (NestJS)  ← the ONLY public entry point
    JWT verify · role headers · rate limit · helmet · route table
-                │ proxies (private network)
+                │ proxies (public service URLs + internal token)
    ┌────────┬───┴────┬──────────┬──────────┬──────────┬─────────┬─────────────┐
    ▼        ▼        ▼          ▼          ▼          ▼         ▼
  Auth &   Course & Enrollment Learning  Financial  Quality & Notification
@@ -38,12 +38,12 @@ Browser ──► Next.js web (SSR/ISR public pages, CSR dashboards, en/am i18n)
 - **Identity & access** — email/password signup with verification link, JWT + rotating-refresh-cookie login (Redis allowlist), password reset, strong-password enforcement, 5 roles (learner, educator, institution admin, quality officer, platform admin), institution instructor invitations that the user accepts (an institution admin can suspend or remove a membership, never the account), admin user management.
 - **Courses & content** — draft → institution review → QO review → published lifecycle; sections/lessons; presigned video upload; signed, entitlement-gated streaming URLs; freemium free-preview sections; AI course-outline generation (Groq) with human review before applying; course cloning; catalog search/sort/categories; public educator profiles.
 - **Enrollment & learning** — instant free/freemium enrollment; paid enrollment gated on a confirmed payment; per-lesson completion; **video watch-percentage tracking with resume-where-you-left-off** (high-water mark, ≥90% auto-completes); course progress; certificates on completion.
-- **Payments (Chapa)** — initiate → hosted checkout → HMAC-verified webhook → server-side re-verify with amount/currency tamper checks → idempotent confirm → entitlement; browser-triggered reconcile plus an automatic background sweep for missed webhooks; mock gateway for offline dev; manual bank-transfer fallback; admin payment ledger.
+- **Payments (Chapa)** — initiate → hosted checkout → HMAC-verified webhook → server-side re-verify with amount/currency tamper checks → idempotent confirm → entitlement; browser-triggered reconcile plus a background sweep for missed webhooks (it runs while the financial service is awake); mock gateway for offline dev; manual bank-transfer fallback; admin payment ledger.
 - **Refunds & payouts** — rule-based refund decisions (auto-approve/manual-review/deny), 80/20 revenue split, 7/14-day settlement holds, KYC and fraud holds, payout runs and releases, educator balance view.
 - **Assessments & outcomes** — quizzes/assessments with attempts and scoring, tamper-evident HMAC-signed certificates with a public verification page, webcam proctoring assets.
 - **Quality & trust** — purchase-gated reviews with rating aggregates, QA review queue, fraud flags wired to payout holds, appeals flow.
 - **Community & notifications** — rate-limited community posts/replies, in-app notifications, transactional email (SMTP/Resend/console) for receipts, enrollment and verification.
-- **Platform engineering** — single public API gateway with JWT auth, risk-bucketed per-route rate limiting, header-spoofing protection, internal-token service mesh; event-driven microservices over RabbitMQ; schema-per-service Postgres; English/Amharic i18n; unit + e2e test suites; GitHub Actions CI/CD publishing images to GHCR; fully Dockerized.
+- **Platform engineering** — single public API gateway with JWT auth, risk-bucketed per-route rate limiting, header-spoofing protection, internal-token service mesh; event-driven microservices over RabbitMQ; schema-per-service Postgres; English/Amharic i18n; unit + e2e test suites; GitHub Actions CI gating every merge and Render deploy; fully Dockerized.
 
 ## Quick start (local dev)
 
@@ -96,6 +96,7 @@ node scripts/demo-seed.mjs
 | Frontend unit/component (vitest) | i18n en/am key parity, `api()` error/refresh handling, `<PasswordStrength />` | `pnpm -C web test` |
 | End-to-end (against a running stack) | full business flow: educator → QO approval → publish → enroll → complete → certificate | `node scripts/demo-seed.mjs` |
 | E2E smoke assertions | security envelope (401/403/404, header spoofing, internal token), video watch-progress flow, optional brute-force 429 | `node scripts/e2e-smoke.mjs` (add `E2E_CHECK_RATE_LIMIT=1` to include the 429 check — throttles your IP for ~1 min) |
+| Lint | ESLint (`typescript-eslint` in api, `next/core-web-vitals` in web); fails only when a rule's count rises above `.github/lint-baseline.json` | `pnpm -C api build && node scripts/lint-check.mjs` (api's package types come from its build) |
 | Schema drift | every entity matches the database, i.e. no entity change shipped without its migration (read-only) | `pnpm -C api db:check` |
 
 Watch mode while developing: `pnpm -C api test -- --watch` / `pnpm -C web exec vitest`.
@@ -157,7 +158,7 @@ Everything runs with **zero external credentials**; real providers switch on aut
 ## Spec compliance highlights
 
 - **Auth**: email + password only, verification **link** (no OTP), JWT access 15 min + refresh 7 days in an `httpOnly` cookie (rotated, Redis-allowlisted). Exactly 5 roles. No SMS anywhere.
-- **Payments**: Chapa initialize → redirect → webhook with **HMAC-SHA256 verified on the raw body** (timing-safe) → server-side verify → `PaymentConfirmed`. `tx_ref` idempotency (duplicate webhooks are no-ops). Webhook always returns 200. A background sweep (`@Cron('*/2 * * * *')` in financial-service) re-verifies any payment still pending after a minute, so a missed webhook or an abandoned return page never strands a real payment.
+- **Payments**: Chapa initialize → redirect → webhook with **HMAC-SHA256 verified on the raw body** (timing-safe) → server-side verify → `PaymentConfirmed`. `tx_ref` idempotency (duplicate webhooks are no-ops). Webhook always returns 200. A background sweep (`@Cron('*/2 * * * *')` in financial-service) re-verifies any payment still pending after a minute. It runs only while the service is awake, since a sleeping free Render instance runs no cron (docs/DEPLOYMENT.md, "Cold starts and waking").
 - **Entitlement**: granted **only** by the Enrollment & Progress service, **only** from a verified `PaymentConfirmed` event (or direct enrollment for free courses).
 - **Content protection**: raw S3 keys never leave the backend; playback uses signed, 15-minute URLs issued after a server-side entitlement check. Freemium preview sections are the only exception.
 - **Revenue split**: 80/20 computed at payout time; 7-day settlement hold (14 days for `new`-tier educators), fraud-flag holds, pending-refund holds, `KYC_PAYOUT_THRESHOLD_ETB` gate; nightly cron + admin-triggered `POST /payouts/run`.
@@ -197,6 +198,10 @@ scripts/demo-seed.mjs end-to-end API smoke/demo flow
 2. Log in as the learner, open the course, click **Buy with Chapa** → you land on `/dev/checkout` (mock Chapa).
 3. Click **Pay (simulate success)** → a signed webhook hits the Financial service → HMAC verified → `PaymentConfirmed` → entitlement granted → the return page's poll unlocks the course.
 
+## Deployment
+
+Production is eight Render services plus the web on Vercel: see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Changes reach `main` only through a pull request with green checks, and Render deploys after the checks pass.
+
 ## Environment variables
 
-See [api/.env.example](api/.env.example). Set `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` to strong random values before any non-local deployment. In production (`NODE_ENV=production`) every service and the gateway refuse to boot when one they need is missing, shorter than 32 characters or a value from the repo, when `REQUIRE_INTERNAL_TOKEN` is turned off, or when `WEB_URL` or `GATEWAY_PUBLIC_URL` point at localhost. The log names each variable, never its value.
+See [api/.env.example](api/.env.example) and [web/.env.example](web/.env.example). Set `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` to strong random values before any non-local deployment. In production (`NODE_ENV=production`) every service and the gateway refuse to boot when one they need is missing, shorter than 32 characters or a value from the repo, when `REQUIRE_INTERNAL_TOKEN` is turned off, or when `WEB_URL` or `GATEWAY_PUBLIC_URL` point at localhost. The log names each variable, never its value.
