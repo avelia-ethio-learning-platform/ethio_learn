@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ConfirmProvider } from '@/components/confirm/ConfirmProvider';
 import type { Membership } from './instructor-manager';
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }));
@@ -16,7 +17,7 @@ const MEMBERS: Membership[] = [
   { membership_id: 'm2', status: 'active', status_reason: null, email: 'abebe@x.et', user: { id: 'u2', name: 'Abebe', role: 'educator' } },
   { membership_id: 'm3', status: 'suspended', status_reason: 'late grading', email: 'sara@x.et', user: { id: 'u3', name: 'Sara', role: 'educator' } },
   { membership_id: 'm4', status: 'declined', status_reason: null, email: 'no@x.et' },
-  { membership_id: 'm5', status: 'removed', status_reason: null, email: 'gone@x.et', user: { id: 'u5', name: 'Gone', role: 'educator' } },
+  { membership_id: 'm5', status: 'removed', status_reason: 'Left the institution', email: 'gone@x.et', user: { id: 'u5', name: 'Gone', role: 'educator' } },
 ];
 
 beforeEach(() => {
@@ -25,13 +26,14 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
 });
 
 async function renderManager() {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <InstructorManager institutionId="inst1" />
+      <ConfirmProvider>
+        <InstructorManager institutionId="inst1" />
+      </ConfirmProvider>
     </QueryClientProvider>,
   );
   await screen.findByTestId('member-m1');
@@ -39,6 +41,8 @@ async function renderManager() {
 
 const row = (id: string) => within(screen.getByTestId(`member-${id}`));
 const actions = (id: string) => row(id).queryAllByRole('button').map((b) => b.textContent);
+const dialog = () => document.querySelector('dialog')!;
+const settle = () => act(async () => {});
 const writes = () => apiMock.mock.calls.filter((c) => c[1]?.method === 'POST');
 
 describe('InstructorManager', () => {
@@ -59,31 +63,49 @@ describe('InstructorManager', () => {
     expect(screen.getByTestId('member-m3').textContent).toContain('late grading');
   });
 
-  it('sends nothing when the suspend reason prompt is cancelled', async () => {
-    vi.stubGlobal('prompt', vi.fn(() => null));
+  it('shows why a removed member is gone', async () => {
+    await renderManager();
+    expect(screen.getByTestId('member-m5').textContent).toContain('Left the institution');
+  });
+
+  it('sends nothing when the suspend dialog is cancelled', async () => {
     await renderManager();
     fireEvent.click(row('m2').getByRole('button', { name: 'Suspend' }));
+    expect(within(dialog()).getByText('Suspend Abebe?')).toBeTruthy();
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    await settle();
     expect(writes()).toEqual([]);
   });
 
-  it('suspends the membership by its id, with the reason', async () => {
-    vi.stubGlobal('prompt', vi.fn(() => 'late grading'));
+  it('suspends the membership by its id, with the reason typed in the dialog', async () => {
     await renderManager();
     fireEvent.click(row('m2').getByRole('button', { name: 'Suspend' }));
+    fireEvent.change(within(dialog()).getByLabelText('Reason (optional)'), { target: { value: 'late grading' } });
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Suspend' }));
     await waitFor(() =>
       expect(writes()).toEqual([['/institutions/inst1/instructors/m2/status', { method: 'POST', body: { status: 'suspended', reason: 'late grading' } }]]),
     );
   });
 
   it('cancels an invitation without asking, and asks before removing a member', async () => {
-    const confirm = vi.fn(() => false);
-    vi.stubGlobal('confirm', confirm);
     await renderManager();
     fireEvent.click(row('m1').getByRole('button', { name: 'Cancel invite' }));
     await waitFor(() => expect(writes()).toEqual([['/institutions/inst1/instructors/m1/status', { method: 'POST', body: { status: 'removed', reason: undefined } }]]));
     fireEvent.click(row('m2').getByRole('button', { name: 'Remove' }));
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(within(dialog()).getByText('Remove Abebe from your institution?')).toBeTruthy();
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    await settle();
     expect(writes()).toHaveLength(1);
+  });
+
+  it('shows a failed status change as an alert', async () => {
+    await renderManager();
+    apiMock.mockImplementation(async (path: string, opts?: { method?: string }) => {
+      if (opts?.method) throw new Error('Not allowed');
+      return MEMBERS;
+    });
+    fireEvent.click(row('m3').getByRole('button', { name: 'Reactivate' }));
+    expect((await screen.findAllByRole('alert')).some((n) => n.textContent === 'Not allowed')).toBe(true);
   });
 
   it('re-invites a declined membership by email', async () => {

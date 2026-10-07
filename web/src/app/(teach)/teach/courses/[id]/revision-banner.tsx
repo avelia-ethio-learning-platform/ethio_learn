@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { FormEvent, useState } from 'react';
-import { Eye, GitPullRequestArrow, Lock, Radio, Undo2 } from 'lucide-react';
+import { Eye, FilePenLine, GitPullRequestArrow, Lock, Radio, Undo2 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { useActiveLessonUploads, WAIT_FOR_UPLOAD } from './video-upload';
 import { stagedChangeChips, type WorkingCourse } from './working';
 import { formatDate } from '@/lib/format';
@@ -18,7 +20,8 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
   const [summary, setSummary] = useState('');
   const [major, setMajor] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const ask = useConfirm();
+  const [status, , setError, clearStatus] = useFormStatus();
   const revision = course.revision;
   const inReview = !!revision && (revision.status === 'submitted' || revision.status === 'institution_review');
   // Submitting locks editing, so a video that finishes afterwards cannot attach (409) and the
@@ -28,7 +31,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
   /** POST a revision action; the success message may depend on the response. Resolves false on failure. */
   const call = async <T,>(path: string, done: string | ((res: T) => string), body?: unknown): Promise<boolean> => {
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       const res = await api<T>(`/courses/${course.id}/revisions/${path}`, { method: 'POST', body });
       onChanged(typeof done === 'function' ? done(res) : done);
@@ -66,7 +69,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
   return (
     <div className="space-y-3">
       <p className="flex items-start gap-2 rounded-2xl border border-brand-400/30 bg-brand-500/5 px-4 py-3 text-sm text-gray-700">
-        <Radio className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+        <Radio className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" aria-hidden />
         <span>
           <b>Live course</b> — your edits are staged and go live after a quality review. Learners keep seeing the approved version until then.
         </span>
@@ -74,7 +77,9 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
 
       {notes && (
         <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-          <p className="font-semibold">📝 Changes requested on your update</p>
+          <p className="flex items-center gap-1.5 font-semibold">
+            <FilePenLine className="h-4 w-4 shrink-0" aria-hidden /> Changes requested on your update
+          </p>
           <p className="mt-1 whitespace-pre-wrap">{notes}</p>
         </div>
       )}
@@ -101,7 +106,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
             </button>
             <PreviewLink courseId={course.id} revisionId={revision.id} />
           </div>
-          {error && <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
+          <FormStatus status={status} />
         </div>
       ) : course.has_pending_changes ? (
         <form onSubmit={submit} className="card !border-brand-400/40">
@@ -137,11 +142,16 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
             <button
               type="button"
               className="btn-ghost !text-red-600 dark:!text-red-400"
-              disabled={busy}
-              onClick={() => {
-                if (confirm('Discard all staged changes? New sections, lessons, videos and notes you added since approval are deleted. This cannot be undone.')) {
-                  void call('discard', 'Changes discarded — the course is back to its approved version.');
-                }
+              aria-disabled={busy}
+              onClick={async () => {
+                if (busy) return; // aria-disabled, not disabled: the clicked button keeps the focus the dialog gives back
+                const ok = await ask({
+                  title: 'Discard all staged changes?',
+                  body: 'New sections, lessons, videos and notes you added since approval are deleted. This cannot be undone.',
+                  confirmLabel: 'Discard changes',
+                  tone: 'danger',
+                });
+                if (ok) void call('discard', 'Changes discarded — the course is back to its approved version.');
               }}
             >
               Discard changes
@@ -149,7 +159,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
             {revision && <PreviewLink courseId={course.id} revisionId={revision.id} />}
           </div>
           {uploading && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{WAIT_FOR_UPLOAD}</p>}
-          {error && <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
+          <FormStatus status={status} />
         </form>
       ) : null}
     </div>

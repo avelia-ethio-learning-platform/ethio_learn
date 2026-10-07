@@ -2,11 +2,11 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Hls from 'hls.js';
 import { Clapperboard, PlayCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { attachVideo } from '@/lib/video';
 
 interface Lesson {
   id: string;
@@ -51,13 +51,7 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
       const res = await api<{ url: string }>(`/lessons/${lesson.id}/stream-url`);
       const v = videoRef.current;
       if (!v) return;
-      if (res.url.includes('.m3u8') && Hls.isSupported()) {
-        const hls = new Hls();
-        hls.loadSource(res.url);
-        hls.attachMedia(v);
-      } else {
-        v.src = res.url;
-      }
+      await attachVideo(v, res.url);
       v.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       void v.play().catch(() => undefined);
     } catch (e) {
@@ -73,11 +67,11 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
         </span>
         {t('free_preview')}
       </h2>
-      <p className="mt-2 text-sm text-gray-500">Watch these lessons for free before you enroll.</p>
+      <p className="mt-2 text-sm text-gray-500">{t('preview_intro')}</p>
       <div className="mt-4 overflow-hidden rounded-2xl bg-black shadow-elevated">
         <video ref={videoRef} controls className="aspect-video w-full" />
       </div>
-      {playing && <p className="mt-3 text-sm font-semibold text-foreground">Now playing: {playing}</p>}
+      {playing && <p className="mt-3 text-sm font-semibold text-foreground">{t('now_playing', { title: playing })}</p>}
       {error && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{error}</p>}
       <ul className="mt-4 space-y-1">
         {previewLessons.map((l) => (

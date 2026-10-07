@@ -5,5 +5,8 @@ export const THEME_STORAGE_KEY = 'el_theme';
 export const THEME_COLOR_LIGHT = '#2563eb';
 export const THEME_COLOR_DARK = '#0f172a';
 
-/** Inline script source that applies `.dark` before first paint (no FOUC). */
-export const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('${THEME_STORAGE_KEY}');var d=t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`;
+/**
+ * Inline script source that applies `.dark` before first paint (no FOUC), and
+ * sets `<html lang>` from the saved locale so screen readers start in the right language.
+ */
+export const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('${THEME_STORAGE_KEY}');var d=t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');var l=localStorage.getItem('el_locale');if(l==='am'||l==='en')document.documentElement.lang=l;}catch(e){}})();`;

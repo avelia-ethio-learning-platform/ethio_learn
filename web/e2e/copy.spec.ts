@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 
 // P0-16: plain apostrophes in the Help FAQ.
 test('the Help page shows no literal &apos;', async ({ page }) => {

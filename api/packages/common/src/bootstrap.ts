@@ -76,7 +76,8 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
     bus: app.get(EventBusService),
     extra: options.readyChecks?.(app),
   });
-  app.getHttpAdapter().get('/ready', async (_req: unknown, res: any) => {
+  type ReadyResponse = { status(code: number): { set(field: string, value: string): { json(body: unknown): void } } };
+  app.getHttpAdapter().get('/ready', async (_req: unknown, res: ReadyResponse) => {
     const { statusCode, body } = await readiness.check();
     res.status(statusCode).set('cache-control', 'no-store').json(body);
   });

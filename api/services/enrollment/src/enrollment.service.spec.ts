@@ -4,7 +4,7 @@ import { EntitlementStatus, PricingType, Role } from '@ethiopialearn/contracts';
 import { EnrollmentService } from './enrollment.service';
 import { Enrollment } from './entities';
 
-type Emitted = { type: string; payload: any };
+type Emitted = { type: string; payload: Record<string, unknown> };
 
 /**
  * outbox.transaction with the spec's fake manager: emitted events "commit" only
@@ -22,7 +22,7 @@ function fakeOutbox(manager: unknown) {
       const queued: Emitted[] = [];
       inside = true;
       try {
-        const result = await fn(manager, (type, payload) => queued.push({ type, payload }));
+        const result = await fn(manager, (type, payload) => queued.push({ type, payload: payload as Emitted['payload'] }));
         if (failure) throw failure;
         committed.push(...queued);
         return result;

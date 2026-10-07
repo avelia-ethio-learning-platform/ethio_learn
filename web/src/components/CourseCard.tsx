@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { categoryLabel, hasRealThumbnail } from '@/lib/categories';
+import { hasRealThumbnail } from '@/lib/categories';
 import { CourseCover } from './CourseCover';
-import { formatETB } from '@/lib/format';
+import { CategoryName, PriceLabel } from './Localized';
 
 export interface CourseSummary {
   id: string;
@@ -17,14 +17,6 @@ export interface CourseSummary {
 
 const LANG_LABEL: Record<string, string> = { en: 'EN', am: 'አማ' };
 
-export function priceLabel(course: Pick<CourseSummary, 'pricing_type' | 'price_etb'>): string {
-  if (course.pricing_type === 'free') return 'Free';
-  // The server-rendered catalog has no locale context, so it formats in English.
-  const price = course.price_etb == null ? '— ETB' : formatETB(course.price_etb, 'en');
-  if (course.pricing_type === 'freemium') return `Freemium · ${price}`;
-  return price;
-}
-
 /** Course tile used on the landing grid. Server-safe (CSS-only animation). */
 export function CourseCard({ course }: { course: CourseSummary }) {
   const free = course.pricing_type === 'free';
@@ -36,7 +28,11 @@ export function CourseCard({ course }: { course: CourseSummary }) {
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={course.thumbnail_url}
-            alt={course.title}
+            alt="" // the card's heading names the course
+            width={400}
+            height={160}
+            decoding="async"
+            loading="lazy"
             className="h-40 w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
@@ -47,12 +43,12 @@ export function CourseCard({ course }: { course: CourseSummary }) {
             free ? 'bg-emerald-700 text-white' : 'bg-white/85 text-slate-900 dark:bg-slate-900/85 dark:text-white'
           }`}
         >
-          {priceLabel(course)}
+          <PriceLabel pricingType={course.pricing_type} priceEtb={course.price_etb} />
         </span>
       </div>
       <div className="p-5">
         <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand-600">
-          {categoryLabel(course.category)}
+          <CategoryName value={course.category} />
           {course.language && (
             <span className="rounded-md bg-brand-500/10 px-1.5 py-0.5 text-xs font-bold tracking-normal">
               {LANG_LABEL[course.language] ?? course.language.toUpperCase()}

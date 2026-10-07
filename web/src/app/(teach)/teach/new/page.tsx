@@ -3,17 +3,19 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, BookPlus, FileText } from 'lucide-react';
+import { BookPlus, FileText } from 'lucide-react';
 import { api } from '@/lib/api';
 import { COURSE_CATEGORIES } from '@/lib/categories';
 import { RequireRole } from '@/components/RequireRole';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 function NewCourseForm() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [error, setError] = useState('');
+  const [status, , setError, clear] = useFormStatus();
   const [busy, setBusy] = useState<'draft' | 'generate' | null>(null);
   const [pricing, setPricing] = useState('free');
 
@@ -22,7 +24,7 @@ function NewCourseForm() {
     // Which button submitted: "Create and generate from a file" opens the outline generator next.
     const generate = ((e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value === 'generate';
     setBusy(generate ? 'generate' : 'draft');
-    setError('');
+    clear();
     const form = new FormData(e.currentTarget);
     try {
       const course = await api<{ id: string }>('/courses', {
@@ -58,45 +60,36 @@ function NewCourseForm() {
           </div>
         </div>
         <form onSubmit={submit} className="card mt-6 animate-fade-in-up space-y-4 !rounded-3xl">
-          <div>
-            <label className="label">Title (max 120 chars)</label>
-            <input name="title" required minLength={4} maxLength={120} className="input" placeholder="e.g. Practical Web Development in Amharic" />
-          </div>
-          <div>
-            <label className="label">Description (20–2000 chars)</label>
-            <textarea name="description" required minLength={20} maxLength={2000} rows={4} className="input" />
-          </div>
+          <Field label="Title (max 120 chars)">
+            {(ids) => <input {...ids} name="title" required minLength={4} maxLength={120} className="input" placeholder="e.g. Practical Web Development in Amharic" />}
+          </Field>
+          <Field label="Description (20–2000 chars)">
+            {(ids) => <textarea {...ids} name="description" required minLength={20} maxLength={2000} rows={4} className="input" />}
+          </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="label">Category</label>
-              <select name="category" className="input" defaultValue="tech">
-                {COURSE_CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label">Pricing</label>
-              <select value={pricing} onChange={(e) => setPricing(e.target.value)} className="input">
-                <option value="free">Free</option>
-                <option value="freemium">Freemium (first section free)</option>
-                <option value="paid">Paid</option>
-              </select>
-            </div>
+            <Field label="Category">
+              {(ids) => (
+                <select {...ids} name="category" className="input" defaultValue="tech">
+                  {COURSE_CATEGORIES.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label="Pricing">
+              {(ids) => (
+                <select {...ids} value={pricing} onChange={(e) => setPricing(e.target.value)} className="input">
+                  <option value="free">Free</option>
+                  <option value="freemium">Freemium (first section free)</option>
+                  <option value="paid">Paid</option>
+                </select>
+              )}
+            </Field>
           </div>
-          {pricing !== 'free' && (
-            <div>
-              <label className="label">Price (ETB)</label>
-              <input name="price_etb" type="number" min={1} required className="input" />
-            </div>
-          )}
-          {error && (
-            <p className="badge-danger flex w-full items-start gap-2 !whitespace-normal !rounded-xl !px-3 !py-2 !text-sm !font-medium">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
-            </p>
-          )}
+          {pricing !== 'free' && <Field label="Price (ETB)">{(ids) => <input {...ids} name="price_etb" type="number" min={1} required className="input" />}</Field>}
+          <FormStatus status={status} />
           <div className="grid gap-2 sm:grid-cols-2">
             <button className="btn w-full !py-3" name="action" value="draft" disabled={!!busy}>
               {busy === 'draft' ? 'Creating…' : 'Create draft'}
