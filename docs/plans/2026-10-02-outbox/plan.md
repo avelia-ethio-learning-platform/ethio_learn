@@ -1,6 +1,6 @@
 # Phase 9b: Transactional outbox for state changes
 
-Status: approved (round 2); drift check vs 9a (2026-10-03) D1–D2 folded in
+Status: in progress (ethio-impl [5d9058]); steps 1–9 done, code review round 1 requested; approved (round 2), drift check vs 9a (2026-10-03) D1–D2 folded in
 Size: L (sessions: 4 — ethio-impl implements, ethio-plan-review reviews the plan, ethio-reviewer reviews the code)
 Base branch: `fix/event-delivery` (Phase 9a), or `origin/main` once 9a has merged. This phase needs 9a's consumer retry, per-event context and dedupe, because an outbox delivers at least once. · Feature branch: `fix/outbox`
 Roadmap: phase 9b (see 9a's "Roadmap change"). Findings: P1-17. Also gives Phase 4's re-publishes stable event ids, so 9a's dedupe recognizes them.
@@ -171,7 +171,7 @@ Optional env, documented in `api/.env.example`:
   - a relay batch stops at the first failure;
   - cleanup deletes only old published rows.
 - [x] 3. Migrations for the six services. Apply on a fresh DB and on the dev DB; `migration:revert` round-trips; `db:check` clean.
-- [ ] 4. Convert the sites (decision 4), one commit per service: financial, auth, enrollment, course, quality, outcomes.
+- [x] 4. Convert the sites (decision 4), one commit per service: financial, auth, enrollment, course, quality, outcomes.
   - Each service's existing specs stay green.
   - `outbox.transaction` inside an active transaction throws (spec).
   - Add one spec per converted site: the state change and the outbox row commit together, and an error before commit leaves neither.
@@ -182,8 +182,8 @@ Optional env, documented in `api/.env.example`:
     - a redelivery after the insert committed → no new row, and the original outbox row still publishes;
     - a migration spec in the Phase 4 style for the duplicate resolution, asserting one `FraudFlagResolved` outbox row per resolved duplicate.
   - Add completion specs: auth down during `detectCompletion` → `completed_at` set and a `CourseCompleted` row with blank names; outcomes `issue()` with a blank name and auth down → throws (retried), and with auth up → fetches the name and issues.
-- [ ] 5. Phase 4 stable ids (decision 5), plus a spec: two re-publishes of one payment carry the same `event_id`.
-- [ ] 6. Outage drill. Extend 9a's `scripts/e2e-broker-outage.mjs`:
+- [x] 5. Phase 4 stable ids (decision 5), plus a spec: two re-publishes of one payment carry the same `event_id`.
+- [x] 6. Outage drill. Extend 9a's `scripts/e2e-broker-outage.mjs`:
   1. with RabbitMQ stopped, run the five actions from the acceptance criteria through the API, and check each returns success, not a 503, in under 1 s;
   2. check each schema's `outbox` holds the unpublished rows;
   3. start RabbitMQ;
@@ -192,9 +192,9 @@ Optional env, documented in `api/.env.example`:
   6. Flip 9a's QO-decision checks (drift D1): during the outage the decision returns 2xx in under 1 s and the item leaves the queue (was: 503 within 6 s and the item reopens, `:157-160`); after reconnect the course reaches `published` within two relay ticks. Drop the "decide again" step (`:192`).
 
   Record the output in Progress.
-- [ ] 7. Crash drill: in a spec or a scripted run, kill a service between commit and fast-path publish (inject a throw after commit in a test build), restart, and confirm the relay sends the row once.
-- [ ] 8. Docs: `docs/DEPLOYMENT.md` gets an "Outbox" runbook section: what the table is, how to see stuck rows, and how to skip a poison row. Correct the README sweep claim only if it touches the outbox (the general scheduler docs are 9c's).
-- [ ] 9. Full gate:
+- [x] 7. Crash drill: in a spec or a scripted run, kill a service between commit and fast-path publish (inject a throw after commit in a test build), restart, and confirm the relay sends the row once.
+- [x] 8. Docs: `docs/DEPLOYMENT.md` gets an "Outbox" runbook section: what the table is, how to see stuck rows, and how to skip a poison row. Correct the README sweep claim only if it touches the outbox (the general scheduler docs are 9c's).
+- [x] 9. Full gate:
   - `pnpm -C api build && pnpm -C api test && pnpm -C api typecheck && pnpm -C api db:check`;
   - the CI e2e scripts locally (`demo-seed`, `e2e-revisions`, `e2e-institution`, `e2e-payments`, `e2e-smoke`);
   - the Playwright suite is unaffected.
@@ -260,11 +260,98 @@ Optional env, documented in `api/.env.example`:
   - **D2 doesn't apply:** the `CourseReviewed` and `CourseRevisionReviewed` handlers use no `runOnce`.
 - **quality: not started.** The quality agent's reading, with ready designs, is in `step4-quality-notes.md`. It covers the fraud migrations, the raise/decision/spec plans, and one decision for me: the index migration repeats the dedupe, to close a deploy-overlap race.
 
-**In flight / next step (2026-10-03 late, checkpoint for the weekly limit; work resumes Monday 2026-10-05 afternoon):**
-- **Next: finish step 4.** Course's remaining 9 sites first (notes above), then quality (`step4-quality-notes.md`; run quality's new migrations on a scratch DB, as for step 3). Commit each, then run the full api suite. Then tell ethio-impl [9be294] that step 4 is committed: 9c steps 3/5/6/9 and 9d's job-runner wait on it. The sub-agent brief is `step4-brief.md`.
-- **Step 5 is started:** `stableEventId(key)` is in common (`602ef8e`). Use it in `payment.service.ts` `emitConfirmed` and `sponsorship.service.ts` (`publishConfirmed` at :438/:440/:452). Key the sponsorship events by sponsorship id, not only by payment: one bulk payment yields several `SponsorshipGranted` events, and one id for all of them would dedupe real grants away.
-- **Scratch DB `el_9b_gen`** holds every migration, the outbox included. My scratchpad scripts are gone with the old session. To recreate the env in one Bash call: `export PATH=/home/kal/.local/opt/node22/bin:$PATH`, `set -a; . api/.env.example; set +a`, then point `DATABASE_URL` at the same server with database `el_9b_gen` (or a fresh `el_9b_*`), and blank the payment and mail keys as the E2E memory says. Always set the scratch `DATABASE_URL` in the same Bash call as any migration command; never run one against the shared dev DB. The step 3 check is: `migration:run` per service, `node api/scripts/db-check.mjs`, then `migration:revert` + `migration:run` per new migration.
-- **The stack:** steps 6, 7 and 9 need it; ask whoever holds it first.
-- **Peers:** I'm now ethio-impl (4) [5e6b60]; the planner is ethio-planner [31d0d2]. 9a is APPROVED and held; 9a and 9b ship together after 9b is APPROVED.
-- **Remember at merge and PR time:** if 11a has merged when origin/main is merged in, keep `pnpm -C api lint` within `.github/lint-baseline.json` and add this phase's own DEPLOYMENT.md section. The PR description needs the user's read-only query counting duplicate fraud signals.
+**Step 4, finished (2026-10-07, ethio-impl [5d9058]; one sub-agent each for course and quality, with `step4-brief.md`):**
+- **course**, the remaining 9 sites. Every course row in the table now commits with its event.
+  - `course.service.ts`: `archive()` replaces `closeReviewsOnArchive`. It runs two outbox transactions, as the earlier notes said: the status plus the `revision_id: null` withdrawal, then `closeOpenRevision`, because the lock orders differ. `appeal` is the third site.
+  - `revision.service.ts`: `submit`, `withdraw`, `discard`, `apply`/`applyInTransaction` (`CourseUpdated` then `CourseRevisionClosed`, emitted inside the applied transaction; the `withRetry('publish …')` wrappers and the `CourseUpdated` try/catch are gone), `reject`, and `institutionDecideRevision` (its `CourseRevisionSubmitted`).
+  - `publishReturned` stays on `publish()` (Non-goal). So do the notification-only `CourseSubmittedToInstitution`, `CourseInstitutionReviewed`, `CourseUnlisted` and `CourseArchived`, after commit.
+  - **Deviations:**
+    - Owner lookups run before the transaction (no network call inside one). `apply` and `reject` look the owner up on every delivery, stale ones included, so a redelivery costs one extra internal call.
+    - `institutionDecideRevision`'s reject now updates `last_review_action` in the same transaction as the revision (revision→course, the same lock order as apply).
+    - `revision.service.spec.ts`'s fake transaction snapshots and restores its tables on a throw.
+  - **Left alone:** if the flag path's `closeOpenRevision` transaction fails after the flag committed, a redelivery sees a flagged course as stale, and the revision stays open. The same window existed before, and it could also lose the event.
+  - course jest: 8 suites, 334 passed (321 before).
+- **quality**: `decide` (`emitDecision`, with the revert-and-503 deleted; `updateIfActionable` and `findItem` take the transaction's repository), `addReview` (`CourseRated`), `recomputeTier` (`TrustTierChanged`), `raiseFraudSignal` and `resolveFlag`.
+  - **The fraud raise** inserts with `INSERT … ON CONFLICT DO NOTHING RETURNING *` against the new partial unique index. It emits only when a row came back, and on a conflict it returns the open signal. `checkRefundAbuse`'s `findOne` pre-check is gone. The admin `POST fraud/signals` now returns the open signal instead of opening a duplicate.
+  - **D2:** every `recomputeTier`, plagiarism and refund-abuse call runs after its `runOnce` returns. The specs use the real `OutboxService` and `runOnce`: moving `recomputeTier` into a `runOnce` body fails two of them.
+  - **Migrations** `FraudSignalDedupe1791060000000` and `FraudSignalOpenUnique1791060000001`, registered after `Outbox1791054805346`:
+    - the dedupe is one statement with the `INSERT` on top, writing one `FraudFlagResolved` outbox row per resolved duplicate in `resolveFlag`'s payload shape; `detail` gets " (duplicate)";
+    - **deviation: the index migration repeats the dedupe** before its `DROP INDEX CONCURRENTLY IF EXISTS` and `CREATE UNIQUE INDEX CONCURRENTLY`. During a deploy, the old instance can raise a duplicate after the dedupe commits, which would fail the build on every re-run. A duplicate raised during the concurrent build itself still fails the build. Boot then fails, Render keeps the old instance, and a redeploy re-runs it;
+    - the dedupe's `UPDATE` re-checks `status = 'open'`, so a signal an admin resolves meanwhile gets no second event.
+  - **Possible follow-up, not done:** `CourseRated`'s aggregate is read inside the transaction. Two overlapping reviews of one course can each send a count that misses the other. The next review corrects it.
+  - quality jest: 4 suites, 86 passed (70 before), with a new `migrations/fraud-signals.spec.ts`.
+- **Scratch DB check (`el_9b_gen`):**
+  - both quality migrations apply, and `db-check` reports no drift for all seven schemas;
+  - both revert;
+  - with three open duplicates seeded, re-running logs "resolved 2", then "resolved 0" from the index migration. The oldest stays open, the two others are resolved with " (duplicate)", and there are two `FraudFlagResolved` outbox rows whose `flag_id` and `payee_id` match;
+  - the unique index then refuses a new duplicate.
+- **Production dup check (the user, read-only, 2026-10-07):** `0 | 0`, with 0 detail rows (`~/ethio-ops/report-9b-dupcheck-20261007-122206.txt`), so the migration resolves nothing in production.
 
+**Step 5** (stable ids):
+- `emitConfirmed` uses `stableEventId(\`${payment.id}:PaymentConfirmed\`)`, and `onBulkPaid` uses `${payment.id}:BulkPurchaseActivated`.
+- `onSponsoredPaymentConfirmed` keys its events by sponsorship: `${s.id}:SponsorshipGranted` and `${s.id}:SponsorshipInvited`, as the checkpoint note said. A second payer's re-run for an already-granted sponsorship is then the same event.
+- Specs:
+  - "the webhook publish and the cron re-publish of one payment carry the same event id";
+  - the sponsorship and bulk re-publish specs assert one id across both sends;
+  - three exact-match assertions gained the `eventId`.
+- financial jest: 17 suites, 332 passed.
+
+**Step 7, spec part:** `outbox.spec.ts`, "a crash between commit and the fast path loses nothing: the restarted process relays the row once". The first instance's publish never leaves, and a fresh `OutboxService` over the same table relays the row once with the row id. The live part (killing auth mid-outage) is in the step 6 drill.
+
+**Step 8:** `docs/DEPLOYMENT.md` "Outbox (Phase 9b)" covers what the table is, the two log lines to watch, read-only SQL for stuck rows, and how to skip a poison row. `OUTBOX_POLL_MS` and `OUTBOX_RETENTION_DAYS` are in `api/.env.example`, which step 2 had missed. The README makes no outbox claim, so it's unchanged. 11a has merged since, so at the merge of origin/main this section moves into its DEPLOYMENT structure.
+
+**Gate so far (2026-10-07, after the milestone fix):** `pnpm -C api typecheck` passes (16 tasks); `pnpm -C api test` 73 suites, 1417 passed, 1 skipped; common outbox spec 12 passed.
+
+**Step 6, first drill runs (2026-10-07):** the extended `scripts/e2e-broker-outage.mjs` failed on one action, and the failure was a real bug.
+- **The bug:** with RabbitMQ stopped, completing a 2-lesson course took 5047 ms and returned a 500. There was no `CourseCompleted` row and no certificate.
+- **Cause:** `recordCompletion` awaited `announceMilestone`, whose plain `CourseProgressMilestone` publish (a non-goal, so it stays on `publish()`) waits `EVENT_PUBLISH_WAIT_MS` and then throws. That happened before `detectCompletion` committed. It hits any course whose last lesson crosses 25/50/75 % (1 to 3 lessons). On any course, a milestone lesson during an outage got a 500 after 5 s.
+- **Everything else passed**, including the crash-and-restart of auth (step 7, live). A diagnostic copy with a 5-lesson course, whose last lesson crosses no milestone, passed every check:
+  - outage actions took 7–79 ms;
+  - each effect showed up within 0.8–3.5 s of all services being ready.
+
+**Deviation (fix, enrollment, from the drill):** `announceMilestone` no longer awaits the milestone publish: `void this.bus.publish(...).catch(warn)`. It's still notification-only and still on `publish()`; it just can't hold or fail the request.
+- Spec: "a milestone publish that hangs / fails neither holds nor fails the last lesson, and the course completes". Both cases fail on the old code.
+- enrollment jest: 4 suites, 78 passed.
+- **Noted, not changed:** filing a refund waits on the plain `RefundRequested` publish after its commit (`refund.service.ts:156`), so during an outage it likely answers 500 after 5 s while the refund stays recorded. It's a non-goal event, and no outbox event depends on it. It's a candidate for the same one-line change later.
+
+**Step 6 and step 7 (live), the passing run (2026-10-07):** `node scripts/e2e-broker-outage.mjs`, unchanged (a 2-lesson course), on a fresh scratch DB with the fix built: exit 0.
+- **With RabbitMQ stopped,** each action returned 2xx:
+  - completing the course (its last lesson crosses 75 %): 105 ms;
+  - an admin approving a refund: 49 ms;
+  - a new user registering: 245 ms;
+  - an admin raising a fraud flag: 19 ms;
+  - the QO approving the queued course: 18 ms. The item left the queue, and the "decide again" step is gone (D1).
+- **Outbox:** each action left one unpublished row: enrollment `CourseCompleted`, financial `RefundApproved`, auth `UserRegistered`, quality `FraudFlagRaised` and `CourseReviewed`.
+- **Crash (step 7, live):** auth was SIGKILLed mid-outage and restarted from dist. The `UserRegistered` row survived, still unpublished.
+- **During the outage:** every `/health` stayed 200, and no other process exited.
+- **Recovery:** every service was ready 35 s after RabbitMQ started. Each effect showed up within two relay ticks of that:
+  - certificate 0.9 s;
+  - access revoked 1.4 s;
+  - verification email 0.9 s;
+  - payout hold 4.2 s;
+  - course published and in enrollment's course cache 4.5 s.
+
+  Then every outbox row had `published_at` set. Exactly one verification email was logged, and its `event_id` is the outbox row id. 9a's post-outage checks pass (`EnrollmentCreated` reached course and notification).
+- **The fix, in the logs:** enrollment logged one "CourseProgressMilestone not published" warning during the outage.
+- **Script changes:**
+  - a fresh learner, and a new educator as the fraud payee (the seeded educator's payouts stay unheld);
+  - the five timed actions replace 9a's 503-and-revert checks;
+  - outbox reads through `psql` on the DB that `DATABASE_URL` names;
+  - auth's kill and restart, with the same binary, arguments and env, read from `/proc`;
+  - a 429 retry on `/auth/` calls, except the timed signup.
+
+**Step 9, full gate (2026-10-07):**
+- `pnpm -C api build`, `typecheck` (16 tasks) and `test` (73 suites, 1417 passed, 1 skipped) all pass.
+- `db:check`: no drift for all seven schemas on the scratch DB after the quality migrations (step 4).
+- **The CI e2e scripts,** in CI's order on a second fresh scratch stack, all exit 0:
+  - `demo-seed`;
+  - `e2e-revisions`;
+  - `e2e-institution`;
+  - `e2e-payments`;
+  - `e2e-learning`;
+  - `e2e-security`;
+  - `E2E_CHECK_RATE_LIMIT=1 e2e-smoke`.
+- **On the drill's stack, `e2e-revisions` failed 2 checks.** That was test data, not code: it picks the educator's first published free course, which there was the drill's 1-lesson course, so its rename and delete targets were the same lesson. CI never runs the drill before it.
+- **Playwright:** not run. 9b is API-only and changes no response shape.
+
+**In flight / next step (2026-10-07):** one commit for steps 4–9, then code review round 1 from ethio-reviewer. Push only together with 9a, after 9b is APPROVED.

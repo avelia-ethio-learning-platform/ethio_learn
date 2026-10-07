@@ -1,16 +1,19 @@
 # Phase 9b: code review (ethio-reviewer)
 
-## Reviewer state (2026-10-03)
+## Reviewer state (2026-10-07)
+- **Resumed** on 2026-10-07 as ethio-reviewer [176978]. No review round is in flight.
 - **Queue:** 9b round 1, then 9c, then 9d. Each starts when its implementer asks.
-- **Early reads:** done for 9b (this file) and 9c (`../2026-10-02-calls-and-jobs/code-review.md`). ethio-planner relayed S1 and S2.
-- **Peers:**
-  - 9b: ethio-impl (4) [5e6b60], which replaced [572e5c];
-  - 9c: ethio-impl [9be294];
-  - 9d: ethio-impl [796289], in `../ethi0-9d`;
-  - planner: ethio-planner [31d0d2].
+- **Early reads:**
+  - 9b (this file): S1 and S2 were fixed in `3555c6f`, and my check of them is at the end of this file;
+  - 9c: `../2026-10-02-calls-and-jobs/code-review.md`, in two parts (5c62f68, then steps 4, 7, 8 and 10 at `2f31a0d`), with no blockers or should-fixes;
+  - 9d: the branch copy, `../ethi0-9d/docs/plans/2026-10-02-observability/code-review.md`, with only nit N1, taken in `ffe1896`.
+- **Peers (2026-10-07):**
+  - 9b: ethio-impl [5d9058];
+  - planner: ethio-planner [5b0124].
+  - Refs change on restart, so run `ListAgents` first.
   - Send each APPROVED to the implementer and to the planner.
-- **Review worktree:** `../ethi0-review-6a`, detached; it was last at `5c62f68`. Run `pnpm -C packages/contracts build && pnpm -C packages/common build` before service specs, and run jest from `api/`.
-
+- **Commits (user rule, 2026-10-07):** reviewers make no commits. This file stays in the branch worktree, and the implementer commits it with their next real commit.
+- **Review worktree:** `../ethi0-review-6a`, detached, last at `2f31a0d`. Run `pnpm -C packages/contracts build && pnpm -C packages/common build` before service specs, and run jest from `api/`.
 ## Early read (before round 1, 2026-10-03)
 ethio-planner asked for this while step 4 is still under way. It isn't a review round and has no verdict, and round 1 still covers the whole diff.
 
@@ -83,3 +86,15 @@ It's sound, and better than the plan's check.
   - Spec `event-bus.service.spec.ts` "a reconnect kicked inside a transaction body leaves later deliveries outside it": the connection drops inside `inTransactionScope`, and after the reconnect a delivered event's handler runs `outbox.transaction` (returns `'ran'`). It fails without the snapshot, with the "cannot run inside another transaction" error.
 - **Your round 1 notes are taken:** the `withRetry` sites and plain `dataSource.transaction` nesting in step 4, and quality's fraud-signal migration after `Outbox1791054805346`.
 - **Gate at 3555c6f:** api build and typecheck clean; `pnpm -C api test` 1346 passed, 1 skipped.
+
+### Early-read fixes checked (`3555c6f`)
+impl's answers are in the branch copy of this file, under "Early read response".
+- **S1: resolved.**
+  - The fast path marks its rows before its older-row check, and the relay `break`s at a marked row, so order holds.
+  - The fast path also returns if the relay is already sending one of its rows.
+  - The spec holds the confirm and runs a relay tick inside the wait → the row is sent once.
+- **S2: resolved.**
+  - `AsyncLocalStorage.snapshot()` is taken in a field initializer, so at construction, outside any request.
+  - `kick()` runs `supervise()` inside it, as suggested.
+  - The spec kicks a reconnect inside a transaction body and checks that later deliveries run outside it.
+- **My run** (review worktree at `3555c6f`, lockfile unchanged): `jest packages/common/src/events`, 41 passed.

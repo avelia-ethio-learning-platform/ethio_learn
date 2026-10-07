@@ -723,7 +723,7 @@ describe('CourseReviewed subscriber (first-time submissions, appeals, post-publi
     await h.handlers['CourseReviewed'](decision('flag', 'Policy violation'));
     expect(h.course.status).toBe('flagged');
     expect(h.revisions.rows[0]).toMatchObject({ status: 'withdrawn' });
-    expect(h.bus.publish).toHaveBeenCalledWith('CourseReviewWithdrawn', { course_id: 'c1', revision_id: 'rev1' });
+    expect(h.committed).toEqual([{ type: 'CourseReviewWithdrawn', payload: { course_id: 'c1', revision_id: 'rev1' } }]);
     // Staged data is kept for a resubmission after reinstatement.
     expect(h.course.pending).toEqual({ title: 'Staged' });
   });
@@ -736,14 +736,15 @@ describe('CourseService lifecycle around open revisions', () => {
     const h = setup({ revisions: openRevision() });
     await h.service.archiveOwn(OWNER, 'c1');
     expect(h.revisions.rows[0].status).toBe('withdrawn');
-    expect(h.bus.publish).toHaveBeenCalledWith('CourseReviewWithdrawn', { course_id: 'c1', revision_id: 'rev1' });
+    expect(h.committed).toEqual([{ type: 'CourseReviewWithdrawn', payload: { course_id: 'c1', revision_id: 'rev1' } }]);
   });
 
   it('admin archive closes the open revision', async () => {
     const h = setup({ revisions: openRevision() });
     await h.service.adminTransition('c1', 'archive');
     expect(h.revisions.rows[0].status).toBe('withdrawn');
-    expect(published(h)).toEqual(expect.arrayContaining(['CourseReviewWithdrawn', 'CourseArchived']));
+    expect(emitted(h)).toEqual(['CourseReviewWithdrawn']);
+    expect(published(h)).toEqual(['CourseArchived']);
   });
 
   it('republish and admin restore never apply staged changes', async () => {
@@ -1212,7 +1213,7 @@ describe('Lifecycle transitions write only the columns they change', () => {
     });
     await h.service.archiveOwn(OWNER, 'c1');
     expect(h.revisions.rows[0].status).toBe('applied');
-    expect(published(h)).not.toContain('CourseReviewWithdrawn');
+    expect(emitted(h)).not.toContain('CourseReviewWithdrawn');
   });
 });
 
@@ -1227,7 +1228,7 @@ describe('Archiving a course that is in first-time review', () => {
       const h = setup({ course: { status, published_at: null } });
       await archive(h);
       expect(h.course.status).toBe('archived');
-      expect(h.bus.publish).toHaveBeenCalledWith('CourseReviewWithdrawn', { course_id: 'c1', revision_id: null });
+      expect(h.committed).toEqual([{ type: 'CourseReviewWithdrawn', payload: { course_id: 'c1', revision_id: null } }]);
     }
   });
 
@@ -1235,7 +1236,8 @@ describe('Archiving a course that is in first-time review', () => {
     for (const [, archive] of archivers) {
       const h = setup({ course: { status } });
       await archive(h);
-      expect(h.bus.publish).not.toHaveBeenCalledWith('CourseReviewWithdrawn', { course_id: 'c1', revision_id: null });
+      expect(h.committed).toEqual([]);
+      expect(h.bus.publish).not.toHaveBeenCalledWith('CourseReviewWithdrawn', expect.anything());
     }
   });
 });
@@ -1256,6 +1258,7 @@ describe('A QO flag only applies to a course in the QO queue or live', () => {
     expect(h.course).toMatchObject({ status, last_review_action: null });
     expect(h.revisions.rows[0].status).toBe('draft');
     expect(h.bus.publish).not.toHaveBeenCalled();
+    expect(h.committed).toEqual([]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(`ignoring stale QO flag for course c1 (status ${status})`));
   });
 
@@ -1375,6 +1378,68 @@ describe('Outbox (9b): a status change and its event commit together, or neither
     failed.failNextInsert();
     await expect(failed.service.withdraw(OWNER, 'c1')).rejects.toThrow('outbox insert failed');
     expect(failed.courses.rows[0]).toMatchObject({ status: 'under_review' });
+    expect(failed.committed).toEqual([]);
+  });
+
+  it.each<[string, (h: ReturnType<typeof setup>) => Promise<unknown>]>([
+    ['educator archive', (h) => h.service.archiveOwn(OWNER, 'c1')],
+    ['admin archive', (h) => h.service.adminTransition('c1', 'archive')],
+  ])('%s of a course in review: archived with CourseReviewWithdrawn; a failed insert leaves it in review', async (_name, archive) => {
+    const h = setup({ course: { status: 'submitted', published_at: null } });
+    await archive(h);
+    expect(h.courses.rows[0]).toMatchObject({ status: 'archived' });
+    expect(h.committed).toEqual([{ type: 'CourseReviewWithdrawn', payload: { course_id: 'c1', revision_id: null } }]);
+
+    const failed = setup({ course: { status: 'submitted', published_at: null } });
+    failed.failNextInsert();
+    await expect(archive(failed)).rejects.toThrow('outbox insert failed');
+    expect(failed.courses.rows[0]).toMatchObject({ status: 'submitted' });
+    expect(failed.committed).toEqual([]);
+    expect(failed.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('a flag closes the open revision with CourseReviewWithdrawn; a failed insert leaves the revision open', async () => {
+    const fx = () => ({ course: { status: 'published' }, revisions: [{ id: 'rev1', course_id: 'c1', status: 'submitted', created_by: 'edu1' }] });
+    const flag = { ...approve, action: 'flag', notes: 'Policy' };
+    const h = setup(fx());
+    await h.handlers['CourseReviewed'](flag);
+    expect(h.revisions.rows[0]).toMatchObject({ status: 'withdrawn' });
+    expect(h.committed).toEqual([{ type: 'CourseReviewWithdrawn', payload: { course_id: 'c1', revision_id: 'rev1' } }]);
+
+    const failed = setup(fx());
+    failed.failNextInsert();
+    await expect(failed.handlers['CourseReviewed'](flag)).rejects.toThrow('outbox insert failed');
+    expect(failed.revisions.rows[0]).toMatchObject({ status: 'submitted' });
+    expect(failed.committed).toEqual([]);
+  });
+
+  it('archive closes the open revision in its own transaction: a failed insert there leaves it open, the archive stays', async () => {
+    // Two transactions on purpose: one for both would lock course → revision, the opposite of a revision apply.
+    const failed = setup({ course: { status: 'published' }, revisions: [{ id: 'rev1', course_id: 'c1', status: 'draft', created_by: 'edu1' }] });
+    failed.failNextInsert();
+    await expect(failed.service.archiveOwn(OWNER, 'c1')).rejects.toThrow('outbox insert failed');
+    expect(failed.courses.rows[0]).toMatchObject({ status: 'archived' });
+    expect(failed.revisions.rows[0]).toMatchObject({ status: 'draft' });
+    expect(failed.committed).toEqual([]);
+    expect(failed.outbox.transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('appeal: back to the QO queue with CourseAppealSubmitted; a failed insert leaves it flagged', async () => {
+    const h = setup({ course: { status: 'flagged' } });
+    await h.service.appeal(OWNER, 'c1', 'Please look again');
+    expect(h.courses.rows[0]).toMatchObject({ status: 'submitted' });
+    expect(h.committed).toEqual([
+      {
+        type: 'CourseAppealSubmitted',
+        payload: { course_id: 'c1', course_title: 'Live title', owner_user_id: 'edu1', owner_email: 'e@x.et', appeal_note: 'Please look again' },
+      },
+    ]);
+    expect(h.bus.publish).not.toHaveBeenCalled();
+
+    const failed = setup({ course: { status: 'flagged' } });
+    failed.failNextInsert();
+    await expect(failed.service.appeal(OWNER, 'c1', 'Please look again')).rejects.toThrow('outbox insert failed');
+    expect(failed.courses.rows[0]).toMatchObject({ status: 'flagged' });
     expect(failed.committed).toEqual([]);
   });
 });

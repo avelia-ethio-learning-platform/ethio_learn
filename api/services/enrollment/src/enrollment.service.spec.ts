@@ -602,6 +602,17 @@ describe('EnrollmentService: completion is emitted once', () => {
 });
 
 describe('EnrollmentService: CourseCompleted commits with the completion (Phase 9b)', () => {
+  it.each([
+    ['hangs', () => new Promise<never>(() => undefined)],
+    ['fails', () => Promise.reject(new Error('broker unavailable for 5000 ms'))],
+  ])('a milestone publish that %s neither holds nor fails the last lesson, and the course completes (broker down)', async (_how, publish) => {
+    const t = setup({ lessonIds: ['l1', 'l2'], completedCount: 2, hasVideo: false });
+    t.bus.publish.mockImplementation(publish);
+    await expect(t.service.completeLesson(ctx, 'l2')).resolves.toBeDefined();
+    expect(t.bus.publish).toHaveBeenCalledWith('CourseProgressMilestone', expect.objectContaining({ enrollment_id: 'e1', percent: 75 }));
+    expect(t.committed).toEqual([{ type: 'CourseCompleted', payload: expect.objectContaining({ enrollment_id: 'e1' }) }]);
+  });
+
   /** setup() whose auth lookups fail, as when auth is asleep. */
   const authDown = (t: ReturnType<typeof setup>) => {
     const get = t.internal.get.getMockImplementation()!;

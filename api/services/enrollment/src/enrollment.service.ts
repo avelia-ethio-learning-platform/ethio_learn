@@ -353,14 +353,19 @@ export class EnrollmentService implements OnModuleInit {
     enrollment.milestones_sent = [...sent, ...due];
     await this.enrollments.save(enrollment);
     const cached = await this.courseCache.findOne({ where: { course_id: enrollment.course_id } });
-    await this.bus.publish<CourseProgressMilestonePayload>('CourseProgressMilestone', {
-      enrollment_id: enrollment.id,
-      learner_id: enrollment.learner_id,
-      learner_email: learnerEmail,
-      course_id: enrollment.course_id,
-      course_title: cached?.title ?? 'your course',
-      percent: highest,
-    });
+    // Notification-only, so it stays on publish() (Phase 9b non-goal). Not awaited: with the
+    // broker down, publish() waits EVENT_PUBLISH_WAIT_MS and throws, which would hold the
+    // lesson request and fail it before detectCompletion commits the course's completion.
+    void this.bus
+      .publish<CourseProgressMilestonePayload>('CourseProgressMilestone', {
+        enrollment_id: enrollment.id,
+        learner_id: enrollment.learner_id,
+        learner_email: learnerEmail,
+        course_id: enrollment.course_id,
+        course_title: cached?.title ?? 'your course',
+        percent: highest,
+      })
+      .catch((err: Error) => this.logger.warn(`CourseProgressMilestone not published: ${err.message}`));
   }
 
   /**

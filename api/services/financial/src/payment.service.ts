@@ -12,7 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
 import { Between, DataSource, EntityManager, In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, stableEventId, UserContext } from '@ethiopialearn/common';
 import {
   OwnerType,
   PaymentAbandonedPayload,
@@ -1105,7 +1105,10 @@ export class PaymentService {
     return bodies.some((body) => timingSafeEqual(signature, createHmac('sha256', secret).update(body).digest()));
   }
 
-  /** THE event that grants entitlement for a course purchase, acknowledged by the broker. */
+  /**
+   * THE event that grants entitlement for a course purchase, acknowledged by the broker.
+   * Its id is stable per payment, so the cron's re-publish is the same event to the consumers' dedupe.
+   */
   private async emitConfirmed(payment: Payment) {
     const learner = await this.learnerInfo(payment.learner_id);
     await this.bus.publishConfirmed<PaymentConfirmedPayload>(
@@ -1122,7 +1125,7 @@ export class PaymentService {
         payee_id: payment.payee_id,
         payee_type: payment.payee_type,
       },
-      { correlationId: payment.id },
+      { correlationId: payment.id, eventId: stableEventId(`${payment.id}:PaymentConfirmed`) },
     );
   }
 

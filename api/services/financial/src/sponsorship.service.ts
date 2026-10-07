@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, MoreThan, Not, Repository } from 'typeorm';
-import { dailyCapExceeded, Emit, env, envInt, EventBusService, InternalHttpClient, internalPath, OutboxService, recipientCapExceeded, UserContext } from '@ethiopialearn/common';
+import { dailyCapExceeded, Emit, env, envInt, EventBusService, InternalHttpClient, internalPath, OutboxService, recipientCapExceeded, stableEventId, UserContext } from '@ethiopialearn/common';
 import {
   BulkPurchaseActivatedPayload,
   PayRequestCreatedPayload,
@@ -419,6 +419,7 @@ export class SponsorshipService implements OnModuleInit {
    *  - granted → SponsorshipGranted (enrollment grants access);
    *  - pending_claim (the recipient has no account yet) → SponsorshipInvited,
    *    once; the grant at their signup is a separate flow (claimForEmail).
+   * Each event's id is stable per sponsorship, so a re-run's re-publish is the same event to the consumers' dedupe.
    */
   private async onSponsoredPaymentConfirmed(payment: Payment) {
     const id = payment.meta?.sponsorship_id as string | undefined;
@@ -441,13 +442,19 @@ export class SponsorshipService implements OnModuleInit {
     }
 
     if (s.status === 'granted') {
-      await this.bus.publishConfirmed<SponsorshipGrantedPayload>('SponsorshipGranted', this.grantedPayload(s), { correlationId: payment.id });
+      await this.bus.publishConfirmed<SponsorshipGrantedPayload>('SponsorshipGranted', this.grantedPayload(s), {
+        correlationId: payment.id,
+        eventId: stableEventId(`${s.id}:SponsorshipGranted`),
+      });
     } else if (s.status === 'pending_claim') {
-      await this.bus.publishConfirmed<SponsorshipInvitedPayload>('SponsorshipInvited', this.invitedPayload(s), { correlationId: payment.id });
+      await this.bus.publishConfirmed<SponsorshipInvitedPayload>('SponsorshipInvited', this.invitedPayload(s), {
+        correlationId: payment.id,
+        eventId: stableEventId(`${s.id}:SponsorshipInvited`),
+      });
     }
   }
 
-  /** A confirmed bulk order: activated once, then BulkPurchaseActivated until the broker acknowledges it. */
+  /** A confirmed bulk order: activated once, then BulkPurchaseActivated, with one id per payment, until the broker acknowledges it. */
   private async onBulkPaid(payment: Payment) {
     const id = payment.meta?.bulk_purchase_id as string | undefined;
     if (!id) return this.logger.warn(`payment ${payment.id}: no bulk_purchase_id, nothing to activate`);
@@ -467,7 +474,7 @@ export class SponsorshipService implements OnModuleInit {
         seats: order.seats,
         total_etb: Number(order.total_etb),
       },
-      { correlationId: payment.id },
+      { correlationId: payment.id, eventId: stableEventId(`${payment.id}:BulkPurchaseActivated`) },
     );
   }
 

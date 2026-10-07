@@ -210,6 +210,23 @@ describe('OutboxService.transaction', () => {
     expect(t.sent.map((s) => (s.payload as { course_id: string }).course_id)).toEqual(['c1', 'c2']);
   });
 
+  it('a crash between commit and the fast path loses nothing: the restarted process relays the row once (step 7)', async () => {
+    const t = setup();
+    // The process dies after the commit, before the fast path's publish leaves it.
+    t.bus.publishConfirmed.mockImplementation(() => new Promise<void>(() => undefined));
+    await t.outbox.transaction(async (_m, emit) => emit('UserRegistered', { user_id: 'u1' }));
+    await tick();
+    expect(t.sent).toEqual([]);
+    expect(t.rows()[0].published_at).toBeNull();
+
+    const { bus, sent } = fakeBus();
+    const restarted = new OutboxService(t.dataSource, bus as unknown as EventBusService);
+    await restarted.relay();
+    await restarted.relay();
+    expect(sent).toEqual([{ type: 'UserRegistered', payload: { user_id: 'u1' }, eventId: t.rows()[0].id, correlationId: undefined }]);
+    expect(t.rows()[0].published_at).not.toBeNull();
+  });
+
   it('refuses to run inside runOnce or another outbox transaction', async () => {
     const t = setup();
     const nested = () => t.outbox.transaction(async (_m, emit) => emit('TrustTierChanged', { educator_id: 'e1' }));

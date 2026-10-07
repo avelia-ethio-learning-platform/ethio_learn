@@ -1,4 +1,4 @@
-import { BrokerPublishError } from '@ethiopialearn/common';
+import { BrokerPublishError, stableEventId } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, PaymentStatus } from '@ethiopialearn/contracts';
 import { BulkPurchase, Coupon, Payment, Referral, ReferralCode, Sponsorship, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
@@ -107,7 +107,11 @@ describe('Sponsored payments: access events follow the sponsorship (P0-05)', () 
 
     expect(t.db.repo(Sponsorship).rows[0]).toMatchObject({ status: 'granted', recipient_user_id: 'sister', payment_id: 'pay-1' });
     expect(t.events('SponsorshipGranted')).toEqual([
-      ['SponsorshipGranted', expect.objectContaining({ sponsorship_id: 'sp-1', recipient_user_id: 'sister', course_id: 'c1' }), { correlationId: 'pay-1' }],
+      [
+        'SponsorshipGranted',
+        expect.objectContaining({ sponsorship_id: 'sp-1', recipient_user_id: 'sister', course_id: 'c1' }),
+        { correlationId: 'pay-1', eventId: stableEventId('sp-1:SponsorshipGranted') },
+      ],
     ]);
     expect(t.payment().effects_completed_at).toBeInstanceOf(Date);
   });
@@ -125,6 +129,8 @@ describe('Sponsored payments: access events follow the sponsorship (P0-05)', () 
 
     await t.payments.completePendingEffects();
     expect(t.events('SponsorshipGranted')).toHaveLength(2);
+    // the same event to the consumers' dedupe
+    expect(t.events('SponsorshipGranted').map(([, , opts]) => opts.eventId)).toEqual([stableEventId('sp-1:SponsorshipGranted'), stableEventId('sp-1:SponsorshipGranted')]);
     expect(t.db.repo(Sponsorship).rows[0].granted_at).toBe(grantedAt);
     expect(t.payment().effects_completed_at).toBeInstanceOf(Date);
   });
@@ -139,6 +145,7 @@ describe('Sponsored payments: access events follow the sponsorship (P0-05)', () 
 
     expect(t.db.repo(Sponsorship).rows[0]).toMatchObject({ status: 'pending_claim', recipient_user_id: null, payment_id: 'pay-1' });
     expect(t.events('SponsorshipInvited')).toHaveLength(1);
+    expect(t.events('SponsorshipInvited')[0][2]).toEqual({ correlationId: 'pay-1', eventId: stableEventId('sp-1:SponsorshipInvited') });
     expect(t.events('SponsorshipGranted')).toHaveLength(0);
     expect(t.payment().effects_completed_at).toBeInstanceOf(Date);
   });
@@ -150,7 +157,9 @@ describe('Sponsored payments: access events follow the sponsorship (P0-05)', () 
 
     await t.payments.completePendingEffects();
 
-    expect(t.events('SponsorshipGranted')).toEqual([['SponsorshipGranted', expect.objectContaining({ recipient_user_id: 'asker' }), { correlationId: 'pay-1' }]]);
+    expect(t.events('SponsorshipGranted')).toEqual([
+      ['SponsorshipGranted', expect.objectContaining({ recipient_user_id: 'asker' }), { correlationId: 'pay-1', eventId: stableEventId('sp-1:SponsorshipGranted') }],
+    ]);
   });
 
   it('the handler changes the sponsorship once when two runs overlap', async () => {
@@ -200,6 +209,7 @@ describe('Sponsored payments: access events follow the sponsorship (P0-05)', () 
     await t.payments.completePendingEffects();
     expect(t.events('BulkPurchaseActivated')).toHaveLength(2);
     expect(t.events('BulkPurchaseActivated')[1][1]).toMatchObject({ bulk_purchase_id: 'bulk-1', seats: 10, buyer_email: 'sponsor@x.et' });
+    expect(t.events('BulkPurchaseActivated').map(([, , opts]) => opts.eventId)).toEqual([stableEventId('pay-1:BulkPurchaseActivated'), stableEventId('pay-1:BulkPurchaseActivated')]);
     expect(t.payment().effects_completed_at).toBeInstanceOf(Date);
   });
 });
