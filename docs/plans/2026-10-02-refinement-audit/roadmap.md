@@ -35,7 +35,9 @@ One plan, one branch and one PR per phase. Each phase runs through the team work
 | 9d | Observability | P1-21, slow-query log parameters (Phase 2 review) | L | impl / review | planned |
 | 9e | Read paths | P1-22, P2-04 | L | impl / review | planned |
 | 10 | Security headers, performance, SEO and Amharic for new learners | P1-06, P1-53 (rest), P1-55, P1-56, P2-26, P2-28, P2-34 | M | impl / plan-review | planned |
-| 11a | CI/CD gates and repo hygiene | P0-09 (ops docs), P1-24, P1-26, P1-28, P2-16 to P2-21 | M | impl / plan-review | planned |
+| 11a | CI/CD gates and repo hygiene | P0-09 (ops docs), P1-24, P1-26, P1-28, P2-16 to P2-21 | M | impl / plan-review | done (#32) |
+| 11d | Contributor guide, features and roadmap, color system (docs) | user request (2026-10-03): collaboration guidelines, README, a features and roadmap doc, the color system | S (docs only) | planner / plan-review | done |
+| 7c | Color system in code: status tokens, contrast in both themes, guard tests | user request (2026-10-03): "the best" UI coloring; spec in `docs/COLOR_SYSTEM.md` | M (web only) | impl / plan-review | plan approved; starts after 10 is approved |
 | 11b | Auth transport and tests for the high-risk paths | P1-07, P1-29 | L | impl / review | planned |
 | 11c | Dependencies and Next 15 | P1-08 | M | impl / plan-review | planned |
 | 12a | Motion system, shared primitives, shell, Home and Explore | user request (2026-10-03): calmer, consistent motion and UI polish | M (web only) | impl / plan-review | planned |
@@ -53,6 +55,10 @@ Remaining P2s are picked up opportunistically inside the phase that touches the 
 - **2026-10-02 and 2026-10-03:** for the same reason, phase 8 ships as two PRs (8a, 8b), phase 9 was split into 9a–9e and phase 11 into 11a–11c.
 - **2026-10-03:** 6a gained P0-19, found during Phase 5.
 - **2026-10-03:** 6d was added for two money gaps found in the Phase 6c code review (P1-63, P2-47) plus its three nits, so 6c didn't grow mid-review. It goes after 6b.
+- **2026-10-03:** 11d and 7c were added at the user's request.
+  - 11d is docs only: CONTRIBUTING, `docs/FEATURES_AND_ROADMAP.md`, `docs/COLOR_SYSTEM.md` and a README refresh. It goes after 11a, which rewrites the README and the deployment docs.
+  - 7c brings the web onto the color system. It runs after 10, because they touch the same pages, and before 12a, so the motion polish starts from the final colors.
+  - Their rows sit after 11a in this table. They run on the web track, in parallel with the backend phases 9a–9e.
 - **2026-10-03:** 7b merged (#27). The planner implements 8a in the web worktree while ethio-impl runs 6b and 6d.
 - **2026-10-03:** phase 12 (motion and UI polish, the user's request) was added after 11c, at the user's choice, so it builds on Phase 10's `LazyMotion` and 11c's Next 15 instead of redoing them. It ships as 12a and 12b, with a before/after for the user between them.
 
