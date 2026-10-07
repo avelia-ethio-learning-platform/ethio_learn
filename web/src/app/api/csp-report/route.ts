@@ -1,7 +1,6 @@
 /**
- * Browsers post Content Security Policy violation reports here, through the
- * policy's `report-uri` and `report-to` (lib/csp.mjs). They go to the function
- * log, where the user reviews them before setting CSP_ENFORCE=true.
+ * Browsers post Content Security Policy violation reports here, one per POST,
+ * through the policy's `report-uri` (lib/csp.mjs). They go to the function log.
  *
  * The route is public, so it's bounded: a body over 8 KB is refused, and after
  * its first 100 reports an instance logs 1 in 10. URLs are logged without
@@ -40,25 +39,23 @@ function withoutQuery(url: unknown): string | undefined {
 
 type Fields = Record<string, unknown>;
 
-/** The fields worth keeping from either format: `{ "csp-report": {…} }` (report-uri) or `[{ type, body }]` (report-to). */
-function summarize(text: string): Fields[] {
+/** The fields worth keeping from a `report-uri` report, `{ "csp-report": {…} }`. */
+function summarize(text: string): Fields {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return [{ unparsable: true }];
+    return { unparsable: true };
   }
-  const reports: Fields[] = Array.isArray(parsed)
-    ? parsed.map((r: Fields) => (r?.body ?? {}) as Fields)
-    : [((parsed as Fields)?.['csp-report'] ?? {}) as Fields];
-  return reports.slice(0, 10).map((r) => ({
-    page: withoutQuery(r['document-uri'] ?? r.documentURL),
-    directive: r['effective-directive'] ?? r.effectiveDirective ?? r['violated-directive'],
-    blocked: withoutQuery(r['blocked-uri'] ?? r.blockedURL),
-    source: withoutQuery(r['source-file'] ?? r.sourceFile),
-    line: r['line-number'] ?? r.lineNumber,
+  const r = ((parsed as Fields)?.['csp-report'] ?? {}) as Fields;
+  return {
+    page: withoutQuery(r['document-uri']),
+    directive: r['effective-directive'] ?? r['violated-directive'],
+    blocked: withoutQuery(r['blocked-uri']),
+    source: withoutQuery(r['source-file']),
+    line: r['line-number'],
     disposition: r.disposition,
-  }));
+  };
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -66,7 +63,7 @@ export async function POST(req: Request): Promise<Response> {
   if (body === null) return new Response(null, { status: 413 });
   received += 1;
   if (received <= LOG_ALL_FIRST || received % SAMPLE_EVERY === 0) {
-    for (const report of summarize(body)) console.warn(`csp-report ${JSON.stringify(report)}`);
+    console.warn(`csp-report ${JSON.stringify(summarize(body))}`);
   }
   return new Response(null, { status: 204 });
 }

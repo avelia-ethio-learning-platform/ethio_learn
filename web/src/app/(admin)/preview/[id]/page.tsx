@@ -412,11 +412,18 @@ function ReviewPlayer({
     if (!url || !v) return;
     let hls: Hls | null = null;
     let cancelled = false;
-    void attachVideo(v, url).then((attached) => {
-      if (cancelled) return attached?.destroy();
-      hls = attached;
-      void v.play().catch(() => undefined);
-    });
+    void attachVideo(v, url)
+      .then((attached) => {
+        if (cancelled) return attached?.destroy();
+        hls = attached;
+        void v.play().catch(() => undefined);
+      })
+      .catch(() => {
+        // the player chunk didn't load (a flaky connection, or a deploy replaced it)
+        if (cancelled) return;
+        setUrl(null);
+        setError('Could not load the video player. Load it again.');
+      });
     return () => {
       cancelled = true;
       hls?.destroy();

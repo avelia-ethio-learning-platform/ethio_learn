@@ -82,7 +82,8 @@ describe('buildCsp', () => {
     expect(csp['base-uri']).toEqual(["'self'"]);
     expect(csp['form-action']).toEqual(["'self'"]);
     expect(csp['report-uri']).toEqual(['/api/csp-report']);
-    expect(csp['report-to']).toEqual(['csp-endpoint']);
+    // with report-to, Chrome ignores report-uri and the route never hears from it (review B1)
+    expect(csp).not.toHaveProperty('report-to');
     expect(csp).not.toHaveProperty('upgrade-insecure-requests');
     expect(parse(buildCsp(production))).toHaveProperty('upgrade-insecure-requests');
   });
@@ -124,8 +125,8 @@ describe('securityHeaders', () => {
       'X-Frame-Options': 'DENY',
       'Permissions-Policy': 'camera=(self), microphone=(), geolocation=(), payment=()',
       'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
-      'Reporting-Endpoints': 'csp-endpoint="/api/csp-report"',
     });
+    expect(local).not.toHaveProperty('Reporting-Endpoints');
     expect(local).not.toHaveProperty('Strict-Transport-Security');
 
     const prod = Object.fromEntries(securityHeaders(production).map((h) => [h.key, h.value]));

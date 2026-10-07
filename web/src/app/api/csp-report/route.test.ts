@@ -42,14 +42,6 @@ describe('POST /api/csp-report', () => {
     expect(line).not.toContain('Signature');
   });
 
-  it('reads the Reporting API format too', async () => {
-    const POST = await freshPost();
-    const body = JSON.stringify([{ type: 'csp-violation', body: { documentURL: 'https://x.et/', effectiveDirective: 'img-src', blockedURL: 'https://evil.example/p.png' } }]);
-    const res = await POST(new Request('http://localhost/api/csp-report', { method: 'POST', body }));
-    expect(res.status).toBe(204);
-    expect(String(warn.mock.calls[0][0])).toContain('"directive":"img-src"');
-  });
-
   it('refuses a body over 8 KB, by header or by actual size', async () => {
     const POST = await freshPost();
     const big = 'x'.repeat(8 * 1024 + 1);

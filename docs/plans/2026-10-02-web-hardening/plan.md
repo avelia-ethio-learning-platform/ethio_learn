@@ -28,7 +28,7 @@ Acceptance criteria:
 - **CSP:**
   - built from the build's env;
   - enforced in development, CI and Playwright, where the suite fails on any CSP violation in the console;
-  - in production, sent as `Content-Security-Policy-Report-Only` with reports collected, until the user flips `CSP_ENFORCE=true` after a clean week;
+  - in production, sent as `Content-Security-Policy-Report-Only` with reports collected, until the user flips `CSP_ENFORCE=true` once the post-deploy console checks are clean (Rollout);
   - every flow works under the enforced policy: Google sign-in, uploads, video playback, webcam proctoring (mediapipe wasm), PDF outline extraction, wake pings, Chapa redirect, the service worker.
 - **Bundle (P1-56):**
   - `hls.js` is not in the first-load JS of the course page, the lesson player or the preview page; it loads when playback starts;
@@ -120,8 +120,8 @@ Acceptance criteria:
    - **Report-Only, then enforce:**
      - `CSP_ENFORCE` (build-time) selects `Content-Security-Policy` or `Content-Security-Policy-Report-Only`. Its default is keyed on `VERCEL_ENV === 'production'`, never `NODE_ENV`, which `next build` always sets to production: Report-Only on Vercel production, enforced everywhere else, including CI's `next start`, so Playwright tests the enforced policy (plan-review N1).
      - `NEXT_PUBLIC_MEDIA_ORIGINS` and `CSP_ENFORCE` are added as build `ARG`s in `web/Dockerfile`, so the self-hosted image gets the same policy.
-     - A route handler `app/api/csp-report/route.ts` accepts reports (body ≤ 8 KB, sampled to 1 in 10 after the first 100 per instance), logs them, and returns 204. The policy points `report-uri` and `report-to` at it.
-     - The user reviews Vercel's logs for a week and sets `CSP_ENFORCE=true`. Rollout gives the steps.
+     - A route handler `app/api/csp-report/route.ts` accepts reports (body ≤ 8 KB, sampled to 1 in 10 after the first 100 per instance), logs them, and returns 204. The policy points `report-uri` at it (not `report-to`: with it, Chrome ignores `report-uri`; code review B1).
+     - After the deploy, a console check of the production pages, then `CSP_ENFORCE=true`. Rollout gives the steps (Vercel Hobby keeps runtime logs for 1 hour, so a week of logs can't be reviewed; code review S1).
    - **The service worker** version moves to `el-sw-v2` so cached pages pick up the new headers.
 2. **The other headers:**
    - `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options: DENY` (alongside `frame-ancestors` for older browsers), `Permissions-Policy` and `Cross-Origin-Opener-Policy` go on every response, exactly as in the acceptance criteria.
@@ -205,10 +205,10 @@ Acceptance criteria:
   - set `NEXT_PUBLIC_MEDIA_ORIGINS` to the R2 upload and stream origins (from the Render storage env), comma-separated;
   - **USER-ACTIONS item 9 done** (`NEXT_PUBLIC_SITE_URL` is the real `https://` site URL). This is a merge prerequisite: with the placeholder, the production build now fails on purpose;
   - leave `CSP_ENFORCE` unset, so production ships Report-Only.
-- **After a week:**
-  - review CSP reports in Vercel's function logs for `/api/csp-report`;
-  - if only noise remains (browser extensions), set `CSP_ENFORCE=true` and redeploy;
-  - if a real flow shows up, add its origin to `NEXT_PUBLIC_MEDIA_ORIGINS` or file a fix.
+- **After the deploy** (Vercel Hobby keeps runtime logs for 1 hour, so a week of logs can't be reviewed; code review S1):
+  1. **A session, no credentials, read-only:** opens the public production pages in Playwright and lists any `[Report Only]` console messages: home, the catalog, a course page, playing a free preview, `/verify`, `/educators` and `/help`.
+  2. **The user, once, about 10 min:** in Chrome on production, with DevTools → Console filtered on `Report Only`, walks the signed-in flows: Google sign-in, a thumbnail upload, a lesson video, a proctored exam's preflight and a PDF outline, and pastes back any messages.
+  3. **If both are clean,** set `CSP_ENFORCE=true` and redeploy. If a real flow shows up, add its origin to `NEXT_PUBLIC_MEDIA_ORIGINS` or file a fix. The route stays, so real users' reports still show up when the logs are filtered on `csp-report` within the hour.
 - **Native-speaker review:** `docs/i18n/am-review.md` lists every new Amharic string. Corrections are dictionary edits.
 - **Installed PWAs** pick up the new service worker version on their next visit.
 
@@ -280,9 +280,13 @@ Shared by all: 87.7 kB, then 87.8 kB at the gate. The Amharic dictionary is a se
 8. **CI sets `NEXT_PUBLIC_WAKE_URLS=http://localhost:4101/health`** on the web build and Playwright steps, so the wake check runs on its own origin instead of always skipping. The Google check skips without a client id, as planned.
 9. **The Amharic dictionary loads on first use** (a dynamic import in `lib/i18n.tsx`), so English readers don't download it. Until it arrives the page stays English, and text, prices and dates then switch together. The toggle's own vitest waits for it.
 10. **Status badges are translated on every page**, not only on the learner path. It is one map (`status_*` keys), so the role pages' badges are Amharic in Amharic mode too, inside pages that otherwise show the English-only notice.
-11. **The coupon line loses the bold on the discounted price.** Amharic puts the two prices in the other order, so the sentence is one translated string with both amounts filled in.
+11. **Three lines lose a bold:** the discounted price in the coupon line, the amount in `invite_reward` (dashboard, "Get **50 ETB**…") and the range in `showing_range` (explore, "Showing **1–12** of N"). Amharic puts the parts in another order, so each sentence is one translated string with its values filled in.
+12. **CSP reports go through `report-uri` only** (code review B1). With `report-to` in the policy, Chrome ignored `report-uri` and sent Reporting API batches, which never reached the route (measured: 0 of 20 logged). The `Reporting-Endpoints` header and the route's Reporting API branch are gone.
 
-## In flight / next step (checkpoint 2026-10-03)
+## In flight / next step (checkpoint 2026-10-03; updated 2026-10-07 by ethio-impl [5d9058])
+
+- **2026-10-07:** round 1 (CHANGES REQUESTED) answered in one commit: B1 (report-uri only), S1 (the Rollout's console walk-through), N1 (ReviewPlayer's catch), N2 (deviation 11). Round 2 requested from ethio-plan-review [1a4214].
+- **At merge time:** 11a merges first and restructures `docs/DEPLOYMENT.md`. Add a short "CSP" section there with the Rollout's three steps when origin/main is merged in.
 
 - **State:** steps 1–9 done, everything committed on `feat/web-hardening` (local, not pushed). The gate is green on this tip; see Step 9 above. The stack is released and nothing is running.
 - **Step 10 in flight:** code review round 1 requested from ethio-plan-review [f903ba] on 2026-10-03 (branch, base `f8e70bc`, this plan, gate result).

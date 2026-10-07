@@ -3,9 +3,12 @@
 // can't load a TypeScript config dependency. Pure: everything comes from `env`,
 // the build's environment, so the vitest can check each case.
 
-/** Where the browser posts CSP reports (app/api/csp-report/route.ts). */
+/**
+ * Where the browser posts CSP reports (app/api/csp-report/route.ts), through
+ * `report-uri` only: with `report-to` present Chrome ignores `report-uri` and
+ * sends Reporting API batches instead, which never reached the route.
+ */
 export const CSP_REPORT_PATH = '/api/csp-report';
-const REPORT_GROUP = 'csp-endpoint';
 
 const GOOGLE = {
   script: 'https://accounts.google.com/gsi/client',
@@ -97,7 +100,6 @@ export function buildCsp(env) {
     ['form-action', ["'self'"]],
     ['manifest-src', ["'self'"]],
     ['report-uri', [CSP_REPORT_PATH]],
-    ['report-to', [REPORT_GROUP]],
   ];
   if (isVercelProduction(env)) directives.push(['upgrade-insecure-requests', []]);
 
@@ -112,7 +114,6 @@ export function buildCsp(env) {
 export function securityHeaders(env) {
   const headers = [
     { key: cspEnforced(env) ? 'Content-Security-Policy' : 'Content-Security-Policy-Report-Only', value: buildCsp(env) },
-    { key: 'Reporting-Endpoints', value: `${REPORT_GROUP}="${CSP_REPORT_PATH}"` },
     { key: 'X-Content-Type-Options', value: 'nosniff' },
     { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
     // For browsers without frame-ancestors (and frame-ancestors is ignored in Report-Only).
