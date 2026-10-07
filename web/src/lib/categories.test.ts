@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BAND_COLORS, COURSE_CATEGORIES, GROUP_COLORS, categoryLabel, categoryMeta, hasRealThumbnail } from './categories';
-import { dictionaries } from './i18n';
+import { am } from './i18n-am';
 
 describe('hasRealThumbnail', () => {
   it('is false for no thumbnail', () => {
@@ -32,7 +32,7 @@ describe('category data', () => {
   });
   it('matches the i18n pill strings for the five cat_* values', () => {
     for (const v of ['tech', 'business', 'freelancing', 'healthcare', 'other']) {
-      expect(categoryMeta(v).am).toBe((dictionaries.am as Record<string, string>)[`cat_${v}`]);
+      expect(categoryMeta(v).am).toBe((am as Record<string, string>)[`cat_${v}`]);
     }
   });
 });

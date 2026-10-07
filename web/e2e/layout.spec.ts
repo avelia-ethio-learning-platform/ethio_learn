@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { apiGet, authFile, firstCourseId, headerBottom, horizontalOverflow, ownCourseId, settle } from './support';
 
 const WIDTHS = [375, 1440];

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { logIn } from './support';
 
 // P0-12: an expired access token with several requests in flight makes

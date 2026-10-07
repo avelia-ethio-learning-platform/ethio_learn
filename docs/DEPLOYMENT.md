@@ -65,7 +65,7 @@ All configuration is environment variables. `render.yaml` holds the shared group
 | financial | + `CHAPA_MODE`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `CHAPA_FALLBACK_EMAIL`, `GATEWAY_PUBLIC_URL`, `WEB_URL` | Register `<GATEWAY_PUBLIC_URL>/api/v1/payments/webhook/chapa` in the Chapa dashboard. `CHAPA_WEBHOOK_SECRET` is the dashboard's webhook secret hash, not a `CHAPUBK_…` public key. |
 | quality | + `GROQ_API_KEY` | |
 | notification | + `SMTP_*` (or `BREVO_API_KEY`/`RESEND_API_KEY`), `EMAIL_FROM`, `PLATFORM_ADMIN_EMAIL`, `SUPPORT_EMAIL`, `WEB_URL` | `EMAIL_FROM` must be a Brevo-verified sender. |
-| web (Vercel) | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_WAKE_URLS` | |
+| web (Vercel) | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_WAKE_URLS`, `NEXT_PUBLIC_MEDIA_ORIGINS`, `CSP_ENFORCE` | The production build fails when `NEXT_PUBLIC_SITE_URL` is unset, not `https://` or a placeholder. The last two set the Content Security Policy (below). |
 
 **Secrets.** `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` are long random values, at least 32 characters. With `NODE_ENV=production`, every service and the gateway refuse to boot when:
 - a secret they need is missing, shorter than 32 characters or a value from the repo;
@@ -93,6 +93,16 @@ The log names each variable, never its value, so a failed boot says what to set.
 
   A sleeping instance runs none of them. A missed Chapa webhook is still settled by the return page's reconcile, and by the sweep once the financial service is awake. The payout run can also be started by hand with `POST /api/v1/payouts/run` as a platform admin.
 - **Instances:** each free service runs one instance. That's why the crons and the migrations (below) need no lock.
+
+## Content Security Policy (web)
+
+- **Where it comes from:** `web/src/lib/csp.mjs` builds the policy at build time from the web's env: the API, storage and wake origins, plus `NEXT_PUBLIC_MEDIA_ORIGINS`. That variable holds the R2 S3 endpoint's origin (`https://<account-id>.r2.cloudflarestorage.com`), which signed video URLs, presigned uploads and proctoring snapshots use.
+- **Mode:** enforced everywhere except Vercel production, which sends `Content-Security-Policy-Report-Only` until `CSP_ENFORCE=true`. Violations are posted to `/api/csp-report` (`report-uri`), logged as `csp-report {…}` lines, and shown in the browser console as `[Report Only]`.
+- **Going to enforced:** Vercel Hobby keeps runtime logs for 1 hour, so the check is done in the console:
+  1. after a deploy, open the public pages (home, the catalog, a course page, a free preview playing, `/verify`, `/educators`, `/help`) and look for `[Report Only]` console messages;
+  2. walk the signed-in flows once in Chrome with DevTools → Console filtered on `Report Only`: Google sign-in, a thumbnail upload, a lesson video, a proctored exam's preflight, a PDF outline;
+  3. if both are clean, set `CSP_ENFORCE=true` on Vercel (Production) and redeploy. If a real flow shows up, add its origin to `NEXT_PUBLIC_MEDIA_ORIGINS` or fix the page.
+- **A broken page after enforcing:** set `CSP_ENFORCE=false` and redeploy, which goes back to Report-Only.
 
 ## Gates
 

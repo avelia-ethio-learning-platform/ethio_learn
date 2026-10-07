@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, WakingError, api } from '@/lib/api';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { useT } from '@/lib/i18n';
 
 const COOLDOWN_SECONDS = 60;
 
@@ -14,7 +15,8 @@ interface ResendVerificationProps {
 }
 
 /** "Resend email" with a 60 s cooldown (the server caps one per minute) and an announced result. */
-export function ResendVerification({ email, startCooledDown = false, label = 'Resend email' }: ResendVerificationProps) {
+export function ResendVerification({ email, startCooledDown = false, label }: ResendVerificationProps) {
+  const { t } = useT();
   const [status, setOk, setError] = useFormStatus();
   const [secondsLeft, setSecondsLeft] = useState(startCooledDown ? COOLDOWN_SECONDS : 0);
   const [busy, setBusy] = useState(false);
@@ -33,10 +35,10 @@ export function ResendVerification({ email, startCooledDown = false, label = 'Re
       setOk(res.message);
       setSecondsLeft(COOLDOWN_SECONDS);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 400) setError('Enter a valid email address.');
-      else if (err instanceof ApiError && err.status === 429) setError('Too many requests. Wait a minute and try again.');
+      if (err instanceof ApiError && err.status === 400) setError(t('enter_valid_email'));
+      else if (err instanceof ApiError && err.status === 429) setError(t('too_many_requests'));
       else if (err instanceof WakingError) setError(err.message);
-      else setError("Couldn't send right now. Try again in a minute.");
+      else setError(t('send_failed'));
     }
     setBusy(false);
   };
@@ -45,7 +47,7 @@ export function ResendVerification({ email, startCooledDown = false, label = 'Re
     <div className="space-y-3">
       <FormStatus status={status} />
       <button type="button" className="btn-secondary w-full" disabled={busy || cooling} onClick={resend}>
-        {cooling ? `Resend in ${secondsLeft} s` : label}
+        {cooling ? t('resend_in', { s: secondsLeft }) : (label ?? t('resend_email'))}
       </button>
     </div>
   );

@@ -1,319 +1,51 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { en, type Dictionary, type TKey } from './i18n-en';
 
 /**
- * Lightweight en/am i18n for the UI chrome. Course content itself stays in the
- * language the educator authored it in. Amharic strings cover navigation, auth,
- * the landing page and the learner-facing surfaces.
+ * Lightweight en/am i18n for the UI. Course content itself stays in the
+ * language the educator authored it in. Amharic covers the shell and the new
+ * learner's path (Phase 10); other pages show LocaleNotice in Amharic mode.
  */
 export type Locale = 'en' | 'am';
+export type { TKey };
+export type Vars = Record<string, string | number>;
 
-/** Exported for tests (key-parity check) and future locale tooling. */
-export const dictionaries = {
-  en: {
-    skip_to_content: 'Skip to main content',
-    courses: 'Courses',
-    help: 'Help',
-    my_learning: 'My learning',
-    teach: 'Teach',
-    institution: 'Institution',
-    review_queue: 'Review queue',
-    quality_review: 'Quality review',
-    educators: 'Educators',
-    admin: 'Admin',
-    login: 'Log in',
-    signup: 'Sign up',
-    logout: 'Log out',
-    account: 'Account',
-    search_placeholder: 'Search courses…',
-    search: 'Search',
-    hero_badge: "Ethiopia's educator-first learning platform",
-    hero_title: 'Learn real skills from Ethiopian experts',
-    hero_title_1: 'Learn real skills',
-    hero_title_2: 'from Ethiopian experts',
-    hero_sub:
-      'Video courses in tech, business, freelancing and healthcare — priced in ETB, paid with Telebirr, CBE Birr and 18+ Ethiopian banks through Chapa, with publicly verifiable certificates.',
-    hero_image_alt: 'Smiling student holding a laptop',
-    explore_courses: 'Explore courses',
-    stat_payments: 'Payment methods via Chapa',
-    stat_verifiable: 'Verifiable certificates',
-    stat_share: 'Revenue kept by educators',
-    why_badge: 'Why EthiopiaLearn',
-    why_title_1: 'Everything you need to',
-    why_title_2: 'grow your skills',
-    feature_1_title: 'Pay in Birr',
-    feature_1_desc: 'Telebirr, CBE Birr and 18+ Ethiopian banks — one tap checkout through Chapa.',
-    feature_2_title: 'Verifiable certificates',
-    feature_2_desc: 'Every certificate carries a public verification link employers can trust.',
-    feature_3_title: 'Smooth HLS video',
-    feature_3_desc: 'Adaptive streaming that keeps playing even on slow connections.',
-    feature_4_title: 'Educator-first',
-    feature_4_desc: 'Educators keep 80% of every sale, with automatic nightly payouts.',
-    feature_5_title: 'Quality reviewed',
-    feature_5_desc: 'Every course passes a human quality review before it is published.',
-    feature_6_title: 'Two languages',
-    feature_6_desc: 'Use the platform in English or Amharic, on desktop or mobile.',
-    how_badge: 'How it works',
-    how_title_1: 'Start learning in',
-    how_title_2: 'three simple steps',
-    step_1_title: 'Find your course',
-    step_1_desc: 'Browse tech, business, freelancing and healthcare — filter by price or search directly.',
-    step_1_time: '2 minutes',
-    step_2_title: 'Enroll & pay in Birr',
-    step_2_desc: 'Free courses enroll instantly; paid ones check out in seconds through Chapa.',
-    step_2_time: '1 minute',
-    step_3_title: 'Learn & get certified',
-    step_3_desc: 'Watch lessons, pass the assessments and earn a publicly verifiable certificate.',
-    step_3_time: 'Your own pace',
-    categories_badge: 'Categories',
-    categories_title_1: 'Browse by',
-    categories_title_2: 'category',
-    cat_tech: 'Tech',
-    cat_business: 'Business',
-    cat_freelancing: 'Freelancing',
-    cat_healthcare: 'Healthcare',
-    cat_other: 'Other',
-    teach_cta_badge: 'For educators',
-    teach_cta_title_1: 'Share your expertise',
-    teach_cta_title_2: 'with Ethiopia',
-    teach_cta_sub:
-      'Create video courses, set your price in Birr and keep 80% of every sale — with automatic nightly payouts and free course tools.',
-    teach_benefit_1: '80% revenue share',
-    teach_benefit_2: 'Nightly payouts',
-    teach_benefit_3: 'Free course builder',
-    final_cta_title: 'Ready to learn something new?',
-    final_cta_sub: 'Join learners across Ethiopia building real careers with real skills.',
-    get_started: 'Get started',
-    courses_section_sub: 'Search live courses from verified Ethiopian educators.',
-    home: 'Home',
-    latest_courses: 'Latest courses',
-    view_all_courses: 'View all courses',
-    clear_filters: 'Clear filters',
-    filter_category: 'Category',
-    filter_pricing: 'Pricing',
-    per_page: 'Per page',
-    prev: 'Previous',
-    next: 'Next',
-    try_adjusting: 'Try adjusting your search or removing some filters.',
-    all: 'All',
-    free: 'Free',
-    freemium: 'Freemium',
-    paid: 'Paid',
-    no_courses: 'No published courses match yet.',
-    courses_loading: 'The course list is loading.',
-    browse_catalog: 'Browse the catalog',
-    become_educator: 'Become an educator',
-    enroll_free: 'Enroll for free',
-    buy_with_chapa: 'Buy with Chapa',
-    continue_learning: 'Continue learning',
-    login_to_enroll: 'Log in to enroll',
-    course_content: 'Course content',
-    learner_reviews: 'Learner reviews',
-    free_preview: 'Free preview',
-    email: 'Email',
-    password: 'Password',
-    full_name: 'Full name',
-    create_account: 'Create your account',
-    forgot_password: 'Forgot password?',
-    enrolled_courses: 'Enrolled courses',
-    certificates: 'Certificates',
-    payment_history: 'Payment history',
-    refund_requests: 'Refund requests',
-    progress: 'complete',
-    verify_valid: 'Valid certificate',
-    verify_invalid: 'Not a valid certificate',
-    theme_light: 'Light',
-    theme_dark: 'Dark',
-    theme_system: 'System',
-    back: 'Back',
-    footer_desc:
-      'Educator-first online learning for Ethiopia. Learn tech, business, freelancing and healthcare skills — priced in ETB, with publicly verifiable certificates.',
-    footer_learn: 'Learn',
-    footer_teach_col: 'Teach',
-    footer_platform: 'Platform',
-    footer_browse: 'Browse courses',
-    footer_verify: 'Verify a certificate',
-    footer_become: 'Become an educator',
-    footer_institution: 'Institution portal',
-    footer_payments: 'Payments secured by Chapa',
-    footer_rights: 'All rights reserved.',
-    gate_login_title: 'Please log in',
-    gate_login_body: 'You need an account to open this page.',
-    gate_denied_title: "This page isn't available for your account",
-    gate_denied_body: 'You are signed in as',
-    footer_made_with: 'Made with',
-    footer_for_ethiopia: 'for Ethiopia',
-    back_to_top: 'Back to top',
-    unread: 'unread',
-    switch_language: 'Switch language',
-    lang_name: 'አማርኛ',
-    cancel: 'Cancel',
-    confirm: 'Confirm',
-  },
-  am: {
-    skip_to_content: 'ወደ ዋናው ይዘት ዝለል',
-    courses: 'ኮርሶች',
-    help: 'እገዛ',
-    my_learning: 'ትምህርቴ',
-    teach: 'አስተምር',
-    institution: 'ተቋም',
-    review_queue: 'የግምገማ ወረፋ',
-    quality_review: 'የጥራት ግምገማ',
-    educators: 'አስተማሪዎች',
-    admin: 'አስተዳደር',
-    login: 'ግባ',
-    signup: 'ተመዝገብ',
-    logout: 'ውጣ',
-    account: 'መለያ',
-    search_placeholder: 'ኮርሶችን ፈልግ…',
-    search: 'ፈልግ',
-    hero_badge: 'የኢትዮጵያ አስተማሪ-ተኮር የመማሪያ መድረክ',
-    hero_title: 'ከኢትዮጵያ ባለሙያዎች እውነተኛ ክህሎቶችን ይማሩ',
-    hero_title_1: 'እውነተኛ ክህሎቶችን ይማሩ',
-    hero_title_2: 'ከኢትዮጵያ ባለሙያዎች',
-    hero_sub:
-      'በቴክኖሎጂ፣ ቢዝነስ፣ ፍሪላንሲንግ እና ጤና ዘርፎች የቪዲዮ ኮርሶች — በብር ዋጋ፣ በቴሌብር፣ CBE ብር እና 18+ የኢትዮጵያ ባንኮች በቻፓ በኩል ይክፈሉ፣ በይፋ የሚረጋገጡ ሰርተፍኬቶች ያግኙ።',
-    hero_image_alt: 'ላፕቶፕ የያዘች ፈገግተኛ ተማሪ',
-    explore_courses: 'ኮርሶችን ያስሱ',
-    stat_payments: 'የክፍያ አማራጮች በቻፓ',
-    stat_verifiable: 'የሚረጋገጡ ሰርተፍኬቶች',
-    stat_share: 'ለአስተማሪዎች የሚቀር ገቢ',
-    why_badge: 'ለምን ኢትዮጵያለርን',
-    why_title_1: 'ክህሎትዎን ለማሳደግ',
-    why_title_2: 'የሚያስፈልግዎ ሁሉ',
-    feature_1_title: 'በብር ይክፈሉ',
-    feature_1_desc: 'ቴሌብር፣ CBE ብር እና 18+ የኢትዮጵያ ባንኮች — በቻፓ በኩል በአንድ ንክኪ ይክፈሉ።',
-    feature_2_title: 'የሚረጋገጡ ሰርተፍኬቶች',
-    feature_2_desc: 'እያንዳንዱ ሰርተፍኬት ቀጣሪዎች የሚያምኑት የይፋ ማረጋገጫ ማገናኛ አለው።',
-    feature_3_title: 'ለስላሳ የቪዲዮ ዥረት',
-    feature_3_desc: 'በዝግተኛ ግንኙነት ላይም የማይቆም ተስማሚ (adaptive) ዥረት።',
-    feature_4_title: 'አስተማሪ-ተኮር',
-    feature_4_desc: 'አስተማሪዎች ከእያንዳንዱ ሽያጭ 80% ያገኛሉ፣ ክፍያዎች በየምሽቱ ይላካሉ።',
-    feature_5_title: 'ጥራት የተረጋገጠ',
-    feature_5_desc: 'እያንዳንዱ ኮርስ ከመታተሙ በፊት በሰው የጥራት ግምገማ ያልፋል።',
-    feature_6_title: 'በሁለት ቋንቋ',
-    feature_6_desc: 'መድረኩን በእንግሊዝኛ ወይም በአማርኛ፣ በኮምፒውተር ወይም በስልክ ይጠቀሙ።',
-    how_badge: 'እንዴት ይሰራል',
-    how_title_1: 'መማር ይጀምሩ በ',
-    how_title_2: 'ሦስት ቀላል ደረጃዎች',
-    step_1_title: 'ኮርስዎን ያግኙ',
-    step_1_desc: 'በቴክኖሎጂ፣ ቢዝነስ፣ ፍሪላንሲንግ እና ጤና ዘርፎች ያስሱ — በዋጋ ያጣሩ ወይም በቀጥታ ይፈልጉ።',
-    step_1_time: '2 ደቂቃ',
-    step_2_title: 'ይመዝገቡ እና በብር ይክፈሉ',
-    step_2_desc: 'ነፃ ኮርሶች ወዲያውኑ ይመዘገባሉ፤ የሚከፈልባቸው በቻፓ በሰከንዶች ይጠናቀቃሉ።',
-    step_2_time: '1 ደቂቃ',
-    step_3_title: 'ይማሩ እና ሰርተፍኬት ያግኙ',
-    step_3_desc: 'ትምህርቶችን ይመልከቱ፣ ፈተናዎችን ያልፉ፣ በይፋ የሚረጋገጥ ሰርተፍኬት ያግኙ።',
-    step_3_time: 'በራስዎ ፍጥነት',
-    categories_badge: 'ምድቦች',
-    categories_title_1: 'በምድብ',
-    categories_title_2: 'ያስሱ',
-    cat_tech: 'ቴክኖሎጂ',
-    cat_business: 'ቢዝነስ',
-    cat_freelancing: 'ፍሪላንሲንግ',
-    cat_healthcare: 'ጤና',
-    cat_other: 'ሌላ',
-    teach_cta_badge: 'ለአስተማሪዎች',
-    teach_cta_title_1: 'እውቀትዎን ያካፍሉ',
-    teach_cta_title_2: 'ለኢትዮጵያ',
-    teach_cta_sub:
-      'የቪዲዮ ኮርሶችን ይፍጠሩ፣ ዋጋዎን በብር ይወስኑ እና ከእያንዳንዱ ሽያጭ 80% ያግኙ — በየምሽቱ ራስ-ሰር ክፍያዎች እና ነፃ የኮርስ መሣሪያዎች።',
-    teach_benefit_1: '80% የገቢ ድርሻ',
-    teach_benefit_2: 'የየምሽት ክፍያዎች',
-    teach_benefit_3: 'ነፃ የኮርስ መገንቢያ',
-    final_cta_title: 'አዲስ ነገር ለመማር ዝግጁ ነዎት?',
-    final_cta_sub: 'እውነተኛ ክህሎቶችን በመገንባት ላይ ያሉ የኢትዮጵያ ተማሪዎችን ይቀላቀሉ።',
-    get_started: 'ይጀምሩ',
-    courses_section_sub: 'ከተረጋገጡ የኢትዮጵያ አስተማሪዎች ቀጥታ ኮርሶችን ይፈልጉ።',
-    home: 'መነሻ',
-    latest_courses: 'አዳዲስ ኮርሶች',
-    view_all_courses: 'ሁሉንም ኮርሶች ይመልከቱ',
-    clear_filters: 'ማጣሪያዎችን አጽዳ',
-    filter_category: 'ምድብ',
-    filter_pricing: 'የዋጋ አይነት',
-    per_page: 'በአንድ ገጽ',
-    prev: 'ቀዳሚ',
-    next: 'ቀጣይ',
-    try_adjusting: 'ፍለጋዎን ያስተካክሉ ወይም አንዳንድ ማጣሪያዎችን ያስወግዱ።',
-    all: 'ሁሉም',
-    free: 'ነፃ',
-    freemium: 'ፍሪሚየም',
-    paid: 'የሚከፈል',
-    no_courses: 'ምንም የታተመ ኮርስ አልተገኘም።',
-    courses_loading: 'የኮርሶች ዝርዝር በመጫን ላይ ነው።',
-    browse_catalog: 'ካታሎጉን ያስሱ',
-    become_educator: 'አስተማሪ ይሁኑ',
-    enroll_free: 'በነፃ ይመዝገቡ',
-    buy_with_chapa: 'በቻፓ ይግዙ',
-    continue_learning: 'መማር ይቀጥሉ',
-    login_to_enroll: 'ለመመዝገብ ይግቡ',
-    course_content: 'የኮርስ ይዘት',
-    learner_reviews: 'የተማሪ ግምገማዎች',
-    free_preview: 'ነፃ ቅድመ-እይታ',
-    email: 'ኢሜይል',
-    password: 'የይለፍ ቃል',
-    full_name: 'ሙሉ ስም',
-    create_account: 'መለያ ይፍጠሩ',
-    forgot_password: 'የይለፍ ቃል ረሱ?',
-    enrolled_courses: 'የተመዘገቡ ኮርሶች',
-    certificates: 'ሰርተፍኬቶች',
-    payment_history: 'የክፍያ ታሪክ',
-    refund_requests: 'የገንዘብ ተመላሽ ጥያቄዎች',
-    progress: 'ተጠናቋል',
-    verify_valid: 'ትክክለኛ ሰርተፍኬት',
-    verify_invalid: 'ትክክለኛ ሰርተፍኬት አይደለም',
-    theme_light: 'ብርሃን',
-    theme_dark: 'ጨለማ',
-    theme_system: 'ስርዓት',
-    back: 'ተመለስ',
-    footer_desc:
-      'ለኢትዮጵያ አስተማሪ-ተኮር የመስመር ላይ ትምህርት። የቴክኖሎጂ፣ ቢዝነስ፣ ፍሪላንሲንግ እና ጤና ክህሎቶችን ይማሩ — በብር ዋጋ፣ በይፋ በሚረጋገጡ ሰርተፍኬቶች።',
-    footer_learn: 'ይማሩ',
-    footer_teach_col: 'ያስተምሩ',
-    footer_platform: 'መድረክ',
-    footer_browse: 'ኮርሶችን ያስሱ',
-    footer_verify: 'ሰርተፍኬት ያረጋግጡ',
-    footer_become: 'አስተማሪ ይሁኑ',
-    footer_institution: 'የተቋም ፖርታል',
-    footer_payments: 'ክፍያዎች በቻፓ የተጠበቁ',
-    footer_rights: 'መብቱ በህግ የተጠበቀ ነው።',
-    gate_login_title: 'እባክዎ ይግቡ',
-    gate_login_body: 'ይህን ገጽ ለመክፈት መለያ ያስፈልግዎታል።',
-    gate_denied_title: 'ይህ ገጽ ለመለያዎ አይገኝም',
-    gate_denied_body: 'የገቡት እንደ',
-    footer_made_with: 'በፍቅር የተሰራ',
-    footer_for_ethiopia: 'ለኢትዮጵያ',
-    back_to_top: 'ወደ ላይ ተመለስ',
-    unread: 'ያልተነበቡ',
-    switch_language: 'ቋንቋ ቀይር',
-    lang_name: 'English',
-    cancel: 'ሰርዝ',
-    confirm: 'አረጋግጥ',
-  },
-} as const;
+/** The Amharic dictionary, fetched once, the first time someone picks Amharic. */
+let amLoaded: Dictionary | null = null;
+const loadAm = () => import('./i18n-am').then((mod) => (amLoaded = mod.am));
 
-export type TKey = keyof (typeof dictionaries)['en'];
+/** The string for `k`, with each `{name}` filled from `vars`. */
+export function translate(dict: Dictionary, k: TKey, vars?: Vars): string {
+  const text = dict[k] ?? en[k];
+  return vars ? text.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match)) : text;
+}
 
-const I18nContext = createContext<{ locale: Locale; t: (k: TKey) => string; toggle: () => void }>({
+const I18nContext = createContext<{ locale: Locale; t: (k: TKey, vars?: Vars) => string; toggle: () => void }>({
   locale: 'en',
-  t: (k) => dictionaries.en[k],
+  t: (k, vars) => translate(en, k, vars),
   toggle: () => undefined,
 });
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocale] = useState<Locale>('en');
+  const [chosen, setChosen] = useState<Locale>('en');
+  const [am, setAm] = useState<Dictionary | null>(amLoaded);
 
   useEffect(() => {
     const saved = localStorage.getItem('el_locale');
     if (saved === 'am' || saved === 'en') {
-      setLocale(saved);
+      setChosen(saved);
       document.documentElement.lang = saved;
     }
   }, []);
 
+  useEffect(() => {
+    if (chosen === 'am' && !am) void loadAm().then(setAm, () => undefined);
+  }, [chosen, am]);
+
   const toggle = useCallback(() => {
-    setLocale((prev) => {
+    setChosen((prev) => {
       const next = prev === 'en' ? 'am' : 'en';
       localStorage.setItem('el_locale', next);
       document.documentElement.lang = next;
@@ -321,11 +53,24 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const t = useCallback((k: TKey) => dictionaries[locale][k] ?? dictionaries.en[k], [locale]);
+  // English until the Amharic strings are in, so text, prices and dates switch together.
+  const locale: Locale = chosen === 'am' && am ? 'am' : 'en';
+  const dict = locale === 'am' && am ? am : en;
+  const t = useCallback((k: TKey, vars?: Vars) => translate(dict, k, vars), [dict]);
 
   return <I18nContext.Provider value={{ locale, t, toggle }}>{children}</I18nContext.Provider>;
 }
 
 export function useT() {
   return useContext(I18nContext);
+}
+
+/**
+ * Translated text for a server component: English in the server HTML (static
+ * and ISR pages can't know the reader's locale), the reader's language after
+ * hydration, as in the client components.
+ */
+export function T({ k, vars }: { k: TKey; vars?: Vars }) {
+  const { t } = useT();
+  return <>{t(k, vars)}</>;
 }

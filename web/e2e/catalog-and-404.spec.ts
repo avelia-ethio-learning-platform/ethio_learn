@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { apiGet } from './support';
 
 const UUID_LINK = /^\/courses\/[0-9a-f-]{36}$/;

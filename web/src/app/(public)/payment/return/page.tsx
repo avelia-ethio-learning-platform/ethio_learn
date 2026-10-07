@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { ArrowRight, Clock3, LoaderCircle, PartyPopper, RefreshCcw, XCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { AuthShell } from '@/components/PageChrome';
+import { useT, type TKey } from '@/lib/i18n';
 
 type State = 'polling' | 'active' | 'failed' | 'timeout';
 
@@ -18,6 +19,7 @@ function PaymentReturn() {
   const courseId = params.get('course_id');
   const txRef = params.get('tx_ref');
   const purpose = params.get('purpose') ?? 'course';
+  const { t } = useT();
   const instant = params.get('instant') === '1'; // wallet / 100% coupon — already confirmed server-side
   const [state, setState] = useState<State>('polling');
   const done = useRef(false);
@@ -77,39 +79,39 @@ function PaymentReturn() {
     failed: <XCircle className="h-6 w-6" />,
     timeout: <Clock3 className="h-6 w-6" />,
   };
-  const titles: Record<State, string> = {
-    polling: 'Confirming your payment…',
-    active: "You're in!",
-    failed: 'Payment not completed',
-    timeout: 'Still processing',
+  const titles: Record<State, TKey> = {
+    polling: 'pay_confirming',
+    active: 'pay_youre_in',
+    failed: 'pay_not_completed',
+    timeout: 'pay_still_processing',
   };
 
   return (
-    <AuthShell icon={icons[state]} title={titles[state]}>
+    <AuthShell icon={icons[state]} title={t(titles[state])}>
       <div className="text-center">
         {state === 'polling' && (
           <p className="text-sm leading-relaxed text-gray-500">
-            We&apos;re checking with Chapa. If you just finished on the Chapa page, this takes a few seconds.
+            {t('pay_checking_chapa')}
           </p>
         )}
         {state === 'active' && (
           <>
             <p className="text-sm leading-relaxed text-gray-500">
-              {purpose === 'wallet_topup' ? 'Your wallet has been topped up.' : purpose === 'gift' || purpose === 'pay_request' ? 'Payment confirmed — the learner now has access.' : purpose === 'bulk' ? 'Payment confirmed — assign your seats from the Institution page.' : 'Payment confirmed and your course is unlocked.'}
+              {t(purpose === 'wallet_topup' ? 'pay_done_wallet' : purpose === 'gift' || purpose === 'pay_request' ? 'pay_done_gift' : purpose === 'bulk' ? 'pay_done_bulk' : 'pay_done_course')}
             </p>
             <Link href={purpose === 'course' && courseId ? `/learn/${courseId}` : purpose === 'bulk' ? '/institution' : '/dashboard'} className="btn mt-5 inline-flex !px-8 !py-3">
-              {purpose === 'course' ? 'Start learning' : 'Continue'} <ArrowRight className="h-4 w-4" />
+              {t(purpose === 'course' ? 'start_learning' : 'continue')} <ArrowRight className="h-4 w-4" />
             </Link>
           </>
         )}
         {state === 'failed' && (
           <>
             <p className="text-sm leading-relaxed text-gray-500">
-              Chapa reported this checkout was cancelled or didn&apos;t go through — no money was taken. You can try again.
+              {t('pay_failed_info')}
             </p>
             {courseId && (
               <Link href={`/courses/${courseId}`} className="btn mt-5 inline-flex !px-8 !py-3">
-                Back to the course
+                {t('back_to_course')}
               </Link>
             )}
           </>
@@ -117,7 +119,7 @@ function PaymentReturn() {
         {state === 'timeout' && (
           <>
             <p className="text-sm leading-relaxed text-gray-500">
-              We haven&apos;t seen a confirmation yet. If you completed the payment on Chapa, click below to check again.
+              {t('pay_timeout_info')}
             </p>
             <div className="mt-5 flex flex-col items-center gap-3">
               <button
@@ -128,10 +130,10 @@ function PaymentReturn() {
                   if (!(await check())) setState('timeout');
                 }}
               >
-                <RefreshCcw className="h-4 w-4" /> Check again
+                <RefreshCcw className="h-4 w-4" /> {t('check_again')}
               </button>
               <Link href="/dashboard" className="btn-secondary inline-flex">
-                Go to dashboard
+                {t('go_to_dashboard')}
               </Link>
             </div>
           </>

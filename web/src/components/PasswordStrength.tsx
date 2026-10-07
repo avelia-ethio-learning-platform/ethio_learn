@@ -1,6 +1,7 @@
 'use client';
 
 import { Check, Circle } from 'lucide-react';
+import { useT, type TKey } from '@/lib/i18n';
 
 const CATEGORIES = [
   { re: /[a-z]/, text: 'lowercase' },
@@ -24,7 +25,11 @@ export function scorePassword(pw: string) {
   return { ok, score, label, lengthOk, categoriesMet: count, categories };
 }
 
+const STRENGTH_KEY: Record<string, TKey> = { 'Very weak': 'strength_very_weak', Weak: 'strength_weak', Good: 'strength_good', Strong: 'strength_strong' };
+const CATEGORY_KEY: Record<string, TKey> = { lowercase: 'pw_lowercase', uppercase: 'pw_uppercase', number: 'pw_number', symbol: 'pw_symbol' };
+
 export function PasswordStrength({ value }: { value: string }) {
+  const { t } = useT();
   if (!value) return null;
   const { score, label, lengthOk, categoriesMet, categories } = scorePassword(value);
   const colors = ['bg-red-500', 'bg-red-500', 'bg-amber-500', 'bg-yellow-500', 'bg-green-600'];
@@ -32,7 +37,7 @@ export function PasswordStrength({ value }: { value: string }) {
   const mark = (ok: boolean) => (
     <>
       {ok ? <Check className="mr-1 inline h-3 w-3" aria-hidden="true" /> : <Circle className="mr-1 inline h-3 w-3" aria-hidden="true" />}
-      <span className="sr-only">{ok ? 'Met: ' : 'Not met: '}</span>
+      <span className="sr-only">{t(ok ? 'pw_met' : 'pw_not_met')} </span>
     </>
   );
   return (
@@ -43,21 +48,21 @@ export function PasswordStrength({ value }: { value: string }) {
         ))}
       </div>
       <p className="mt-1 text-xs text-gray-500">
-        Strength: <span className="font-medium">{label}</span>
+        {t('strength')} <span className="font-medium">{t(STRENGTH_KEY[label])}</span>
       </p>
       <ul className="mt-1 space-y-0.5 text-xs">
         <li className={tone(lengthOk)}>
           {mark(lengthOk)}
-          At least 8 characters
+          {t('pw_at_least_8')}
         </li>
         <li className={tone(categoriesMet >= 3)}>
           {mark(categoriesMet >= 3)}
-          3 of these 4:
+          {t('pw_three_of_four')}
           <ul className="ml-4 mt-0.5 flex flex-wrap gap-x-3">
             {categories.map((c) => (
               <li key={c.text} className={tone(c.ok)}>
                 {mark(c.ok)}
-                {c.text}
+                {t(CATEGORY_KEY[c.text])}
               </li>
             ))}
           </ul>

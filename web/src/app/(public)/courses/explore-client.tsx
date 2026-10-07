@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ChevronDown, ChevronLeft, ChevronRight, Compass, RotateCcw, Search, SearchX, SlidersHorizontal, Tag, X } from 'lucide-react';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
 import { useT } from '@/lib/i18n';
@@ -12,13 +12,7 @@ const CATEGORIES = ['tech', 'business', 'freelancing', 'healthcare', 'other'] as
 const PRICING = ['free', 'freemium', 'paid'] as const;
 const PAGE_SIZES = [12, 24, 48] as const;
 const DEFAULT_LIMIT = 12;
-const SORTS = [
-  { value: 'top', label: 'Recommended' },
-  { value: 'new', label: 'Newest' },
-  { value: 'popular', label: 'Most popular' },
-  { value: 'price_asc', label: 'Price: low to high' },
-  { value: 'price_desc', label: 'Price: high to low' },
-] as const;
+const SORTS = ['top', 'new', 'popular', 'price_asc', 'price_desc'] as const;
 const DEFAULT_SORT = 'top';
 
 export interface ExploreFilters {
@@ -55,12 +49,13 @@ function pageItems(current: number, totalPages: number): (number | 'gap')[] {
 }
 
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  const { t } = useT();
   return (
     <span className="glass-secondary inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-medium text-brand-700 shadow-glass">
       {label}
       <button
         onClick={onRemove}
-        aria-label={`Remove ${label}`}
+        aria-label={t('remove_filter', { label })}
         className="flex h-5 w-5 items-center justify-center rounded-full transition-colors hover:bg-brand-500/15"
       >
         <X className="h-3 w-3" />
@@ -93,7 +88,7 @@ export function ExploreClient({
 
   const activeCategory = CATEGORIES.find((c) => c === filters.category);
   const activePricing = PRICING.find((p) => p === filters.pricing_type);
-  const activeSort = SORTS.find((s) => s.value === filters.sort)?.value ?? DEFAULT_SORT;
+  const activeSort = SORTS.find((s) => s === filters.sort) ?? DEFAULT_SORT;
   const hasFilters = Boolean(filters.q || activeCategory || activePricing);
   const activeCount = [filters.q, activeCategory, activePricing].filter(Boolean).length;
   // Below md the filters sit behind a button; they start open when a filter is already applied.
@@ -132,7 +127,7 @@ export function ExploreClient({
 
       <div className="page-shell">
         {/* Heading */}
-        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="text-center">
+        <m.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="text-center">
           <span className="section-badge">
             <Compass className="h-4 w-4 text-brand-500" />
             {total} {t('courses')}
@@ -141,10 +136,10 @@ export function ExploreClient({
             <span className="gradient-text-blue">{t('explore_courses')}</span>
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-gray-500">{t('courses_section_sub')}</p>
-        </motion.div>
+        </m.div>
 
         {/* Search + filter panel */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.15 }}
@@ -168,7 +163,7 @@ export function ExploreClient({
             {searchText && (
               <button
                 type="button"
-                aria-label="Clear search"
+                aria-label={t('clear_search')}
                 onClick={() => {
                   setSearchText('');
                   if (filters.q) navigate({ q: undefined, page: 1 });
@@ -190,7 +185,7 @@ export function ExploreClient({
           >
             <span className="inline-flex items-center gap-2">
               <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-              {activeCount > 0 ? `Filters (${activeCount} active)` : 'Filters'}
+              {activeCount > 0 ? t('filters_active', { n: activeCount }) : t('filters')}
             </span>
             <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
           </button>
@@ -243,22 +238,20 @@ export function ExploreClient({
               )}
             </div>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Results meta + active filter chips */}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <p className="flex items-center gap-2 text-sm text-gray-500">
             {/* Past the last page (`?page=` typed by hand) there is no range to show. */}
             {from > to ? (
-              <span>No courses on this page</span>
+              <span>{t('no_courses_on_page')}</span>
             ) : (
-              <span>
-                Showing <span className="font-semibold text-foreground">{from}–{to}</span> of {total} courses
-              </span>
+              <span>{t('showing_range', { from, to, total })}</span>
             )}
             {isPending && <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />}
           </p>
-          <Field label="Sort by">
+          <Field label={t('sort_by')}>
             {(ids) => (
               <select
                 {...ids}
@@ -267,8 +260,8 @@ export function ExploreClient({
                 className="input !w-auto"
               >
                 {SORTS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
+                  <option key={s} value={s}>
+                    {t(`sort_${s}`)}
                   </option>
                 ))}
               </select>
@@ -296,7 +289,7 @@ export function ExploreClient({
             )}
           </div>
         ) : (
-          <motion.div
+          <m.div
             key={`${filters.q ?? ''}|${activeCategory ?? ''}|${activePricing ?? ''}|${activeSort}|${page}|${limit}`}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -309,12 +302,12 @@ export function ExploreClient({
             {courses.map((c) => (
               <CourseCard key={c.id} course={c} />
             ))}
-          </motion.div>
+          </m.div>
         )}
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <nav aria-label="Pagination" className="mt-12 flex flex-wrap items-center justify-center gap-2">
+          <nav aria-label={t('pagination')} className="mt-12 flex flex-wrap items-center justify-center gap-2">
             <button
               disabled={page <= 1 || isPending}
               onClick={() => navigate({ page: page - 1 }, { scroll: true })}

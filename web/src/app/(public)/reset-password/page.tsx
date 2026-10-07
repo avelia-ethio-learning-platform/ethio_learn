@@ -45,8 +45,8 @@ function ResetPassword() {
   return (
     <AuthShell
       icon={<KeyRound className="h-6 w-6" />}
-      title={token ? 'Set a new password' : 'Reset your password'}
-      subtitle={token ? 'Choose a strong password for your account.' : "We'll email you a signed, time-limited reset link."}
+      title={token ? t('set_new_password') : t('reset_your_password')}
+      subtitle={token ? t('choose_strong_password') : t('reset_link_info')}
       footer={
         <Link href="/login" className="font-medium text-brand-600 hover:underline">
           ← {t('login')}
@@ -55,11 +55,11 @@ function ResetPassword() {
     >
       <form onSubmit={submit} className="space-y-4">
         {token ? (
-          <Field label="New password (8+ characters)">
+          <Field label={t('new_password_min')}>
             {(ids) => <input {...ids} name="password" type="password" minLength={8} required autoComplete="new-password" className="input" />}
           </Field>
         ) : (
-          <Field label="Account email">
+          <Field label={t('account_email')}>
             {(ids) => <input {...ids} name="email" type="email" required autoComplete="email" className="input" placeholder="you@example.com" />}
           </Field>
         )}
@@ -70,7 +70,7 @@ function ResetPassword() {
           </Link>
         )}
         <button className="btn w-full !py-3" disabled={busy}>
-          {busy ? 'Working…' : token ? 'Update password' : 'Send reset link'}
+          {busy ? t('working') : token ? t('update_password') : t('send_reset_link')}
         </button>
       </form>
     </AuthShell>

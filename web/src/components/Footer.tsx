@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ArrowUp, BadgeCheck, GraduationCap, Heart, ShieldCheck, Wallet } from 'lucide-react';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
@@ -124,14 +124,14 @@ export function Footer() {
           </p>
           <div className="flex items-center gap-3">
             <p className="text-xs text-gray-500">{t('footer_payments')}</p>
-            <motion.button
+            <m.button
               whileHover={{ scale: 1.08, y: -2 }}
               onClick={scrollTop}
               aria-label={t('back_to_top')}
               className="glass-secondary flex h-9 w-9 active:scale-[.98] items-center justify-center rounded-xl text-brand-600 shadow-glass"
             >
               <ArrowUp className="h-4 w-4" />
-            </motion.button>
+            </m.button>
           </div>
         </div>
       </div>
