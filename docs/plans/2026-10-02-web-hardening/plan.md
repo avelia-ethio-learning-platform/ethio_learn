@@ -286,7 +286,9 @@ Shared by all: 87.7 kB, then 87.8 kB at the gate. The Amharic dictionary is a se
 ## In flight / next step (checkpoint 2026-10-03; updated 2026-10-07 by ethio-impl [5d9058])
 
 - **2026-10-07:** round 1 (CHANGES REQUESTED) answered in one commit: B1 (report-uri only), S1 (the Rollout's console walk-through), N1 (ReviewPlayer's catch), N2 (deviation 11). Round 2 requested from ethio-plan-review [1a4214].
-- **At merge time:** 11a merges first and restructures `docs/DEPLOYMENT.md`. Add a short "CSP" section there with the Rollout's three steps when origin/main is merged in.
+- **Round 2 APPROVED** (ethio-plan-review, 2026-10-07). The user set `NEXT_PUBLIC_MEDIA_ORIGINS` on Vercel Production.
+- **Merged origin/main** (11a, `8c511b5`). One conflict, in `web/.env.example`; both blocks were kept. `docs/DEPLOYMENT.md` gained a "Content Security Policy (web)" section with the Rollout's three steps and a rollback, and the web row of its env table lists `NEXT_PUBLIC_MEDIA_ORIGINS` and `CSP_ENFORCE`. Gate after the merge: web typecheck clean, vitest 691, clean-env build OK (`/` 128 kB, shared 87.8 kB), api build, and `node scripts/lint-check.mjs` with no rule above its baseline.
+- **Next:** push, open the PR, and merge (`gh pr merge N --merge`) once CI is green.
 
 - **State:** steps 1–9 done, everything committed on `feat/web-hardening` (local, not pushed). The gate is green on this tip; see Step 9 above. The stack is released and nothing is running.
 - **Step 10 in flight:** code review round 1 requested from ethio-plan-review [f903ba] on 2026-10-03 (branch, base `f8e70bc`, this plan, gate result).

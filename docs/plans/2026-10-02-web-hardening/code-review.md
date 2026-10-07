@@ -55,3 +55,17 @@ I reviewed `git diff f8e70bc...a02ca58` (86 files outside `docs/plans`, +2555/�
 - **N1: taken.** `ReviewPlayer`'s `attachVideo` has a `.catch`. Unless the effect was cancelled, it resets the player and shows "Could not load the video player. Load it again."
 - **N2: taken.** Deviation 11 names all three lines (the coupon price, `invite_reward` and `showing_range`).
 - **Gate on this commit:** `pnpm typecheck` clean; `pnpm test` 82 files and 691 tests pass (692 − the removed Reporting API test); clean-env `pnpm build` OK, with first-load sizes unchanged (`/` 128 kB, `/courses/[id]` 124 kB, `/learn/[courseId]` 142 kB, `/preview/[id]` 132 kB, shared 87.8 kB). Playwright wasn't rerun: the only runtime changes are two response headers, the report route and the preview's error path.
+
+## Round 2 (2026-10-07) · Verdict: APPROVED
+I reviewed `ec5b9ae..0699214`, the round 1 fixes only.
+- **B1, resolved:** `report-to`, `REPORT_GROUP` and `Reporting-Endpoints` are gone. `summarize()` reads one `{ "csp-report": … }` per POST, and `csp.test.ts` asserts both are absent.
+  - **My recheck** ran on my own build of `0699214`, unmodified, with no route rewrite this time (`next start`, Playwright's full Chromium, N blocked `<img>`). The response carries `report-uri /api/csp-report` and no `Reporting-Endpoints`. The route logged **2 of 2** and **20 of 20**, against 0 of 20 in round 1.
+- **S1, resolved:**
+  - the Rollout's "After the deploy" has the three steps;
+  - the acceptance criterion, decision 1 and `web/.env.example` match;
+  - the USER-ACTIONS 🟥 is reworded, marks `NEXT_PUBLIC_MEDIA_ORIGINS` as config rather than a secret, and says why.
+- **N1, resolved:** `ReviewPlayer`'s `.catch` respects `cancelled`, resets the player and shows an error. N2 is resolved too (deviation 11).
+- **Gate** (my worktree at `0699214`, clean env): typecheck clean, vitest 82 files and 691 tests pass, and `next build` succeeds. Sizes are unchanged: `/` 128 kB, `/courses/[id]` 124 kB, `/learn/[courseId]` 142 kB, `/preview/[id]` 132 kB, shared 87.8 kB. I agree Playwright doesn't need a rerun for this diff. CI runs it on the PR.
+- **Before the merge:**
+  - the USER-ACTIONS 🟥 "media origins set" (it blocks the merge);
+  - green CI after merging origin/main (11a first, if it lands, plus the `docs/DEPLOYMENT.md` CSP section you noted).
