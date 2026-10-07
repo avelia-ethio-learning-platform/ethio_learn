@@ -18,7 +18,7 @@
     "eslint": "^9",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
-    "turbo": "^2.0.6",
+    "turbo": "^2.11.7",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8"
   },
