@@ -3,7 +3,7 @@ import { EntitlementStatus, PaymentStatus, RefundStatus } from '@ethiopialearn/c
 import { Coupon, Payment, Referral, ReferralCode, RefundRequest, Sponsorship, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { RefundService } from './refund.service';
-import { fakeDb } from './testing/fake-db';
+import { fakeDb, fakeOutbox } from './testing/fake-db';
 
 const DAY = 86_400_000;
 /** Purchase credits are held for the 7-day refund window plus an hour (GrowthService). */
@@ -81,9 +81,11 @@ function setup(opts: Options = {}) {
     bus as never,
     internal as never,
   );
-  const service = new RefundService(refunds as never, payments as never, bus as never, internal as never, growth, db.dataSource as never);
+  const { outbox, committed, onEmit } = fakeOutbox(db.dataSource);
+  const service = new RefundService(refunds as never, payments as never, bus as never, internal as never, growth, outbox as never);
   const payment = () => payments.rows.find((p) => p.id === 'pay-1')!;
-  const published = (type: string) => bus.publish.mock.calls.filter(([t]) => t === type);
+  /** Decisions committed to the outbox, which publishes them after commit. */
+  const published = (type: string) => committed.filter(([t]) => t === type);
 
   /**
    * The purchase's cashback (25 ETB to the buyer) and its referrer's reward
@@ -104,16 +106,16 @@ function setup(opts: Options = {}) {
   const credits = () => db.repo(WalletTransaction).rows.map((t) => [t.user_id, t.kind, t.payment_id, t.state]);
   const balance = (userId: string) => Number(db.repo(Wallet).rows.find((w) => w.user_id === userId)?.balance_etb ?? 0);
 
-  return { db, service, growth, bus, payments, refunds, payment, published, confirmedAt, earnCredits, credits, balance };
+  return { db, service, growth, bus, internal, outbox, committed, onEmit, payments, refunds, payment, published, confirmedAt, earnCredits, credits, balance };
 }
 
 describe('RefundService rule engine (spec §10.4)', () => {
   it('auto-approves <20% progress within 7 days and revokes entitlement via RefundApproved', async () => {
-    const { service, bus, payment } = setup({ progress: 10, confirmedDaysAgo: 2 });
+    const { service, payment, published } = setup({ progress: 10, confirmedDaysAgo: 2 });
     const result = await service.request(ctx, 'pay-1', 'changed my mind');
     expect(result.status).toBe(RefundStatus.APPROVED);
     expect(result.rule).toBe('auto_approve_under_20pct_within_7d');
-    expect(bus.publish).toHaveBeenCalledWith('RefundApproved', expect.objectContaining({ payment_id: 'pay-1' }));
+    expect(published('RefundApproved')).toEqual([['RefundApproved', expect.objectContaining({ payment_id: 'pay-1' })]]);
     // the payment itself is marked refunded, and keeps the request's mark
     expect(payment().status).toBe(PaymentStatus.REFUNDED);
     expect(payment().refund_requested_at).toBeInstanceOf(Date);
@@ -237,7 +239,7 @@ describe('RefundService: a request the rules accept marks the payment (decision 
     ['auto-approved', 10],
     ['manual review', 35],
   ])('an accepted request (%s) on a payment already paid out is sent to support and changes nothing', async (_case, progress) => {
-    const { service, refunds, payment, bus, earnCredits, credits } = setup({ progress, confirmedDaysAgo: 2, payoutId: 'po-1' });
+    const { service, refunds, payment, bus, committed, earnCredits, credits } = setup({ progress, confirmedDaysAgo: 2, payoutId: 'po-1' });
     await earnCredits();
     const before = credits();
 
@@ -247,6 +249,7 @@ describe('RefundService: a request the rules accept marks the payment (decision 
     expect(payment()).toMatchObject({ status: PaymentStatus.CONFIRMED, payout_id: 'po-1', refund_requested_at: null });
     expect(credits()).toEqual(before);
     expect(bus.publish).not.toHaveBeenCalled();
+    expect(committed).toEqual([]);
   });
 
   it('a request on a paid-out payment that the rules deny gets the rule, not the support message', async () => {
@@ -331,7 +334,7 @@ describe('RefundService: approval voids the purchase credits, denial keeps them 
   });
 
   it('approving a legacy pending refund on a payment already paid out is sent to support and changes nothing (N2)', async () => {
-    const { service, refunds, payment, earnCredits, credits, bus } = setup({ progress: 35, confirmedDaysAgo: 2, payoutId: 'po-1' });
+    const { service, refunds, payment, earnCredits, credits, bus, committed } = setup({ progress: 35, confirmedDaysAgo: 2, payoutId: 'po-1' });
     await earnCredits();
     // Filed before the mark existed; the migration's backfill marked its payment.
     const markedAt = ago(DAY);
@@ -345,6 +348,7 @@ describe('RefundService: approval voids the purchase credits, denial keeps them 
     expect(payment()).toMatchObject({ status: PaymentStatus.CONFIRMED, payout_id: 'po-1', refund_requested_at: markedAt });
     expect(credits()).toEqual(before);
     expect(bus.publish).not.toHaveBeenCalled();
+    expect(committed).toEqual([]);
   });
 
   it('a failure in the approval transaction leaves the refund pending and the payment confirmed', async () => {
@@ -541,5 +545,67 @@ describe('RefundService.listPending', () => {
     find.mockClear();
     await expect(service.listPending(admin)).resolves.toEqual([]);
     expect(find).not.toHaveBeenCalled();
+  });
+});
+
+describe('RefundService: a decision commits with its event (9b outbox)', () => {
+  const fail = (onEmit: jest.Mock) => onEmit.mockImplementationOnce(() => {
+    throw new Error('outbox insert failed');
+  });
+
+  it('an auto-denial and its RefundDenied commit together; a failure before commit leaves neither', async () => {
+    const t = setup({ progress: 80, confirmedDaysAgo: 2 });
+    fail(t.onEmit);
+    await expect(t.service.request(ctx, 'pay-1', 'please')).rejects.toThrow('outbox insert failed');
+    expect(t.refunds.rows).toHaveLength(0);
+    expect(t.committed).toEqual([]);
+
+    await expect(t.service.request(ctx, 'pay-1', 'please')).resolves.toMatchObject({ status: RefundStatus.DENIED });
+    expect(t.refunds.rows).toEqual([expect.objectContaining({ status: RefundStatus.DENIED })]);
+    expect(t.committed).toEqual([['RefundDenied', expect.objectContaining({ payment_id: 'pay-1', learner_email: 'l@e.et' })]]);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('an auto-approval: the request, the flip, the void and RefundApproved commit together; a failure before commit leaves none', async () => {
+    const t = setup({ progress: 10, confirmedDaysAgo: 2 });
+    await t.earnCredits();
+    const before = t.credits();
+    fail(t.onEmit);
+    await expect(t.service.request(ctx, 'pay-1', 'please')).rejects.toThrow('outbox insert failed');
+    expect(t.refunds.rows).toHaveLength(0);
+    expect(t.payment()).toMatchObject({ status: PaymentStatus.CONFIRMED, refund_requested_at: null });
+    expect(t.credits()).toEqual(before);
+    expect(t.committed).toEqual([]);
+
+    await t.service.request(ctx, 'pay-1', 'please');
+    expect(t.payment().status).toBe(PaymentStatus.REFUNDED);
+    expect(t.committed).toEqual([['RefundApproved', expect.objectContaining({ payment_id: 'pay-1', access_kept: false })]]);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['approval', true, 'RefundApproved'],
+    ['denial', false, 'RefundDenied'],
+  ])('an admin %s and its event commit together; a failure before commit leaves the refund pending', async (_kind, approve, event) => {
+    const t = setup({ progress: 35, confirmedDaysAgo: 2 });
+    const { refund_id } = await t.service.request(ctx, 'pay-1', 'not what I expected');
+    fail(t.onEmit);
+    await expect(t.service.decide('adm-1', refund_id, approve)).rejects.toThrow('outbox insert failed');
+    expect(t.refunds.rows[0]).toMatchObject({ status: RefundStatus.PENDING, decided_by: null });
+    expect(t.payment()).toMatchObject({ status: PaymentStatus.CONFIRMED, refund_requested_at: expect.any(Date) });
+    expect(t.committed).toEqual([]);
+
+    await t.service.decide('adm-1', refund_id, approve);
+    expect(t.committed).toEqual([[event, expect.objectContaining({ refund_request_id: refund_id })]]);
+    expect(t.bus.publish.mock.calls.map(([type]) => type)).toEqual(['RefundRequested']);
+  });
+
+  it('looks the learner up before the transaction opens', async () => {
+    const t = setup({ progress: 35, confirmedDaysAgo: 2 });
+    const { refund_id } = await t.service.request(ctx, 'pay-1', 'x');
+    t.internal.get.mockClear();
+    t.outbox.transaction.mockClear();
+    await t.service.decide('adm-1', refund_id, true);
+    expect(t.internal.get.mock.invocationCallOrder[0]).toBeLessThan(t.outbox.transaction.mock.invocationCallOrder[0]);
   });
 });

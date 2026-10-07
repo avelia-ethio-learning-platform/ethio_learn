@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
-import { EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { EntityManager, In, Repository } from 'typeorm';
+import { Emit, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, OutboxService, UserContext } from '@ethiopialearn/common';
 import { EntitlementStatus, PaymentStatus, RefundDecisionPayload, RefundRequestedPayload, RefundStatus, Role } from '@ethiopialearn/contracts';
 import { PaymentMethod, PaymentPurpose } from '@ethiopialearn/contracts';
 import { Payment, RefundRequest, Sponsorship } from './entities';
@@ -29,7 +29,7 @@ export class RefundService {
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
     private readonly growth: GrowthService,
-    private readonly dataSource: DataSource,
+    private readonly outbox: OutboxService,
   ) {}
 
   /**
@@ -38,7 +38,8 @@ export class RefundService {
    * denial touches only the request row, so the payment stays claimable by a
    * payout. A request the rules accept (manual review or auto-approve) marks
    * the payment and is filed in one transaction, and an auto-approval
-   * refunds it in that transaction too (see approveWith).
+   * refunds it in that transaction too (see approveWith). A decision commits
+   * with its RefundDenied or RefundApproved (the outbox).
    */
   async request(ctx: UserContext, paymentId: string, reason: string) {
     const payment = await this.payments.findOne({ where: { id: paymentId } });
@@ -119,13 +120,19 @@ export class RefundService {
       decided_by: null, // automated
     };
 
+    // Looked up before the transaction, so no internal call holds it (and the payment locks) open.
+    const learnerEmail = await this.learnerEmail(payment);
+
     if (decision === RefundStatus.DENIED) {
-      const refund = await this.file(this.refunds, draft);
-      await this.emitDecision('RefundDenied', refund, payment);
+      const refund = await this.outbox.transaction(async (m, emit) => {
+        const denied = await this.file(m.getRepository(RefundRequest), draft);
+        emit<RefundDecisionPayload>('RefundDenied', this.decisionPayload(denied, payment, learnerEmail));
+        return denied;
+      });
       return { refund_id: refund.id, status: refund.status, rule };
     }
 
-    const filed = await this.dataSource.transaction(async (m) => {
+    const filed = await this.outbox.transaction(async (m, emit) => {
       // The ordered lock comes before the mark: the mark locks this payment,
       // and taking the other duplicates' locks after it would be out of order
       // (two refunds of two duplicates at once would deadlock).
@@ -138,15 +145,15 @@ export class RefundService {
       // Nothing written yet, so the transaction just ends; why is worked out below.
       if (marked !== 1) return null;
       const refund = await this.file(m.getRepository(RefundRequest), draft);
-      const approved = decision === RefundStatus.APPROVED ? await this.approveWith(m, refund, payment) : null;
+      const approved = decision === RefundStatus.APPROVED ? await this.approveWith(m, emit, refund, payment, learnerEmail) : null;
       return { refund, approved };
     });
     if (!filed) throw await this.unmarkable(paymentId);
 
     const { refund, approved } = filed;
-    if (decision === RefundStatus.APPROVED) await this.finalizeApproval(refund, payment, approved);
+    if (decision === RefundStatus.APPROVED) this.finalizeApproval(refund, payment, approved);
     // Manual-review band: a platform admin must decide — notify them.
-    else await this.emitRequested(refund, payment);
+    else await this.emitRequested(refund, payment, learnerEmail);
     return { refund_id: refund.id, status: refund.status, rule };
   }
 
@@ -155,7 +162,8 @@ export class RefundService {
    * concurrent decision is refused. The decision and its effect on the payment
    * are one transaction: an approval refunds the payment (approveWith); a
    * denial clears the payment's refund mark, so payouts can claim it again and
-   * its pending credits release when they mature.
+   * its pending credits release when they mature. Its RefundApproved or
+   * RefundDenied commits in that transaction too (the outbox).
    */
   async decide(adminId: string, refundId: string, approve: boolean) {
     const refund = await this.refunds.findOne({ where: { id: refundId } });
@@ -165,19 +173,21 @@ export class RefundService {
     if (!payment) throw new NotFoundException('Payment not found');
 
     const decision = { status: approve ? RefundStatus.APPROVED : RefundStatus.DENIED, decided_at: new Date(), decided_by: adminId };
-    const outcome = await this.dataSource.transaction(async (m) => {
+    // Looked up before the transaction, so no internal call holds it (and the payment locks) open.
+    const learnerEmail = await this.learnerEmail(payment);
+    const outcome = await this.outbox.transaction(async (m, emit) => {
       const decided = await m.getRepository(RefundRequest).update({ id: refund.id, status: RefundStatus.PENDING }, decision);
       // Another decision got in first. Nothing written, so the transaction just ends.
       if (decided.affected !== 1) return { decided: false as const };
-      if (approve) return { decided: true as const, approved: await this.approveWith(m, refund, payment) };
+      if (approve) return { decided: true as const, approved: await this.approveWith(m, emit, refund, payment, learnerEmail) };
       await m.query(`UPDATE ${this.paymentsTable(m)} SET refund_requested_at = NULL WHERE id = $1`, [payment.id]);
+      emit<RefundDecisionPayload>('RefundDenied', this.decisionPayload(refund, payment, learnerEmail));
       return { decided: true as const, approved: null };
     });
     if (!outcome.decided) throw new BadRequestException('Already decided');
     Object.assign(refund, decision);
 
-    if (approve) await this.finalizeApproval(refund, payment, outcome.approved);
-    else await this.emitDecision('RefundDenied', refund, payment);
+    if (approve) this.finalizeApproval(refund, payment, outcome.approved);
     return refund;
   }
 
@@ -218,8 +228,8 @@ export class RefundService {
   /**
    * An approval's writes, in its transaction (after the request row is
    * approved): the payment flips confirmed → refunded, then its pending
-   * cashback and referral reward are voided. The flip runs once per payment,
-   * so the void does too.
+   * cashback and referral reward are voided, and RefundApproved is emitted.
+   * The flip runs once per payment, so the void and the event do too.
    * - A payment already in a payout throws the support message, which rolls
    *   the whole decision back (a legacy request filed before the mark).
    * - A payment no longer confirmed for another reason is left alone, and so
@@ -232,7 +242,7 @@ export class RefundService {
    * Returns how many credits were voided and whether access is kept, or null
    * when nothing was refunded.
    */
-  private async approveWith(m: EntityManager, refund: RefundRequest, payment: Payment): Promise<Approval | null> {
+  private async approveWith(m: EntityManager, emit: Emit, refund: RefundRequest, payment: Payment, learnerEmail: string): Promise<Approval | null> {
     const held = await this.lockCoursePayments(m, payment);
     const [, flipped]: [unknown[], number] = await m.query(
       `UPDATE ${this.paymentsTable(m)} SET status = 'refunded' WHERE id = $1 AND status = 'confirmed' AND payout_id IS NULL`,
@@ -243,6 +253,8 @@ export class RefundService {
       const access_kept =
         held.some((p) => p.id !== payment.id) ||
         (await m.getRepository(Sponsorship).count({ where: { recipient_user_id: payment.learner_id, course_id: payment.course_id, status: 'granted' } })) > 0;
+      // Enrollment revokes access unless `access_kept`.
+      emit<RefundDecisionPayload>('RefundApproved', this.decisionPayload(refund, payment, learnerEmail, access_kept));
       return { voided, access_kept };
     }
     const current = await m.getRepository(Payment).findOne({ where: { id: payment.id } });
@@ -268,15 +280,14 @@ export class RefundService {
     });
   }
 
-  /** After the approval commits: RefundApproved goes out only for the approval that refunded the payment. Enrollment revokes access unless `access_kept`. */
-  private async finalizeApproval(refund: RefundRequest, payment: Payment, approved: Approval | null) {
+  /** After an approval that refunded the payment commits (its RefundApproved committed with it, in approveWith). */
+  private finalizeApproval(refund: RefundRequest, payment: Payment, approved: Approval | null) {
     if (approved === null) return;
     const { voided, access_kept } = approved;
     payment.status = PaymentStatus.REFUNDED;
     // TODO(spec-open-question): initiate the actual Chapa refund API call here
     // when live credentials are configured; ledger + entitlement revocation
     // (via RefundApproved) are the authoritative MVP behavior.
-    await this.emitDecision('RefundApproved', refund, payment, access_kept);
     this.logger.log(
       `refund approved for payment ${payment.id} (${refund.decision_rule}); ${voided} pending credit(s) voided; access ${access_kept ? 'kept' : 'revoked'}`,
     );
@@ -286,14 +297,17 @@ export class RefundService {
     return m.getRepository(Payment).metadata.tablePath;
   }
 
-  private async emitRequested(refund: RefundRequest, payment: Payment) {
-    let learnerEmail = '';
+  /** The learner's email for the notices; best-effort, so blank when auth doesn't answer. */
+  private async learnerEmail(payment: Payment): Promise<string> {
     try {
       const learner = await this.internal.get<{ email: string }>(internalPath`/api/v1/internal/users/${payment.learner_id}`);
-      learnerEmail = learner.email;
+      return learner.email;
     } catch {
-      /* enrichment best-effort */
+      return ''; /* enrichment best-effort */
     }
+  }
+
+  private async emitRequested(refund: RefundRequest, payment: Payment, learnerEmail: string) {
     await this.bus.publish<RefundRequestedPayload>('RefundRequested', {
       refund_request_id: refund.id,
       payment_id: payment.id,
@@ -307,15 +321,8 @@ export class RefundService {
     this.logger.log(`refund ${refund.id} awaiting admin decision (${refund.decision_rule})`);
   }
 
-  private async emitDecision(event: 'RefundApproved' | 'RefundDenied', refund: RefundRequest, payment: Payment, access_kept?: boolean) {
-    let learnerEmail = '';
-    try {
-      const learner = await this.internal.get<{ email: string }>(internalPath`/api/v1/internal/users/${payment.learner_id}`);
-      learnerEmail = learner.email;
-    } catch {
-      /* enrichment best-effort */
-    }
-    await this.bus.publish<RefundDecisionPayload>(event, {
+  private decisionPayload(refund: RefundRequest, payment: Payment, learnerEmail: string, access_kept?: boolean): RefundDecisionPayload {
+    return {
       refund_request_id: refund.id,
       payment_id: payment.id,
       tx_ref: payment.chapa_tx_ref,
@@ -326,6 +333,6 @@ export class RefundService {
       amount_etb: Number(payment.amount_etb),
       reason: refund.decision_rule,
       ...(access_kept === undefined ? {} : { access_kept }),
-    });
+    };
   }
 }

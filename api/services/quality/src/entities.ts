@@ -122,7 +122,9 @@ export class CourseReview {
   created_at: Date;
 }
 
+/** At most one open signal per subject and signal type: a repeat raise inserts nothing (raiseFraudSignal). */
 @Entity({ name: 'fraud_signals' })
+@Index('IDX_fraud_signals_open_subject_signal', ['subject_type', 'subject_id', 'signal_type'], { unique: true, where: `status = 'open'` })
 export class FraudSignal {
   @PrimaryGeneratedColumn('uuid')
   id: string;

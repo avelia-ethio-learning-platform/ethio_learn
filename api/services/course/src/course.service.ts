@@ -2,13 +2,16 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { Emit, EventBusService, InternalHttpClient, internalPath, OutboxService, runOnce, UserContext } from '@ethiopialearn/common';
 import { aiFallbackNote, AiAssessor, CourseStructureOrigin, createAiAssessor, GeneratedSection, MockAiAssessor } from '@ethiopialearn/ai';
 import {
+  CourseAppealSubmittedPayload,
   CourseCategory,
+  CoursePublishedPayload,
   CourseRatedPayload,
   CourseReviewedPayload,
   CourseReviewWithdrawnPayload,
+  CourseSubmittedPayload,
   EnrollmentCreatedPayload,
   CourseStatus,
   OPEN_REVISION_STATUSES,
@@ -130,6 +133,8 @@ class TtlCache<T> {
 const BAYES_SCORE =
   '((c.rating_count::float / (c.rating_count + 3)) * COALESCE(c.rating_avg, 0)::float + (3.0 / (c.rating_count + 3)) * 3.75)';
 
+const ENROLLED_COUNT_HANDLER = 'course:EnrollmentCreated:enrolled-count';
+
 @Injectable()
 export class CourseService implements OnModuleInit {
   private readonly logger = new Logger(CourseService.name);
@@ -148,6 +153,7 @@ export class CourseService implements OnModuleInit {
     @InjectRepository(CourseRevision) private readonly revisions: Repository<CourseRevision>,
     private readonly videoKeys: VideoKeyService,
     private readonly dataSource: DataSource,
+    private readonly outbox: OutboxService,
   ) {}
 
   onModuleInit() {
@@ -170,10 +176,17 @@ export class CourseService implements OnModuleInit {
     });
 
     // Enrollment counter → popularity signal for catalog sorting.
-    this.bus.subscribe<EnrollmentCreatedPayload>('EnrollmentCreated', async (payload) => {
-      await this.courses.increment({ id: payload.course_id }, 'enrolled_count', 1);
-      this.searchCache.clear();
-    });
+    // runOnce: a redelivered enrollment doesn't count twice. Never rename the handler (its dedupe key).
+    this.bus.subscribe<EnrollmentCreatedPayload>(
+      'EnrollmentCreated',
+      async (payload, e) => {
+        await runOnce(this.dataSource, ENROLLED_COUNT_HANDLER, e.metadata.event_id, async (m) => {
+          await m.getRepository(Course).increment({ id: payload.course_id }, 'enrolled_count', 1);
+        });
+        this.searchCache.clear();
+      },
+      { name: ENROLLED_COUNT_HANDLER },
+    );
   }
 
   /**
@@ -199,29 +212,30 @@ export class CourseService implements OnModuleInit {
         // original publish date and must not re-announce itself to followers.
         const firstPublish = !course.published_at;
         const publishedAt = firstPublish ? new Date() : course.published_at;
-        const moved = await this.transition(course.id, [course.status], {
-          ...feedback,
-          status: CourseStatus.PUBLISHED,
-          ...(firstPublish ? { published_at: publishedAt } : {}),
+        // The first publish and its announcement commit together (outbox).
+        const moved = await this.outbox.transaction(async (m, emit) => {
+          const patch = { ...feedback, status: CourseStatus.PUBLISHED, ...(firstPublish ? { published_at: publishedAt } : {}) };
+          if (!(await this.transition(course.id, [course.status], patch, m))) return false;
+          if (firstPublish) {
+            emit<CoursePublishedPayload>('CoursePublished', {
+              course_id: course.id,
+              title: course.title,
+              category: course.category,
+              owner_id: course.owner_id,
+              owner_type: course.owner_type,
+              owner_user_id: course.created_by,
+              owner_email: payload.owner_email,
+              pricing_type: course.pricing_type,
+              price_etb: course.price_etb ? Number(course.price_etb) : null,
+            });
+          }
+          return true;
         });
         if (!moved) return stale(`status changed from ${course.status} while deciding`);
         Object.assign(course, feedback, { status: CourseStatus.PUBLISHED, published_at: publishedAt });
         this.searchCache.clear(); // the course is now visible in the catalog
         // Tutor corpus: description + lesson outline become searchable on publish.
         this.extras.reindexCourse(course.id).catch((err) => this.logger.warn(`tutor reindex failed: ${(err as Error).message}`));
-        if (firstPublish) {
-          await this.bus.publish('CoursePublished', {
-            course_id: course.id,
-            title: course.title,
-            category: course.category,
-            owner_id: course.owner_id,
-            owner_type: course.owner_type,
-            owner_user_id: course.created_by,
-            owner_email: payload.owner_email,
-            pricing_type: course.pricing_type,
-            price_etb: course.price_etb ? Number(course.price_etb) : null,
-          });
-        }
       } else if (live) {
         // A post-publish check was cleared: nothing about the course changes.
         if (!(await this.transition(course.id, LIVE_COURSE_STATUSES, feedback))) return stale('no longer live');
@@ -277,12 +291,19 @@ export class CourseService implements OnModuleInit {
    * transaction with folding any staged work left from when the course was
    * live: a draft has no learners to protect, so that work simply becomes
    * the draft and the editor never shows stale staged values over the draft.
+   * Events `announce` emits commit with the move (outbox).
    */
-  private async moveToDraft(courseId: string, from: CourseStatus[], patch: QueryDeepPartialEntity<Course> = {}): Promise<boolean> {
-    return this.dataSource.transaction(async (m) => {
+  private async moveToDraft(
+    courseId: string,
+    from: CourseStatus[],
+    patch: QueryDeepPartialEntity<Course> = {},
+    announce?: (emit: Emit) => void,
+  ): Promise<boolean> {
+    return this.outbox.transaction(async (m, emit) => {
       // The UPDATE row-locks the course, so no revision apply can interleave with the fold.
       if (!(await this.transition(courseId, from, { ...patch, status: CourseStatus.DRAFT }, m))) return false;
       await this.foldStaged(m, courseId);
+      announce?.(emit);
       return true;
     });
   }
@@ -703,7 +724,9 @@ export class CourseService implements OnModuleInit {
     // Institution-owned courses go through internal institution review FIRST;
     // solo educators go straight to the platform QO queue.
     const next = owned.institution_id ? CourseStatus.INSTITUTION_REVIEW : CourseStatus.SUBMITTED;
-    const outcome = await this.dataSource.transaction(async (m) => {
+    // Looked up first: CourseSubmitted commits with the status change, and no network call runs inside the transaction.
+    const owner = await this.ownerContact(owned);
+    const outcome = await this.outbox.transaction(async (m, emit) => {
       const repo = m.getRepository(Course);
       const locked = await repo.findOne({ where: { id: courseId }, lock: { mode: 'pessimistic_write' } });
       if (locked?.status !== CourseStatus.DRAFT) return { error: new ConflictException(STATUS_CHANGED) };
@@ -716,6 +739,19 @@ export class CourseService implements OnModuleInit {
       if (blocker) return { error: new BadRequestException(blocker) };
       await repo.update({ id: courseId }, { status: next });
       course.status = next;
+      if (next === CourseStatus.SUBMITTED) {
+        emit<CourseSubmittedPayload>('CourseSubmitted', {
+          course_id: course.id,
+          title: course.title,
+          description: course.description,
+          owner_id: course.owner_id,
+          owner_type: course.owner_type,
+          owner_user_id: course.created_by,
+          owner_email: owner.email,
+          owner_name: owner.name,
+          pricing_type: course.pricing_type,
+        });
+      }
       return { course };
     });
     if ('error' in outcome) throw outcome.error;
@@ -723,7 +759,6 @@ export class CourseService implements OnModuleInit {
 
     if (next === CourseStatus.INSTITUTION_REVIEW) {
       const adminId = await this.institutionAdminId(course.institution_id!);
-      const owner = await this.ownerContact(course);
       if (adminId) {
         await this.bus.publish('CourseSubmittedToInstitution', {
           course_id: course.id,
@@ -733,21 +768,7 @@ export class CourseService implements OnModuleInit {
           revision_id: null,
         });
       }
-      return course;
     }
-
-    const owner = await this.ownerContact(course);
-    await this.bus.publish('CourseSubmitted', {
-      course_id: course.id,
-      title: course.title,
-      description: course.description,
-      owner_id: course.owner_id,
-      owner_type: course.owner_type,
-      owner_user_id: course.created_by,
-      owner_email: owner.email,
-      owner_name: owner.name,
-      pricing_type: course.pricing_type,
-    });
     return course;
   }
 
@@ -834,21 +855,24 @@ export class CourseService implements OnModuleInit {
 
     if (action === 'approve') {
       // Guarded by INSTITUTION_REVIEW: the instructor may have withdrawn while the owner lookup ran.
-      if (!(await this.transition(course.id, [CourseStatus.INSTITUTION_REVIEW], { status: CourseStatus.SUBMITTED }))) {
-        throw new ConflictException('The instructor withdrew this course a moment ago. Reload the queue.');
-      }
-      course.status = CourseStatus.SUBMITTED;
-      await this.bus.publish('CourseSubmitted', {
-        course_id: course.id,
-        title: course.title,
-        description: course.description,
-        owner_id: course.owner_id,
-        owner_type: course.owner_type,
-        owner_user_id: course.created_by,
-        owner_email: owner.email,
-        owner_name: owner.name,
-        pricing_type: course.pricing_type,
+      // The move to the QO queue and CourseSubmitted commit together (outbox).
+      const moved = await this.outbox.transaction(async (m, emit) => {
+        if (!(await this.transition(course.id, [CourseStatus.INSTITUTION_REVIEW], { status: CourseStatus.SUBMITTED }, m))) return false;
+        emit<CourseSubmittedPayload>('CourseSubmitted', {
+          course_id: course.id,
+          title: course.title,
+          description: course.description,
+          owner_id: course.owner_id,
+          owner_type: course.owner_type,
+          owner_user_id: course.created_by,
+          owner_email: owner.email,
+          owner_name: owner.name,
+          pricing_type: course.pricing_type,
+        });
+        return true;
       });
+      if (!moved) throw new ConflictException('The instructor withdrew this course a moment ago. Reload the queue.');
+      course.status = CourseStatus.SUBMITTED;
     } else {
       const feedback = { last_review_action: 'institution_reject', last_review_notes: notes ?? null, last_reviewed_at: new Date() };
       if (!(await this.moveToDraft(course.id, [CourseStatus.INSTITUTION_REVIEW], feedback))) {
@@ -925,24 +949,31 @@ export class CourseService implements OnModuleInit {
     const course = await this.ownedCourse(ctx, courseId);
     if (course.status === CourseStatus.ARCHIVED) return course;
     const previous = course.status;
-    if (!(await this.transition(course.id, [previous], { status: CourseStatus.ARCHIVED }))) throw new ConflictException(STATUS_CHANGED);
+    if (!(await this.archive(course.id, previous))) throw new ConflictException(STATUS_CHANGED);
     course.status = CourseStatus.ARCHIVED;
     this.searchCache.clear();
-    await this.closeReviewsOnArchive(course.id, previous);
     return course;
   }
 
   /**
-   * Archiving takes the course out of every review: an open revision is
-   * closed, and a first-time submission (or appeal) in the QA queue is
-   * withdrawn too — otherwise its item stays decidable, and a later flag or
-   * approval would act on an archived course.
+   * `previous` → ARCHIVED. Archiving takes the course out of every review: a
+   * first-time submission (or appeal) in the QA queue is withdrawn with the
+   * status change (outbox) — otherwise its item stays decidable, and a later
+   * flag or approval would act on an archived course — and then an open
+   * revision is closed in its own transaction. One transaction for both would
+   * lock the course before the revision, the opposite of a revision apply, and
+   * the two could deadlock. Returns false when the course is no longer `previous`.
    */
-  private async closeReviewsOnArchive(courseId: string, previous: CourseStatus) {
-    await this.closeOpenRevision(courseId);
-    if (IN_REVIEW_STATUSES.includes(previous)) {
-      await this.bus.publish<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', { course_id: courseId, revision_id: null });
-    }
+  private async archive(courseId: string, previous: CourseStatus): Promise<boolean> {
+    const moved = await this.outbox.transaction(async (m, emit) => {
+      if (!(await this.transition(courseId, [previous], { status: CourseStatus.ARCHIVED }, m))) return false;
+      if (IN_REVIEW_STATUSES.includes(previous)) {
+        emit<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', { course_id: courseId, revision_id: null });
+      }
+      return true;
+    });
+    if (moved) await this.closeOpenRevision(courseId);
+    return moved;
   }
 
   /** Archived → draft. Staged work left from when the course was live becomes the draft (see moveToDraft). */
@@ -959,11 +990,11 @@ export class CourseService implements OnModuleInit {
     if (!IN_REVIEW_STATUSES.includes(course.status)) {
       throw new BadRequestException(`Only a course in review can be withdrawn (current: ${course.status})`);
     }
-    if (!(await this.moveToDraft(course.id, IN_REVIEW_STATUSES))) {
-      throw new ConflictException('This course was decided a moment ago. Reload the page to see the result.');
-    }
-    // Closes the QA item, so a late decision on the withdrawn version is never applied.
-    await this.bus.publish<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', { course_id: course.id, revision_id: null });
+    // CourseReviewWithdrawn closes the QA item, so a late decision on the withdrawn version is never applied.
+    const moved = await this.moveToDraft(course.id, IN_REVIEW_STATUSES, {}, (emit) =>
+      emit<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', { course_id: course.id, revision_id: null }),
+    );
+    if (!moved) throw new ConflictException('This course was decided a moment ago. Reload the page to see the result.');
     return this.courseOrThrow(course.id);
   }
 
@@ -972,14 +1003,18 @@ export class CourseService implements OnModuleInit {
    * set in review: close the open revision and tell quality to drop its queue
    * item. The staged rows stay, so the educator can resubmit after reinstatement.
    * The UPDATE is conditional so a revision that was applied or decided in the
-   * meantime is never overwritten with 'withdrawn'.
+   * meantime is never overwritten with 'withdrawn'. The withdrawal and its
+   * event commit together (outbox).
    */
   private async closeOpenRevision(courseId: string) {
     const open = await this.openRevision(courseId);
     if (!open) return;
-    const res = await this.revisions.update({ id: open.id, status: In(OPEN_REVISION_STATUSES) }, { status: 'withdrawn', decided_at: new Date() });
-    if (!res.affected) return;
-    await this.bus.publish<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', { course_id: courseId, revision_id: open.id });
+    await this.outbox.transaction(async (m, emit) => {
+      const res = await m
+        .getRepository(CourseRevision)
+        .update({ id: open.id, status: In(OPEN_REVISION_STATUSES) }, { status: 'withdrawn', decided_at: new Date() });
+      if (res.affected) emit<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', { course_id: courseId, revision_id: open.id });
+    });
   }
 
   /** Educator unpublishes their own live course (hidden from the catalog). */
@@ -1022,16 +1057,21 @@ export class CourseService implements OnModuleInit {
     if (course.status !== CourseStatus.FLAGGED) {
       throw new BadRequestException('Only a flagged course can be appealed');
     }
-    if (!(await this.transition(course.id, [CourseStatus.FLAGGED], { status: CourseStatus.SUBMITTED }))) throw new ConflictException(STATUS_CHANGED);
-    course.status = CourseStatus.SUBMITTED;
+    // Looked up first: CourseAppealSubmitted commits with the status change, and no network call runs inside the transaction.
     const owner = await this.ownerContact(course);
-    await this.bus.publish('CourseAppealSubmitted', {
-      course_id: course.id,
-      course_title: course.title,
-      owner_user_id: course.created_by,
-      owner_email: owner.email,
-      appeal_note: note,
+    const moved = await this.outbox.transaction(async (m, emit) => {
+      if (!(await this.transition(course.id, [CourseStatus.FLAGGED], { status: CourseStatus.SUBMITTED }, m))) return false;
+      emit<CourseAppealSubmittedPayload>('CourseAppealSubmitted', {
+        course_id: course.id,
+        course_title: course.title,
+        owner_user_id: course.created_by,
+        owner_email: owner.email,
+        appeal_note: note,
+      });
+      return true;
     });
+    if (!moved) throw new ConflictException(STATUS_CHANGED);
+    course.status = CourseStatus.SUBMITTED;
     return course;
   }
 
@@ -1052,7 +1092,8 @@ export class CourseService implements OnModuleInit {
     }
     // Status only, and before the (up to 8 s) owner lookup: nothing the
     // admin did not decide can be written back over a concurrent change.
-    if (!(await this.transition(course.id, [previous], { status: to }))) {
+    const moved = action === 'archive' ? await this.archive(course.id, previous) : await this.transition(course.id, [previous], { status: to });
+    if (!moved) {
       throw new ConflictException(`This course changed state a moment ago (it was ${previous}). Reload and try again.`);
     }
     course.status = to;
@@ -1060,12 +1101,7 @@ export class CourseService implements OnModuleInit {
     if (action === 'restore') return course;
     const owner = await this.ownerContact(course);
     const event = { course_id: course.id, title: course.title, owner_id: course.owner_id, owner_user_id: course.created_by, owner_email: owner.email };
-    if (action === 'unlist') {
-      await this.bus.publish('CourseUnlisted', event);
-    } else {
-      await this.closeReviewsOnArchive(course.id, previous);
-      await this.bus.publish('CourseArchived', event);
-    }
+    await this.bus.publish(action === 'unlist' ? 'CourseUnlisted' : 'CourseArchived', event);
     return course;
   }
 

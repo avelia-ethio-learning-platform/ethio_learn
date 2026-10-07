@@ -1,7 +1,7 @@
 import { createHmac } from 'crypto';
 import { ForbiddenException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
-import { BrokerPublishError } from '@ethiopialearn/common';
+import { BrokerPublishError, stableEventId } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, PaymentStatus } from '@ethiopialearn/contracts';
 import { MockChapaProvider } from './chapa.provider';
 import { Coupon, Payment, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
@@ -166,7 +166,7 @@ describe('PaymentService.handleWebhook: confirming and failing', () => {
     expect(t.bus.publishConfirmed).toHaveBeenCalledWith(
       'PaymentConfirmed',
       expect.objectContaining({ payment_id: 'pay-1', tx_ref: 'TX-TEST', amount_etb: 500, learner_email: 'learner@x.et' }),
-      { correlationId: 'pay-1' },
+      { correlationId: 'pay-1', eventId: stableEventId('pay-1:PaymentConfirmed') },
     );
     expect(t.row().effects_completed_at).toBeInstanceOf(Date);
   });
@@ -703,11 +703,28 @@ describe('PaymentService: no lost access (P0-05)', () => {
     t.seed({ status: PaymentStatus.CONFIRMED, webhook_received_at: new Date(Date.now() - 5 * 60_000) });
 
     expect(await t.service.completePendingEffects()).toEqual({ completed: 1, failed: 0 });
-    expect(t.bus.publishConfirmed).toHaveBeenCalledWith('PaymentConfirmed', expect.objectContaining({ payment_id: 'pay-1' }), { correlationId: 'pay-1' });
+    expect(t.bus.publishConfirmed).toHaveBeenCalledWith('PaymentConfirmed', expect.objectContaining({ payment_id: 'pay-1' }), {
+      correlationId: 'pay-1',
+      eventId: stableEventId('pay-1:PaymentConfirmed'),
+    });
     expect(t.row().effects_completed_at).toBeInstanceOf(Date);
 
     await t.service.completePendingEffects();
     expect(t.bus.publishConfirmed).toHaveBeenCalledTimes(1);
+  });
+
+  it('the webhook publish and the cron re-publish of one payment carry the same event id, so consumers count it once', async () => {
+    const t = setup();
+    t.seed();
+    t.bus.publishConfirmed.mockRejectedValueOnce(new BrokerPublishError('PaymentConfirmed', 'no acknowledgement within 5000 ms'));
+    await t.service.handleWebhook(successBody, signed(successBody));
+    t.row().webhook_received_at = new Date(Date.now() - 5 * 60_000);
+
+    expect(await t.service.completePendingEffects()).toEqual({ completed: 1, failed: 0 });
+    const ids = t.published('PaymentConfirmed').map(([, , opts]) => opts?.eventId);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[0]).toBe(stableEventId('pay-1:PaymentConfirmed'));
   });
 
   it('the cron leaves done, refunded, pending and just-confirmed payments alone', async () => {
@@ -831,7 +848,9 @@ describe('PaymentService.sweepPendingPayments', () => {
     // Both pages paid: a duplicate purchase, now visible to refunds and support.
     expect(t.row('pay-old').status).toBe(PaymentStatus.CONFIRMED);
     expect(t.row('pay-new').status).toBe(PaymentStatus.CONFIRMED);
-    expect(t.published('PaymentConfirmed')).toEqual([['PaymentConfirmed', expect.objectContaining({ payment_id: 'pay-old' }), { correlationId: 'pay-old' }]]);
+    expect(t.published('PaymentConfirmed')).toEqual([
+      ['PaymentConfirmed', expect.objectContaining({ payment_id: 'pay-old' }), { correlationId: 'pay-old', eventId: stableEventId('pay-old:PaymentConfirmed') }],
+    ]);
   });
 
   it.each([

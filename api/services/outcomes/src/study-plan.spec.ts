@@ -26,7 +26,7 @@ function harness(attempt: Record<string, unknown> | null, opts: { aiThrows?: boo
     }),
   };
   const bus = { publish: jest.fn() };
-  const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, {} as never);
+  const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, {} as never, {} as never);
   if (opts.aiThrows) {
     (svc as unknown as { ai: { buildStudyPlan: () => Promise<never>; isLive: boolean } }).ai = {
       isLive: true,

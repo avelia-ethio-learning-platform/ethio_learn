@@ -1,18 +1,32 @@
 import { QaDecisionAction, Role } from '@ethiopialearn/contracts';
+import { eventContext } from '@ethiopialearn/common';
 import { NotificationService } from './notification.service';
 
 type Handler = (payload: unknown) => unknown;
 
 function setup(opts: { courseStatus?: string; userEmail?: string; userName?: string; followers?: object[] } = {}) {
   const inboxRows: Array<Record<string, unknown>> = [];
-  const inboxRepo = {
-    create: jest.fn((row: Record<string, unknown>) => row),
-    save: jest.fn(async (row: Record<string, unknown>) => {
-      inboxRows.push(row);
-      return row;
+  // INSERT … ON CONFLICT DO NOTHING against the partial unique (source_event_id, user_id, target_role, type).
+  const sameEventRow = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+    a.source_event_id != null && (['source_event_id', 'user_id', 'target_role', 'type'] as const).every((k) => a[k] === b[k]);
+  const insertQuery: Record<string, jest.Mock> = {};
+  let pending: Record<string, unknown> = {};
+  Object.assign(insertQuery, {
+    insert: jest.fn(() => insertQuery),
+    into: jest.fn(() => insertQuery),
+    values: jest.fn((row: Record<string, unknown>) => ((pending = row), insertQuery)),
+    orIgnore: jest.fn(() => insertQuery),
+    execute: jest.fn(async () => {
+      if (!inboxRows.some((r) => sameEventRow(r, pending))) inboxRows.push(pending);
     }),
+  });
+  const inboxRepo = { createQueryBuilder: jest.fn(() => insertQuery) };
+  const logRows: Array<Record<string, unknown>> = [];
+  const log = {
+    create: jest.fn((row: Record<string, unknown>) => row),
+    save: jest.fn(async (row: Record<string, unknown>) => (logRows.push(row), row)),
+    exists: jest.fn(async ({ where }: { where: Record<string, unknown> }) => logRows.some((r) => Object.entries(where).every(([k, v]) => r[k] === v))),
   };
-  const log = { create: jest.fn((row: object) => row), save: jest.fn(async (row: object) => row) };
   const followerQuery: Record<string, jest.Mock> = {};
   Object.assign(followerQuery, { where: jest.fn(() => followerQuery), limit: jest.fn(() => followerQuery), getMany: jest.fn(async () => opts.followers ?? []) });
   const prefs = { findOne: jest.fn().mockResolvedValue(null), createQueryBuilder: jest.fn(() => followerQuery) };
@@ -32,14 +46,14 @@ function setup(opts: { courseStatus?: string; userEmail?: string; userName?: str
   const service = new NotificationService(log as never, inboxRepo as never, prefs as never, email as never, bus as never, internal as never);
   service.onModuleInit();
   const handlers = new Map<string, Handler>(bus.subscribe.mock.calls.map(([type, fn]) => [type as string, fn as Handler]));
-  const emit = async (type: string, payload: unknown) => {
-    await handlers.get(type)!(payload);
-    // Some handlers fire the inbox write / email without awaiting them.
-    await new Promise((resolve) => setImmediate(resolve));
+  /** Runs the handler as the bus does: inside the event's context when an event id is given. */
+  const emit = async (type: string, payload: unknown, eventId?: string) => {
+    const run = () => handlers.get(type)!(payload);
+    await (eventId ? eventContext.run({ event_id: eventId, event_type: type, correlation_id: eventId, handler: `notification:${type}` }, run) : run());
   };
   const emails = () => email.send.mock.calls.map(([m]) => m as { to: string; subject: string; html: string });
   const subscribedTypes = () => [...handlers.keys()];
-  return { emit, inboxRows, emails, prefs, internal, subscribedTypes, log, bus };
+  return { emit, inboxRows, emails, prefs, internal, subscribedTypes, log, logRows, bus, email, inboxRepo };
 }
 
 const diffSummary = {
@@ -569,5 +583,157 @@ describe('RefundApproved email (P1-63)', () => {
     const [mail] = t.emails();
     expect(mail.html).toContain('was approved.');
     expect(mail.html).not.toMatch(/revoked/);
+  });
+});
+
+describe('NotificationService: a redelivered event (P1-16)', () => {
+  const refund = {
+    refund_request_id: 'r1', payment_id: 'p1', tx_ref: 'TX', learner_id: 'u1', learner_email: 'l@e.et',
+    course_id: 'c1', course_title: 'Soil Science', amount_etb: 500, reason: 'auto',
+  };
+
+  it('the same event twice writes each inbox row once and sends one email', async () => {
+    const t = setup();
+    await t.emit('RefundApproved', refund, 'evt-1');
+    await t.emit('RefundApproved', refund, 'evt-1');
+
+    expect(t.inboxRows.map((r) => [r.user_id, r.target_role, r.source_event_id])).toEqual([
+      ['u1', null, 'evt-1'],
+      [null, Role.PLATFORM_ADMIN, 'evt-1'],
+    ]);
+    expect(t.emails()).toHaveLength(1);
+    expect(t.logRows).toEqual([expect.objectContaining({ status: 'sent', event_id: 'evt-1', recipient: 'l@e.et' })]);
+  });
+
+  it('a different event for the same refund notifies again', async () => {
+    const t = setup();
+    await t.emit('RefundApproved', refund, 'evt-1');
+    await t.emit('RefundApproved', refund, 'evt-2');
+    expect(t.inboxRows).toHaveLength(4);
+    expect(t.emails()).toHaveLength(2);
+  });
+
+  it('a provider failure logs a failed row and throws, and the retry sends once and logs sent', async () => {
+    const t = setup();
+    t.email.send.mockRejectedValueOnce(new Error('SMTP 421 try later'));
+
+    await expect(t.emit('RefundApproved', refund, 'evt-1')).rejects.toThrow('SMTP 421');
+    expect(t.logRows).toEqual([expect.objectContaining({ status: 'failed', event_id: 'evt-1', error: 'SMTP 421 try later' })]);
+
+    await t.emit('RefundApproved', refund, 'evt-1');
+    expect(t.emails()).toHaveLength(2); // the failed try, then the retry
+    expect(t.logRows.map((r) => r.status)).toEqual(['failed', 'sent']);
+    expect(t.inboxRows).toHaveLength(2); // the retry wrote no second inbox rows
+  });
+
+  it('an inbox write that fails makes the handler throw, so the bus retries it', async () => {
+    const t = setup();
+    t.inboxRepo.createQueryBuilder.mockImplementationOnce(() => {
+      throw new Error('connection reset');
+    });
+    await expect(t.emit('RefundApproved', refund, 'evt-1')).rejects.toThrow('connection reset');
+  });
+
+  it('a lost NotificationSent publish does not fail an email that went out', async () => {
+    const t = setup();
+    t.bus.publish.mockRejectedValueOnce(new Error('broker unavailable'));
+    await t.emit('RefundApproved', refund, 'evt-1');
+    expect(t.logRows.map((r) => r.status)).toEqual(['sent']);
+  });
+});
+
+describe('NotificationService: a fan-out with one failing recipient (9a review B1, S2)', () => {
+  const recipients = ['u1', 'u2', 'u3'];
+  /** Every user has their own address; `lookup` overrides the auth answer for one of them. */
+  function fanOut(lookup: Record<string, () => never> = {}) {
+    const t = setup({
+      followers: recipients.map((user_id) => ({ user_id, new_course_in_app: true, new_course_email: true, new_course_instructor_ids: [] })),
+    });
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.endsWith('/learners')) return { learner_ids: recipients };
+      const id = path.split('/').pop()!;
+      if (lookup[id]) lookup[id]();
+      return { name: id, email: `${id}@e.et` };
+    });
+    return t;
+  }
+  const updated = { course_id: 'c1', course_title: 'Soil Science', owner_user_id: 'edu-1', summary: 'Two new lessons', changelog_id: 'cl1' };
+  const published = { course_id: 'c1', title: 'Soil Science', owner_user_id: 'edu-1', category: 'agriculture' };
+  const cases: Array<[string, string, object]> = [
+    ['CourseUpdated', 'course_updated', updated],
+    ['CoursePublished', 'new_course', published],
+  ];
+
+  it.each(cases)('%s: the send failing for recipient 2 still notifies recipient 3, then throws; the retry sends only to 2', async (type, inboxType, payload) => {
+    const t = fanOut();
+    t.email.send.mockImplementation(async (m: { to: string }) => {
+      if (m.to === 'u2@e.et') throw new Error('Daily sending quota exceeded');
+      return { message_id: 'm1' };
+    });
+
+    await expect(t.emit(type, payload, 'evt-1')).rejects.toThrow('Daily sending quota exceeded');
+    expect(t.inboxRows.filter((r) => r.type === inboxType).map((r) => r.user_id)).toEqual(recipients);
+    expect(t.logRows.map((r) => [r.recipient, r.status])).toEqual([
+      ['u1@e.et', 'sent'],
+      ['u2@e.et', 'failed'],
+      ['u3@e.et', 'sent'],
+    ]);
+
+    t.email.send.mockResolvedValue({ message_id: 'm2' });
+    await t.emit(type, payload, 'evt-1');
+    expect(t.logRows.filter((r) => r.status === 'sent').map((r) => r.recipient)).toEqual(['u1@e.et', 'u3@e.et', 'u2@e.et']);
+    expect(t.inboxRows.filter((r) => r.type === inboxType)).toHaveLength(3); // the retry wrote no second rows
+  });
+
+  it.each(cases)('%s: a failed user lookup for recipient 2 still notifies recipient 3, then throws so the bus retries', async (type, _inboxType, payload) => {
+    const t = fanOut({ u2: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u2'); } });
+
+    await expect(t.emit(type, payload, 'evt-1')).rejects.toThrow('Internal request failed');
+    expect(t.emails().map((m) => m.to)).toEqual(['u1@e.et', 'u3@e.et']);
+  });
+
+  it('a deleted user (404) is skipped quietly: no email, no retry', async () => {
+    const t = fanOut({ u2: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u2 -> 404'); } });
+
+    await t.emit('CourseUpdated', updated, 'evt-1');
+    expect(t.emails().map((m) => m.to)).toEqual(['u1@e.et', 'u3@e.et']);
+  });
+
+  it('a lookup that fails for a single-recipient email throws instead of skipping the email', async () => {
+    const t = fanOut({ u1: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u1 -> 503'); } });
+
+    await expect(
+      t.emit('LearnerInactive', { learner_id: 'u1', course_id: 'c1', course_title: 'Soil Science', days_inactive: 7, progress_percent: 40, channel: 'email' }, 'evt-1'),
+    ).rejects.toThrow('-> 503');
+  });
+});
+
+describe('NotificationService: CourseCompleted with blank names (9b)', () => {
+  const completion = (extra: Record<string, unknown> = {}) => ({
+    enrollment_id: 'e1', learner_id: 'u1', learner_email: 'l@e.et', learner_name: 'Abebe', course_id: 'c1', course_title: 'Soil Science',
+    educator_id: 'edu-1', educator_name: 'Edu', completed_at: '2026-10-03T00:00:00Z', ...extra,
+  });
+
+  it('a blank email is fetched from auth, and the email goes out', async () => {
+    const t = setup({ userEmail: 'fetched@e.et', userName: 'Abebe' });
+    await t.emit('CourseCompleted', completion({ learner_email: '', learner_name: '', course_title: '' }), 'evt-1');
+    expect(t.internal.get).toHaveBeenCalledWith('/api/v1/internal/users/u1');
+    const [mail] = t.emails();
+    expect(mail).toMatchObject({ to: 'fetched@e.et', subject: 'You finished your course!' });
+    expect(mail.html).toContain('Well done Abebe — you finished every lesson in your course.');
+  });
+
+  it('a failed fetch throws, so the bus retries, and sends nothing', async () => {
+    const t = setup();
+    t.internal.get.mockRejectedValueOnce(new Error('Internal request failed: GET /api/v1/internal/users/u1 -> 503'));
+    await expect(t.emit('CourseCompleted', completion({ learner_email: '' }), 'evt-1')).rejects.toThrow('-> 503');
+    expect(t.emails()).toHaveLength(0);
+  });
+
+  it('with the email in the payload, nothing is fetched', async () => {
+    const t = setup();
+    await t.emit('CourseCompleted', completion(), 'evt-1');
+    expect(t.internal.get).not.toHaveBeenCalled();
+    expect(t.emails()).toEqual([expect.objectContaining({ to: 'l@e.et', subject: 'You finished Soil Science!' })]);
   });
 });

@@ -37,7 +37,9 @@ describe('email_verifications.created_at migrations', () => {
   });
 
   it("runs after Phase 6a's invite migrations", () => {
-    expect(migrations.slice(-4).map((m) => m.name)).toEqual([
+    const names = migrations.map((m) => m.name);
+    const from = names.indexOf('InvitedAt1790964028397');
+    expect(names.slice(from, from + 4)).toEqual([
       'InvitedAt1790964028397',
       'InvitedAtIndex1790964028398',
       'EmailVerificationCreatedAt1791018655934',

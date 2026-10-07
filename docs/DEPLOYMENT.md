@@ -310,6 +310,33 @@ ORDER BY e.enrolled_at;
 ```
 
 
+## Outbox (Phase 9b)
+
+**What it is:**
+- auth, course, enrollment, financial, quality and outcomes each have an `outbox` table in their schema.
+- An event that another service acts on (a refund approved, a course completed, a user registered, a fraud flag, a course published…) is written there in the same transaction as the state change it announces. If the transaction rolls back, there's no event; if it commits, the event is delivered at least once.
+- Right after the commit, the service publishes the row (the fast path). A relay inside the service sends anything left over every `OUTBOX_POLL_MS` (5 s), oldest first, and stops at the first failure so nothing overtakes it.
+- The row's `id` is the event's `event_id`, so a re-send is the same event to the consumers' dedupe.
+- Published rows are deleted after `OUTBOX_RETENTION_DAYS` (7).
+- A broker outage, or a crash between the commit and the publish, loses nothing. The rows wait and go out on the first relay tick once the broker is back. On a sleeping free instance, that's the first tick after it wakes.
+
+**Watching:**
+- warn `outbox relay: N event(s) older than 10 min still unpublished`: the relay can't publish (the broker is down, or a row keeps failing);
+- error `outbox row <id> (<type>) failed 20 times: <error>`: one row is stuck and blocks the rows behind it.
+- Stuck rows, read-only, per schema:
+  ```sql
+  SELECT event_type, count(*), min(created_at), max(attempts) FROM <schema>.outbox WHERE published_at IS NULL GROUP BY 1;
+  SELECT id, event_type, attempts, last_error, created_at FROM <schema>.outbox WHERE published_at IS NULL ORDER BY created_at, id LIMIT 5;
+  ```
+
+**A poison row** (it fails every time, so its service's events stop):
+1. Read its `last_error` and payload, and fix the cause if it's on the consumer side or in the broker.
+2. If the event itself must be skipped, mark it sent. The next tick goes on with the rows behind it:
+   ```sql
+   UPDATE <schema>.outbox SET published_at = now() WHERE id = '<id>' AND published_at IS NULL;
+   ```
+   Then do by hand whatever the skipped event would have caused, since its consumers never see it.
+
 ## Images and self-hosting
 
 - **`api/Dockerfile`** builds any one service from the `api/` context with `--build-arg PKG=@ethiopialearn/<name>`, which is what Render does for each service:
