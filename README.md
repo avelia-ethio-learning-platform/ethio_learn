@@ -1,6 +1,29 @@
 # EthiopiaLearn
 
-Educator-first online learning marketplace for Ethiopia — **MVP implementation** of the EthiopiaLearn build specification (v3): 7 NestJS microservices behind a single NestJS API gateway, a Next.js 14 frontend (with **English + Amharic** UI), PostgreSQL (schema-per-service), RabbitMQ, Redis and S3-compatible object storage.
+Educator-first online learning marketplace for Ethiopia, live at **https://ethio-learn.vercel.app**:
+- Educators and institutions publish reviewed courses.
+- Learners take them free or pay in birr through Chapa.
+- Completing a course earns a certificate anyone can verify.
+
+**The stack:**
+- 7 NestJS microservices behind one NestJS API gateway;
+- a Next.js 14 frontend with an **English + Amharic** UI;
+- PostgreSQL (a schema per service), RabbitMQ, Redis and S3-compatible storage.
+
+It started as the MVP of the EthiopiaLearn build specification (v3), and is being refined phase by phase (see [Project status](#project-status)).
+
+## Documentation
+
+| Read | For |
+|---|---|
+| This README | Architecture, running it locally, tests, schema changes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How work is planned, reviewed and merged; backend and frontend rules |
+| [docs/FEATURES_AND_ROADMAP.md](docs/FEATURES_AND_ROADMAP.md) | Every feature by role, known gaps, and the roadmap phase by phase |
+| [docs/COLOR_SYSTEM.md](docs/COLOR_SYSTEM.md) | The color roles, in light and dark, with contrast numbers and usage rules |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production on Render and Vercel, gates, cold starts, rollbacks |
+| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | The HTTP API |
+| [docs/plans/](docs/plans/) | One folder per phase: plan, reviews, handoff ([roadmap](docs/plans/2026-10-02-refinement-audit/roadmap.md)) |
+| [docs/history/](docs/history/) | Notes from before the phased plans |
 
 ## Architecture
 
@@ -31,19 +54,25 @@ Browser ──► Next.js web (SSR/ISR public pages, CSR dashboards, en/am i18n)
 | outcomes | 4104 | assessments (quiz / AI viva / project), certificates + public verify |
 | financial | 4105 | Chapa payments, HMAC webhook, refunds, payouts (80/20) |
 | quality | 4106 | QO queue, ratings/reviews, trust tiers, fraud flags |
-| notification | 4107 | transactional email (Resend or dev console) |
+| notification | 4107 | in-app notifications, transactional email (Brevo, SMTP or Resend; dev console) |
 
-## Features
+## What it does
 
-- **Identity & access** — email/password signup with verification link, JWT + rotating-refresh-cookie login (Redis allowlist), password reset, strong-password enforcement, 5 roles (learner, educator, institution admin, quality officer, platform admin), institution instructor invitations that the user accepts (an institution admin can suspend or remove a membership, never the account), admin user management.
-- **Courses & content** — draft → institution review → QO review → published lifecycle; sections/lessons; presigned video upload; signed, entitlement-gated streaming URLs; freemium free-preview sections; AI course-outline generation (Groq) with human review before applying; course cloning; catalog search/sort/categories; public educator profiles.
-- **Enrollment & learning** — instant free/freemium enrollment; paid enrollment gated on a confirmed payment; per-lesson completion; **video watch-percentage tracking with resume-where-you-left-off** (high-water mark, ≥90% auto-completes); course progress; certificates on completion.
-- **Payments (Chapa)** — initiate → hosted checkout → HMAC-verified webhook → server-side re-verify with amount/currency tamper checks → idempotent confirm → entitlement; browser-triggered reconcile plus a background sweep for missed webhooks (it runs while the financial service is awake); mock gateway for offline dev; manual bank-transfer fallback; admin payment ledger.
-- **Refunds & payouts** — rule-based refund decisions (auto-approve/manual-review/deny), 80/20 revenue split, 7/14-day settlement holds, KYC and fraud holds, payout runs and releases, educator balance view.
-- **Assessments & outcomes** — quizzes/assessments with attempts and scoring, tamper-evident HMAC-signed certificates with a public verification page, webcam proctoring assets.
-- **Quality & trust** — purchase-gated reviews with rating aggregates, QA review queue, fraud flags wired to payout holds, appeals flow.
-- **Community & notifications** — rate-limited community posts/replies, in-app notifications, transactional email (SMTP/Resend/console) for receipts, enrollment and verification.
-- **Platform engineering** — single public API gateway with JWT auth, risk-bucketed per-route rate limiting, header-spoofing protection, internal-token service mesh; event-driven microservices over RabbitMQ; schema-per-service Postgres; English/Amharic i18n; unit + e2e test suites; GitHub Actions CI gating every merge and Render deploy; fully Dockerized.
+- **Five roles:** learner, educator, institution admin, quality officer and platform admin, with email + password sign-in (a verification link, no SMS).
+- **Courses:** a draft → institution review → quality review → published lifecycle; staged revisions of live courses; resumable video upload; signed, entitlement-gated streaming; AI-drafted outlines that the educator reviews.
+- **Learning:** resume-where-you-left-off video, progress, quizzes, an AI viva, projects, an AI tutor grounded in the course, and certificates with a public verification page.
+- **Payments:** Chapa checkout with a signed webhook and a server-side re-check, confirmed exactly once. Also the wallet, coupons, gifts, pay links, bulk seats for institutions, and a bank-transfer fallback.
+- **Money out:** rule-based refunds, an 80/20 revenue split, settlement, KYC and fraud holds, and payout runs.
+- **Quality and trust:** purchase-gated reviews, a QA review queue, trust tiers, fraud flags and appeals.
+- **People:** in-app notifications, transactional email, direct messages, following educators, referrals and cashback.
+- **Platform:**
+  - one public gateway with per-route rate limits;
+  - event-driven services;
+  - light and dark themes;
+  - accessibility tests (axe) in CI;
+  - graceful handling of sleeping free-tier servers.
+
+The full list by role, with routes and known gaps, is in **[docs/FEATURES_AND_ROADMAP.md](docs/FEATURES_AND_ROADMAP.md)**.
 
 ## Quick start (local dev)
 
@@ -93,8 +122,11 @@ node scripts/demo-seed.mjs
 | Layer | What it covers | Command |
 |---|---|---|
 | Backend unit (jest) | payment webhook HMAC + idempotency, refund rules, 80/20 payout + holds, video progress + auto-complete, certificate tamper check, review eligibility, gateway route table + rate-limit buckets, auth guards | `pnpm -C api test` |
-| Frontend unit/component (vitest) | i18n en/am key parity, `api()` error/refresh handling, `<PasswordStrength />` | `pnpm -C web test` |
+| Frontend unit/component (vitest) | components, formatters and labels, i18n en/am key parity, `api()` error/refresh handling | `pnpm -C web test` |
+| Typecheck | both workspaces | `pnpm -C api typecheck` · `pnpm -C web typecheck` |
 | End-to-end (against a running stack) | full business flow: educator → QO approval → publish → enroll → complete → certificate | `node scripts/demo-seed.mjs` |
+| More API flows (against a running stack) | re-review and resumable uploads, institution membership, exactly-once payments and payouts, learning integrity, security hardening | `node scripts/e2e-revisions.mjs`, `e2e-institution.mjs`, `e2e-payments.mjs`, `e2e-learning.mjs`, `e2e-security.mjs` |
+| Browser (Playwright) | key pages and flows on a production build, axe accessibility in light and dark, keyboard, 375 px layout, reduced motion, cold starts | `pnpm -C web build && pnpm -C web e2e` (stack up and seeded; see the login-budget note in [web/playwright.config.ts](web/playwright.config.ts)) |
 | E2E smoke assertions | security envelope (401/403/404, header spoofing, internal token), video watch-progress flow, optional brute-force 429 | `node scripts/e2e-smoke.mjs` (add `E2E_CHECK_RATE_LIMIT=1` to include the 429 check — throttles your IP for ~1 min) |
 | Lint | ESLint (`typescript-eslint` in api, `next/core-web-vitals` in web); fails only when a rule's count rises above `.github/lint-baseline.json` | `pnpm -C api build && node scripts/lint-check.mjs` (api's package types come from its build) |
 | Schema drift | every entity matches the database, i.e. no entity change shipped without its migration (read-only) | `pnpm -C api db:check` |
@@ -142,7 +174,17 @@ Other commands, from `api/services/<svc>`: `pnpm migration:show`, `pnpm migratio
 
 ## Amharic (አማርኛ) support
 
-The UI chrome (navigation, auth, catalog hero, learner-facing labels) ships in both English and Amharic, toggled from the header and persisted in `localStorage`. Strings live in [web/src/lib/i18n.tsx](web/src/lib/i18n.tsx) — add keys to both `en` and `am` dictionaries. Course content itself stays in the language the educator authored it in. The spec lists a full Amharic UI as post-MVP, so this is a lightweight starter layer rather than 100% coverage; extend the dictionaries to localize more surfaces.
+The launch is English-first, with Amharic where new learners start.
+- **How it works:** the toggle is in the header, and the choice is saved in `localStorage`.
+- **Translated today:**
+  - the header, footer and home page;
+  - the catalog filters and the sign-in prompts;
+  - the theme toggle and the confirmation dialog;
+  - parts of sign-up, login, password reset, email verification, the dashboard and the enrol panel.
+- **English for now:** the rest. Phase 10 extends Amharic to the whole new-learner path (course page, checkout, dashboard).
+- **Adding strings:** they live in [web/src/lib/i18n.tsx](web/src/lib/i18n.tsx). Add each key to both `en` and `am`, or the key-parity test fails. New Amharic strings are listed for a native speaker's review.
+
+Course content stays in the language the educator wrote it in.
 
 ## Mock-first external providers
 
@@ -151,7 +193,7 @@ Everything runs with **zero external credentials**; real providers switch on aut
 | Provider | Without credentials | With credentials |
 |---|---|---|
 | **Chapa** | `CHAPA_MODE=mock` → local checkout page at `/dev/checkout` that fires a genuinely **HMAC-signed** webhook, exercising the full §6 verify path | `CHAPA_MODE=live` + `CHAPA_SECRET_KEY` |
-| **Email (Resend)** | Console provider — emails (incl. the signup verification link) are printed in the notification service logs | `RESEND_API_KEY` |
+| **Email** | Console provider — emails (incl. the signup verification link) are printed in the notification service logs | `BREVO_API_KEY` (HTTPS, works where SMTP ports are blocked), `SMTP_*`, or `RESEND_API_KEY` |
 | **Groq AI (viva grading, quiz/structure generation, plagiarism)** | Deterministic mock assessor | `GROQ_API_KEY` |
 | **S3** | MinIO from docker-compose | unset `S3_ENDPOINT`, set AWS creds |
 
@@ -189,7 +231,8 @@ api/                  backend pnpm workspace (own lockfile + Dockerfile)
     ai/               Groq LLM assessor (AI viva, plagiarism, generation) + offline mock
 web/                  standalone Next.js 14 App Router frontend (own lockfile + Dockerfile)
 docker/               postgres schema init (used by docker-compose)
-scripts/demo-seed.mjs end-to-end API smoke/demo flow
+scripts/              demo-seed.mjs and e2e-*.mjs API flows, lint-check.mjs, start/stop helpers
+docs/                 deployment, API reference, features and roadmap, color system, plans, history
 ```
 
 ## Testing the payment flow locally
@@ -197,6 +240,25 @@ scripts/demo-seed.mjs end-to-end API smoke/demo flow
 1. Log in as the educator, create a **paid** course, submit it; approve as the QO.
 2. Log in as the learner, open the course, click **Buy with Chapa** → you land on `/dev/checkout` (mock Chapa).
 3. Click **Pay (simulate success)** → a signed webhook hits the Financial service → HMAC verified → `PaymentConfirmed` → entitlement granted → the return page's poll unlocks the course.
+
+## Project status
+
+- **Live:** https://ethio-learn.vercel.app.
+- **How it's built:** the platform is being hardened and polished in numbered phases, one PR each. Security, payments, money integrity, learning integrity, UI foundations, the public and learner pages, and the role dashboards are done.
+- **In flight:** reliable event delivery, scheduled jobs that survive sleeping servers, observability, web hardening and Amharic, CI gates, and the color system.
+
+What each phase delivers is in [docs/FEATURES_AND_ROADMAP.md](docs/FEATURES_AND_ROADMAP.md#roadmap). The tracker with PR numbers is [roadmap.md](docs/plans/2026-10-02-refinement-audit/roadmap.md).
+
+## Contributing
+
+Read **[CONTRIBUTING.md](CONTRIBUTING.md)** first. In short:
+- plan first;
+- one branch and one PR per change;
+- Conventional Commits;
+- green CI and an approved review before a merge commit;
+- no force-pushes.
+
+Merging to `main` deploys to production. Report security issues privately through the repo's Security tab, never in a public issue.
 
 ## Deployment
 
