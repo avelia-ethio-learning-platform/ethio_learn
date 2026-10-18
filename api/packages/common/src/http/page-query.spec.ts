@@ -6,7 +6,7 @@ class LimitOnly extends limitQuery({ defaultLimit: 12, maxLimit: 50 }) {}
 
 const pipe = new ValidationPipe({ whitelist: true, transform: true });
 const run = (type: new () => object, query: Record<string, string | undefined>) =>
-  pipe.transform(query, { type: 'query', metatype: type } as ArgumentMetadata) as Promise<any>;
+  pipe.transform(query, { type: 'query', metatype: type } as ArgumentMetadata) as Promise<Record<string, unknown>>;
 
 describe('pageQuery', () => {
   it('uses the defaults when absent', async () => {

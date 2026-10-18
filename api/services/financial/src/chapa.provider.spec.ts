@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import { ChapaInitializeOptions, ChapaUnavailableError, LiveChapaProvider } from './chapa.provider';
 
 const KEY = 'CHASECK_TEST-fake';
@@ -128,7 +128,7 @@ describe('LiveChapaProvider.verify', () => {
   });
 
   it('treats a 401 or 403 as unavailable and logs the key problem without the key', async () => {
-    const errorLog = jest.spyOn(require('@nestjs/common').Logger.prototype, 'error').mockImplementation(() => undefined);
+    const errorLog = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     for (const code of [401, 403]) {
       fetchMock.mockResolvedValueOnce(reply(code, { message: 'Invalid API Key' }));
       await expect(new LiveChapaProvider().verify('TX-1')).rejects.toBeInstanceOf(ChapaUnavailableError);
