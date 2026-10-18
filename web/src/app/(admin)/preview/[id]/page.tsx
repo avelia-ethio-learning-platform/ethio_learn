@@ -110,7 +110,7 @@ function Preview({ courseId }: { courseId: string }) {
   if (isError) {
     return (
       <PageShell>
-        <div className="card mx-auto max-w-md py-8 text-center text-sm font-medium text-red-600 dark:text-red-400">Could not load this course for preview.</div>
+        <div className="card mx-auto max-w-md py-8 text-center text-sm font-medium text-danger">Could not load this course for preview.</div>
       </PageShell>
     );
   }
@@ -141,7 +141,7 @@ function Preview({ courseId }: { courseId: string }) {
             )}
           </div>
           {playing && <p className="mt-3 text-sm font-semibold text-foreground">Now playing: {playing}</p>}
-          {err && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{err}</p>}
+          {err && <p className="mt-2 text-sm font-medium text-warning">{err}</p>}
         </div>
         <aside className="min-w-0 animate-fade-in-up space-y-3">
           {course.sections?.map((s: any) => (
@@ -210,13 +210,13 @@ function TextChange({ before, after, highlight }: { before: string; after: strin
     <div className="grid gap-3 md:grid-cols-2">
       <div>
         <p className="mb-1 text-xs font-semibold text-gray-500">Before (live)</p>
-        <p className={`${block} bg-red-500/5 text-gray-600`}>
+        <p className={`${block} bg-danger-soft text-gray-600`}>
           {segments
             ? segments
                 .filter((s) => s.op !== 'add')
                 .map((s, i) =>
                   s.op === 'del' ? (
-                    <del key={i} className="rounded bg-red-500/15 text-red-700 dark:text-red-300">
+                    <del key={i} className="rounded bg-danger-soft text-danger">
                       {s.text}
                     </del>
                   ) : (
@@ -228,13 +228,13 @@ function TextChange({ before, after, highlight }: { before: string; after: strin
       </div>
       <div>
         <p className="mb-1 text-xs font-semibold text-gray-500">After (staged)</p>
-        <p className={`${block} bg-emerald-500/5 text-foreground`}>
+        <p className={`${block} bg-success-soft text-foreground`}>
           {segments
             ? segments
                 .filter((s) => s.op !== 'del')
                 .map((s, i) =>
                   s.op === 'add' ? (
-                    <ins key={i} className="rounded bg-emerald-500/15 text-emerald-700 no-underline dark:text-emerald-300">
+                    <ins key={i} className="rounded bg-success-soft text-success no-underline">
                       {s.text}
                     </ins>
                   ) : (
@@ -251,10 +251,10 @@ function TextChange({ before, after, highlight }: { before: string; after: strin
 function ValueChange({ before, after }: { before: string; after: string }) {
   return (
     <p className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="rounded-lg bg-red-500/10 px-2 py-0.5 text-red-700 line-through dark:text-red-300">{before}</span>
+      <span className="rounded-lg bg-danger-soft px-2 py-0.5 text-danger line-through">{before}</span>
       <span aria-hidden>→</span>
       <span className="sr-only">changes to</span>
-      <span className="rounded-lg bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-700 dark:text-emerald-300">{after}</span>
+      <span className="rounded-lg bg-success-soft px-2 py-0.5 font-semibold text-success">{after}</span>
     </p>
   );
 }
@@ -290,9 +290,9 @@ function MetadataChanges({ diff }: { diff: RevisionDiff }) {
 }
 
 const MARKER: Record<TreeMarker, { symbol: string; label: string; className: string }> = {
-  '+': { symbol: '+', label: 'Added', className: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
-  '−': { symbol: '−', label: 'Removed', className: 'bg-red-500/15 text-red-700 dark:text-red-300' },
-  '~': { symbol: '~', label: 'Edited', className: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
+  '+': { symbol: '+', label: 'Added', className: 'bg-success-soft text-success' },
+  '−': { symbol: '−', label: 'Removed', className: 'bg-danger-soft text-danger' },
+  '~': { symbol: '~', label: 'Edited', className: 'bg-warning-soft text-warning' },
   '': { symbol: '·', label: 'Unchanged', className: 'bg-gray-500/10 text-gray-500' },
 };
 
@@ -322,7 +322,7 @@ function StructureTree({ diff }: { diff: RevisionDiff }) {
               <div className="min-w-0">
                 <p className={`break-words text-sm font-semibold text-foreground ${s.marker === '−' ? 'line-through opacity-70' : ''}`}>{s.title}</p>
                 {s.titleBefore && <p className="break-words text-xs text-gray-500">was “{s.titleBefore}”</p>}
-                {s.note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{s.note}</p>}
+                {s.note && <p className="text-xs font-medium text-warning">{s.note}</p>}
               </div>
             </div>
             {s.lessons.length > 0 && (
@@ -479,7 +479,7 @@ function ReviewPlayer({
         )}
       </div>
       {error && (
-        <p role="alert" className="mt-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+        <p role="alert" className="mt-1.5 text-xs font-medium text-warning">
           {error}
         </p>
       )}
@@ -553,7 +553,7 @@ function PendingAssessments({ items }: { items: PendingAssessment[] }) {
                           return (
                             <li
                               key={oi}
-                              className={`flex items-start gap-2 break-words rounded-lg px-2 py-1 ${correct ? 'bg-emerald-500/10 font-semibold text-emerald-700 dark:text-emerald-300' : 'text-gray-600'}`}
+                              className={`flex items-start gap-2 break-words rounded-lg px-2 py-1 ${correct ? 'bg-success-soft font-semibold text-success' : 'text-gray-600'}`}
                             >
                               {correct ? <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden /> : <span className="w-3.5 shrink-0" aria-hidden />}
                               <span className="min-w-0">
@@ -565,7 +565,7 @@ function PendingAssessments({ items }: { items: PendingAssessment[] }) {
                         })}
                       </ul>
                       {(q.correct_index === undefined || q.correct_index === null || !(q.options ?? [])[q.correct_index]) && (
-                        <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">No valid answer key — learners cannot pass this question.</p>
+                        <p className="mt-1 text-xs font-medium text-danger">No valid answer key — learners cannot pass this question.</p>
                       )}
                     </>
                   )}
@@ -653,8 +653,8 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
     return (
       <PageShell>
         <BackButton fallback={back.fallback} label={back.label} />
-        <div role="alert" className="card mx-auto max-w-lg space-y-3 !border-amber-400/50 py-8 text-center text-sm">
-          <TriangleAlert className="mx-auto h-6 w-6 text-amber-500" aria-hidden />
+        <div role="alert" className="card mx-auto max-w-lg space-y-3 !border-warning-line py-8 text-center text-sm">
+          <TriangleAlert className="mx-auto h-6 w-6 text-warning" aria-hidden />
           <p className="font-semibold text-foreground">The new assessments in this update could not be loaded.</p>
           {/* The course service's 503 already says to try again in a minute. */}
           <p className="text-gray-600">
@@ -673,7 +673,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
       <PageShell>
         <BackButton fallback={back.fallback} label={back.label} />
         <div className="card mx-auto max-w-lg space-y-2 py-8 text-center text-sm">
-          <p className="font-semibold text-red-600 dark:text-red-400">Could not load the staged changes.</p>
+          <p className="font-semibold text-danger">Could not load the staged changes.</p>
           <p className="text-gray-500">
             {(error as Error | null)?.message ?? 'Unknown error.'} If the educator withdrew the update or it was already decided, refresh the queue.
           </p>
@@ -710,7 +710,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
       </div>
 
       {staleLink && (
-        <p role="status" className="mt-4 flex items-start gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+        <p role="status" className="mt-4 flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-sm text-warning">
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           This link was for an earlier change set. Showing the course&apos;s current staged changes — refresh the queue before deciding.
         </p>

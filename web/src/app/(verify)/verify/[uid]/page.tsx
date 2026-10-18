@@ -31,14 +31,14 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
   return (
     <div className="page-shell flex min-h-[70vh] items-center justify-center">
       <div className="card w-full max-w-lg animate-fade-in-up overflow-hidden !rounded-3xl !p-0 text-center shadow-elevated">
-        <span className={`block h-1.5 w-full ${result.valid ? 'gradient-ethiopia' : 'bg-red-500/60'}`} />
+        <span className={`block h-1.5 w-full ${result.valid ? 'gradient-ethiopia' : 'bg-danger-solid'}`} />
         <div className="p-8 sm:p-10">
           {result.valid ? (
             <>
-              <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-500">
+              <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-success-soft text-success">
                 <BadgeCheck className="h-8 w-8" />
               </span>
-              <h1 className="text-2xl font-extrabold tracking-tight text-emerald-700 dark:text-emerald-400">Valid certificate</h1>
+              <h1 className="text-2xl font-extrabold tracking-tight text-success">Valid certificate</h1>
               <dl className="mt-8 space-y-4 text-left">
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-wider text-gray-500">Learner</dt>
@@ -70,10 +70,10 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
             </>
           ) : (
             <>
-              <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/15 text-red-600 dark:text-red-400">
+              <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-danger-soft text-danger">
                 <ShieldX className="h-8 w-8" />
               </span>
-              <h1 className="text-2xl font-extrabold tracking-tight text-red-600 dark:text-red-400">Not a valid certificate</h1>
+              <h1 className="text-2xl font-extrabold tracking-tight text-danger">Not a valid certificate</h1>
               <p className="mt-3 text-sm leading-relaxed text-gray-500">
                 This certificate ID does not exist, has been invalidated, or failed the tamper check.
               </p>

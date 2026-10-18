@@ -120,9 +120,9 @@ export function ExploreClient({
     <div className="relative overflow-hidden">
       {/* Decorative background, matching the landing hero */}
       <div className="absolute inset-0 -z-10">
-        <div className="absolute inset-0 bg-gradient-to-b from-brand-50/60 via-background to-background transition-colors duration-300 dark:from-blue-950/30" />
-        <div className="absolute -left-32 -top-24 h-72 w-72 rounded-full bg-blue-400/15 blur-3xl dark:bg-blue-500/10" />
-        <div className="absolute -right-24 top-40 h-64 w-64 rounded-full bg-blue-600/10 blur-3xl dark:bg-blue-700/10" />
+        <div className="absolute inset-0 bg-gradient-to-b from-brand-50/60 via-background to-background transition-colors duration-300" />
+        <div className="absolute -left-32 -top-24 h-72 w-72 rounded-full bg-brand-400/15 blur-3xl" />
+        <div className="absolute -right-24 top-40 h-64 w-64 rounded-full bg-brand-600/10 blur-3xl" />
       </div>
 
       <div className="page-shell">
@@ -150,7 +150,7 @@ export function ExploreClient({
               e.preventDefault();
               navigate({ q: searchText.trim() || undefined, page: 1 });
             }}
-            className="glass-secondary flex items-center gap-2 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-brand-500"
+            className="glass-secondary flex items-center gap-2 rounded-2xl border-input-border p-2 focus-within:ring-2 focus-within:ring-brand-500"
           >
             <Search className="ml-2 h-5 w-5 shrink-0 text-brand-500" />
             <input

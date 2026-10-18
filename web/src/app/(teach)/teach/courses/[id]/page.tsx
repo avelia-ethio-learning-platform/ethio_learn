@@ -171,7 +171,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
         </div>
       </div>
       <FormStatus status={status} />
-      {isDraft && uploading && <p className="text-sm text-amber-700 dark:text-amber-300">{WAIT_FOR_UPLOAD}</p>}
+      {isDraft && uploading && <p className="text-sm text-warning">{WAIT_FOR_UPLOAD}</p>}
 
       {course.status === 'institution_review' && (
         <p className="badge-info w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm">
@@ -179,7 +179,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
         </p>
       )}
       {locked && !live && edit.lockReason && (
-        <p className="flex w-fit items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
+        <p className="flex w-fit items-center gap-2 rounded-xl border border-warning-line bg-warning-soft px-4 py-2 text-sm text-warning">
           <Lock className="h-4 w-4 shrink-0" aria-hidden /> {edit.lockReason}
         </p>
       )}
@@ -270,8 +270,8 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
                 <span>Submitted {formatDate(p.submitted_at, locale, 'datetime')}</span>
                 <span className="flex gap-2">
                   {p.download_url && <a className="font-medium text-brand-600 hover:underline" href={p.download_url} target="_blank">Download</a>}
-                  <button className="font-medium text-emerald-700 hover:underline disabled:opacity-50 dark:text-emerald-400" disabled={reviewing} onClick={() => review(p.attempt_id, true)}>Pass</button>
-                  <button className="font-medium text-red-600 hover:underline disabled:opacity-50 dark:text-red-400" disabled={reviewing} onClick={() => review(p.attempt_id, false)}>Fail</button>
+                  <button className="font-medium text-success hover:underline disabled:opacity-50" disabled={reviewing} onClick={() => review(p.attempt_id, true)}>Pass</button>
+                  <button className="font-medium text-danger hover:underline disabled:opacity-50" disabled={reviewing} onClick={() => review(p.attempt_id, false)}>Fail</button>
                 </span>
               </li>
             ))}
@@ -291,24 +291,24 @@ function ReviewFeedback({ feedback }: { feedback: ReviewFeedbackView }) {
   const { locale } = useT();
   const map: Record<string, { tone: string; label: string; Icon: typeof Flag }> = {
     coach: {
-      tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+      tone: 'border-warning-line bg-warning-soft text-warning',
       label: 'Changes requested by our quality team',
       Icon: FilePenLine,
     },
-    flag: { tone: 'border-red-400/40 bg-red-500/10 text-red-600 dark:text-red-300', label: 'Your course was flagged in review', Icon: Flag },
+    flag: { tone: 'border-danger-line bg-danger-soft text-danger', label: 'Your course was flagged in review', Icon: Flag },
     institution_reject: {
-      tone: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+      tone: 'border-warning-line bg-warning-soft text-warning',
       label: 'Sent back by your institution',
       Icon: Undo2,
     },
     approve: {
-      tone: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+      tone: 'border-success-line bg-success-soft text-success',
       label: 'Approved by quality review',
       Icon: CheckCircle2,
     },
     // A rejected update of a live course: its staged changes were discarded, the course itself is unchanged.
     reject: {
-      tone: 'border-red-400/40 bg-red-500/10 text-red-600 dark:text-red-300',
+      tone: 'border-danger-line bg-danger-soft text-danger',
       label: 'Your update was not approved — its changes were discarded',
       Icon: XCircle,
     },
@@ -348,7 +348,7 @@ function LearnerFeedback({ reviews }: { reviews: any }) {
         <ul className="mt-3 space-y-2">
           {reviews.reviews.map((r: any) => (
             <li key={r.id} className="border-t pt-2 text-sm first:border-0 first:pt-0">
-              <p className="text-amber-700 dark:text-amber-400">{'★'.repeat(r.rating)}<span className="text-gray-500">{'★'.repeat(5 - r.rating)}</span>
+              <p className="text-warning">{'★'.repeat(r.rating)}<span className="text-gray-500">{'★'.repeat(5 - r.rating)}</span>
                 <span className="ml-2 text-xs text-gray-500">{formatDate(r.created_at, locale)}</span>
               </p>
               {r.comment && <p className="mt-1 text-gray-700">{r.comment}</p>}
@@ -365,8 +365,8 @@ function AppealBox({ courseId, onDone }: { courseId: string; onDone: (m: string)
   const [status, , setError] = useFormStatus();
   const [sending, setSending] = useState(false);
   return (
-    <div className="card !border-red-400/40 bg-gradient-to-br from-red-500/10 to-transparent">
-      <h2 className="font-bold text-red-600 dark:text-red-400">This course was flagged</h2>
+    <div className="card !border-danger-line bg-gradient-to-br from-danger-soft to-transparent">
+      <h2 className="font-bold text-danger">This course was flagged</h2>
       <p className="mt-1 text-sm text-gray-600">Explain the changes you made or why it should be reconsidered. It will go back to the review queue.</p>
       <div className="mt-2">
         <Field label="Your appeal">
@@ -516,14 +516,14 @@ function AssessmentManager({ courseId, live, locked, onSaved }: { courseId: stri
               <div key={qi} className="glass-secondary rounded-xl p-3">
                 <div className="flex items-center gap-2">
                   <input className="input min-w-0 flex-1 text-sm" value={q.prompt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, prompt: e.target.value } : x)))} placeholder="Question prompt" aria-label={`Question ${qi + 1} prompt`} />
-                  <button aria-label={`Remove question ${qi + 1}`} className="btn-ghost btn-sm !text-red-600 dark:!text-red-400" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}><X className="h-4 w-4" aria-hidden /></button>
+                  <button aria-label={`Remove question ${qi + 1}`} className="btn-ghost btn-sm !text-danger" onClick={() => setQuestions((qs) => qs.filter((_, i) => i !== qi))}><X className="h-4 w-4" aria-hidden /></button>
                 </div>
                 <div className="mt-1 space-y-1">
                   {q.options.map((opt, oi) => (
                     <div key={oi} className="flex items-center gap-2">
                       <input type="radio" name={`correct-${qi}`} aria-label={`Correct answer for question ${qi + 1}: option ${oi + 1}`} value={oi} checked={q.correct_index === oi} onChange={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, correct_index: oi } : x)))} />
                       <input className="input min-w-0 flex-1 text-xs" value={opt} onChange={(e) => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.map((y, j) => (j === oi ? e.target.value : y)) } : x)))} placeholder={`Option ${oi + 1}`} aria-label={`Option ${oi + 1} of question ${qi + 1}`} />
-                      <button aria-label={`Remove option ${oi + 1} of question ${qi + 1}`} className="btn-ghost btn-sm !text-red-600 dark:!text-red-400" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: oi < x.correct_index ? x.correct_index - 1 : oi === x.correct_index ? 0 : x.correct_index } : x)))}><X className="h-4 w-4" aria-hidden /></button>
+                      <button aria-label={`Remove option ${oi + 1} of question ${qi + 1}`} className="btn-ghost btn-sm !text-danger" onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: x.options.filter((_, j) => j !== oi), correct_index: oi < x.correct_index ? x.correct_index - 1 : oi === x.correct_index ? 0 : x.correct_index } : x)))}><X className="h-4 w-4" aria-hidden /></button>
                     </div>
                   ))}
                   <button className="btn-ghost btn-sm text-brand-600" aria-label={`Add an option to question ${qi + 1}`} onClick={() => setQuestions((qs) => qs.map((x, i) => (i === qi ? { ...x, options: [...x.options, ''] } : x)))}>+ option</button>

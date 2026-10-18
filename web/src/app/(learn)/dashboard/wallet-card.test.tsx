@@ -57,7 +57,7 @@ describe('WalletCard pending credits', () => {
     expect(screen.queryByText(/Available/)).toBeNull();
     const [voided, available] = screen.getAllByText('+25 ETB');
     expect(voided.className).toContain('line-through');
-    expect(voided.className).not.toContain('text-emerald');
-    expect(available.className).toContain('text-emerald-700');
+    expect(voided.className).not.toContain('text-success');
+    expect(available.className).toContain('text-success');
   });
 });
