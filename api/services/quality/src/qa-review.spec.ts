@@ -1,16 +1,23 @@
-import { BadRequestException, ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
+import { OutboxService } from '@ethiopialearn/common';
 import {
   CourseAppealSubmittedPayload,
   CourseRevisionSubmittedPayload,
   CourseSubmittedPayload,
+  EventEnvelope,
+  EventType,
+  FraudSignalStatus,
+  FraudSubjectType,
   OwnerType,
   PricingType,
   QaDecisionAction,
   QaReviewStatus,
   RevisionDiffSummary,
 } from '@ethiopialearn/contracts';
+import { EducatorTrustTier, QaReviewItem, QualityCourseCache, RefundLog } from './entities';
 import { CLAIM_TTL_MS, isLowRiskRevision, QualityService } from './quality.service';
+import { envelopeFor, fakeDataSource } from './testing/fake-data-source';
 
 type Row = Record<string, any>;
 
@@ -151,23 +158,42 @@ function setup(opts: SetupOptions = {}) {
     save: jest.fn(async (x: Row) => ({ id: 'row-1', ...x })),
     create: jest.fn((x: Row) => x),
   });
-  const handlers: Record<string, (p: unknown) => Promise<void>> = {};
+  // Each call is a fresh delivery unless the test passes the envelope of an earlier one.
+  const handlers: Record<string, (p: unknown, e?: EventEnvelope<unknown>) => Promise<void>> = {};
   const bus = {
     publish: jest.fn().mockResolvedValue(undefined),
-    subscribe: jest.fn((type: string, h: (p: unknown) => Promise<void>) => {
-      handlers[type] = h;
+    subscribe: jest.fn((type: EventType, h: (p: unknown, e: EventEnvelope<unknown>) => Promise<void>) => {
+      handlers[type] = (p, e = envelopeFor(type, p)) => h(p, e);
     }),
+    // The outbox's: the broker is down unless a test brings it up and runs the relay.
+    isConnected: jest.fn(() => false),
+    publishConfirmed: jest.fn().mockResolvedValue(undefined),
   };
+  const refundLog = repo();
+  const trustTiers = repo();
+  const db = fakeDataSource(
+    new Map<unknown, unknown>([
+      [QaReviewItem, reviewItems],
+      [QualityCourseCache, courseCache],
+      [RefundLog, refundLog],
+      [EducatorTrustTier, trustTiers],
+    ]),
+  );
+  // The real outbox over the fake data source: like runOnce, it refuses to nest, so these
+  // specs fail if an emit ever moves inside a runOnce body (9b drift D2).
+  const outbox = new OutboxService(db.dataSource, bus as never);
   const service = new QualityService(
     reviewItems as never,
     repo() as never, // courseReviews
-    repo() as never, // fraudSignals
-    repo() as never, // trustTiers
+    db.fraudSignals as never,
+    trustTiers as never,
     courseCache as never,
     repo() as never, // stats
-    repo() as never, // refundLog
+    refundLog as never,
     bus as never,
     { get: jest.fn() } as never,
+    db.dataSource,
+    outbox,
   );
   const plagiarismCheck = jest.fn(async () => {
     if (opts.plagiarism instanceof Error) throw opts.plagiarism;
@@ -175,8 +201,9 @@ function setup(opts: SetupOptions = {}) {
   });
   (service as unknown as { ai: unknown }).ai = { plagiarismCheck };
   service.onModuleInit();
-  const published = (type: string) => bus.publish.mock.calls.filter((c) => c[0] === type).map((c) => c[1]);
-  return { service, reviewItems, cacheRows, courseCache, bus, handlers, plagiarismCheck, published };
+  /** Events committed to the outbox (quality publishes nothing directly any more). */
+  const published = (type: string) => db.outbox.filter((r) => r.event_type === type).map((r) => r.payload);
+  return { service, reviewItems, cacheRows, courseCache, bus, handlers, plagiarismCheck, published, db, refundLog, outbox };
 }
 
 function diffSummary(over: Partial<RevisionDiffSummary> = {}): RevisionDiffSummary {
@@ -731,7 +758,7 @@ describe('QualityService.decideItem — revision items', () => {
     await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.COACH, '  ')).rejects.toThrow(BadRequestException);
     await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.REJECT)).rejects.toThrow(BadRequestException);
     expect(t.reviewItems.rows[0].status).toBe(QaReviewStatus.PENDING);
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.db.outbox).toEqual([]);
   });
 
   it('a resubmission of the same revision id supersedes the old item; each decision carries its own content hash', async () => {
@@ -763,7 +790,7 @@ describe('QualityService.decideItem — revision items', () => {
     );
     await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.REJECT, 'nope')).rejects.toThrow(ConflictException);
     expect(t.reviewItems.rows[0].status).toBe(QaReviewStatus.PENDING);
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.db.outbox).toEqual([]);
   });
 
   it('an empty content hash on the event is stored as none (not as a matchable empty string)', async () => {
@@ -828,7 +855,7 @@ describe('QualityService.decideItem — locking and state', () => {
   it('409s while another officer holds a fresh claim; allowed once it lapses', async () => {
     const fresh = setup({ items: [{ id: 'i1', course_id: 'c1', status: QaReviewStatus.IN_REVIEW, claimed_by: 'qo-2', claimed_at: minutesAgo(3) }] });
     await expect(fresh.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).rejects.toThrow(ConflictException);
-    expect(fresh.bus.publish).not.toHaveBeenCalled();
+    expect(fresh.db.outbox).toEqual([]);
 
     const lapsed = setup({ items: [{ id: 'i1', course_id: 'c1', status: QaReviewStatus.IN_REVIEW, claimed_by: 'qo-2', claimed_at: minutesAgo(31) }] });
     await lapsed.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE);
@@ -845,7 +872,7 @@ describe('QualityService.decideItem — locking and state', () => {
     const t = setup({ items: [{ id: 'i1', course_id: 'c1' }] });
     await t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE);
     await expect(t.service.decideItem(QO2, 'i1', QaDecisionAction.FLAG)).rejects.toThrow(ConflictException);
-    expect(t.bus.publish).toHaveBeenCalledTimes(1);
+    expect(t.db.outbox).toHaveLength(1);
 
     // Race: the other officer's decision lands between our read and our write.
     const race = setup({ items: [{ id: 'i1', course_id: 'c1' }] });
@@ -854,14 +881,47 @@ describe('QualityService.decideItem — locking and state', () => {
       return { affected: 0 };
     });
     await expect(race.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).rejects.toThrow(ConflictException);
-    expect(race.bus.publish).not.toHaveBeenCalled();
+    expect(race.db.outbox).toEqual([]);
   });
 
-  it('reopens the item when the decision event cannot be published', async () => {
+  it('a decision commits when the broker is down, and nothing reverts (9b drift D1)', async () => {
     const t = setup({ items: [{ id: 'i1', course_id: 'c1', kind: 'revision', revision_id: 'rev-1', content_hash: 'hash-A' }] });
-    t.bus.publish.mockRejectedValueOnce(new Error('Channel closed'));
-    await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).rejects.toThrow(ServiceUnavailableException);
+    t.bus.publish.mockRejectedValue(new Error('Channel closed'));
+    t.bus.publishConfirmed.mockRejectedValue(new Error('Channel closed'));
+
+    await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).resolves.toMatchObject({ status: QaReviewStatus.APPROVED });
+    expect(t.reviewItems.rows[0]).toMatchObject({ status: QaReviewStatus.APPROVED, qo_id: 'qo-1', reviewed_at: expect.any(Date) });
+    expect(openIds(t.reviewItems.rows)).toEqual([]);
+    const [row] = t.db.outbox;
+    expect(t.db.outbox).toEqual([expect.objectContaining({ event_type: 'CourseRevisionReviewed', published_at: null })]);
+
+    // The broker comes back: the relay sends the committed decision, and the item stays decided.
+    t.bus.isConnected.mockReturnValue(true);
+    t.bus.publishConfirmed.mockResolvedValue(undefined);
+    await t.outbox.relay();
+    expect(t.bus.publishConfirmed).toHaveBeenCalledWith(
+      'CourseRevisionReviewed',
+      expect.objectContaining({ review_item_id: 'i1', action: 'approve', content_hash: 'hash-A' }),
+      { eventId: row.id, correlationId: undefined },
+    );
+    expect(row.published_at).toBeInstanceOf(Date);
+    expect(t.reviewItems.rows[0].status).toBe(QaReviewStatus.APPROVED);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['revision', { kind: 'revision', revision_id: 'rev-1', content_hash: 'hash-A' }, 'CourseRevisionReviewed'],
+    ['new course', { kind: 'new_course' }, 'CourseReviewed'],
+  ])('%s: the decision and its event commit together; an error before commit leaves the item open and no event', async (_label, item, event) => {
+    const t = setup({ items: [{ id: 'i1', course_id: 'c1', ...item }] });
+    t.db.opts.failNextOutboxInsert = true;
+    await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).rejects.toThrow('outbox insert failed');
     expect(t.reviewItems.rows[0]).toMatchObject({ status: QaReviewStatus.PENDING, qo_id: null, reviewed_at: null });
+    expect(t.db.outbox).toEqual([]);
+
+    await t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE);
+    expect(t.reviewItems.rows[0]).toMatchObject({ status: QaReviewStatus.APPROVED, qo_id: 'qo-1' });
+    expect(t.db.outbox.map((r) => r.event_type)).toEqual([event]);
   });
 });
 
@@ -879,7 +939,7 @@ describe('QualityService.decide (back-compat, by course)', () => {
       ],
     });
     await expect(t.service.decide(QO, 'c1', QaDecisionAction.APPROVE)).rejects.toThrow('Multiple reviews open — decide by item');
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.db.outbox).toEqual([]);
   });
 
   it('delegates to the item decision when exactly one is open, with the per-kind rules', async () => {
@@ -893,5 +953,233 @@ describe('QualityService.decide (back-compat, by course)', () => {
     await t.service.decide(QO, 'c1', QaDecisionAction.APPROVE);
     expect(t.reviewItems.rows[0].status).toBe(QaReviewStatus.APPROVED);
     expect(t.published('CourseRevisionReviewed')[0]).toMatchObject({ review_item_id: 'rev', revision_id: 'rev-1' });
+  });
+});
+
+// ---- Redelivery (Phase 9a): a retried event repeats no effect ----
+
+describe('QualityService: a redelivered event (P1-16)', () => {
+  const submitted: CourseSubmittedPayload = {
+    course_id: 'c1',
+    title: 'Intro to Python',
+    description: 'Learn Python',
+    owner_id: 'owner-1',
+    owner_type: OwnerType.EDUCATOR,
+    owner_user_id: 'user-1',
+    owner_email: 'edu@x.et',
+    owner_name: 'Edu',
+    pricing_type: PricingType.FREE,
+  };
+  const open = (t: ReturnType<typeof setup>) => t.reviewItems.rows.filter((r) => openIds([r]).length);
+
+  it('CourseSubmitted twice queues one item and screens it once', async () => {
+    const t = setup();
+    const event = envelopeFor('CourseSubmitted', submitted);
+    await t.handlers.CourseSubmitted(submitted, event);
+    await t.handlers.CourseSubmitted(submitted, event);
+
+    expect(open(t)).toHaveLength(1);
+    expect(t.plagiarismCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it('a screen that failed after the commit is finished by the retry: one item, the screen stored, the signal raised (plan-review B1)', async () => {
+    const t = setup({ plagiarism: { similarity_score: 91, flagged: true, reason: 'copied' } });
+    const update = t.reviewItems.update.getMockImplementation()!;
+    t.reviewItems.update.mockImplementationOnce(update); // closeOpenItems, inside the transaction
+    t.reviewItems.update.mockImplementationOnce(async () => {
+      throw new Error('Connection terminated unexpectedly'); // recordScreen
+    });
+    const event = envelopeFor('CourseSubmitted', submitted);
+
+    await expect(t.handlers.CourseSubmitted(submitted, event)).rejects.toThrow('Connection terminated');
+    expect(open(t)[0].plagiarism).toEqual({ pending: true });
+    expect(t.published('FraudFlagRaised')).toHaveLength(0);
+
+    await t.handlers.CourseSubmitted(submitted, event);
+    expect(open(t)).toHaveLength(1);
+    expect(open(t)[0].plagiarism).toMatchObject({ flagged: true, reason: 'copied' });
+    expect(t.published('FraudFlagRaised')).toHaveLength(1);
+  });
+
+  it('a redelivery of an item that was already screened does nothing', async () => {
+    const t = setup({ plagiarism: { similarity_score: 91, flagged: true, reason: 'copied' } });
+    const event = envelopeFor('CourseSubmitted', submitted);
+    await t.handlers.CourseSubmitted(submitted, event);
+    await t.handlers.CourseSubmitted(submitted, event);
+    expect(t.plagiarismCheck).toHaveBeenCalledTimes(1);
+    expect(t.published('FraudFlagRaised')).toHaveLength(1);
+  });
+
+  it('CourseRevisionSubmitted twice queues one revision item; a failed screen is finished by the retry', async () => {
+    const t = setup();
+    const update = t.reviewItems.update.getMockImplementation()!;
+    t.reviewItems.update.mockImplementationOnce(update);
+    t.reviewItems.update.mockImplementationOnce(async () => {
+      throw new Error('Connection terminated unexpectedly');
+    });
+    const payload = revisionPayload();
+    const event = envelopeFor('CourseRevisionSubmitted', payload);
+
+    await expect(t.handlers.CourseRevisionSubmitted(payload, event)).rejects.toThrow('Connection terminated');
+    await t.handlers.CourseRevisionSubmitted(payload, event);
+    expect(open(t)).toHaveLength(1);
+    expect(open(t)[0].plagiarism).toMatchObject({ flagged: false });
+    expect(open(t)[0].priority).toBe(1);
+  });
+
+  it('CourseAppealSubmitted twice queues one appeal item', async () => {
+    const t = setup({ items: [{ id: 'old', course_id: 'c1', status: QaReviewStatus.FLAGGED }] });
+    const payload: CourseAppealSubmittedPayload = {
+      course_id: 'c1',
+      course_title: 'Live title',
+      owner_user_id: 'user-1',
+      owner_email: 'edu@x.et',
+      appeal_note: 'Please look again',
+    };
+    const event = envelopeFor('CourseAppealSubmitted', payload);
+    await t.handlers.CourseAppealSubmitted(payload, event);
+    await t.handlers.CourseAppealSubmitted(payload, event);
+    expect(t.reviewItems.rows.filter((r) => r.kind === 'appeal')).toHaveLength(1);
+  });
+
+  describe('trust stats', () => {
+    const statsSetup = () => {
+      const t = setup({ cache: [{ course_id: 'c1', owner_id: 'owner-1', owner_type: OwnerType.EDUCATOR, title: 'T' }] });
+      Object.assign(t.courseCache, { find: jest.fn().mockResolvedValue([]) });
+      const count: Record<string, jest.Mock> = {};
+      Object.assign(count, { where: jest.fn(() => count), andWhere: jest.fn(() => count), getCount: jest.fn().mockResolvedValue(0) });
+      Object.assign(t.refundLog, { createQueryBuilder: jest.fn(() => count) });
+      return t;
+    };
+    const paid = { payment_id: 'p1', payee_id: 'owner-1', learner_id: 'u1', course_id: 'c1', amount_etb: '500.00' };
+    const refund = { refund_request_id: 'r1', payment_id: 'p1', learner_id: 'u1', course_id: 'c1', course_title: 'T', amount_etb: 500, reason: 'auto' };
+
+    it('PaymentConfirmed twice counts one payment; two payments count two', async () => {
+      const t = statsSetup();
+      const event = envelopeFor('PaymentConfirmed', paid);
+      await t.handlers.PaymentConfirmed(paid, event);
+      await t.handlers.PaymentConfirmed(paid, event);
+      expect(t.db.stats.get('owner-1')).toEqual({ payments: 1, refunds: 0, completions: 0 });
+
+      await t.handlers.PaymentConfirmed(paid);
+      expect(t.db.stats.get('owner-1')!.payments).toBe(2);
+    });
+
+    it('bumps a counter in one upsert statement, so concurrent events add up', async () => {
+      const t = statsSetup();
+      await Promise.all([t.handlers.PaymentConfirmed(paid), t.handlers.PaymentConfirmed(paid)]);
+      expect(t.db.stats.get('owner-1')!.payments).toBe(2);
+      const upserts = t.db.manager.query.mock.calls.filter(([sql]) => sql.includes('payee_stats'));
+      expect(upserts[0][0]).toMatch(/INSERT INTO quality\.payee_stats AS s .* ON CONFLICT \(payee_id\) DO UPDATE SET payments = s\.payments \+ EXCLUDED\.payments/s);
+    });
+
+    it('CourseCompleted twice counts one completion', async () => {
+      const t = statsSetup();
+      const payload = { learner_id: 'u1', course_id: 'c1' };
+      const event = envelopeFor('CourseCompleted', payload);
+      await t.handlers.CourseCompleted(payload, event);
+      await t.handlers.CourseCompleted(payload, event);
+      expect(t.db.stats.get('owner-1')).toEqual({ payments: 0, refunds: 0, completions: 1 });
+    });
+
+    it('RefundApproved twice logs one refund and counts it once', async () => {
+      const t = statsSetup();
+      const event = envelopeFor('RefundApproved', refund);
+      await t.handlers.RefundApproved(refund, event);
+      await t.handlers.RefundApproved(refund, event);
+      expect(t.refundLog.save).toHaveBeenCalledTimes(1);
+      expect(t.db.stats.get('owner-1')).toEqual({ payments: 0, refunds: 1, completions: 0 });
+    });
+  });
+});
+
+// ---- Fraud signals (Phase 9b): one open signal per subject and type, each committed with its event ----
+
+describe('QualityService fraud signals: one open signal per subject and type, with its event (9b outbox)', () => {
+  const plagiarism = { subject_type: FraudSubjectType.COURSE, subject_id: 'c1', signal_type: 'plagiarism_suspected', detail: 'copied', payee_id: 'owner-1' };
+  const refund = (id: string) => ({ refund_request_id: id, payment_id: `p-${id}`, learner_id: 'learner-1', course_id: 'c9', course_title: 'T', amount_etb: 500, reason: 'auto' });
+  const openSignals = (t: ReturnType<typeof setup>) => t.db.fraudSignals.rows.filter((r) => r.status === FraudSignalStatus.OPEN);
+  /** A learner with 4 approved refunds in 30 days, so every RefundApproved for them raises refund_abuse. */
+  const abuseSetup = () => {
+    const t = setup();
+    const count: Record<string, jest.Mock> = {};
+    Object.assign(count, { where: jest.fn(() => count), andWhere: jest.fn(() => count), getCount: jest.fn().mockResolvedValue(4) });
+    Object.assign(t.refundLog, { createQueryBuilder: jest.fn(() => count) });
+    return t;
+  };
+
+  it('two refund approvals that trigger the same check open one signal and commit one FraudFlagRaised', async () => {
+    const t = abuseSetup();
+    // Delivered together: both count 4 refunds and raise, after their runOnce returns; the open-signal index lets one in.
+    await Promise.all([t.handlers.RefundApproved(refund('r1')), t.handlers.RefundApproved(refund('r2'))]);
+    expect(openSignals(t)).toEqual([
+      expect.objectContaining({ subject_type: FraudSubjectType.USER, subject_id: 'learner-1', signal_type: 'refund_abuse', detail: '4 approved refunds in 30 days' }),
+    ]);
+    expect(t.published('FraudFlagRaised')).toEqual([expect.objectContaining({ flag_id: openSignals(t)[0].id, subject_id: 'learner-1', payee_id: null })]);
+  });
+
+  it('a redelivery after the insert committed adds no row, and the original outbox row still publishes', async () => {
+    const t = abuseSetup();
+    const event = envelopeFor('RefundApproved', refund('r1'));
+    await t.handlers.RefundApproved(refund('r1'), event);
+    const [signal] = t.db.fraudSignals.rows;
+    const [row] = t.db.outbox;
+
+    // The broker delivers it again (its ack was lost, say).
+    await t.handlers.RefundApproved(refund('r1'), event);
+    expect(t.db.fraudSignals.rows).toHaveLength(1);
+    expect(t.db.outbox).toEqual([row]);
+
+    t.bus.isConnected.mockReturnValue(true);
+    await t.outbox.relay();
+    expect(t.bus.publishConfirmed.mock.calls).toEqual([
+      ['FraudFlagRaised', expect.objectContaining({ flag_id: signal.id, signal_type: 'refund_abuse' }), { eventId: row.id, correlationId: undefined }],
+    ]);
+    expect(row.published_at).toBeInstanceOf(Date);
+  });
+
+  it('a raise and its FraudFlagRaised commit together; an error before commit leaves neither', async () => {
+    const t = setup();
+    t.db.opts.failNextOutboxInsert = true;
+    await expect(t.service.raiseFraudSignal(plagiarism)).rejects.toThrow('outbox insert failed');
+    expect(t.db.fraudSignals.rows).toEqual([]);
+    expect(t.db.outbox).toEqual([]);
+
+    const signal = await t.service.raiseFraudSignal(plagiarism);
+    expect(t.db.fraudSignals.rows).toEqual([expect.objectContaining({ id: signal.id, status: FraudSignalStatus.OPEN })]);
+    expect(t.published('FraudFlagRaised')).toEqual([
+      { flag_id: signal.id, subject_type: 'course', subject_id: 'c1', signal_type: 'plagiarism_suspected', payee_id: 'owner-1', detail: 'copied' },
+    ]);
+  });
+
+  it('raising a signal that is already open returns the open one and emits nothing; another subject or type opens its own', async () => {
+    const t = setup();
+    const first = await t.service.raiseFraudSignal(plagiarism);
+    await expect(t.service.raiseFraudSignal({ ...plagiarism, detail: 'again' })).resolves.toMatchObject({ id: first.id, detail: 'copied' });
+    expect(t.published('FraudFlagRaised')).toHaveLength(1);
+
+    await t.service.raiseFraudSignal({ ...plagiarism, subject_id: 'c2' });
+    await t.service.raiseFraudSignal({ ...plagiarism, signal_type: 'refund_abuse' });
+    expect(openSignals(t)).toHaveLength(3);
+    expect(t.published('FraudFlagRaised')).toHaveLength(3);
+  });
+
+  it('a resolution and its FraudFlagResolved commit together; an error before commit leaves the signal open', async () => {
+    const t = setup();
+    const signal = await t.service.raiseFraudSignal(plagiarism);
+    t.db.opts.failNextOutboxInsert = true;
+    await expect(t.service.resolveFlag('admin-1', signal.id)).rejects.toThrow('outbox insert failed');
+    expect(t.db.fraudSignals.rows[0]).toMatchObject({ status: FraudSignalStatus.OPEN, resolved_by: null });
+    expect(t.published('FraudFlagResolved')).toEqual([]);
+
+    await t.service.resolveFlag('admin-1', signal.id);
+    expect(t.db.fraudSignals.rows[0]).toMatchObject({ status: FraudSignalStatus.RESOLVED, resolved_by: 'admin-1', resolved_at: expect.any(Date) });
+    // The raise's payload shape, which the FraudSignalDedupe migration also builds.
+    expect(t.published('FraudFlagResolved')).toEqual(t.published('FraudFlagRaised'));
+
+    // Resolved, it no longer blocks a new signal on the same subject.
+    await t.service.raiseFraudSignal(plagiarism);
+    expect(openSignals(t)).toHaveLength(1);
+    expect(t.published('FraudFlagRaised')).toHaveLength(2);
   });
 });

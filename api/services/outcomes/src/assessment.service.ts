@@ -11,7 +11,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { randomInt, randomUUID } from 'crypto';
-import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { EventBusService, InternalHttpClient, internalPath, OutboxService, UserContext } from '@ethiopialearn/common';
 import { aiFallbackNote, AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import {
   AssessmentResultPayload,
@@ -116,6 +116,7 @@ export class AssessmentService implements OnModuleInit {
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
     private readonly storage: S3StorageProvider,
+    private readonly outbox: OutboxService,
   ) {}
 
   onModuleInit() {
@@ -520,20 +521,22 @@ export class AssessmentService implements OnModuleInit {
     }
 
     // Claim the result: only one of several concurrent submits updates the row.
-    // Everything grading changed is written here, and nothing else.
+    // Everything grading changed is written here, and nothing else. A graded result
+    // commits with its AssessmentPassed/Failed event (outbox); a project waits for review.
+    const result = attempt.passed === null ? null : await this.resultEvent(assessment, attempt, ctx.email);
     attempt.submitted_at = new Date();
-    const { affected } = await this.attempts
-      .createQueryBuilder()
-      .update()
-      .set({ submitted_at: attempt.submitted_at, score: attempt.score, passed: attempt.passed, terminated: attempt.terminated, detail: attempt.detail })
-      .where('id = :id', { id: attempt.id })
-      .andWhere('submitted_at IS NULL')
-      .execute();
-    if (!affected) throw new ConflictException('Attempt already submitted.');
-
-    if (attempt.passed !== null) {
-      await this.publishResult(assessment, attempt, ctx.email);
-    }
+    await this.outbox.transaction(async (m, emit) => {
+      const { affected } = await m
+        .getRepository(AssessmentAttempt)
+        .createQueryBuilder()
+        .update()
+        .set({ submitted_at: attempt.submitted_at, score: attempt.score, passed: attempt.passed, terminated: attempt.terminated, detail: attempt.detail })
+        .where('id = :id', { id: attempt.id })
+        .andWhere('submitted_at IS NULL')
+        .execute();
+      if (!affected) throw new ConflictException('Attempt already submitted.');
+      if (result) emit(result.type, result.payload);
+    });
     const showBreakdown = await this.mayShowBreakdown(assessment, attempt);
     return {
       attempt_id: attempt.id,
@@ -820,9 +823,12 @@ export class AssessmentService implements OnModuleInit {
 
     attempt.passed = passed;
     attempt.score = passed ? 100 : 0;
-    await this.attempts.save(attempt);
     const learner = await this.internal.get<{ email: string }>(internalPath`/api/v1/internal/users/${attempt.learner_id}`);
-    await this.publishResult(assessment, attempt, learner.email);
+    const result = await this.resultEvent(assessment, attempt, learner.email);
+    await this.outbox.transaction(async (m, emit) => {
+      await m.getRepository(AssessmentAttempt).save(attempt);
+      emit(result.type, result.payload);
+    });
     return { attempt_id: attempt.id, passed };
   }
 
@@ -917,7 +923,15 @@ export class AssessmentService implements OnModuleInit {
     return { attempt_id: attempt.id, score: attempt.score, passed: attempt.passed, missed_count: missed.length, ai_live: aiLive, ...plan };
   }
 
-  private async publishResult(assessment: Assessment, attempt: AssessmentAttempt, learnerEmail: string) {
+  /**
+   * The AssessmentPassed/Failed event for a graded attempt, emitted in the transaction
+   * that saves the result. The lookups are best-effort and run before that transaction.
+   */
+  private async resultEvent(
+    assessment: Assessment,
+    attempt: AssessmentAttempt,
+    learnerEmail: string,
+  ): Promise<{ type: 'AssessmentPassed' | 'AssessmentFailed'; payload: AssessmentResultPayload }> {
     let learnerName = '';
     let courseTitle = '';
     let educatorId = '';
@@ -951,7 +965,7 @@ export class AssessmentService implements OnModuleInit {
       score: attempt.score ?? 0,
       passed: !!attempt.passed,
     };
-    await this.bus.publish(attempt.passed ? 'AssessmentPassed' : 'AssessmentFailed', payload);
+    return { type: attempt.passed ? 'AssessmentPassed' : 'AssessmentFailed', payload };
   }
 
   /** Learner-safe paper for an attempt: served order, shuffled options, no answer key or guidance. */

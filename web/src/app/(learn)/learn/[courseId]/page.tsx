@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import Hls from 'hls.js';
+import type Hls from 'hls.js';
 import Link from 'next/link';
 import { BellRing, ChevronLeft, ChevronRight, CircleCheck, CloudOff, Compass, History, LoaderCircle, Lock, Play, PlayCircle } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
@@ -21,6 +21,7 @@ import { CompletionCard } from './completion-card';
 import { LessonList } from './lesson-list';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { attachVideo } from '@/lib/video';
 
 interface Lesson {
   id: string;
@@ -195,17 +196,7 @@ function Player({ courseId }: { courseId: string }) {
         if (resumeAt > 5 && resumeAt < (video.duration || Infinity) - 5) video.currentTime = resumeAt;
       };
       video.addEventListener('loadedmetadata', seekToResume, { once: true });
-      if (res.url.includes('.m3u8') && Hls.isSupported()) {
-        const hls = new Hls();
-        hlsRef.current = hls;
-        hls.on(Hls.Events.ERROR, (_e, data) => {
-          if (data.fatal) setVideoError('Could not play this video. Please try again.');
-        });
-        hls.loadSource(res.url);
-        hls.attachMedia(video);
-      } else {
-        video.src = res.url;
-      }
+      hlsRef.current = await attachVideo(video, res.url, () => setVideoError('Could not play this video. Please try again.'));
       video.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       void video.play().catch(() => undefined);
     } catch (err) {

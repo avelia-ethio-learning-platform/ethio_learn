@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { statusLabel } from '@/lib/labels';
+import { StatusName } from './Localized';
 
 /**
  * Shared page scaffolding. Server-component safe (CSS animations only) so both
@@ -44,10 +45,10 @@ export function PageHeader({
 
 /** Consistent dark-mode-aware badge for entity lifecycle statuses. `label` overrides the wording for one context. */
 export function StatusBadge({ status, suffix, label }: { status: string; suffix?: string; label?: string }) {
-  const { label: defaultLabel, tone } = statusLabel(status);
+  const { tone } = statusLabel(status);
   return (
     <span className={tone}>
-      {label ?? defaultLabel}
+      {label ?? <StatusName status={status} />}
       {suffix ? ` · ${suffix}` : ''}
     </span>
   );

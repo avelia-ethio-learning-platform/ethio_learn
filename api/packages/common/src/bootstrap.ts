@@ -1,9 +1,13 @@
 import { INestApplication, Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { timingSafeEqual } from 'crypto';
+import { DataSource } from 'typeorm';
 import { envBool } from './config/env';
 import { assertProductionConfig } from './config/production-config';
+import { EventBusService } from './events/event-bus.service';
+import { setServiceName } from './health.controller';
 import { DbErrorFilter } from './http/db-error.filter';
+import { Readiness } from './ready';
 
 export interface BootstrapOptions {
   serviceName: string;
@@ -16,6 +20,8 @@ export interface BootstrapOptions {
   storage?: boolean;
   /** The service's own production rules (see ProductionConfigSpec.rules). */
   productionRules?: (environment: NodeJS.ProcessEnv) => string[];
+  /** Checks `/ready` runs besides the database and the broker (auth: Redis). */
+  readyChecks?: (app: INestApplication) => Record<string, () => Promise<unknown>>;
 }
 
 export async function bootstrapService(appModule: unknown, options: BootstrapOptions): Promise<INestApplication> {
@@ -27,6 +33,7 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
     storage: options.storage,
     rules: options.productionRules,
   });
+  setServiceName(options.serviceName);
   const app = await NestFactory.create(appModule as any, { rawBody: options.rawBody ?? false });
 
   // RolesGuard trusts the gateway's x-user-* headers, which is only safe while
@@ -43,7 +50,7 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
       throw new Error('REQUIRE_INTERNAL_TOKEN is set but INTERNAL_API_TOKEN is empty — every request would be rejected.');
     }
     app.use((req: any, res: any, next: () => void) => {
-      if (req.path === '/health') return next();
+      if (req.path === '/health' || req.path === '/ready') return next();
       const presented = Buffer.from(String(req.headers['x-internal-token'] ?? ''));
       if (presented.length === expected.length && timingSafeEqual(presented, expected)) return next();
       res.statusCode = 401;
@@ -59,6 +66,21 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
   // make us parse large bodies. The cast: useBodyParser is declared on the
   // Express app type, and this package does not depend on platform-express.
   (app as INestApplication & { useBodyParser(parser: 'json', options: { limit: string }): unknown }).useBodyParser('json', { limit: '512kb' });
+
+  // Readiness for CI, the scheduler and operators (Render's health check stays
+  // /health: a restart fixes neither a database nor a broker outage). A plain
+  // route, so it sits outside the /api/v1 prefix like /health.
+  const readiness = new Readiness({
+    serviceName: options.serviceName,
+    db: app.get(DataSource),
+    bus: app.get(EventBusService),
+    extra: options.readyChecks?.(app),
+  });
+  type ReadyResponse = { status(code: number): { set(field: string, value: string): { json(body: unknown): void } } };
+  app.getHttpAdapter().get('/ready', async (_req: unknown, res: ReadyResponse) => {
+    const { statusCode, body } = await readiness.check();
+    res.status(statusCode).set('cache-control', 'no-store').json(body);
+  });
 
   // All spec endpoints live under /api/v1 (spec §9). The gateway forwards the
   // full path unchanged, so every service must answer under this prefix.

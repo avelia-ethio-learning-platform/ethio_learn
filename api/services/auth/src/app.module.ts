@@ -13,7 +13,7 @@ import { InternalController } from './internal.controller';
   imports: [
     TypeOrmModule.forRoot(buildTypeOrmOptions(SCHEMA, entities, migrations)),
     TypeOrmModule.forFeature(entities),
-    EventBusModule.forRoot({ serviceName: 'auth' }),
+    EventBusModule.forRoot({ serviceName: 'auth', outbox: true }),
   ],
   controllers: [AuthController, ProfilesController, AdminUsersController, InternalController, HealthController],
   providers: [AuthService, MembershipService, InternalHttpClient],

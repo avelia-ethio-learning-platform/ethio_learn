@@ -1,4 +1,4 @@
-import { expect, test as setup } from '@playwright/test';
+import { expect, test as setup } from './test';
 import { authFile, logIn, ROLES, type Role } from './support';
 
 // P0-11: every seeded role lands on a page it can use. The saved login is

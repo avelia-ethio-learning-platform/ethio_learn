@@ -1,5 +1,7 @@
 /** Pure rules for the public course page, kept out of the components so they can be tested. */
 
+import type { TKey } from './i18n-en';
+
 export type BuyBullet = 'certificate' | 'payment' | 'refund';
 
 interface PreviewSection {
@@ -15,10 +17,11 @@ export function buyBullets(pricingType: string): BuyBullet[] {
   return pricingType === 'free' ? ['certificate'] : ['certificate', 'payment', 'refund'];
 }
 
-export const BUY_BULLET_TEXT: Record<BuyBullet, string> = {
-  certificate: 'Verifiable certificate on completion',
-  payment: 'Pay with Telebirr, CBE Birr & 18+ banks',
-  refund: '7-day refund window',
+/** Each promise's text, in lib/i18n-en.ts and lib/i18n-am.ts. */
+export const BUY_BULLET_KEY: Record<BuyBullet, TKey> = {
+  certificate: 'buy_bullet_certificate',
+  payment: 'buy_bullet_payment',
+  refund: 'buy_bullet_refund',
 };
 
 /** A section is previewable when it is marked free and has at least one lesson with a video. */

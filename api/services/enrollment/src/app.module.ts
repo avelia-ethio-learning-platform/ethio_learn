@@ -10,7 +10,7 @@ import { EnrollmentController, EnrollmentInternalController } from './enrollment
   imports: [
     TypeOrmModule.forRoot(buildTypeOrmOptions(SCHEMA, entities, migrations)),
     TypeOrmModule.forFeature(entities),
-    EventBusModule.forRoot({ serviceName: 'enrollment' }),
+    EventBusModule.forRoot({ serviceName: 'enrollment', outbox: true }),
     ScheduleModule.forRoot(),
   ],
   controllers: [EnrollmentController, EnrollmentInternalController, HealthController],

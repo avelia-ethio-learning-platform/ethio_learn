@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from './test';
 import { apiGet, authFile, BASE_URL, firstCourseId, learnerCertificateUid, ownCourseId, seedPassword, settle } from './support';
 
 // Decision 12: zero serious or critical axe violations (WCAG 2.0/2.1 A and AA)

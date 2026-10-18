@@ -96,9 +96,35 @@ function internalFor(course: Row, institutions: Record<string, string> = {}) {
       }
       if (path.startsWith('/api/v1/internal/entitlements')) return { entitlement_status: 'active', enrollment_id: 'en1' };
       if (path.startsWith('/api/v1/internal/courses/')) return course;
+      if (path.startsWith('/api/v1/internal/users/')) return { name: 'Learner', email: 'l1@x.et' };
+      if (path.startsWith('/api/v1/internal/institutions/')) return { name: 'Institution' };
       throw new Error(`unexpected internal GET ${path}`);
     }),
   };
+}
+
+/**
+ * outbox.transaction over the fake repos. Saves made through the transaction's manager and
+ * the emitted events land together when fn resolves; `failInsert` makes the outbox insert at
+ * the end of the transaction fail, so neither lands.
+ */
+function fakeOutbox(attempts: ReturnType<typeof fakeRepo>) {
+  const committed: Array<{ type: string; payload: Row }> = [];
+  const saved: Row[] = [];
+  const opts = { failInsert: false };
+  const outbox = {
+    transaction: jest.fn(async (fn: (m: unknown, emit: (type: string, payload: Row) => void) => Promise<unknown>) => {
+      const queued: Array<{ type: string; payload: Row }> = [];
+      const pending: Row[] = [];
+      const m = { getRepository: () => ({ ...attempts, save: jest.fn(async (r: Row) => (pending.push({ ...r }), r)) }) };
+      const result = await fn(m, (type, payload) => queued.push({ type, payload }));
+      if (queued.length && opts.failInsert) throw new Error('outbox insert failed');
+      saved.push(...pending);
+      committed.push(...queued);
+      return result;
+    }),
+  };
+  return { outbox, committed, saved, opts };
 }
 
 function harness(opts: { course?: Row; rows?: Row[]; attempts?: Row[]; institutions?: Record<string, string> } = {}) {
@@ -111,8 +137,9 @@ function harness(opts: { course?: Row; rows?: Row[]; attempts?: Row[]; instituti
     headObject: jest.fn(async (): Promise<{ size: number; content_type: string | null } | null> => ({ size: 1024, content_type: null })),
     deleteObject: jest.fn(async () => undefined),
   };
-  const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, storage as never);
-  return { svc, assessments, attempts, internal, bus, storage };
+  const { outbox, committed, saved, opts: outboxOpts } = fakeOutbox(attempts);
+  const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, storage as never, outbox as never);
+  return { svc, assessments, attempts, internal, bus, storage, outbox, committed, saved, outboxOpts };
 }
 
 const user = (id: string, role: Role) => ({ id, role, email: `${id}@x.et` });
@@ -535,5 +562,36 @@ describe('project submission', () => {
     storage.headObject.mockRejectedValueOnce(new Error('storage down'));
     await expect(svc.submitAttempt(learner, 'att1', {})).rejects.toThrow('storage down');
     expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
+  });
+});
+
+describe('reviewAttempt(): the grade commits with its event (outbox, 9b)', () => {
+  const reviewHarness = () =>
+    harness({
+      rows: [{ id: 'proj', course_id: 'c1', type: AssessmentType.PROJECT, pass_score: 60, config: {}, state: 'live' }],
+      attempts: [{ id: 'att1', assessment_id: 'proj', learner_id: 'l1', enrollment_id: 'en1', submitted_at: new Date(), score: null, passed: null, detail: { file_key: 'projects/l1/own-upload' } }],
+    });
+
+  it('a pass: the saved grade and AssessmentPassed commit in one outbox transaction', async () => {
+    const h = reviewHarness();
+    await expect(h.svc.reviewAttempt(instructor, 'att1', true)).resolves.toEqual({ attempt_id: 'att1', passed: true });
+    expect(h.outbox.transaction).toHaveBeenCalledTimes(1);
+    expect(h.saved).toEqual([expect.objectContaining({ id: 'att1', passed: true, score: 100 })]);
+    expect(h.committed).toEqual([
+      {
+        type: 'AssessmentPassed',
+        payload: expect.objectContaining({ attempt_id: 'att1', learner_email: 'l1@x.et', learner_name: 'Learner', educator_name: 'Institution', score: 100, passed: true }),
+      },
+    ]);
+    expect(h.attempts.save).not.toHaveBeenCalled(); // never outside the transaction
+    expect(h.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('an error before commit leaves neither: no saved grade, no event, and the error reaches the caller', async () => {
+    const h = reviewHarness();
+    h.outboxOpts.failInsert = true;
+    await expect(h.svc.reviewAttempt(instructor, 'att1', false)).rejects.toThrow('outbox insert failed');
+    expect(h.saved).toEqual([]);
+    expect(h.committed).toEqual([]);
   });
 });

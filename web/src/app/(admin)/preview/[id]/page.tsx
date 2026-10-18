@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import Hls from 'hls.js';
+import type Hls from 'hls.js';
 import {
   BookOpen,
   CheckCircle2,
@@ -46,6 +46,8 @@ import {
 import { formatDate, formatETB } from '@/lib/format';
 import { categoryLabel, pricingLabel, statusLabel } from '@/lib/labels';
 import { useT } from '@/lib/i18n';
+import { hasRealThumbnail } from '@/lib/categories';
+import { attachVideo } from '@/lib/video';
 
 function PreviewSkeleton() {
   return (
@@ -67,17 +69,6 @@ function useBackTarget(courseId: string): { fallback: string; label: string } {
   if (user?.role === 'institution_admin') return { fallback: '/institution/review', label: 'Back to review queue' };
   if (user?.role === 'educator') return { fallback: `/teach/courses/${courseId}`, label: 'Back to course' };
   return { fallback: '/qa', label: 'Back to queue' };
-}
-
-function attachStream(video: HTMLVideoElement, url: string): Hls | null {
-  if (url.includes('.m3u8') && Hls.isSupported()) {
-    const hls = new Hls();
-    hls.loadSource(url);
-    hls.attachMedia(video);
-    return hls;
-  }
-  video.src = url;
-  return null;
 }
 
 /**
@@ -109,7 +100,7 @@ function Preview({ courseId }: { courseId: string }) {
       const v = videoRef.current;
       if (!v) return;
       hlsRef.current?.destroy();
-      hlsRef.current = attachStream(v, res.url);
+      hlsRef.current = await attachVideo(v, res.url);
       void v.play().catch(() => undefined);
     } catch (e) {
       setErr((e as Error).message);
@@ -142,7 +133,7 @@ function Preview({ courseId }: { courseId: string }) {
             {reviews?.average_rating ? ` · ★ ${reviews.average_rating}` : ''}
           </p>
           <div className="relative mt-5 overflow-hidden rounded-2xl bg-black shadow-floating">
-            <video ref={videoRef} controls playsInline poster={course.thumbnail_url || undefined} className="aspect-video w-full" />
+            <video ref={videoRef} controls playsInline poster={hasRealThumbnail(course.thumbnail_url) ? course.thumbnail_url : undefined} className="aspect-video w-full" />
             {!playing && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-black/70 p-4 text-center text-sm font-medium text-white/80">
                 <Play className="h-5 w-5 shrink-0" aria-hidden /> Choose a lesson to start the preview
@@ -187,11 +178,12 @@ function Preview({ courseId }: { courseId: string }) {
 function Thumbnail({ url, alt, className = '' }: { url: string | null | undefined; alt: string; className?: string }) {
   return (
     <div className={`relative aspect-video overflow-hidden rounded-xl border border-[var(--border)] bg-gray-500/10 ${className}`}>
-      {url ? (
+      {/* The seed's placehold.co placeholders aren't uploads, and stay out of the CSP. */}
+      {hasRealThumbnail(url) ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt={alt} className="h-full w-full object-cover" />
+        <img src={url} alt={alt} width={224} height={126} decoding="async" loading="lazy" className="h-full w-full object-cover" />
       ) : (
-        <span className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-gray-500">
+        <span className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-gray-600">
           <ImageOff className="h-5 w-5" aria-hidden /> No thumbnail
         </span>
       )}
@@ -418,9 +410,24 @@ function ReviewPlayer({
   useEffect(() => {
     const v = videoRef.current;
     if (!url || !v) return;
-    const hls = attachStream(v, url);
-    void v.play().catch(() => undefined);
-    return () => hls?.destroy();
+    let hls: Hls | null = null;
+    let cancelled = false;
+    void attachVideo(v, url)
+      .then((attached) => {
+        if (cancelled) return attached?.destroy();
+        hls = attached;
+        void v.play().catch(() => undefined);
+      })
+      .catch(() => {
+        // the player chunk didn't load (a flaky connection, or a deploy replaced it)
+        if (cancelled) return;
+        setUrl(null);
+        setError('Could not load the video player. Load it again.');
+      });
+    return () => {
+      cancelled = true;
+      hls?.destroy();
+    };
   }, [url]);
 
   const load = async () => {

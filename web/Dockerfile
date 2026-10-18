@@ -18,6 +18,9 @@ ARG NEXT_PUBLIC_S3_PUBLIC_URL=http://localhost:9000/ethiopialearn
 ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID=
 # Comma-separated public /health URLs the browser pings to wake free-tier services (see .env.example).
 ARG NEXT_PUBLIC_WAKE_URLS=
+# Storage origins for uploads and video, and the CSP mode (see .env.example).
+ARG NEXT_PUBLIC_MEDIA_ORIGINS=
+ARG CSP_ENFORCE=
 # Selects `output: 'standalone'` in next.config.mjs; the runtime stage below
 # copies .next/standalone, so this build MUST produce it.
 ENV BUILD_STANDALONE=1 \
@@ -26,6 +29,8 @@ ENV BUILD_STANDALONE=1 \
     NEXT_PUBLIC_S3_PUBLIC_URL=$NEXT_PUBLIC_S3_PUBLIC_URL \
     NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID \
     NEXT_PUBLIC_WAKE_URLS=$NEXT_PUBLIC_WAKE_URLS \
+    NEXT_PUBLIC_MEDIA_ORIGINS=$NEXT_PUBLIC_MEDIA_ORIGINS \
+    CSP_ENFORCE=$CSP_ENFORCE \
     NEXT_TELEMETRY_DISABLED=1
 COPY . .
 RUN pnpm build

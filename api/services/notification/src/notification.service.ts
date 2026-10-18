@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { env, EventBusService, InternalHttpClient, internalPath } from '@ethiopialearn/common';
+import { currentEvent, env, EventBusService, InternalHttpClient, internalPath } from '@ethiopialearn/common';
 import { courseCategoryLabel } from '@ethiopialearn/contracts';
 import {
   AssessmentResultPayload,
@@ -156,18 +156,18 @@ export class NotificationService implements OnModuleInit {
             <p>Or open this link: ${p.invite_url}</p><p style="color:#6b7280;font-size:13px">This invitation expires in 7 days.</p>`)));
 
     // An institution invited an existing account; they accept or decline in their own session.
-    this.bus.subscribe<InstructorInvitedPayload>('InstructorInvited', (p) => {
-      this.inbox({ user_id: p.user_id, type: 'instructor_invited', title: `${p.institution_name} invited you to teach`, body: 'Accept or decline the invitation. Nothing changes on your account until you accept.', link: '/account/invites' });
-      this.deliver('InstructorInvited', p.user_id, p.email, `${p.institution_name} invited you to teach with them`,
+    this.bus.subscribe<InstructorInvitedPayload>('InstructorInvited', async (p) => {
+      await this.inbox({ user_id: p.user_id, type: 'instructor_invited', title: `${p.institution_name} invited you to teach`, body: 'Accept or decline the invitation. Nothing changes on your account until you accept.', link: '/account/invites' });
+      await this.deliver('InstructorInvited', p.user_id, p.email, `${p.institution_name} invited you to teach with them`,
         layout('An invitation to teach', html`<p>Hi ${p.name},</p><p><strong>${p.institution_name}</strong> invited you to teach with them on EthiopiaLearn.</p>
         <p>Log in to accept or decline. Nothing changes on your account until you accept.</p>
         ${button(`${this.webUrl}/account/invites`, 'See the invitation')}`));
     });
 
     // The user accepted an institution's invitation.
-    this.bus.subscribe<InstructorLinkedPayload>('InstructorLinked', (p) => {
-      this.inbox({ user_id: p.user_id, type: 'instructor_added', title: `You're now an instructor at ${p.institution_name}`, body: p.upgraded_from_learner ? 'Your account can now create courses. Your enrollments and learning are unchanged.' : 'New courses you create go through your institution’s review; your independent courses are unchanged.', link: '/teach' });
-      this.deliver('InstructorLinked', p.user_id, p.email, `You're now an instructor at ${p.institution_name}`,
+    this.bus.subscribe<InstructorLinkedPayload>('InstructorLinked', async (p) => {
+      await this.inbox({ user_id: p.user_id, type: 'instructor_added', title: `You're now an instructor at ${p.institution_name}`, body: p.upgraded_from_learner ? 'Your account can now create courses. Your enrollments and learning are unchanged.' : 'New courses you create go through your institution’s review; your independent courses are unchanged.', link: '/teach' });
+      await this.deliver('InstructorLinked', p.user_id, p.email, `You're now an instructor at ${p.institution_name}`,
         layout('Welcome to the teaching team', html`<p>Hi ${p.name},</p><p>You joined <strong>${p.institution_name}</strong> as an instructor on EthiopiaLearn.</p>
         ${p.upgraded_from_learner ? html`<p>Your account can now create and manage courses. Your existing enrollments and learning are unchanged.</p>` : html`<p>New courses you create will go through your institution’s internal review; any courses you already own as an independent educator stay exactly as they are.</p>`}
         ${button(`${this.webUrl}/teach`, 'Go to teaching dashboard')}`));
@@ -189,7 +189,7 @@ export class NotificationService implements OnModuleInit {
 
     // Institution approved/rejected → notify the instructor. For a revision the
     // live course is untouched either way, so say "update", not "course".
-    this.bus.subscribe<CourseInstitutionReviewedPayload>('CourseInstitutionReviewed', (p) => {
+    this.bus.subscribe<CourseInstitutionReviewedPayload>('CourseInstitutionReviewed', async (p) => {
       const approved = p.action === 'approve';
       const link = `/teach/courses/${p.course_id}`;
       if (p.revision_id) {
@@ -221,46 +221,46 @@ export class NotificationService implements OnModuleInit {
     this.bus.subscribe<CourseRevisionReviewedPayload>('CourseRevisionReviewed', (p) => this.notifyRevisionReviewed(p));
     this.bus.subscribe<CourseRevisionClosedPayload>('CourseRevisionClosed', (p) => this.notifyRevisionClosed(p));
 
-    this.bus.subscribe<CoursePublishedPayload>('CoursePublished', (p) => {
+    this.bus.subscribe<CoursePublishedPayload>('CoursePublished', async (p) => {
       // The instructor's own "your course is live" confirmation.
-      this.inbox({ user_id: p.owner_user_id, type: 'course_published', title: 'Course published', body: `"${p.title}" is now live in the catalog.`, link: `/teach/courses/${p.course_id}` });
+      await this.inbox({ user_id: p.owner_user_id, type: 'course_published', title: 'Course published', body: `"${p.title}" is now live in the catalog.`, link: `/teach/courses/${p.course_id}` });
       // Fan out to learners who follow this category or this instructor.
-      void this.notifyNewCourseFollowers(p);
+      await this.notifyNewCourseFollowers(p);
     });
 
-    this.bus.subscribe<PaymentConfirmedPayload>('PaymentConfirmed', (p) => {
-      this.inbox({ user_id: p.learner_id, type: 'payment_confirmed', title: 'Enrollment confirmed', body: `You now have access to "${p.course_title}".`, link: `/learn/${p.course_id}` });
-      this.deliver('PaymentConfirmed', p.learner_id, p.learner_email, 'Enrollment confirmed — receipt',
+    this.bus.subscribe<PaymentConfirmedPayload>('PaymentConfirmed', async (p) => {
+      await this.inbox({ user_id: p.learner_id, type: 'payment_confirmed', title: 'Enrollment confirmed', body: `You now have access to "${p.course_title}".`, link: `/learn/${p.course_id}` });
+      await this.deliver('PaymentConfirmed', p.learner_id, p.learner_email, 'Enrollment confirmed — receipt',
         layout('Payment received', html`<p>Hi ${p.learner_name},</p><p>Your payment of <strong>${p.amount_etb} ETB</strong> for "${p.course_title}" is confirmed. Your course is unlocked — happy learning!</p><p>Reference: ${p.tx_ref}</p>`));
     });
 
-    this.bus.subscribe<PaymentFailedPayload>('PaymentFailed', (p) => {
-      this.inbox({ user_id: p.learner_id, type: 'payment_failed', title: 'Payment could not be processed', body: `Your payment for "${p.course_title}" did not go through.`, link: `/courses/${p.course_id}` });
-      this.deliver('PaymentFailed', p.learner_id, p.learner_email, 'Your payment could not be processed',
+    this.bus.subscribe<PaymentFailedPayload>('PaymentFailed', async (p) => {
+      await this.inbox({ user_id: p.learner_id, type: 'payment_failed', title: 'Payment could not be processed', body: `Your payment for "${p.course_title}" did not go through.`, link: `/courses/${p.course_id}` });
+      await this.deliver('PaymentFailed', p.learner_id, p.learner_email, 'Your payment could not be processed',
         layout('Payment failed', html`<p>Your payment for "${p.course_title}" (${p.amount_etb} ETB) did not go through. No money was taken for this attempt — you can retry from the course page.</p>`));
     });
 
-    this.bus.subscribe<EnrollmentCreatedPayload>('EnrollmentCreated', (p) => {
-      this.inbox({ user_id: p.learner_id, type: 'enrolled', title: `You're enrolled: ${p.course_title}`, body: `Start learning "${p.course_title}" from your dashboard.`, link: `/learn/${p.course_id}` });
-      this.deliver('EnrollmentCreated', p.learner_id, p.learner_email, `You're enrolled: ${p.course_title}`,
+    this.bus.subscribe<EnrollmentCreatedPayload>('EnrollmentCreated', async (p) => {
+      await this.inbox({ user_id: p.learner_id, type: 'enrolled', title: `You're enrolled: ${p.course_title}`, body: `Start learning "${p.course_title}" from your dashboard.`, link: `/learn/${p.course_id}` });
+      await this.deliver('EnrollmentCreated', p.learner_id, p.learner_email, `You're enrolled: ${p.course_title}`,
         layout('Enrollment confirmed', html`<p>Hi ${p.learner_name},</p><p>You're enrolled in "${p.course_title}"${p.educator_name ? html` by ${p.educator_name}` : ''}. Start learning from your dashboard.</p>`));
     });
 
-    this.bus.subscribe<CertificateIssuedPayload>('CertificateIssued', (p) => {
-      this.inbox({ user_id: p.learner_id, type: 'certificate', title: 'Your certificate is ready 🎓', body: `You completed "${p.course_title}".`, link: '/dashboard' });
-      this.deliver('CertificateIssued', p.learner_id, p.learner_email, 'Your certificate is ready',
+    this.bus.subscribe<CertificateIssuedPayload>('CertificateIssued', async (p) => {
+      await this.inbox({ user_id: p.learner_id, type: 'certificate', title: 'Your certificate is ready 🎓', body: `You completed "${p.course_title}".`, link: '/dashboard' });
+      await this.deliver('CertificateIssued', p.learner_id, p.learner_email, 'Your certificate is ready',
         layout('Certificate issued 🎓', html`<p>Congratulations ${p.learner_name}!</p><p>You completed "${p.course_title}". Your certificate is available in your dashboard, and anyone can verify it here:</p><p><a href="${p.verify_url}">${p.verify_url}</a></p>`));
     });
 
-    this.bus.subscribe<PayoutPayload>('PayoutCompleted', (p) => {
-      this.inbox({ user_id: p.payee_id, type: 'payout', title: 'Payout sent', body: `${p.net_amount_etb} ETB was disbursed to your account.`, link: '/teach' });
-      if (p.payee_email) this.deliver('PayoutCompleted', p.payee_id, p.payee_email, 'Payout sent to your account',
+    this.bus.subscribe<PayoutPayload>('PayoutCompleted', async (p) => {
+      await this.inbox({ user_id: p.payee_id, type: 'payout', title: 'Payout sent', body: `${p.net_amount_etb} ETB was disbursed to your account.`, link: '/teach' });
+      if (p.payee_email) await this.deliver('PayoutCompleted', p.payee_id, p.payee_email, 'Payout sent to your account',
         layout('Payout completed', html`<p>Your payout of <strong>${p.net_amount_etb} ETB</strong> (gross ${p.gross_amount_etb} ETB − platform fee ${p.platform_fee_etb} ETB) has been disbursed.</p>`));
     });
 
-    this.bus.subscribe<FraudFlagPayload>('FraudFlagRaised', (p) => {
-      this.inbox({ role: Role.PLATFORM_ADMIN, type: 'fraud', title: 'Fraud flag raised', body: `${p.signal_type} on ${p.subject_type}. ${p.detail}`, link: '/admin' });
-      this.deliver('FraudFlagRaised', null, this.adminEmail, 'Fraud flag raised — action needed',
+    this.bus.subscribe<FraudFlagPayload>('FraudFlagRaised', async (p) => {
+      await this.inbox({ role: Role.PLATFORM_ADMIN, type: 'fraud', title: 'Fraud flag raised', body: `${p.signal_type} on ${p.subject_type}. ${p.detail}`, link: '/admin' });
+      await this.deliver('FraudFlagRaised', null, this.adminEmail, 'Fraud flag raised — action needed',
         layout('Fraud flag raised', html`<p>Signal <strong>${p.signal_type}</strong> on ${p.subject_type} <code>${p.subject_id}</code>.</p><p>${p.detail}</p><p>Payouts for the related payee are on hold until resolved in the admin console.</p>`));
     });
 
@@ -269,36 +269,42 @@ export class NotificationService implements OnModuleInit {
         layout('Fraud flag resolved', html`<p>Flag <code>${p.flag_id}</code> (${p.signal_type}) has been resolved. Any payout holds have been released.</p>`)));
 
     // A refund needs an admin decision (manual-review band) → actionable admin inbox.
-    this.bus.subscribe<RefundRequestedPayload>('RefundRequested', (p) => {
-      this.inbox({ role: Role.PLATFORM_ADMIN, type: 'refund_request', title: 'Refund awaiting your decision', body: `${p.amount_etb} ETB refund requested for "${p.course_title}" (${p.reason}).`, link: '/admin' });
-      this.deliver('RefundRequested', null, this.adminEmail, 'Refund request awaiting review',
+    this.bus.subscribe<RefundRequestedPayload>('RefundRequested', async (p) => {
+      await this.inbox({ role: Role.PLATFORM_ADMIN, type: 'refund_request', title: 'Refund awaiting your decision', body: `${p.amount_etb} ETB refund requested for "${p.course_title}" (${p.reason}).`, link: '/admin' });
+      await this.deliver('RefundRequested', null, this.adminEmail, 'Refund request awaiting review',
         layout('Refund awaiting decision', html`<p>A learner requested a ${p.amount_etb} ETB refund for "${p.course_title}".</p><p>Routing rule: <code>${p.reason}</code>. Approve or deny it in the admin console.</p>`));
     });
 
-    this.bus.subscribe<RefundDecisionPayload>('RefundApproved', (p) => {
-      this.inbox({ user_id: p.learner_id, type: 'refund', title: 'Refund processed', body: `Your refund for "${p.course_title}" was approved.`, link: '/dashboard' });
+    this.bus.subscribe<RefundDecisionPayload>('RefundApproved', async (p) => {
+      await this.inbox({ user_id: p.learner_id, type: 'refund', title: 'Refund processed', body: `Your refund for "${p.course_title}" was approved.`, link: '/dashboard' });
       // Also record it in the admin inbox — many approvals are automatic (spec §10.4)
       // and never crossed an admin's desk, but they still move money.
-      this.inbox({ role: Role.PLATFORM_ADMIN, type: 'refund', title: 'Refund approved', body: `${p.amount_etb} ETB refunded for "${p.course_title}".`, link: '/admin' });
-      this.deliver('RefundApproved', p.learner_id, p.learner_email, 'Your refund has been processed',
+      await this.inbox({ role: Role.PLATFORM_ADMIN, type: 'refund', title: 'Refund approved', body: `${p.amount_etb} ETB refunded for "${p.course_title}".`, link: '/admin' });
+      await this.deliver('RefundApproved', p.learner_id, p.learner_email, 'Your refund has been processed',
         layout('Refund processed', p.access_kept
           ? html`<p>Your refund of ${p.amount_etb} ETB for "${p.course_title}" was approved.</p>`
           : html`<p>Your refund of ${p.amount_etb} ETB for "${p.course_title}" was approved. Access to the course has been revoked.</p>`));
     });
 
-    this.bus.subscribe<RefundDecisionPayload>('RefundDenied', (p) => {
-      this.inbox({ user_id: p.learner_id, type: 'refund', title: 'Refund request declined', body: `Your refund for "${p.course_title}" was declined (${p.reason}).`, link: '/dashboard' });
-      this.deliver('RefundDenied', p.learner_id, p.learner_email, 'Refund request decision',
+    this.bus.subscribe<RefundDecisionPayload>('RefundDenied', async (p) => {
+      await this.inbox({ user_id: p.learner_id, type: 'refund', title: 'Refund request declined', body: `Your refund for "${p.course_title}" was declined (${p.reason}).`, link: '/dashboard' });
+      await this.deliver('RefundDenied', p.learner_id, p.learner_email, 'Refund request decision',
         layout('Refund request declined', html`<p>Your refund request for "${p.course_title}" was declined (${p.reason}). Reply to this email if you believe this is a mistake.</p>`));
     });
 
-    this.bus.subscribe<CourseCompletedPayload>('CourseCompleted', (p) =>
-      this.deliver('CourseCompleted', p.learner_id, p.learner_email, `You finished ${p.course_title}!`,
-        layout('Course completed', html`<p>Well done ${p.learner_name} — you finished every lesson in "${p.course_title}".</p>`)));
+    // A completion commits even when auth or course was asleep, so its names and email
+    // can be blank (9b). A missing email is fetched; a failed fetch throws, and the bus retries.
+    this.bus.subscribe<CourseCompletedPayload>('CourseCompleted', async (p) => {
+      const user = p.learner_email ? null : await this.userInfo(p.learner_id);
+      const name = p.learner_name || user?.name;
+      const course = p.course_title ? html`"${p.course_title}"` : 'your course';
+      await this.deliver('CourseCompleted', p.learner_id, p.learner_email || user?.email || '', `You finished ${p.course_title || 'your course'}!`,
+        layout('Course completed', html`<p>Well done${name ? html` ${name}` : ''} — you finished every lesson in ${course}.</p>`));
+    });
 
-    this.bus.subscribe<AssessmentResultPayload>('AssessmentFailed', (p) => {
-      this.inbox({ user_id: p.learner_id, type: 'assessment', title: 'Assessment not passed', body: `Your ${p.assessment_type} for "${p.course_title}" scored ${p.score}.`, link: `/learn/${p.course_id}` });
-      this.deliver('AssessmentFailed', p.learner_id, p.learner_email, 'Assessment result',
+    this.bus.subscribe<AssessmentResultPayload>('AssessmentFailed', async (p) => {
+      await this.inbox({ user_id: p.learner_id, type: 'assessment', title: 'Assessment not passed', body: `Your ${p.assessment_type} for "${p.course_title}" scored ${p.score}.`, link: `/learn/${p.course_id}` });
+      await this.deliver('AssessmentFailed', p.learner_id, p.learner_email, 'Assessment result',
         layout('Assessment not passed', html`<p>Your ${p.assessment_type} attempt for "${p.course_title}" scored ${p.score}. You can try again from the course page.</p>`));
     });
 
@@ -306,93 +312,93 @@ export class NotificationService implements OnModuleInit {
 
     this.bus.subscribe<SponsorshipGrantedPayload>('SponsorshipGranted', async (p) => {
       const what = p.source === 'bulk' ? `${p.organization_name || p.sponsor_name} enrolled you in` : p.source === 'gift' ? `${p.sponsor_name || 'Someone'} gifted you` : `${p.sponsor_name || 'Someone'} paid for`;
-      this.inbox({ user_id: p.recipient_user_id, type: 'gift', title: `🎁 ${what} "${p.course_title}"`, body: p.message || 'The course is unlocked — start learning from your dashboard.', link: `/learn/${p.course_id}` });
+      await this.inbox({ user_id: p.recipient_user_id, type: 'gift', title: `🎁 ${what} "${p.course_title}"`, body: p.message || 'The course is unlocked — start learning from your dashboard.', link: `/learn/${p.course_id}` });
       if (p.sponsor_id) {
-        this.inbox({ user_id: p.sponsor_id, type: 'gift_delivered', title: `Delivered: "${p.course_title}"`, body: `${p.recipient_email} now has access. Follow their progress from your dashboard.`, link: '/dashboard' });
+        await this.inbox({ user_id: p.sponsor_id, type: 'gift_delivered', title: `Delivered: "${p.course_title}"`, body: `${p.recipient_email} now has access. Follow their progress from your dashboard.`, link: '/dashboard' });
       }
       const user = await this.userInfo(p.recipient_user_id);
       const to = user.email || p.recipient_email;
-      if (to) this.deliver('SponsorshipGranted', p.recipient_user_id, to, `${what} a course on EthiopiaLearn`,
+      if (to) await this.deliver('SponsorshipGranted', p.recipient_user_id, to, `${what} a course on EthiopiaLearn`,
         layout('A course was unlocked for you 🎁', html`<p>Hi ${user.name || 'there'},</p><p>${what} <strong>"${p.course_title}"</strong>.</p>${quote(p.message)}${button(`${this.webUrl}/learn/${p.course_id}`, 'Start learning')}`));
     });
 
-    this.bus.subscribe<SponsorshipInvitedPayload>('SponsorshipInvited', (p) => {
+    this.bus.subscribe<SponsorshipInvitedPayload>('SponsorshipInvited', async (p) => {
       const who = p.source === 'bulk' ? (p.organization_name || p.sponsor_name) : p.sponsor_name || 'Someone';
-      this.deliver('SponsorshipInvited', null, p.recipient_email, `${who} has enrolled you in "${p.course_title}"`,
+      await this.deliver('SponsorshipInvited', null, p.recipient_email, `${who} has enrolled you in "${p.course_title}"`,
         layout('You have a course waiting 🎁', html`<p>${who} bought <strong>"${p.course_title}"</strong> on EthiopiaLearn for you.</p>${quote(p.message)}<p>Create a free account with <strong>this email address</strong> and the course unlocks automatically:</p>${button(p.signup_url, 'Create my account')}<p style="color:#6b7280;font-size:12px">Or open: ${p.signup_url}</p>`));
     });
 
-    this.bus.subscribe<PayRequestCreatedPayload>('PayRequestCreated', (p) => {
-      this.inbox({ user_id: p.requester_id, type: 'pay_request', title: 'Payment request sent', body: `We emailed ${p.payer_email} asking them to pay for "${p.course_title}".`, link: '/dashboard' });
-      this.deliver('PayRequestCreated', null, p.payer_email, `${p.requester_name} is asking you to pay for a course`,
+    this.bus.subscribe<PayRequestCreatedPayload>('PayRequestCreated', async (p) => {
+      await this.inbox({ user_id: p.requester_id, type: 'pay_request', title: 'Payment request sent', body: `We emailed ${p.payer_email} asking them to pay for "${p.course_title}".`, link: '/dashboard' });
+      await this.deliver('PayRequestCreated', null, p.payer_email, `${p.requester_name} is asking you to pay for a course`,
         layout(`${p.requester_name} needs your help 🙏`, html`<p><strong>${p.requester_name}</strong> would like to take <strong>"${p.course_title}"</strong> on EthiopiaLearn (${p.amount_etb} ETB) and is asking you to cover it.</p>${quote(p.message)}${button(p.pay_url, 'View the course & pay')}<p style="color:#6b7280;font-size:12px">You pay securely with Chapa (Telebirr, CBE Birr and 18+ banks). ${p.requester_name} gets access the moment it clears.</p>`));
     });
 
-    this.bus.subscribe<ReferralInviteSentPayload>('ReferralInviteSent', (p) => {
+    this.bus.subscribe<ReferralInviteSentPayload>('ReferralInviteSent', async (p) => {
       const cta = p.existing_user
         ? html`<p>You already have an account — <a href="${this.webUrl}/login">log in</a> and browse the catalog.</p>`
         : html`${button(p.signup_url, 'Join EthiopiaLearn')}<p style="color:#6b7280;font-size:12px">Or open: ${p.signup_url}</p>`;
-      this.deliver('ReferralInviteSent', null, p.to_email, `${p.referrer_name} invited you to EthiopiaLearn`,
+      await this.deliver('ReferralInviteSent', null, p.to_email, `${p.referrer_name} invited you to EthiopiaLearn`,
         layout(`${p.referrer_name} thinks you'd like this`, html`<p><strong>${p.referrer_name}</strong> invited you to ${p.role_hint === 'educator' ? 'teach on' : 'learn on'} EthiopiaLearn — real skills from Ethiopian experts, verifiable certificates, pay with Telebirr or any Ethiopian bank.</p>${quote(p.message)}${cta}`));
     });
 
-    this.bus.subscribe<PaymentAbandonedPayload>('PaymentAbandoned', (p) => {
-      this.inbox({ user_id: p.learner_id, type: 'abandoned_cart', title: `Still want "${p.course_title}"?`, body: `Your checkout didn't complete. Your place is waiting — finish in one tap.`, link: `/courses/${p.course_id}` });
-      if (p.learner_email) this.deliver('PaymentAbandoned', p.learner_id, p.learner_email, `Finish enrolling in "${p.course_title}"`,
+    this.bus.subscribe<PaymentAbandonedPayload>('PaymentAbandoned', async (p) => {
+      await this.inbox({ user_id: p.learner_id, type: 'abandoned_cart', title: `Still want "${p.course_title}"?`, body: `Your checkout didn't complete. Your place is waiting — finish in one tap.`, link: `/courses/${p.course_id}` });
+      if (p.learner_email) await this.deliver('PaymentAbandoned', p.learner_id, p.learner_email, `Finish enrolling in "${p.course_title}"`,
         layout('Your course is waiting', html`<p>Hi ${p.learner_name || 'there'},</p><p>You started enrolling in <strong>"${p.course_title}"</strong> (${p.amount_etb} ETB) but the payment didn't complete. No money was taken.</p>${button(p.resume_url, 'Finish enrolling')}<p style="color:#6b7280;font-size:12px">Not interested any more? Just ignore this — we won't remind you again.</p>`));
     });
 
-    this.bus.subscribe<WalletCreditedPayload>('WalletCredited', (p) => {
+    this.bus.subscribe<WalletCreditedPayload>('WalletCredited', async (p) => {
       if (p.available_at) {
         // Held until the refund window closes: say when, and don't call it spendable or part of the balance.
         const date = new Date(p.available_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Addis_Ababa' });
         const what = p.kind === 'referral_reward' ? 'referral reward' : 'cashback';
-        this.inbox({ user_id: p.user_id, type: 'wallet', title: `${p.amount_etb} ETB ${what}, available on ${date}`, body: `${p.note}. It moves to your wallet balance on ${date}, once the 7-day refund window closes.`, link: '/dashboard' });
+        await this.inbox({ user_id: p.user_id, type: 'wallet', title: `${p.amount_etb} ETB ${what}, available on ${date}`, body: `${p.note}. It moves to your wallet balance on ${date}, once the 7-day refund window closes.`, link: '/dashboard' });
         return;
       }
       const title = p.kind === 'referral_reward' ? `You earned ${p.amount_etb} ETB 🎉` : p.kind === 'cashback' ? `${p.amount_etb} ETB cashback added` : `${p.amount_etb} ETB added to your wallet`;
-      this.inbox({ user_id: p.user_id, type: 'wallet', title, body: `${p.note}. Balance: ${p.balance_etb} ETB — spend it on any course.`, link: '/dashboard' });
+      await this.inbox({ user_id: p.user_id, type: 'wallet', title, body: `${p.note}. Balance: ${p.balance_etb} ETB — spend it on any course.`, link: '/dashboard' });
     });
 
-    this.bus.subscribe<BulkPurchaseActivatedPayload>('BulkPurchaseActivated', (p) => {
-      this.inbox({ user_id: p.buyer_id, type: 'bulk', title: `${p.seats} seats ready: "${p.course_title}"`, body: 'Assign seats to your team by email from the Institution page.', link: '/institution' });
-      if (p.buyer_email) this.deliver('BulkPurchaseActivated', p.buyer_id, p.buyer_email, `Your ${p.seats} seats for "${p.course_title}" are ready`,
+    this.bus.subscribe<BulkPurchaseActivatedPayload>('BulkPurchaseActivated', async (p) => {
+      await this.inbox({ user_id: p.buyer_id, type: 'bulk', title: `${p.seats} seats ready: "${p.course_title}"`, body: 'Assign seats to your team by email from the Institution page.', link: '/institution' });
+      if (p.buyer_email) await this.deliver('BulkPurchaseActivated', p.buyer_id, p.buyer_email, `Your ${p.seats} seats for "${p.course_title}" are ready`,
         layout('Bulk purchase confirmed', html`<p>Payment of <strong>${p.total_etb} ETB</strong> for <strong>${p.seats} seats</strong> of "${p.course_title}" (${p.organization_name}) is confirmed.</p><p>Assign seats by entering your team's email addresses — people with an account get instant access, everyone else gets an invitation that unlocks the course when they sign up.</p>${button(`${this.webUrl}/institution`, 'Assign seats')}`));
     });
 
     // ---- Engagement ----
 
-    this.bus.subscribe<CourseUpdatedPayload>('CourseUpdated', (p) => void this.notifyCourseUpdated(p));
+    this.bus.subscribe<CourseUpdatedPayload>('CourseUpdated', (p) => this.notifyCourseUpdated(p));
 
     this.bus.subscribe<CourseProgressMilestonePayload>('CourseProgressMilestone', async (p) => {
       const cheer = p.percent === 25 ? 'Great start' : p.percent === 50 ? 'Halfway there' : 'Almost done';
-      this.inbox({ user_id: p.learner_id, type: 'progress', title: `${cheer} — ${p.percent}% of "${p.course_title}"`, body: p.percent === 75 ? 'Finish the last lessons to earn your certificate.' : 'Keep the momentum going.', link: `/learn/${p.course_id}` });
+      await this.inbox({ user_id: p.learner_id, type: 'progress', title: `${cheer} — ${p.percent}% of "${p.course_title}"`, body: p.percent === 75 ? 'Finish the last lessons to earn your certificate.' : 'Keep the momentum going.', link: `/learn/${p.course_id}` });
       if (p.percent >= 50) {
         const pref = await this.prefs.findOne({ where: { user_id: p.learner_id } });
         if (pref?.progress_emails === false) return;
         const user = await this.userInfo(p.learner_id);
         const to = p.learner_email || user.email;
-        if (to) this.deliver('CourseProgressMilestone', p.learner_id, to, `${cheer}! You're ${p.percent}% through "${p.course_title}"`,
+        if (to) await this.deliver('CourseProgressMilestone', p.learner_id, to, `${cheer}! You're ${p.percent}% through "${p.course_title}"`,
           layout(`${cheer} 🚀`, html`<p>Hi ${user.name || 'there'},</p><p>You've completed <strong>${p.percent}%</strong> of "${p.course_title}".${p.percent === 75 ? ' A few more lessons and your verifiable certificate is yours.' : ''}</p>${button(`${this.webUrl}/learn/${p.course_id}`, 'Continue learning')}`));
       }
     });
 
     this.bus.subscribe<LearnerInactivePayload>('LearnerInactive', async (p) => {
       if (p.channel === 'in_app') {
-        this.inbox({ user_id: p.learner_id, type: 'inactive', title: `Pick up "${p.course_title}" where you left off`, body: `It's been ${p.days_inactive} days. You're ${p.progress_percent}% through — a short lesson today keeps it going.`, link: `/learn/${p.course_id}` });
+        await this.inbox({ user_id: p.learner_id, type: 'inactive', title: `Pick up "${p.course_title}" where you left off`, body: `It's been ${p.days_inactive} days. You're ${p.progress_percent}% through — a short lesson today keeps it going.`, link: `/learn/${p.course_id}` });
         return;
       }
       const pref = await this.prefs.findOne({ where: { user_id: p.learner_id } });
       if (pref?.inactivity_emails === false || pref?.marketing_opt_out) return;
       const user = await this.userInfo(p.learner_id);
       if (!user.email) return;
-      this.deliver('LearnerInactive', p.learner_id, user.email, `We miss you in "${p.course_title}"`,
+      await this.deliver('LearnerInactive', p.learner_id, user.email, `We miss you in "${p.course_title}"`,
         layout('Your course is still here', html`<p>Hi ${user.name || 'there'},</p><p>It's been ${p.days_inactive} days since you last studied <strong>"${p.course_title}"</strong>. You're already <strong>${p.progress_percent}%</strong> through — pick a lesson and keep going.</p>${button(`${this.webUrl}/learn/${p.course_id}`, 'Resume the course')}<p style="color:#6b7280;font-size:12px">You can turn these reminders off in Account → Notification preferences.</p>`));
     });
 
-    this.bus.subscribe<CourseStatusPayload>('CourseUnlisted', (p) => {
-      this.inbox({ user_id: p.owner_user_id, type: 'course_unlisted', title: 'Your course was unlisted', body: `"${p.title}" was removed from the catalog.`, link: `/teach/courses/${p.course_id}` });
-      if (p.owner_email) this.deliver('CourseUnlisted', p.owner_user_id, p.owner_email, 'Your course was unlisted',
+    this.bus.subscribe<CourseStatusPayload>('CourseUnlisted', async (p) => {
+      await this.inbox({ user_id: p.owner_user_id, type: 'course_unlisted', title: 'Your course was unlisted', body: `"${p.title}" was removed from the catalog.`, link: `/teach/courses/${p.course_id}` });
+      if (p.owner_email) await this.deliver('CourseUnlisted', p.owner_user_id, p.owner_email, 'Your course was unlisted',
         layout('Course unlisted', html`<p>"${p.title}" was temporarily removed from the catalog. You can re-publish it from your course page (or contact us if an admin unlisted it).</p>`));
     });
   }
@@ -400,7 +406,8 @@ export class NotificationService implements OnModuleInit {
   /**
    * When a course is published, notify every learner who follows its category
    * or its instructor — in-app and/or email, per each learner's preferences.
-   * Best-effort: a failure for one recipient never blocks the others.
+   * A failed write or send throws, so the bus retries the event: the retry skips
+   * the recipients already notified (inbox and email dedupe on the event id).
    */
   private async notifyNewCourseFollowers(p: CoursePublishedPayload) {
     let followers: NotificationPreference[];
@@ -426,7 +433,7 @@ export class NotificationService implements OnModuleInit {
     const link = `/courses/${p.course_id}`;
     this.logger.log(`CoursePublished "${p.title}" → notifying ${followers.length} follower(s)`);
 
-    for (const f of followers) {
+    await this.forEachRecipient('CoursePublished', followers, async (f) => {
       const followsInstructor = (f.new_course_instructor_ids ?? []).includes(p.owner_user_id);
       const reason = followsInstructor ? `${instructorName} just published a new course` : `New ${categoryLabel} course`;
       if (f.new_course_in_app !== false) {
@@ -434,7 +441,7 @@ export class NotificationService implements OnModuleInit {
       }
       if (f.new_course_email !== false) {
         const user = await this.userInfo(f.user_id);
-        if (!user.email) continue;
+        if (!user.email) return;
         await this.deliver('NewCourseAlert', f.user_id, user.email, `${reason}: ${p.title}`,
           layout(reason, html`<p>Hi ${user.name || 'there'},</p>
           <p>${followsInstructor ? html`<strong>${instructorName}</strong> just published` : html`A new <strong>${categoryLabel}</strong> course just dropped`} on EthiopiaLearn:</p>
@@ -442,6 +449,28 @@ export class NotificationService implements OnModuleInit {
           ${button(`${this.webUrl}${link}`, 'View the course')}
           <p style="color:#6b7280;font-size:12px;margin-top:16px">You're getting this because you follow ${followsInstructor ? 'this instructor' : `the ${categoryLabel} category`}. Manage alerts in your account settings.</p>`));
       }
+    });
+  }
+
+  /**
+   * Runs `notify` for every recipient, so one failure (a rejected address, a spent
+   * sending quota) doesn't cost the rest their notifications. Then rethrows the first
+   * failure: the bus retries the event, and the dedupe skips everyone already notified.
+   */
+  private async forEachRecipient<T>(eventType: string, recipients: T[], notify: (recipient: T) => Promise<void>) {
+    let failed = 0;
+    let firstError: unknown;
+    for (const recipient of recipients) {
+      try {
+        await notify(recipient);
+      } catch (err) {
+        if (failed === 0) firstError = err;
+        failed += 1;
+      }
+    }
+    if (failed > 0) {
+      this.logger.warn(`${eventType} fan-out: ${failed} of ${recipients.length} recipient(s) failed; the event will be retried`);
+      throw firstError;
     }
   }
 
@@ -616,15 +645,15 @@ export class NotificationService implements OnModuleInit {
     learnerIds = learnerIds.filter((id) => id !== p.owner_user_id).slice(0, 5000);
     if (!learnerIds.length) return;
     this.logger.log(`CourseUpdated "${p.course_title}" → ${learnerIds.length} learner(s)`);
-    for (const learnerId of learnerIds) {
+    await this.forEachRecipient('CourseUpdated', learnerIds, async (learnerId) => {
       await this.inbox({ user_id: learnerId, type: 'course_updated', title: `Updated: "${p.course_title}"`, body: p.summary, link: `/learn/${p.course_id}?changelog=1` });
       const pref = await this.prefs.findOne({ where: { user_id: learnerId } });
-      if (pref?.course_updates_email === false) continue;
+      if (pref?.course_updates_email === false) return;
       const user = await this.userInfo(learnerId);
-      if (!user.email) continue;
+      if (!user.email) return;
       await this.deliver('CourseUpdated', learnerId, user.email, `"${p.course_title}" has new content`,
         layout('Your course was updated', html`<p>Hi ${user.name || 'there'},</p><p>The instructor updated <strong>"${p.course_title}"</strong>:</p>${quote(p.summary)}${button(`${this.webUrl}/learn/${p.course_id}?changelog=1`, 'See what changed')}`));
-    }
+    });
   }
 
   /** Current course status, or null when the course service can't be reached. */
@@ -636,11 +665,17 @@ export class NotificationService implements OnModuleInit {
     }
   }
 
+  /**
+   * The user's address and name. A deleted user (404) has none, and their email is
+   * skipped. Any other failure throws, so the bus retries the event instead of
+   * dropping the email while auth is cold-starting.
+   */
   private async userInfo(userId: string): Promise<{ email: string; name: string }> {
     try {
       return await this.internal.get<{ email: string; name: string }>(internalPath`/api/v1/internal/users/${userId}`);
-    } catch {
-      return { email: '', name: '' };
+    } catch (err) {
+      if ((err as Error).message.endsWith('-> 404')) return { email: '', name: '' };
+      throw err;
     }
   }
 
@@ -648,42 +683,64 @@ export class NotificationService implements OnModuleInit {
     return (await this.userInfo(userId)).name || 'An instructor you follow';
   }
 
+  /**
+   * One inbox row per (event, recipient, type): a redelivered event inserts nothing
+   * (ON CONFLICT on the partial unique index). Outside a bus handler there is no
+   * event id, and the row is written as before. A failed write throws, so the bus retries.
+   */
   private async inbox(input: InboxInput) {
     if (!input.user_id && !input.role) return;
-    try {
-      await this.inboxRepo.save(
-        this.inboxRepo.create({
-          user_id: input.user_id ?? null,
-          target_role: input.role ?? null,
-          type: input.type,
-          title: input.title,
-          body: input.body ?? '',
-          link: input.link ?? null,
-          read_at: null,
-        }),
-      );
-    } catch (err) {
-      this.logger.warn(`inbox write failed (${input.type}): ${(err as Error).message}`);
-    }
+    await this.inboxRepo
+      .createQueryBuilder()
+      .insert()
+      .into(InboxNotification)
+      .values({
+        user_id: input.user_id ?? null,
+        target_role: input.role ?? null,
+        type: input.type,
+        title: input.title,
+        body: input.body ?? '',
+        link: input.link ?? null,
+        read_at: null,
+        source_event_id: currentEvent()?.event_id ?? null,
+      })
+      .orIgnore()
+      .execute();
   }
 
+  /**
+   * Sends once per (event, recipient, event type): a redelivery skips an address this
+   * event already reached. A failed send is logged as `failed` and throws, so the bus
+   * retries it. A crash between the provider accepting the email and the `sent` row
+   * means one duplicate on the retry (at-least-once).
+   */
   private async deliver(eventType: string, userId: string | null, to: string, subject: string, html: string) {
     if (!to) {
       this.logger.warn(`skipping ${eventType}: no recipient`);
       return;
     }
+    const eventId = currentEvent()?.event_id ?? null;
+    if (eventId && (await this.log.exists({ where: { event_id: eventId, recipient: to, event_type: eventType, status: 'sent' } }))) {
+      this.logger.log(`${eventType} to ${to} already sent for event ${eventId}`);
+      return;
+    }
+    let messageId: string;
     try {
-      const { message_id } = await this.email.send({ to, subject, html });
-      await this.log.save(
-        this.log.create({ user_id: userId, event_type: eventType, channel: 'email', recipient: to, subject, status: 'sent', provider_message_id: message_id }),
-      );
-      await this.bus.publish('NotificationSent', { user_id: userId, event_type: eventType, channel: 'email' });
+      ({ message_id: messageId } = await this.email.send({ to, subject, html }));
     } catch (err) {
       const reason = ((err as Error).message || String(err)).slice(0, 500);
       this.logger.error(`email failed for ${eventType} -> ${to} via ${this.email.name}: ${reason}`);
       await this.log.save(
-        this.log.create({ user_id: userId, event_type: eventType, channel: 'email', recipient: to, subject, status: 'failed', provider_message_id: null, error: reason }),
+        this.log.create({ user_id: userId, event_type: eventType, channel: 'email', recipient: to, subject, status: 'failed', provider_message_id: null, error: reason, event_id: eventId }),
       );
+      throw err;
     }
+    await this.log.save(
+      this.log.create({ user_id: userId, event_type: eventType, channel: 'email', recipient: to, subject, status: 'sent', provider_message_id: messageId, event_id: eventId }),
+    );
+    // Telemetry only: the email went out, so a broker blip here must not fail (and resend) it.
+    await this.bus.publish('NotificationSent', { user_id: userId, event_type: eventType, channel: 'email' }).catch((err: Error) =>
+      this.logger.warn(`NotificationSent not published: ${err.message}`),
+    );
   }
 }

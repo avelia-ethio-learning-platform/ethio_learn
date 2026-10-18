@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe('LanguageToggle', () => {
-  it('its accessible name starts with the visible text, in both languages (WCAG 2.5.3)', () => {
+  it('its accessible name starts with the visible text, in both languages (WCAG 2.5.3)', async () => {
     render(
       <I18nProvider>
         <LanguageToggle />
@@ -18,6 +18,7 @@ describe('LanguageToggle', () => {
     const button = screen.getByRole('button', { name: 'አማ Switch language' });
     expect(button.querySelector('[lang="am"]')!.textContent).toBe('አማ');
     fireEvent.click(button);
-    expect(screen.getByRole('button', { name: 'EN ቋንቋ ቀይር' }).querySelector('[lang="en"]')!.textContent).toBe('EN');
+    // The Amharic strings load on first use (lib/i18n.tsx).
+    expect((await screen.findByRole('button', { name: 'EN ቋንቋ ቀይር' })).querySelector('[lang="en"]')!.textContent).toBe('EN');
   });
 });

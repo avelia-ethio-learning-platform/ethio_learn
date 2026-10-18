@@ -6,12 +6,11 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, In, IsNull, LessThan, Not, Repository } from 'typeorm';
+import { DataSource, EntityManager, FindOptionsWhere, In, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { Emit, EventBusService, InternalHttpClient, internalPath, OutboxService, runOnce, UserContext } from '@ethiopialearn/common';
 import { AiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import {
   CourseAppealSubmittedPayload,
@@ -22,6 +21,7 @@ import {
   CourseRevisionReviewedPayload,
   CourseRevisionSubmittedPayload,
   CourseSubmittedPayload,
+  EventEnvelope,
   FraudFlagPayload,
   FraudSignalStatus,
   FraudSubjectType,
@@ -102,6 +102,21 @@ export function isLowRiskRevision(diff: Partial<RevisionDiffSummary>, plagiarism
 /** Stored on a new item until its AI screen returns (see enqueueSubmission / enqueueRevision). */
 const screenPending = (): Record<string, unknown> => ({ pending: true });
 
+/**
+ * Stable names of the handlers that dedupe with runOnce: the processed_events key. Never
+ * rename one, or a redelivery after the deploy runs its effect again.
+ */
+const HANDLER = {
+  submitted: 'quality:CourseSubmitted:enqueue',
+  appeal: 'quality:CourseAppealSubmitted:enqueue',
+  revision: 'quality:CourseRevisionSubmitted:enqueue',
+  completed: 'quality:CourseCompleted:stats',
+  paid: 'quality:PaymentConfirmed:stats',
+  refunded: 'quality:RefundApproved:stats',
+} as const;
+
+type Enqueued = { item_id: string };
+
 export function isClaimActive(item: Pick<QaReviewItem, 'status' | 'claimed_by' | 'claimed_at'>): boolean {
   return (
     OPEN_ITEM_STATUSES.includes(item.status) &&
@@ -128,46 +143,70 @@ export class QualityService implements OnModuleInit {
     @InjectRepository(RefundLog) private readonly refundLog: Repository<RefundLog>,
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
+    private readonly dataSource: DataSource,
+    private readonly outbox: OutboxService,
   ) {}
 
   onModuleInit() {
     // Submission → QO queue, then the AI plagiarism screen fills in (spec §12.1).
-    this.bus.subscribe<CourseSubmittedPayload>('CourseSubmitted', (p) => this.enqueueSubmission(p));
+    this.bus.subscribe<CourseSubmittedPayload>('CourseSubmitted', (p, e) => this.enqueueSubmission(p, e), { name: HANDLER.submitted });
     // Appeal on a flagged course → back into the review queue for a fresh look.
-    this.bus.subscribe<CourseAppealSubmittedPayload>('CourseAppealSubmitted', (p) =>
-      this.inCourseOrder(p.course_id, () => this.enqueueAppeal(p)),
+    this.bus.subscribe<CourseAppealSubmittedPayload>(
+      'CourseAppealSubmitted',
+      (p, e) => this.inCourseOrder(p.course_id, () => this.enqueueAppeal(p, e)),
+      { name: HANDLER.appeal },
     );
     // Staged changes to a live course → a focused re-review of the diff only.
-    this.bus.subscribe<CourseRevisionSubmittedPayload>('CourseRevisionSubmitted', (p) => this.enqueueRevision(p));
+    this.bus.subscribe<CourseRevisionSubmittedPayload>('CourseRevisionSubmitted', (p, e) => this.enqueueRevision(p, e), {
+      name: HANDLER.revision,
+    });
     // The educator pulled a submission back → its item must not be decidable any more.
     this.bus.subscribe<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', (p) =>
       this.inCourseOrder(p.course_id, () => this.withdrawItems(p)),
     );
-    // Behavioral signals for trust computation (spec §4.3).
-    this.bus.subscribe<CourseCompletedPayload>('CourseCompleted', async (p) => {
-      const cache = await this.courseCache.findOne({ where: { course_id: p.course_id } });
-      if (cache) {
-        await this.bumpStats(cache.owner_id, { completions: 1 });
-        await this.recomputeTier(cache.owner_id);
-      }
-    });
-    this.bus.subscribe<PaymentConfirmedPayload>('PaymentConfirmed', async (p) => {
-      await this.bumpStats(p.payee_id, { payments: 1 });
-      await this.recomputeTier(p.payee_id);
-    });
+    // Behavioral signals for trust computation (spec §4.3). Each counter moves once per event
+    // (runOnce); the tier is recomputed from current rows on every delivery, which is harmless.
+    this.bus.subscribe<CourseCompletedPayload>(
+      'CourseCompleted',
+      async (p, e) => {
+        const cache = await this.courseCache.findOne({ where: { course_id: p.course_id } });
+        if (cache) {
+          await runOnce(this.dataSource, HANDLER.completed, e.metadata.event_id, (m) =>
+            this.bumpStats(m, cache.owner_id, { completions: 1 }),
+          );
+          await this.recomputeTier(cache.owner_id);
+        }
+      },
+      { name: HANDLER.completed },
+    );
+    this.bus.subscribe<PaymentConfirmedPayload>(
+      'PaymentConfirmed',
+      async (p, e) => {
+        await runOnce(this.dataSource, HANDLER.paid, e.metadata.event_id, (m) => this.bumpStats(m, p.payee_id, { payments: 1 }));
+        await this.recomputeTier(p.payee_id);
+      },
+      { name: HANDLER.paid },
+    );
     // TODO(spec-open-question): RefundApproved is not in Quality & Trust's §5
     // subscription list, but §10.5/§10.6 require refund_rate and refund-abuse
     // tracking — this subscription is the only event-driven way to get them.
-    this.bus.subscribe<RefundDecisionPayload>('RefundApproved', async (p) => {
-      await this.refundLog.save(this.refundLog.create({ learner_id: p.learner_id }));
-      const cache = await this.courseCache.findOne({ where: { course_id: p.course_id } });
-      if (cache) {
-        await this.bumpStats(cache.owner_id, { refunds: 1 });
-        await this.recomputeTier(cache.owner_id);
-        await this.checkRefundRateTrigger(cache);
-      }
-      await this.checkRefundAbuse(p.learner_id);
-    });
+    this.bus.subscribe<RefundDecisionPayload>(
+      'RefundApproved',
+      async (p, e) => {
+        const cache = await this.courseCache.findOne({ where: { course_id: p.course_id } });
+        await runOnce(this.dataSource, HANDLER.refunded, e.metadata.event_id, async (m) => {
+          const log = m.getRepository(RefundLog);
+          await log.save(log.create({ learner_id: p.learner_id }));
+          if (cache) await this.bumpStats(m, cache.owner_id, { refunds: 1 });
+        });
+        if (cache) {
+          await this.recomputeTier(cache.owner_id);
+          await this.checkRefundRateTrigger(cache);
+        }
+        await this.checkRefundAbuse(p.learner_id);
+      },
+      { name: HANDLER.refunded },
+    );
   }
 
   // ---- QO queue & decisions ----
@@ -196,63 +235,87 @@ export class QualityService implements OnModuleInit {
     return run;
   }
 
-  private async enqueueSubmission(p: CourseSubmittedPayload) {
+  private async enqueueSubmission(p: CourseSubmittedPayload, e: EventEnvelope<CourseSubmittedPayload>) {
     // Queue the item before the AI screen (a Groq call of up to ~25 s), inside the course's
     // event order, so a CourseReviewWithdrawn right behind this event always finds it to close.
-    const item = await this.inCourseOrder(p.course_id, async () => {
-      await this.courseCache.save(
-        this.courseCache.create({ course_id: p.course_id, owner_id: p.owner_id, owner_type: p.owner_type, title: p.title }),
-      );
-      // A course is in first-time review at most once at a time, so any submission item still
-      // open is stale (a withdraw that predates CourseReviewWithdrawn, or a redelivered event).
-      // Left open it would be decidable and would make the by-course decision ambiguous.
-      await this.closeOpenItems({ course_id: p.course_id, kind: In(COURSE_SUBMISSION_KINDS) });
-      return this.reviewItems.save(
-        this.reviewItems.create({
-          course_id: p.course_id,
-          course_title: p.title,
-          owner_id: p.owner_id,
-          owner_type: p.owner_type,
-          owner_user_id: p.owner_user_id,
-          owner_email: p.owner_email,
-          owner_name: p.owner_name,
-          status: QaReviewStatus.PENDING,
-          plagiarism: screenPending(),
-          trigger: 'submission',
-          kind: 'new_course',
-        }),
-      );
-    });
-    this.logger.log(`course ${p.course_id} queued for QO review (item ${item.id})`);
+    // runOnce: a redelivery doesn't queue a second item, it gets back the one this event queued.
+    const { ran, result } = await this.inCourseOrder(p.course_id, () =>
+      runOnce<Enqueued>(this.dataSource, HANDLER.submitted, e.metadata.event_id, async (m) => {
+        const courseCache = m.getRepository(QualityCourseCache);
+        const reviewItems = m.getRepository(QaReviewItem);
+        await courseCache.save(
+          courseCache.create({ course_id: p.course_id, owner_id: p.owner_id, owner_type: p.owner_type, title: p.title }),
+        );
+        // A course is in first-time review at most once at a time, so any submission item still
+        // open is stale (a withdraw that predates CourseReviewWithdrawn, or an older submission).
+        // Left open it would be decidable and would make the by-course decision ambiguous.
+        await this.closeOpenItems({ course_id: p.course_id, kind: In(COURSE_SUBMISSION_KINDS) }, reviewItems);
+        const item = await reviewItems.save(
+          reviewItems.create({
+            course_id: p.course_id,
+            course_title: p.title,
+            owner_id: p.owner_id,
+            owner_type: p.owner_type,
+            owner_user_id: p.owner_user_id,
+            owner_email: p.owner_email,
+            owner_name: p.owner_name,
+            status: QaReviewStatus.PENDING,
+            plagiarism: screenPending(),
+            trigger: 'submission',
+            kind: 'new_course',
+          }),
+        );
+        return { item_id: item.id };
+      }),
+    );
+    const itemId = result?.item_id;
+    if (ran) this.logger.log(`course ${p.course_id} queued for QO review (item ${itemId})`);
+    else if (!(await this.screenStillPending(itemId))) return;
 
     // Outside the course chain: a withdrawal should not wait on the AI.
     const plagiarism = await this.screenText(p.course_id, p.owner_id, p.title, p.description);
-    await this.recordScreen(item.id, plagiarism);
+    await this.recordScreen(itemId!, plagiarism);
     // The flagged text was submitted even if the item has since been withdrawn or decided.
     if (plagiarism.flagged) await this.raisePlagiarismSignal(p.course_id, p.owner_id, plagiarism);
   }
 
-  private async enqueueAppeal(p: CourseAppealSubmittedPayload) {
-    const last = await this.reviewItems.findOne({ where: { course_id: p.course_id }, order: { created_at: 'DESC' } });
-    await this.reviewItems.save(
-      this.reviewItems.create({
-        course_id: p.course_id,
-        course_title: p.course_title,
-        owner_id: last?.owner_id ?? p.owner_user_id,
-        owner_type: last?.owner_type ?? OwnerType.EDUCATOR,
-        owner_user_id: p.owner_user_id,
-        owner_email: p.owner_email,
-        owner_name: last?.owner_name ?? '',
-        status: QaReviewStatus.PENDING,
-        plagiarism: {},
-        trigger: `appeal: ${p.appeal_note.slice(0, 300)}`,
-        kind: 'appeal',
-      }),
+  /**
+   * A redelivered enqueue event: true when the item it queued is still open and still waits
+   * for its AI screen (the first delivery failed after the commit), so the screen runs now.
+   */
+  private async screenStillPending(itemId: string | undefined): Promise<boolean> {
+    const item = itemId ? await this.reviewItems.findOne({ where: { id: itemId } }) : null;
+    const pending = !!item && OPEN_ITEM_STATUSES.includes(item.status) && item.plagiarism?.pending === true;
+    this.logger.log(
+      pending ? `item ${itemId} was queued by an earlier delivery; finishing its AI screen` : `event already handled (item ${itemId ?? 'none'})`,
     );
-    this.logger.log(`course ${p.course_id} re-queued via appeal`);
+    return pending;
   }
 
-  private async enqueueRevision(p: CourseRevisionSubmittedPayload) {
+  private async enqueueAppeal(p: CourseAppealSubmittedPayload, e: EventEnvelope<CourseAppealSubmittedPayload>) {
+    const { ran } = await runOnce(this.dataSource, HANDLER.appeal, e.metadata.event_id, async (m) => {
+      const reviewItems = m.getRepository(QaReviewItem);
+      const last = await reviewItems.findOne({ where: { course_id: p.course_id }, order: { created_at: 'DESC' } });
+      await reviewItems.save(
+        reviewItems.create({
+          course_id: p.course_id,
+          course_title: p.course_title,
+          owner_id: last?.owner_id ?? p.owner_user_id,
+          owner_type: last?.owner_type ?? OwnerType.EDUCATOR,
+          owner_user_id: p.owner_user_id,
+          owner_email: p.owner_email,
+          owner_name: last?.owner_name ?? '',
+          status: QaReviewStatus.PENDING,
+          plagiarism: {},
+          trigger: `appeal: ${p.appeal_note.slice(0, 300)}`,
+          kind: 'appeal',
+        }),
+      );
+    });
+    if (ran) this.logger.log(`course ${p.course_id} re-queued via appeal`);
+  }
+
+  private async enqueueRevision(p: CourseRevisionSubmittedPayload, e: EventEnvelope<CourseRevisionSubmittedPayload>) {
     // Screen only the new or changed text: the approved text was already cleared, and a
     // video- or price-only change has nothing for the AI to read.
     const changedText = (p.changed_text ?? '').slice(0, CHANGED_TEXT_LIMIT).trim();
@@ -260,52 +323,60 @@ export class QualityService implements OnModuleInit {
 
     // Queue the item before the AI screen, inside the course's event order, so a
     // CourseReviewWithdrawn right behind this event always finds it to close (see inCourseOrder).
-    const item = await this.inCourseOrder(p.course_id, async () => {
-      // Courses seeded before the cache existed still need the owner mapping for trust math. An
-      // existing row is left alone: the duplicate-screen corpus must only ever hold LIVE titles.
-      const cached = await this.courseCache.findOne({ where: { course_id: p.course_id } });
-      if (!cached) {
-        await this.courseCache.save(
-          this.courseCache.create({
+    // runOnce: a redelivery doesn't queue a second item, it gets back the one this event queued.
+    const { ran, result } = await this.inCourseOrder(p.course_id, () =>
+      runOnce<Enqueued>(this.dataSource, HANDLER.revision, e.metadata.event_id, async (m) => {
+        const courseCache = m.getRepository(QualityCourseCache);
+        const reviewItems = m.getRepository(QaReviewItem);
+        // Courses seeded before the cache existed still need the owner mapping for trust math. An
+        // existing row is left alone: the duplicate-screen corpus must only ever hold LIVE titles.
+        const cached = await courseCache.findOne({ where: { course_id: p.course_id } });
+        if (!cached) {
+          await courseCache.save(
+            courseCache.create({
+              course_id: p.course_id,
+              owner_id: p.owner_id,
+              owner_type: p.owner_type,
+              title: p.course_title,
+            }),
+          );
+        }
+        // One open revision per course (course service invariant), so an older open item is a
+        // superseded submission of it — including an earlier submission of this same revision id.
+        await this.closeOpenItems({ course_id: p.course_id, kind: 'revision' }, reviewItems);
+        const plagiarism = changedText ? screenPending() : { skipped: 'no new text' };
+        const item = await reviewItems.save(
+          reviewItems.create({
             course_id: p.course_id,
+            course_title: p.course_title,
             owner_id: p.owner_id,
             owner_type: p.owner_type,
-            title: p.course_title,
+            owner_user_id: p.owner_user_id,
+            owner_email: p.owner_email,
+            owner_name: p.owner_name,
+            status: QaReviewStatus.PENDING,
+            plagiarism,
+            trigger: 'revision',
+            kind: 'revision',
+            revision_id: p.revision_id,
+            // Binds this item's decision to exactly the content submitted with it.
+            content_hash: p.content_hash || null,
+            diff_summary: diff,
+            changelog_summary: p.changelog_summary ?? '',
+            priority: isLowRiskRevision(diff, plagiarism) ? 1 : 0,
           }),
         );
-      }
-      // One open revision per course (course service invariant), so an older open item is a
-      // superseded submission of it — including an earlier submission of this same revision id.
-      await this.closeOpenItems({ course_id: p.course_id, kind: 'revision' });
-      const plagiarism = changedText ? screenPending() : { skipped: 'no new text' };
-      return this.reviewItems.save(
-        this.reviewItems.create({
-          course_id: p.course_id,
-          course_title: p.course_title,
-          owner_id: p.owner_id,
-          owner_type: p.owner_type,
-          owner_user_id: p.owner_user_id,
-          owner_email: p.owner_email,
-          owner_name: p.owner_name,
-          status: QaReviewStatus.PENDING,
-          plagiarism,
-          trigger: 'revision',
-          kind: 'revision',
-          revision_id: p.revision_id,
-          // Binds this item's decision to exactly the content submitted with it.
-          content_hash: p.content_hash || null,
-          diff_summary: diff,
-          changelog_summary: p.changelog_summary ?? '',
-          priority: isLowRiskRevision(diff, plagiarism) ? 1 : 0,
-        }),
-      );
-    });
-    this.logger.log(`revision ${p.revision_id} of course ${p.course_id} queued for QO review (item ${item.id})`);
+        return { item_id: item.id };
+      }),
+    );
+    const itemId = result?.item_id;
+    if (ran) this.logger.log(`revision ${p.revision_id} of course ${p.course_id} queued for QO review (item ${itemId})`);
     if (!changedText) return;
+    if (!ran && !(await this.screenStillPending(itemId))) return;
 
     // Outside the course chain: a withdrawal should not wait on the AI.
     const plagiarism = await this.screenText(p.course_id, p.owner_id, p.course_title, changedText);
-    await this.recordScreen(item.id, plagiarism, isLowRiskRevision(diff, plagiarism) ? 1 : 0);
+    await this.recordScreen(itemId!, plagiarism, isLowRiskRevision(diff, plagiarism) ? 1 : 0);
     // The flagged text was submitted even if the item has since been withdrawn or decided.
     if (plagiarism.flagged) await this.raisePlagiarismSignal(p.course_id, p.owner_id, plagiarism);
   }
@@ -337,8 +408,11 @@ export class QualityService implements OnModuleInit {
     if (closed) this.logger.log(`course ${p.course_id}: ${closed} review item(s) withdrawn`);
   }
 
-  private async closeOpenItems(where: FindOptionsWhere<QaReviewItem>): Promise<number> {
-    const res = await this.reviewItems.update(
+  private async closeOpenItems(
+    where: FindOptionsWhere<QaReviewItem>,
+    reviewItems: Repository<QaReviewItem> = this.reviewItems,
+  ): Promise<number> {
+    const res = await reviewItems.update(
       { ...where, status: In(OPEN_ITEM_STATUSES) },
       { status: QaReviewStatus.WITHDRAWN },
     );
@@ -445,39 +519,25 @@ export class QualityService implements OnModuleInit {
     const trimmed = notes?.trim() ?? '';
     this.assertDecisionAllowed(item, action, trimmed);
 
-    const previous = {
-      status: item.status,
-      qo_id: item.qo_id,
-      coaching_notes: item.coaching_notes,
-      reviewed_at: item.reviewed_at,
-    };
     const decided = {
       status: DECISION_STATUS[action],
       qo_id: ctx.id,
       coaching_notes: trimmed,
       reviewed_at: new Date(),
     };
-    // Conditional write: of two officers deciding at once, exactly one wins and publishes.
-    await this.updateIfActionable(item.id, ctx.id, decided);
-    Object.assign(item, decided);
-
-    try {
-      await this.publishDecision(item, action, trimmed || null, ctx.id);
-    } catch (err) {
-      // The course only changes when it hears the decision. If the event never left, reopen
-      // the item so it can be decided again instead of showing as decided forever.
-      await this.reviewItems.update({ id: item.id, status: decided.status }, previous);
-      this.logger.error(`decision on item ${item.id} not published: ${(err as Error).message}`);
-      throw new ServiceUnavailableException(
-        'The decision could not be delivered to the course service, so nothing changed. Try again in a minute.',
-      );
-    }
-    return item;
+    // Conditional write: of two officers deciding at once, exactly one wins and emits. The
+    // decision commits with its event (the outbox), so the course hears it even when the
+    // broker is down at that moment: nothing to revert.
+    await this.outbox.transaction(async (m, emit) => {
+      await this.updateIfActionable(item.id, ctx.id, decided, m.getRepository(QaReviewItem));
+      this.emitDecision(emit, item, action, trimmed || null, ctx.id);
+    });
+    return Object.assign(item, decided);
   }
 
-  private async publishDecision(item: QaReviewItem, action: QaDecisionAction, notes: string | null, qoId: string) {
+  private emitDecision(emit: Emit, item: QaReviewItem, action: QaDecisionAction, notes: string | null, qoId: string) {
     if (item.kind === 'revision') {
-      await this.bus.publish<CourseRevisionReviewedPayload>('CourseRevisionReviewed', {
+      emit<CourseRevisionReviewedPayload>('CourseRevisionReviewed', {
         course_id: item.course_id,
         revision_id: item.revision_id as string, // presence checked in assertDecisionAllowed
         review_item_id: item.id,
@@ -493,7 +553,7 @@ export class QualityService implements OnModuleInit {
       });
       return;
     }
-    await this.bus.publish<CourseReviewedPayload>('CourseReviewed', {
+    emit<CourseReviewedPayload>('CourseReviewed', {
       course_id: item.course_id,
       action,
       notes,
@@ -539,8 +599,8 @@ export class QualityService implements OnModuleInit {
     }
   }
 
-  private async findItem(itemId: string): Promise<QaReviewItem> {
-    const item = await this.reviewItems.findOne({ where: { id: itemId } });
+  private async findItem(itemId: string, reviewItems: Repository<QaReviewItem> = this.reviewItems): Promise<QaReviewItem> {
+    const item = await reviewItems.findOne({ where: { id: itemId } });
     if (!item) throw new NotFoundException('Review item not found. Refresh the queue.');
     return item;
   }
@@ -560,11 +620,17 @@ export class QualityService implements OnModuleInit {
   /**
    * Applies `changes` only while the item is still open and unclaimed, claimed by this officer,
    * or its claim has lapsed — the same rule as assertActionable, enforced by the database so a
-   * concurrent claim or decision can't slip in between the read and the write.
+   * concurrent claim or decision can't slip in between the read and the write. A decision passes
+   * its transaction's repository, so the write and the re-read hold one connection.
    */
-  private async updateIfActionable(itemId: string, officerId: string, changes: ItemTransition) {
+  private async updateIfActionable(
+    itemId: string,
+    officerId: string,
+    changes: ItemTransition,
+    reviewItems: Repository<QaReviewItem> = this.reviewItems,
+  ) {
     const open = { id: itemId, status: In(OPEN_ITEM_STATUSES) };
-    const res = await this.reviewItems.update(
+    const res = await reviewItems.update(
       [
         { ...open, claimed_by: IsNull() },
         { ...open, claimed_by: officerId },
@@ -574,7 +640,7 @@ export class QualityService implements OnModuleInit {
     );
     if (res.affected) return;
     // Lost a race: re-read to report what changed.
-    this.assertActionable(await this.findItem(itemId), officerId);
+    this.assertActionable(await this.findItem(itemId, reviewItems), officerId);
     throw new ConflictException('This review changed while you were working on it. Refresh the queue and try again.');
   }
 
@@ -599,19 +665,20 @@ export class QualityService implements OnModuleInit {
     const existing = await this.courseReviews.findOne({ where: { course_id: courseId, learner_id: ctx.id } });
     if (existing) throw new BadRequestException('You already reviewed this course');
 
-    const review = await this.courseReviews.save(
-      this.courseReviews.create({ course_id: courseId, learner_id: ctx.id, rating, comment: comment ?? null }),
-    );
-
-    // Broadcast fresh aggregates so the course service can rank the catalog
-    // (event-carried state — no cross-schema reads at query time).
-    const all = await this.courseReviews.find({ where: { course_id: courseId } });
-    const totalPoints = all.reduce((s, r) => s + r.rating, 0);
-    await this.bus.publish<CourseRatedPayload>('CourseRated', {
-      course_id: courseId,
-      average_rating: Number((totalPoints / all.length).toFixed(2)),
-      rating_count: all.length,
-      total_points: totalPoints,
+    // The review commits with fresh aggregates for the course service to rank the catalog
+    // (event-carried state — no cross-schema reads at query time), in one outbox transaction.
+    const review = await this.outbox.transaction(async (m, emit) => {
+      const reviews = m.getRepository(CourseReview);
+      const saved = await reviews.save(reviews.create({ course_id: courseId, learner_id: ctx.id, rating, comment: comment ?? null }));
+      const all = await reviews.find({ where: { course_id: courseId } });
+      const totalPoints = all.reduce((s, r) => s + r.rating, 0);
+      emit<CourseRatedPayload>('CourseRated', {
+        course_id: courseId,
+        average_rating: Number((totalPoints / all.length).toFixed(2)),
+        rating_count: all.length,
+        total_points: totalPoints,
+      });
+      return saved;
     });
 
     const cache = await this.courseCache.findOne({ where: { course_id: courseId } });
@@ -672,46 +739,49 @@ export class QualityService implements OnModuleInit {
     const current = await this.trustTiers.findOne({ where: { educator_id: payeeId } });
     const previous = current?.tier ?? TrustTier.NEW;
     if (previous !== tier || !current) {
-      await this.trustTiers.save(this.trustTiers.create({ educator_id: payeeId, tier, computed_at: new Date() }));
-      if (previous !== tier) {
-        await this.bus.publish<TrustTierChangedPayload>('TrustTierChanged', {
-          educator_id: payeeId,
-          previous_tier: previous,
-          new_tier: tier,
-        });
-        this.logger.log(`trust tier ${payeeId}: ${previous} -> ${tier}`);
-      }
+      // The tier commits with its TrustTierChanged (the outbox). The event handlers call this
+      // after their runOnce returns, never inside it: an outbox transaction can't nest.
+      await this.outbox.transaction(async (m, emit) => {
+        const tiers = m.getRepository(EducatorTrustTier);
+        await tiers.save(tiers.create({ educator_id: payeeId, tier, computed_at: new Date() }));
+        if (previous !== tier) {
+          emit<TrustTierChangedPayload>('TrustTierChanged', { educator_id: payeeId, previous_tier: previous, new_tier: tier });
+        }
+      });
+      if (previous !== tier) this.logger.log(`trust tier ${payeeId}: ${previous} -> ${tier}`);
     }
   }
 
   // ---- Fraud signals (spec §10.6) ----
 
+  /**
+   * Opens a signal and commits its FraudFlagRaised with it (the outbox), so financial always
+   * hears it and holds the payee's payouts. At most one signal per subject and signal type is
+   * open (a partial unique index): a repeat, such as a redelivered event or two refund approvals
+   * running the same check, inserts nothing and emits nothing, and gets the open signal back.
+   * That signal's event committed with it.
+   */
   async raiseFraudSignal(input: {
     subject_type: FraudSubjectType;
     subject_id: string;
     signal_type: string;
     detail: string;
     payee_id?: string | null;
-  }) {
-    const signal = await this.fraudSignals.save(
-      this.fraudSignals.create({
-        subject_type: input.subject_type,
-        subject_id: input.subject_id,
-        signal_type: input.signal_type,
-        detail: input.detail,
-        payee_id: input.payee_id ?? null,
-        status: FraudSignalStatus.OPEN,
-      }),
-    );
-    await this.bus.publish<FraudFlagPayload>('FraudFlagRaised', {
-      flag_id: signal.id,
-      subject_type: signal.subject_type,
-      subject_id: signal.subject_id,
-      signal_type: signal.signal_type,
-      payee_id: signal.payee_id,
-      detail: signal.detail,
+  }): Promise<FraudSignal> {
+    return this.outbox.transaction(async (m, emit) => {
+      const signals = m.getRepository(FraudSignal);
+      const [signal]: FraudSignal[] = await m.query(
+        `INSERT INTO ${signals.metadata.tablePath} (subject_type, subject_id, signal_type, detail, payee_id, status)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING RETURNING *`,
+        [input.subject_type, input.subject_id, input.signal_type, input.detail, input.payee_id ?? null, FraudSignalStatus.OPEN],
+      );
+      if (!signal) {
+        const { subject_type, subject_id, signal_type } = input;
+        return signals.findOneOrFail({ where: { subject_type, subject_id, signal_type, status: FraudSignalStatus.OPEN } });
+      }
+      emit<FraudFlagPayload>('FraudFlagRaised', this.flagPayload(signal));
+      return signal;
     });
-    return signal;
   }
 
   async listFlags(status?: string) {
@@ -728,16 +798,24 @@ export class QualityService implements OnModuleInit {
     signal.status = FraudSignalStatus.RESOLVED;
     signal.resolved_at = new Date();
     signal.resolved_by = adminId;
-    await this.fraudSignals.save(signal);
-    await this.bus.publish<FraudFlagPayload>('FraudFlagResolved', {
+    // Financial releases the payee's held payouts on FraudFlagResolved, so it commits with the resolution.
+    await this.outbox.transaction(async (m, emit) => {
+      await m.getRepository(FraudSignal).save(signal);
+      emit<FraudFlagPayload>('FraudFlagResolved', this.flagPayload(signal));
+    });
+    return signal;
+  }
+
+  /** FraudFlagRaised and FraudFlagResolved. The FraudSignalDedupe migration builds the same shape in SQL. */
+  private flagPayload(signal: FraudSignal): FraudFlagPayload {
+    return {
       flag_id: signal.id,
       subject_type: signal.subject_type,
       subject_id: signal.subject_id,
       signal_type: signal.signal_type,
       payee_id: signal.payee_id,
       detail: signal.detail,
-    });
-    return signal;
+    };
   }
 
   // ---- Post-publish auto triggers (spec §8) ----
@@ -793,28 +871,29 @@ export class QualityService implements OnModuleInit {
       .andWhere("r.created_at > NOW() - INTERVAL '30 days'")
       .getCount();
     if (count > REFUND_ABUSE_COUNT) {
-      const open = await this.fraudSignals.findOne({
-        where: { subject_id: learnerId, signal_type: 'refund_abuse', status: FraudSignalStatus.OPEN },
+      // A learner who already has an open refund_abuse signal gets no second one (raiseFraudSignal).
+      await this.raiseFraudSignal({
+        subject_type: FraudSubjectType.USER,
+        subject_id: learnerId,
+        signal_type: 'refund_abuse',
+        detail: `${count} approved refunds in 30 days`,
+        payee_id: null,
       });
-      if (!open) {
-        await this.raiseFraudSignal({
-          subject_type: FraudSubjectType.USER,
-          subject_id: learnerId,
-          signal_type: 'refund_abuse',
-          detail: `${count} approved refunds in 30 days`,
-          payee_id: null,
-        });
-      }
     }
   }
 
-  private async bumpStats(payeeId: string, delta: Partial<Pick<PayeeStats, 'payments' | 'refunds' | 'completions'>>) {
-    const row =
-      (await this.stats.findOne({ where: { payee_id: payeeId } })) ??
-      this.stats.create({ payee_id: payeeId, payments: 0, refunds: 0, completions: 0 });
-    row.payments += delta.payments ?? 0;
-    row.refunds += delta.refunds ?? 0;
-    row.completions += delta.completions ?? 0;
-    await this.stats.save(row);
+  /** One statement, so concurrent events add up instead of overwriting each other. */
+  private async bumpStats(
+    manager: EntityManager,
+    payeeId: string,
+    delta: Partial<Pick<PayeeStats, 'payments' | 'refunds' | 'completions'>>,
+  ): Promise<void> {
+    const table = manager.getRepository(PayeeStats).metadata.tablePath;
+    await manager.query(
+      `INSERT INTO ${table} AS s (payee_id, payments, refunds, completions) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (payee_id) DO UPDATE SET payments = s.payments + EXCLUDED.payments,
+         refunds = s.refunds + EXCLUDED.refunds, completions = s.completions + EXCLUDED.completions`,
+      [payeeId, delta.payments ?? 0, delta.refunds ?? 0, delta.completions ?? 0],
+    );
   }
 }

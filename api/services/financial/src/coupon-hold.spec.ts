@@ -5,7 +5,7 @@ import { BulkPurchase, Coupon, Payment, Referral, ReferralCode, Sponsorship, Wal
 import { GrowthService } from './growth.service';
 import { PaymentService, SessionInput } from './payment.service';
 import { SponsorshipService } from './sponsorship.service';
-import { fakeDb, Row } from './testing/fake-db';
+import { fakeDb, fakeOutbox, Row } from './testing/fake-db';
 
 const FULLY_USED = 'This coupon has been fully used.';
 const ALREADY_USED = "You've already used this coupon.";
@@ -53,7 +53,7 @@ function setup() {
     internal as never,
   );
   const service = new PaymentService(db.repo(Payment) as never, chapa as never, bus as never, internal as never, growth, db.dataSource as never);
-  const sponsorships = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, service, bus as never, internal as never);
+  const sponsorships = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, service, bus as never, internal as never, fakeOutbox(db.dataSource).outbox as never);
   const coupons = db.repo(Coupon);
   const payments = db.repo(Payment);
 

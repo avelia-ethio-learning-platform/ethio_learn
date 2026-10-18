@@ -7,7 +7,7 @@ export interface FieldIds {
 }
 
 interface FieldProps {
-  label: string;
+  label: ReactNode;
   hint?: string;
   error?: string;
   children: (ids: FieldIds) => ReactNode;

@@ -18,7 +18,7 @@ import { PayRequestPublicController } from './pay-request-public.controller';
   imports: [
     TypeOrmModule.forRoot(buildTypeOrmOptions(SCHEMA, entities, migrations)),
     TypeOrmModule.forFeature(entities),
-    EventBusModule.forRoot({ serviceName: 'financial' }),
+    EventBusModule.forRoot({ serviceName: 'financial', outbox: true }),
     ScheduleModule.forRoot(),
     // chapa-nestjs SDK. The secret key is env-only (never in code / client).
     // In mock mode the SDK is registered with a placeholder but never called —

@@ -111,12 +111,14 @@ jobs:
           for _ in $(seq 1 30); do curl -sf http://localhost:4000/health > /dev/null && break; sleep 2; done
           curl -sf http://localhost:4000/health > /dev/null || { echo "the gateway is not healthy"; exit 1; }
       # Fails if any entity change shipped without its migration. A service
-      # only listens once its migrations ran, so wait for each one first.
+      # only listens once its migrations ran, and /ready answers 200 once it
+      # also reaches the database and consumes from the broker, so the e2e
+      # steps below start with every consumer in place.
       - name: Schema drift check
         run: |
           for port in 4101 4102 4103 4104 4105 4106 4107; do
-            for _ in $(seq 1 30); do curl -sf "http://localhost:$port/health" > /dev/null && break; sleep 2; done
-            curl -sf "http://localhost:$port/health" > /dev/null || { echo "service on :$port is not healthy"; exit 1; }
+            for _ in $(seq 1 30); do curl -sf "http://localhost:$port/ready" > /dev/null && break; sleep 2; done
+            curl -sf "http://localhost:$port/ready" || { echo "service on :$port is not ready"; curl -s "http://localhost:$port/ready"; exit 1; }
           done
           pnpm -C api db:check
       # 5 parallel resends for one account must send 1 link (a row lock holds
@@ -145,7 +147,11 @@ jobs:
         run: node scripts/e2e-security.mjs
       # Built with the stack up, so the prerendered home page has the seeded
       # courses. Takes over a minute, which also lets the login limiter refill.
+      # A wake URL on its own origin (auth's port), so the CSP check in
+      # e2e/csp.spec.ts sees the browser ping it under the enforced policy.
       - name: Build web
+        env:
+          NEXT_PUBLIC_WAKE_URLS: http://localhost:4101/health
         run: |
           pnpm -C web install --frozen-lockfile
           pnpm -C web build
@@ -163,6 +169,8 @@ jobs:
       # The e2e scripts above can leave the login limiter (10/min per IP) full,
       # and a cached web build reaches here in under a minute, so wait out the window.
       - name: Browser smoke (Playwright)
+        env:
+          NEXT_PUBLIC_WAKE_URLS: http://localhost:4101/health
         run: |
           sleep 60
           pnpm -C web exec playwright test

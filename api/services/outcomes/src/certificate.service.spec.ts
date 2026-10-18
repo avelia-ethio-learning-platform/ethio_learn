@@ -1,5 +1,9 @@
 import { createHmac } from 'crypto';
+import { QueryFailedError } from 'typeorm';
 import { CertificateService } from './certificate.service';
+
+// No spec here checks the QR image; a real one costs about 300 ms per certificate.
+jest.mock('qrcode', () => ({ toBuffer: jest.fn().mockResolvedValue(Buffer.from('png')) }));
 
 const SECRET = 'test-cert-secret';
 
@@ -79,5 +83,116 @@ describe('CertificateService.verify (public tamper check, spec §9.4)', () => {
       if (jwtSecret === undefined) delete process.env.JWT_SECRET;
       else process.env.JWT_SECRET = jwtSecret;
     }
+  });
+});
+
+describe('CertificateService.issue: a redelivered completion (P1-16)', () => {
+  beforeEach(() => {
+    process.env.CERT_SIGNING_SECRET = SECRET;
+    // These specs are about the save, not the PDF: a real render made the race spec
+    // time out at 5 s under the full suite.
+    jest.spyOn(CertificateService.prototype as never, 'renderPdf').mockResolvedValue(Buffer.from('%PDF') as never);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const completion = {
+    enrollment_id: 'enr-1', learner_id: 'u1', learner_email: 'l@e.et', learner_name: 'Learner',
+    course_id: 'c1', course_title: 'Course', educator_id: 'edu-1', educator_name: 'Educator', completed_at: '2026-10-03T00:00:00Z',
+  };
+
+  it('two deliveries racing past the existence check give one certificate, one CertificateIssued and no throw', async () => {
+    const saved: unknown[] = [];
+    const certificates = {
+      findOne: jest.fn().mockResolvedValue(null), // both see no certificate yet
+      create: jest.fn((row: object) => row),
+      save: jest.fn(async (row: object) => {
+        // The unique enrollment_id index lets the first one in.
+        if (saved.length) throw new QueryFailedError('INSERT', [], Object.assign(new Error('duplicate key'), { code: '23505' }));
+        saved.push(row);
+        return { id: 'cert-1', ...row };
+      }),
+    };
+    const none = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn().mockResolvedValue(null) };
+    const bus = { subscribe: jest.fn(), publish: jest.fn().mockResolvedValue(undefined) };
+    const storage = { putObject: jest.fn().mockResolvedValue(undefined) };
+    const service = new CertificateService(certificates as never, none as never, none as never, none as never, bus as never, storage as never, { get: jest.fn() } as never);
+
+    await Promise.all([service.issue(completion), service.issue(completion)]);
+
+    expect(saved).toHaveLength(1);
+    expect(bus.publish).toHaveBeenCalledTimes(1);
+    expect(bus.publish).toHaveBeenCalledWith('CertificateIssued', expect.objectContaining({ enrollment_id: 'enr-1' }));
+  });
+
+  it('any other save error still throws, so the bus retries', async () => {
+    const certificates = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((row: object) => row),
+      save: jest.fn().mockRejectedValue(new Error('connection reset')),
+    };
+    const none = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn().mockResolvedValue(null) };
+    const service = new CertificateService(
+      certificates as never, none as never, none as never, none as never,
+      { subscribe: jest.fn(), publish: jest.fn() } as never, { putObject: jest.fn() } as never, { get: jest.fn() } as never,
+    );
+    await expect(service.issue(completion)).rejects.toThrow('connection reset');
+  });
+});
+
+describe('CertificateService.issue: a completion with blank names (9b)', () => {
+  beforeEach(() => {
+    process.env.CERT_SIGNING_SECRET = SECRET;
+    jest.spyOn(CertificateService.prototype as never, 'renderPdf').mockResolvedValue(Buffer.from('%PDF') as never);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const full = {
+    enrollment_id: 'enr-1', learner_id: 'u1', learner_email: 'l@e.et', learner_name: 'Learner',
+    course_id: 'c1', course_title: 'Course', educator_id: 'edu-1', educator_name: 'Educator', completed_at: '2026-10-03T00:00:00Z',
+  };
+  const blank = { ...full, learner_email: '', learner_name: '', course_title: '', educator_id: '', educator_name: '' };
+
+  function issuing(get: jest.Mock) {
+    const saved: Array<Record<string, unknown>> = [];
+    const certificates = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((row: object) => row),
+      save: jest.fn(async (row: Record<string, unknown>) => (saved.push(row), { id: 'cert-1', ...row })),
+    };
+    const none = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn().mockResolvedValue(null) };
+    const bus = { subscribe: jest.fn(), publish: jest.fn().mockResolvedValue(undefined) };
+    const storage = { putObject: jest.fn().mockResolvedValue(undefined) };
+    const service = new CertificateService(certificates as never, none as never, none as never, none as never, bus as never, storage as never, { get } as never);
+    return { service, saved, bus, storage };
+  }
+
+  it('auth down: throws so the bus retries, and issues nothing', async () => {
+    const get = jest.fn().mockRejectedValue(new Error('Internal request failed: GET /api/v1/internal/users/u1'));
+    const t = issuing(get);
+    await expect(t.service.issue(blank)).rejects.toThrow('Internal request failed');
+    expect(t.saved).toEqual([]);
+    expect(t.storage.putObject).not.toHaveBeenCalled();
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('auth up: fetches the learner, course and educator names and issues with them', async () => {
+    const get = jest.fn(async (path: string) => {
+      if (path === '/api/v1/internal/users/u1') return { name: 'Abebe', email: 'a@e.et' };
+      if (path === '/api/v1/internal/courses/c1') return { title: 'Soil Science', owner_id: 'edu-1', owner_type: 'educator' };
+      if (path === '/api/v1/internal/educators/edu-1') return { name: 'Dr Tadesse' };
+      throw new Error(`unexpected GET ${path}`);
+    });
+    const t = issuing(get);
+    await t.service.issue(blank);
+    expect(t.saved).toEqual([expect.objectContaining({ learner_name: 'Abebe', course_title: 'Soil Science', educator_name: 'Dr Tadesse' })]);
+    expect(t.bus.publish).toHaveBeenCalledWith('CertificateIssued', expect.objectContaining({ learner_name: 'Abebe', learner_email: 'a@e.et', course_title: 'Soil Science' }));
+  });
+
+  it('names present: nothing is fetched', async () => {
+    const get = jest.fn();
+    const t = issuing(get);
+    await t.service.issue(full);
+    expect(get).not.toHaveBeenCalled();
+    expect(t.saved).toEqual([expect.objectContaining({ learner_name: 'Learner', educator_name: 'Educator' })]);
   });
 });

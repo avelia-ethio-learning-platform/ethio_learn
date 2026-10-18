@@ -54,8 +54,9 @@ const config: Config = {
         DEFAULT: 'var(--border)',
       },
       fontFamily: {
-        sans: ['Inter', 'Noto Sans Ethiopic', 'system-ui', '-apple-system', 'sans-serif'],
-        ethiopic: ['Noto Sans Ethiopic', 'Inter', 'sans-serif'],
+        // next/font variables (app/fonts.ts)
+        sans: ['var(--font-inter)', 'var(--font-ethiopic)', 'system-ui', '-apple-system', 'sans-serif'],
+        ethiopic: ['var(--font-ethiopic)', 'var(--font-inter)', 'sans-serif'],
       },
       boxShadow: {
         glass: 'var(--shadow-glass)',

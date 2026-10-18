@@ -1,6 +1,4 @@
-/* Fonts: Inter for Latin UI + Noto Sans Ethiopic for Amharic (ግዕዝ) glyphs. */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@300;400;500;600;700;800&display=swap');
+/* Fonts: Inter and Noto Sans Ethiopic come from next/font (app/fonts.ts). */
 
 @tailwind base;
 @tailwind components;

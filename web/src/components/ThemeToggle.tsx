@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { Check, Monitor, Moon, Sun } from 'lucide-react';
 import { Theme, useTheme } from './ThemeProvider';
 import { useT } from '@/lib/i18n';
@@ -38,7 +38,7 @@ export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' 
       <button
         ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
-        aria-label="Theme"
+        aria-label={t('theme')}
         aria-expanded={open}
         aria-controls={panelId}
         className="glass-secondary flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
@@ -50,7 +50,7 @@ export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' 
 
       <AnimatePresence>
         {open && (
-          <motion.div
+          <m.div
             id={panelId}
             initial={{ opacity: 0, scale: 0.92, y: up ? 8 : -8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -81,7 +81,7 @@ export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' 
                 </button>
               );
             })}
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>
