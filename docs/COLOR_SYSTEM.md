@@ -1,8 +1,6 @@
 # Color system
 
-How EthiopiaLearn uses color, in light and dark mode. Every page and component follows this document. The values live in [`web/src/app/globals.css`](../web/src/app/globals.css) and [`web/tailwind.config.ts`](../web/tailwind.config.ts); the category colors live in [`web/src/lib/categories.ts`](../web/src/lib/categories.ts).
-
-> **Status.** The roles marked **7c** are being built in Phase 7c (see [FEATURES_AND_ROADMAP.md](FEATURES_AND_ROADMAP.md#roadmap)). Until it merges, the code uses the value shown as "today", and status colors are Tailwind palette classes. New code should still follow the rules below.
+How EthiopiaLearn uses color, in light and dark mode. Every page and component follows this document. The values live in [`web/src/app/globals.css`](../web/src/app/globals.css) and [`web/tailwind.config.ts`](../web/tailwind.config.ts); the category colors live in [`web/src/lib/categories.ts`](../web/src/lib/categories.ts). Two tests keep the code on it: `web/src/lib/color-tokens.test.ts` (the contrast table) and `web/src/lib/no-raw-colors.test.ts` (no palette classes or stray hex).
 
 ## Principles
 
@@ -50,7 +48,7 @@ How EthiopiaLearn uses color, in light and dark mode. Every page and component f
 |---|---|---|---|
 | `foreground` | `#0f172a` | `#f8fafc` | Headings and body text. |
 | `gray-600` | `#475569` | `#b2bfd2` | Secondary text: labels, table cells, descriptions. Also any helper text on `gray-200`, `brand-100` or a stronger tint. |
-| `muted-foreground` = `gray-500` | `#5b6b80` **7c** (today `#64748b`) | `#9aa8bd` **7c** (today `#94a3b8`) | Helper text, meta, timestamps, placeholders. **The lightest color allowed for text**, and only on the page, secondary background, cards and `gray-100`. |
+| `muted-foreground` = `gray-500` | `#5b6b80` | `#9aa8bd` | Helper text, meta, timestamps, placeholders. **The lightest color allowed for text**, and only on the page, secondary background, cards and `gray-100`. |
 | `gray-400` | `#94a3b8` | `#64748b` | Decorative icons and dividers only. Never text, never an icon that carries meaning on its own. |
 
 ### Brand
@@ -61,12 +59,14 @@ How EthiopiaLearn uses color, in light and dark mode. Every page and component f
 | `brand-600` (= `primary`) | `#2563eb` | `#60a5fa` | Links, active states, the focus ring, chart bars. |
 | `brand-700` | `#1d4ed8` | `#93c5fd` | Brand text on a tint (`bg-brand-50`), and secondary-button text. |
 | `.btn` fill | `#1d4ed8` → `#2563eb` | same | Primary buttons, with white text (5.17:1 or better along the whole gradient). |
+| `.brand-fill` | `#1d4ed8` → `#2563eb` | same | A small fill with white on it that is not a button: the header avatar, the Home stat tiles, chat bubbles, a selected chip. Colors only. |
+| `.brand-panel` | `#1d4ed8` → `#1e3a8a` | `#172554` → `#1e1b4b` | An always-dark hero or banner panel, with white text. It pins `brand-50` and `brand-700` to their light values, so a white control on it (`bg-white text-brand-700 hover:bg-brand-50`) reads in both themes. |
 
 The full scale (50–900) is in `globals.css`. Use the roles above; the other steps are for decoration such as washes and gradients.
 
-### Status (7c)
+### Status
 
-Four statuses, each with four roles. Today's badge colors are these values, so badges look the same after 7c.
+Four statuses, each with four roles.
 
 | Status | Text (`text-success`) | Soft background (`bg-success-soft`) | Line (`border-success-line`) | Solid (`bg-success-solid`) |
 |---|---|---|---|---|
@@ -84,14 +84,15 @@ Four statuses, each with four roles. Today's badge colors are these values, so b
 - **Solid** is for graphics with no text on them: a status dot, a bar, an icon standing alone.
   - **Never put text on a solid.** White on dark-mode `#ef4444` is 3.8:1.
   - A destructive button is `.btn-danger` (`#b91c1c`, white text 6.47:1, fixed in both themes).
-- **Rating stars** (`rating`, 7c): `#d97706` light, `#fbbf24` dark. The number is always printed next to the stars.
+  - A count bubble (the bell's unread count) is `.badge-count`: the same fixed `#b91c1c` with white text, colors only, so the bubble keeps its own size.
+- **Rating stars** (`rating`): `#d97706` light, `#fbbf24` dark. The number is always printed next to the stars.
 
 ### Borders and focus
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
 | `border` / `card-border` | blue at 14% / 10% | blue at 22% / 16% | Decorative edges of cards and dividers. They need no contrast, because the card's content identifies it. |
-| `input-border` | `#7c8ba1` **7c** (today `border`) | `#64748b` **7c** | Inputs, selects and text areas: the edge is what tells you it's a field, so it is 3:1. |
+| `input-border` | `#7c8ba1` | `#64748b` | Inputs, selects and text areas: the edge is what tells you it's a field, so it is 3:1. |
 | Focus ring | 2 px `brand-600` outline, 2 px offset | same token | Every focusable element (`:focus-visible` in `globals.css`). `.input` replaces the outline with a `brand-500` border and a 3 px `ring` glow (`#3b82f6`, 3.68:1 on white). |
 
 ### Category covers
@@ -129,13 +130,15 @@ Green `#078930`, yellow `#fcdd09` and red `#da121a`.
 | Other actions | `.btn-secondary`, or `.btn-ghost` for quiet ones. |
 | Destructive or money-moving action | `.btn-danger`, behind a confirmation dialog. |
 | A status word | `.badge-success`, `.badge-warn`, `.badge-danger`, `.badge-info`, `.badge-neutral`, with the word inside. |
-| A callout or banner | `bg-warning-soft border border-warning-line text-warning` plus an icon (7c; today the amber classes). |
+| A callout or banner | `bg-warning-soft border border-warning-line text-warning` plus an icon. |
+| A count bubble | `.badge-count` plus the bubble's own size classes. |
 | A form error | `text-danger` on the message, linked with `aria-describedby` (the `Field` component does this). |
 | A link in text | `text-brand-600`, with `hover:text-brand-700` and an underline on hover. |
-| Progress | `.progress-track` with `.progress-fill`: a solid `brand-600` fill (7c; today a `#2563eb`→`#60a5fa` gradient, whose light end is 2.2:1 on the track). The fill must be 3:1 on its track. A bar in a status color (an upload that failed, password strength) always prints its label, because warning amber is under 3:1 on a gray track. |
-| A chart | `Bars`: solid `brand-600` bars (7c; today `brand-500/80`), values printed. A second series, when one is needed, uses the category colors in table order, with direct labels instead of a legend. |
+| Progress | `.progress-track` with `.progress-fill`: a solid `brand-600` fill. The fill must be 3:1 on its track. A bar in a status color (an upload that failed, password strength) always prints its label, because warning amber is under 3:1 on a gray track. |
+| A chart | `Bars`: solid `brand-600` bars, values printed. A second series, when one is needed, uses the category colors in table order, with direct labels instead of a legend. |
 | Disabled | The `disabled` or `aria-disabled` styles in `globals.css` (50% opacity plus a not-allowed cursor). Disabled controls are exempt from contrast, but must still look disabled. |
-| A brand panel (an always-dark hero or banner) | `.brand-panel` (7c): a fixed blue gradient with white text. |
+| A brand panel (an always-dark hero or banner) | `.brand-panel`: a fixed blue gradient with white text, deeper navy in dark mode. |
+| A small brand fill with white on it | `.brand-fill`: `.btn`'s gradient, colors only. Never `bg-brand-600 text-white` (2.5:1 in dark mode). |
 
 ## Do and don't
 
@@ -153,7 +156,7 @@ Each row is checked on the surfaces it names, and the ratio is the lowest of the
 - "Card" is the card color over the page.
 - The formula is WCAG 2.x relative luminance.
 
-Phase 7c adds a test, `web/src/lib/color-tokens.test.ts`, that recomputes these pairs from `globals.css` on every run, so a token change that breaks one fails CI. The rows marked 7c above are the target values.
+`web/src/lib/color-tokens.test.ts` recomputes these pairs from `globals.css` on every run, so a token change that breaks one fails CI. It also checks white on `.btn`, `.btn-danger`, `.badge-count`, `.brand-fill`, both `.brand-panel` gradients and the covers.
 
 | Theme | Pair | Color | Checked on | Lowest ratio | Needs | |
 |---|---|---|---|---|---|---|
@@ -214,13 +217,4 @@ Phase 7c adds a test, `web/src/lib/color-tokens.test.ts`, that recomputes these 
    - the contrast test;
    - the axe pass in `web/e2e/a11y.spec.ts` (light and dark);
    - a screenshot of each theme in the PR.
-4. Don't add a Tailwind palette class or a hex value to a component. The guard test (7c) lists the few files allowed to hold literal colors: the category data, the OG images, the manifest and the error page.
-
-## What Phase 7c changes
-
-- It adds the status, `rating` and `input-border` tokens, and points the `.badge-*` classes at them.
-- It retunes `gray-500`/`muted-foreground` (helper text gets slightly darker in both themes).
-- It replaces about 360 Tailwind palette classes in 51 files with roles. In 13 of those places a light-only status color was unreadable in dark mode.
-- It makes chart bars and progress fills solid `brand-600`, and the rating stars `rating`.
-- It adds `.brand-panel` for the always-dark hero panels.
-- It adds two guard tests (contrast pairs, no raw colors) and axe runs in both themes on the educator, institution, admin and QO pages.
+4. Don't add a Tailwind palette class or a hex value to a component. `web/src/lib/no-raw-colors.test.ts` lists the few files allowed to hold literal colors: the category data, the OG images, the manifest, the theme script and the error page.
