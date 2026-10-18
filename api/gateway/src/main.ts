@@ -95,6 +95,8 @@ async function bootstrap() {
       return cb(new Error(`Origin ${origin} not allowed by CORS`), false);
     },
     credentials: true,
+    // So the web can show it as a support reference.
+    exposedHeaders: ['x-request-id'],
   });
 
   // ---- rate limiting -------------------------------------------------------

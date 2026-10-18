@@ -20,6 +20,13 @@ export interface AccessLine extends AccessNotes {
   status: number;
   ms: number;
   ip?: string;
+  /** The client closed the connection before the response was sent. */
+  aborted?: boolean;
+}
+
+/** `/health`, `/ready`, with or without a trailing slash. */
+function isProbe(path: string): boolean {
+  return /^\/(health|ready)\/?$/.test(path);
 }
 
 export type AccessLevel = 'log' | 'error';
@@ -44,25 +51,33 @@ export function requestLog(write: (level: AccessLevel, line: AccessLine) => void
     req.headers['x-request-id'] = requestId; // the proxy forwards the request's headers
     res.setHeader('x-request-id', requestId);
     const started = process.hrtime.bigint();
-    res.on('finish', () => {
+    let logged = false;
+    const done = () => {
+      if (logged) return;
+      logged = true;
       const path = redactPath(req.originalUrl ?? req.url);
+      // `close` without `finish`: the client went away before the response was sent.
+      const aborted = !res.writableFinished;
       const status = res.statusCode;
-      if (status === 200 && (path === '/health' || path === '/ready')) return;
+      if (!aborted && status === 200 && isProbe(path)) return;
       const ms = Math.round(Number(process.hrtime.bigint() - started) / 1e6);
       const notes = accessNotes(res);
       write(status >= 500 || notes.error_code ? 'error' : 'log', {
-        msg: `${req.method} ${path} ${status} ${ms}ms`,
+        msg: `${req.method} ${path} ${status} ${ms}ms${aborted ? ' aborted' : ''}`,
         request_id: requestId,
         method: req.method,
         path,
         status,
         ms,
+        aborted: aborted || undefined,
         user_id: notes.user_id,
         upstream: notes.upstream,
         ip: req.ip,
         error_code: notes.error_code,
       });
-    });
+    };
+    res.on('finish', done);
+    res.on('close', done);
     requestContext.run({ request_id: requestId }, next);
   };
 }

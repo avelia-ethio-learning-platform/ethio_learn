@@ -568,7 +568,7 @@ describe('EventBusService request context (Phase 9d)', () => {
     const logged: string[] = [];
     const logger = (bus as unknown as { logger: Record<'warn' | 'error', (msg: string) => void> }).logger;
     jest.spyOn(logger, 'warn').mockImplementation((msg: string) => void logged.push(msg));
-    jest.spyOn(logger, 'error').mockImplementation((msg: string) => void logged.push(msg));
+    jest.spyOn(logger, 'error').mockImplementation((msg: string, stack?: string) => void logged.push(msg, stack ?? ''));
     bus.subscribe('CourseCompleted', () => {
       throw new Error('550 5.1.1 <abebe@example.com>: Recipient address rejected');
     });
@@ -577,7 +577,8 @@ describe('EventBusService request context (Phase 9d)', () => {
     broker.deliver('quality.events', envelope(), { 'x-attempts': 4 });
     await until(() => broker.channel.ack.mock.calls.length === 2, 'both acks');
 
-    expect(logged.filter((m) => m.includes('Recipient address rejected'))).toHaveLength(2);
+    // The retry line, the park line and the park line's stack (which starts with the message).
+    expect(logged.filter((m) => m.includes('Recipient address rejected'))).toHaveLength(3);
     expect(logged.join('\n')).not.toContain('abebe');
     expect(logged.join('\n')).toContain('<[email]>');
     expect(broker.sentTo('quality.events.parked')[0].headers['x-last-error']).toBe('550 5.1.1 <[email]>: Recipient address rejected');

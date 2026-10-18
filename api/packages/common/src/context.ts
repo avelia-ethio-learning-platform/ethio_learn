@@ -10,7 +10,11 @@ import { randomUUID } from 'crypto';
 export interface RequestContext {
   /** Always a UUID: it becomes the `correlation_id` of the events published under it, a `uuid` column in the outbox. */
   request_id?: string;
-  /** The caller, as the gateway forwarded it after verifying the JWT. */
+  /**
+   * The caller, as the gateway forwarded it after verifying the JWT. Read before
+   * the internal-token check, so on `/health`, `/ready` and where
+   * REQUIRE_INTERNAL_TOKEN is off (local dev) a direct caller can set it.
+   */
   user_id?: string;
   event_id?: string;
   event_type?: string;

@@ -56,6 +56,18 @@ describe('JsonLogger (json)', () => {
     expect(parsed()[0]).toMatchObject({ level: 'log', context: 'Access', msg: 'GET /api/v1/courses 200', status: 200, ms: 12, request_id: 'r-9' });
   });
 
+  it('replaces an address in the message or the stack with [email]', () => {
+    const { logger, parsed } = capture();
+    const err = new Error('550 5.1.1 <abebe@example.com>: Recipient address rejected');
+    logger.error(`send failed: ${err.message}`, err.stack, 'Bus');
+    logger.error(err);
+
+    expect(JSON.stringify(parsed())).not.toContain('abebe');
+    expect(parsed()[0].msg).toBe('send failed: 550 5.1.1 <[email]>: Recipient address rejected');
+    expect(parsed()[0].stack).toMatch(/^Error: 550 5\.1\.1 <\[email\]>/);
+    expect(parsed()[1].stack).toMatch(/^Error: 550 5\.1\.1 <\[email\]>/);
+  });
+
   it('filters by level: warn keeps error and warn', () => {
     const { logger, parsed } = capture('warn');
     logger.error('e');
@@ -100,6 +112,14 @@ describe('JsonLogger (pretty)', () => {
     ]);
     expect(debug).not.toHaveBeenCalled();
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it('appends the request id and handler, and redacts addresses', () => {
+    const log = jest.spyOn(ConsoleLogger.prototype, 'log').mockImplementation(() => undefined);
+    const logger = new JsonLogger({ service: 'notification', format: 'pretty', level: 'log' });
+    requestContext.run({ request_id: 'r-1', handler: 'notification:welcome' }, () => logger.log('rejected abebe@example.com', 'Bus'));
+
+    expect(log.mock.calls).toEqual([['rejected [email] [req r-1 notification:welcome]', 'Bus']]);
   });
 });
 

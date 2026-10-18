@@ -1,5 +1,6 @@
 import { ConsoleLogger, LoggerService, LogLevel } from '@nestjs/common';
 import { currentContext } from '../context';
+import { redactEmails } from './redact';
 
 export type LogFormat = 'json' | 'pretty';
 
@@ -36,7 +37,9 @@ export interface JsonLoggerOptions {
  * every call is one line: `ts`, `level`, `service`, `context`, `msg`, the
  * request context's ids when set, and `stack` on errors. A plain object message
  * is merged into the line (the gateway's access line). `pretty` hands every
- * call to Nest's ConsoleLogger, so local output reads as before.
+ * call to Nest's ConsoleLogger, so local output reads as before. In both, an
+ * address in the message or the stack becomes `[email]`: the backstop for a
+ * provider's or Postgres's error text that quotes one.
  */
 export class JsonLogger implements LoggerService {
   private readonly service: string;
@@ -82,7 +85,11 @@ export class JsonLogger implements LoggerService {
   private emit(level: Level | 'fatal', message: unknown, params: unknown[]): void {
     if (LEVELS.indexOf(level === 'fatal' ? 'error' : level) > this.threshold) return;
     if (this.pretty) {
-      this.pretty[level](isFields(message) ? String(message.msg ?? '') : message, ...params);
+      let text = isFields(message) ? String(message.msg ?? '') : message;
+      // The ids, short, so a local trace can be followed without LOG_FORMAT=json.
+      const ctx = currentContext();
+      if (typeof text === 'string' && ctx?.request_id) text += ` [req ${ctx.request_id}${ctx.handler ? ` ${ctx.handler}` : ''}]`;
+      this.pretty[level](redactText(text), ...params.map(redactText));
       return;
     }
     // Nest's convention: a Logger with a context passes it last; error(message, stack).
@@ -111,16 +118,21 @@ export class JsonLogger implements LoggerService {
       level,
       service: this.service,
       context,
-      msg,
+      msg: redactEmails(msg),
       request_id: ctx?.request_id,
       user_id: ctx?.user_id,
       event_id: ctx?.event_id,
       handler: ctx?.handler,
     };
     for (const [key, value] of Object.entries(fields)) if (!(key in line) || line[key] === undefined) line[key] = value;
-    if (stack) line.stack = stack;
+    if (stack) line.stack = redactEmails(stack);
     this.out(`${safeJson(line)}\n`);
   }
+}
+
+/** A string with its addresses replaced; anything else as is. */
+function redactText(value: unknown): unknown {
+  return typeof value === 'string' ? redactEmails(value) : value;
 }
 
 /** A plain object: its fields go on the line, `msg` becomes the message. */

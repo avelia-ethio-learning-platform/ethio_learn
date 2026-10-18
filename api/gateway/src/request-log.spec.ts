@@ -9,6 +9,7 @@ function exchange(url: string, headers: Record<string, string> = {}, method = 'G
   const req = { method, originalUrl: url, url, headers: { ...headers }, ip: '196.188.0.7' } as unknown as Request;
   const res = Object.assign(new EventEmitter(), {
     statusCode: 200,
+    writableFinished: false,
     locals: {} as Record<string, unknown>,
     headers: {} as Record<string, string>,
     setHeader(name: string, value: string) {
@@ -22,9 +23,12 @@ function exchange(url: string, headers: Record<string, string> = {}, method = 'G
   });
   const finish = (status: number) => {
     res.statusCode = status;
+    res.writableFinished = true;
     res.emit('finish');
+    res.emit('close');
   };
-  return { req, res: res as unknown as Response & { headers: Record<string, string> }, lines, finish, nextContext: () => nextContext };
+  const abort = () => void res.emit('close');
+  return { req, res: res as unknown as Response & { headers: Record<string, string> }, lines, finish, abort, nextContext: () => nextContext };
 }
 
 describe('requestLog', () => {
@@ -76,7 +80,7 @@ describe('requestLog', () => {
   });
 
   it('skips a /health or /ready 200, and logs a failing one', () => {
-    for (const path of ['/health', '/ready', '/health?wake=1']) {
+    for (const path of ['/health', '/ready', '/health?wake=1', '/health/']) {
       const { lines, finish } = exchange(path);
       finish(200);
       expect(lines).toEqual([]);
@@ -84,5 +88,14 @@ describe('requestLog', () => {
     const failing = exchange('/health');
     failing.finish(503);
     expect(failing.lines[0]).toMatchObject({ level: 'error', line: { path: '/health', status: 503 } });
+  });
+
+  it('logs a request the client aborted once, marked aborted, probes included', () => {
+    for (const path of ['/api/v1/courses', '/health']) {
+      const { lines, abort } = exchange(path);
+      abort();
+      abort();
+      expect(lines).toEqual([{ level: 'log', line: expect.objectContaining({ path, aborted: true, msg: expect.stringMatching(/ aborted$/) }) }]);
+    }
   });
 });

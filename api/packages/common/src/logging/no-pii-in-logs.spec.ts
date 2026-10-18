@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import * as ts from 'typescript';
 import { TOKEN_PARENTS } from './redact';
@@ -26,9 +26,10 @@ function sources(dir: string): string[] {
 function scanned(): string[] {
   const services = join(API_ROOT, 'services');
   const packages = join(API_ROOT, 'packages');
+  const srcDirs = (dir: string) =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? [join(dir, entry.name, 'src')] : []));
   return [
-    ...readdirSync(services).flatMap((s) => sources(join(services, s, 'src'))),
-    ...readdirSync(packages).flatMap((p) => sources(join(packages, p, 'src'))),
+    ...[...srcDirs(services), ...srcDirs(packages)].flatMap((src) => (existsSync(src) ? sources(src) : [])),
     ...sources(join(API_ROOT, 'gateway/src')),
   ];
 }
@@ -42,20 +43,24 @@ function isLogCall(node: ts.CallExpression): boolean {
   return /^logger$/i.test(name);
 }
 
-/** The identifier whose value ends up in the message: not a receiver (`this.email.name`), callee, key or parameter. */
+/**
+ * The identifier whose value ends up in the message: not a callee, key or
+ * parameter. As a receiver it still counts (`user.email.toLowerCase()`), except
+ * `this.email.<x>` (the email provider) and `.length` (a count).
+ */
 function isLoggedValue(id: ts.Identifier): boolean {
-  let expr: ts.Node = id;
   const parent = id.parent;
-  if (ts.isPropertyAccessExpression(parent)) {
-    if (parent.expression === id) return false;
-    expr = parent;
-  }
-  const outer = expr.parent;
-  if (ts.isPropertyAccessExpression(outer) && outer.expression === expr) return false;
-  if (ts.isCallExpression(outer) && outer.expression === expr) return false;
   if (ts.isPropertyAssignment(parent) && parent.name === id) return false;
   if (ts.isParameter(parent)) return false;
+  const expr: ts.Node = ts.isPropertyAccessExpression(parent) && parent.name === id ? parent : id;
+  const outer = expr.parent;
+  if (ts.isCallExpression(outer) && outer.expression === expr) return false;
+  if (ts.isPropertyAccessExpression(outer) && outer.expression === expr) return !(isThisEmail(expr) || outer.name.text === 'length');
   return true;
+}
+
+function isThisEmail(node: ts.Node): boolean {
+  return ts.isPropertyAccessExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword && node.name.text === 'email';
 }
 
 function insideMaskEmail(node: ts.Node, stop: ts.Node): boolean {
@@ -110,6 +115,8 @@ describe('no personal data in log calls', () => {
       '    );',
       '    Logger.log(`sent to ${message.to} and ${dto.email}`, "X");',
       '    this.logger.error({ recipient_email });',
+      '    this.logger.log(`to ${user.email.toLowerCase()}`);',
+      '    this.logger.log(`to ${email.trim()}`);',
       '  }',
       '}',
     ].join('\n');
@@ -118,6 +125,8 @@ describe('no personal data in log calls', () => {
       'fixture.ts:7 logs `to`',
       'fixture.ts:7 logs `email`',
       'fixture.ts:8 logs `recipient_email`',
+      'fixture.ts:9 logs `email`',
+      'fixture.ts:10 logs `email`',
     ]);
   });
 

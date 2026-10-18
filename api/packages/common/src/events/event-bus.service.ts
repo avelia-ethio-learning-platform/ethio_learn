@@ -452,7 +452,7 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
       if (attempts >= this.maxAttempts) {
         this.logger.error(
           `event parked: ${envelope.event_type} (${event_id}) handler ${handler.name} failed ${attempts} times: ${errorText(err)}`,
-          (err as Error)?.stack,
+          errorStack(err),
         );
         await this.republish(channel, msg, `${this.options.serviceName}.events.parked`, {
           'x-attempts': attempts,
@@ -533,6 +533,12 @@ function backoffMs(attempt: number): number {
 /** An error's message for a log line or the `x-last-error` header: a provider's rejection can quote the recipient. */
 function errorText(err: unknown): string {
   return redactEmails(String((err as Error)?.message ?? err)).slice(0, 500);
+}
+
+/** The stack for a park line: it starts with the error's message, so it gets the same redaction. */
+function errorStack(err: unknown): string | undefined {
+  const stack = (err as Error)?.stack;
+  return typeof stack === 'string' ? redactEmails(stack) : undefined;
 }
 
 function waitForDrain(channel: amqp.Channel, ms: number, label: string): Promise<void> {

@@ -104,10 +104,10 @@ Locally the output stays readable.
   - That id goes with the request to every service it calls. It also becomes the `correlation_id` of every event published while handling it, and the consumers log under the same `request_id`.
   - To follow it, search `"request_id":"<id>"` in each service's Logs in Render. The gateway's access line names the service the request went to.
 - **What's never logged:**
-  - email addresses (masked as `a***@example.com` where one helps);
+  - email addresses (masked as `a***@example.com` where one helps; any address left in a message or stack prints as `[email]`);
   - query strings;
   - invite and pay-request tokens, which show as `[token]` in paths;
-  - SQL parameter values and Postgres error messages. A slow query (over `DB_SLOW_QUERY_MS`, 500 ms by default) logs its SQL and duration only.
+  - SQL parameter values: the slow-query log (over `DB_SLOW_QUERY_MS`, 500 ms by default) prints SQL and duration only, and `DB_LOGGING` never prints values. An unhandled Postgres error's message can still quote the input.
   - Production also refuses to boot with:
     - `DB_LOGGING=true`;
     - the notification service without a real email provider (`BREVO_API_KEY`, `SMTP_HOST` or `RESEND_API_KEY`). Without one, the console provider would print reset and invite links.
