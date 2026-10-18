@@ -407,12 +407,14 @@ export class PaymentService {
     const [{ locked }]: { locked: boolean }[] = await m.query(`SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS locked`, [
       `course-purchase:${input.payer.id}:${input.courseId}`,
     ]);
-    const payments = m.getRepository(Payment);
+    if (!locked) throw new ConflictException('A payment for this course is in progress.');
     const mine = { learner_id: input.payer.id, course_id: input.courseId!, purpose: PaymentPurpose.COURSE };
-    if (await payments.findOne({ where: { ...mine, status: PaymentStatus.CONFIRMED } })) throw new ConflictException('You already own this course.');
     // A pending wallet row settles in the request that inserted it; one older than this is a crashed request's.
     const inFlight = { ...mine, method: PaymentMethod.WALLET, status: PaymentStatus.PENDING, created_at: MoreThan(new Date(Date.now() - WALLET_SETTLE_MS)) };
-    if (!locked || (await payments.findOne({ where: inFlight }))) throw new ConflictException('A payment for this course is in progress.');
+    // One statement, so a settlement flipping pending -> confirmed between two reads can't slip past both.
+    const prior = await m.getRepository(Payment).findOne({ where: [{ ...mine, status: PaymentStatus.CONFIRMED }, inFlight] });
+    if (prior?.status === PaymentStatus.CONFIRMED) throw new ConflictException('You already own this course.');
+    if (prior) throw new ConflictException('A payment for this course is in progress.');
   }
 
   /** 400 naming the payer's own open checkout that holds the coupon, with its link when it has one. */
