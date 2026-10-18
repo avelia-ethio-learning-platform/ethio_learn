@@ -224,7 +224,7 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
 ### Deviations
 1. **The PII guard skips names ending in `_id`/`Id`(s).** The plan's `/email|^to$|recipient/i` flags `recipient_user_id` (`enrollment.service.ts:550`), which is a user id, not an address.
 2. **The guard uses the TypeScript AST,** not a paren scanner. It counts the value an argument interpolates (`user.email`, `message.to`, `{ email }`). It skips:
-   - receivers (`this.email.name`);
+   - receivers `this.email.<x>` (the provider) and `.length` (review S4; `user.email.toLowerCase()` counts);
    - callees (`maskEmail(…)` itself);
    - object keys and arrow parameters.
 3. **Request ids are lower-cased.** Postgres stores `uuid` lower-case, so the outbox's `correlation_id`, the consumers' `request_id` and the gateway's line agree when grepped.
@@ -237,18 +237,16 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
 10. **A bad `LOG_FORMAT` or `LOG_LEVEL` value fails the boot** and names the allowed values (the `envInt` style).
 11. **A service's `user_id` in the context** comes from the gateway's `x-user-id`. Handlers only run after the internal-token check.
 
-### In flight / next step (checkpoint 2026-10-03 ~23:00, ethio-impl [110afc]; work resumes Monday 2026-10-05 afternoon)
-- **Head:** `feat/observability` in `../ethi0-9d`, local only, not pushed. It has merged `fix/outbox` `602ef8e` and `fix/calls-and-jobs` `2f31a0d`. On `604aaba`: api build and typecheck green, and `pnpm -C api test` passes (80 suites, 1468 passed, 4 skipped).
-- **Done this session:**
-  - the early read's N1 (`ffe1896`: the PII guard also scans `packages/*/src`);
-  - the step 8 drill (see Progress).
-- **Stack:** the drill backend is stopped (ports 4000 and 4101–4107 free) and `el_e2e_9d` is dropped. The docker compose containers (postgres, rabbitmq, redis, minio) are left up; they're shared. [688c71] (Phase 10) said it doesn't need the stack again unless its review asks for a re-run.
-- **Waiting on peers.** Merge each when it lands, rerun the guard spec and the api tests, and check their new log lines against the guard:
-  - 9b step 4 (converted emit sites). Then repeat the drill's outbox check: the row's `correlation_id` equals the request id;
-  - 9c step 5 (job runners must start outside a request, through 9b's snapshot pattern or `requestContext.exit`).
-- **Then:**
-  - step 10, the full gate, on the final head once 9a, 9b and 9c are on `main` (`git merge origin/main`);
-  - step 11, code review round 1 by ethio-reviewer [93b6fc]. Report to ethio-planner [31d0d2].
-- **11a:** when it merges, move the "Logs" section into its `docs/DEPLOYMENT.md` structure, resolve `ci.yml` (keep the `safe-typeorm-logger.db.spec.ts` addition), and keep `pnpm -C api lint` under the baseline (the `_parameters` args in `SafeTypeOrmLogger`).
-- **Rollout item:** the user's Render check for an email provider on the notification service is `USER-ACTIONS.md` "Start here" item 4 ("Phase 9d, confirm the notification service has an email provider"). It blocks 9d's merge. ethio-planner passes on the user's answer.
-- **Drill script:** `node <scratch>/9d-trace.mjs` (session scratchpad, not in the repo). It logs in as learner@, skips enrolled courses, enrols with a fresh UUID `x-request-id`, and prints it.
+### Review round 1 fixes (2026-10-19, `code-review-r1.md`)
+- `9becc70`: B1 (park line's stack redacted; `JsonLogger` redacts addresses in every msg and stack, both formats), S1 (doc softened), S2, S4, N1 (aborted access line), N2 (noted on `RequestContext.user_id`), N3 (`[req <id> <handler>]` in pretty), N4 (CORS `exposedHeaders`), N5, N6.
+- Merges of `origin/main` `ec8549e` (5 conflicts as the review listed, S3: the outage drill counts `Hi Drill signup ${RUN},`; lint back under baseline with 9c's `04c9af3` diff) and `e4b4cde` (web and `.gitleaks.toml` only).
+- Gate on the head: api build, `test --maxWorkers=2` (82 suites, 1541 passed), lint-check, the two real-Postgres specs on scratch `el_9d_db`. `db:check` and web: CI.
+- Not rerun locally (needs the stack): the outbox `correlation_id` = request id check and the outage drill (S3).
+
+### Recheck when 9c (`fix/calls-and-jobs`) lands; not merged yet
+- `runJob` (started by `JobsController` without awaiting) runs under `requestContext.exit` or the bus's snapshot, else job lines carry the request's ids.
+- Internal-client warn lines use `redactPath`, not the path length.
+- `upstreamOf` knows the `jobs` routes (`routes.spec.ts` guards it).
+- `PeerErrorFilter` order in `bootstrap.ts` vs `DbErrorFilter`.
+- Its new `logger.*` lines pass `no-pii-in-logs.spec.ts`; identical hunks from old 9c (`2f31a0d`, `04c9af3`) merge clean, rewrites need hand resolution (review "Merge" options a-c).
+- Rollout blocker unchanged: `USER-ACTIONS.md` item 4 (email provider on Render).
