@@ -1,9 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
+import { DataSource, In, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { envInt, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { envInt, EventBusService, InternalHttpClient, internalPath, UserContext, userSummaries } from '@ethiopialearn/common';
 import {
   FraudFlagPayload,
   OwnerType,
@@ -24,6 +24,8 @@ const KYC_PAYOUT_THRESHOLD_ETB = () => envInt('KYC_PAYOUT_THRESHOLD_ETB', 10000)
 const PAYEE_PAGE = 100;
 /** Per payee per run; anything beyond waits for the next run. */
 const PAYMENTS_PER_PAYOUT = 1000;
+/** Scheduled payouts disbursed per query by a run (Phase 9e). */
+const SCHEDULED_BATCH = 200;
 /** A run holds with `fraud_flag_open`; a flag raised later re-holds scheduled payouts with `fraud:<signal>`. */
 const isFraudHold = (reason: string | null): reason is string => reason === 'fraud_flag_open' || !!reason?.startsWith('fraud:');
 
@@ -88,8 +90,18 @@ export class PayoutService implements OnModuleInit {
   async runPayouts(): Promise<{ created: number; held: number }> {
     let created = 0;
     let held = 0;
-    for (const payout of await this.payouts.find({ where: { status: PayoutStatus.SCHEDULED } })) {
-      if (await this.disburse(payout)) created += 1;
+    // Keyset batches: a disbursed payout leaves the filter, so OFFSET paging would skip rows.
+    for (let afterId: string | null = null; ; ) {
+      const batch: Payout[] = await this.payouts.find({
+        where: { status: PayoutStatus.SCHEDULED, ...(afterId ? { id: MoreThan(afterId) } : {}) },
+        order: { id: 'ASC' },
+        take: SCHEDULED_BATCH,
+      });
+      for (const payout of batch) {
+        if (await this.disburse(payout)) created += 1;
+      }
+      if (batch.length < SCHEDULED_BATCH) break;
+      afterId = batch[batch.length - 1].id;
     }
 
     for (let cursor = PLATFORM_PAYEE_ID; ; ) {
@@ -197,27 +209,47 @@ export class PayoutService implements OnModuleInit {
     return { released: true };
   }
 
-  async listForPayee(payeeId: string) {
-    return this.payouts.find({ where: { payee_id: payeeId }, order: { created_at: 'DESC' } });
+  /** A payee's payouts, newest first, one page at a time (still a bare array). */
+  async listForPayee(payeeId: string, page = 1, limit = 20) {
+    return this.payouts.find({ where: { payee_id: payeeId }, order: { created_at: 'DESC' }, take: limit, skip: (page - 1) * limit });
   }
 
+  /** The admin listing: the newest 200, with payee names. */
   async listAll() {
-    return this.payouts.find({ order: { created_at: 'DESC' }, take: 200 });
+    return this.withPayeeNames(await this.payouts.find({ order: { created_at: 'DESC' }, take: 200 }));
   }
 
-  /** Pending (not-yet-paid-out) earnings for the calling educator/institution. */
+  /**
+   * Adds `payee_name` from one users batch call: educator payees only, so an
+   * institution payee (and any payee while auth can't answer) gets null and the
+   * page shows the id as before.
+   */
+  async withPayeeNames(rows: Payout[]) {
+    const educators = rows.filter((p) => p.payee_type === OwnerType.EDUCATOR).map((p) => p.payee_id);
+    let names = new Map<string, { name: string }>();
+    try {
+      names = await userSummaries(this.internal, educators);
+    } catch (err) {
+      this.logger.warn(`admin payouts: payee names unavailable (${(err as Error).message})`);
+    }
+    return rows.map((p) => ({ ...p, payee_name: p.payee_type === OwnerType.EDUCATOR ? (names.get(p.payee_id)?.name ?? null) : null }));
+  }
+
+  /** Pending (not-yet-paid-out) earnings for the calling educator/institution, summed in SQL. */
   async balance(ctx: UserContext) {
     const payeeId = await this.resolvePayeeId(ctx);
-    const rows = (await this.payments.find({ where: { payee_id: payeeId, status: PaymentStatus.CONFIRMED, payout_id: IsNull() } })).filter(
-      (p) => p.purpose !== PaymentPurpose.WALLET_TOPUP,
+    const [row]: { gross: string; count: string }[] = await this.payments.query(
+      `SELECT COALESCE(SUM(amount_etb), 0) AS gross, COUNT(*) AS count FROM ${this.payments.metadata.tablePath}
+       WHERE payee_id = $1 AND status = $2 AND payout_id IS NULL AND purpose <> $3`,
+      [payeeId, PaymentStatus.CONFIRMED, PaymentPurpose.WALLET_TOPUP],
     );
-    const gross = rows.reduce((sum, p) => sum + Number(p.amount_etb), 0);
+    const gross = Number(row.gross);
     return {
       payee_id: payeeId,
       pending_gross_etb: Number(gross.toFixed(2)),
       pending_net_etb: Number((gross * (1 - PLATFORM_FEE_RATE)).toFixed(2)),
       platform_fee_rate: PLATFORM_FEE_RATE,
-      payment_count: rows.length,
+      payment_count: Number(row.count),
     };
   }
 

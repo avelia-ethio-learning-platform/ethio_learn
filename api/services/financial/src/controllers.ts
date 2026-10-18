@@ -9,6 +9,8 @@ import { RefundService } from './refund.service';
 import { PayoutService } from './payout.service';
 
 class AdminPaymentsPage extends pageQuery({ defaultLimit: 20, maxLimit: 100 }) {}
+class MyPaymentsPage extends pageQuery({ defaultLimit: 20, maxLimit: 100 }) {}
+class PayoutsPage extends pageQuery({ defaultLimit: 20, maxLimit: 100 }) {}
 
 class InitiateDto {
   @IsUUID()
@@ -121,8 +123,8 @@ export class FinancialController {
   @Get('payments/mine')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  myPayments(@CurrentUser() ctx: UserContext) {
-    return this.paymentService.listMine(ctx);
+  myPayments(@CurrentUser() ctx: UserContext, @Query() paging: MyPaymentsPage) {
+    return this.paymentService.listMine(ctx, paging.page, paging.limit);
   }
 
   @Get('payments/:id')
@@ -174,12 +176,12 @@ export class FinancialController {
   @Get('payouts')
   @UseGuards(RolesGuard)
   @Roles()
-  async payouts(@CurrentUser() ctx: UserContext, @Query('payee_id') payeeId?: string) {
+  async payouts(@CurrentUser() ctx: UserContext, @Query() paging: PayoutsPage, @Query('payee_id') payeeId?: string) {
     if (ctx.role === Role.PLATFORM_ADMIN) {
-      return payeeId ? this.payoutService.listForPayee(payeeId) : this.payoutService.listAll();
+      return payeeId ? this.payoutService.withPayeeNames(await this.payoutService.listForPayee(payeeId, paging.page, paging.limit)) : this.payoutService.listAll();
     }
     const own = await this.payoutService.resolvePayeeId(ctx);
-    return this.payoutService.listForPayee(own);
+    return this.payoutService.listForPayee(own, paging.page, paging.limit);
   }
 
   @Post('payouts/run')

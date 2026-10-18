@@ -1,7 +1,21 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, MoreThan, Not, Repository } from 'typeorm';
-import { dailyCapExceeded, Emit, env, envInt, EventBusService, InternalHttpClient, internalPath, OutboxService, recipientCapExceeded, stableEventId, UserContext } from '@ethiopialearn/common';
+import {
+  dailyCapExceeded,
+  Emit,
+  env,
+  envInt,
+  EventBusService,
+  InternalHttpClient,
+  internalPath,
+  LearnerProgress,
+  learnerProgress,
+  OutboxService,
+  recipientCapExceeded,
+  stableEventId,
+  UserContext,
+} from '@ethiopialearn/common';
 import {
   BulkPurchaseActivatedPayload,
   PayRequestCreatedPayload,
@@ -307,9 +321,13 @@ export class SponsorshipService implements OnModuleInit {
 
   async listBulk(ctx: UserContext) {
     const orders = await this.bulk.find({ where: ctx.role === Role.PLATFORM_ADMIN ? {} : { buyer_id: ctx.id }, order: { created_at: 'DESC' }, take: 100 });
+    if (!orders.length) return [];
+    // Every order's seats in one query, and their progress in one batch read per 50 seats (Phase 9e).
+    const allSeats = await this.sponsorships.find({ where: { bulk_purchase_id: In(orders.map((o) => o.id)) }, order: { created_at: 'ASC' } });
+    const viewed = await this.withProgress(allSeats);
     const out = [];
     for (const o of orders) {
-      const seats = await this.sponsorships.find({ where: { bulk_purchase_id: o.id }, order: { created_at: 'ASC' } });
+      const seats = allSeats.filter((s) => s.bulk_purchase_id === o.id);
       out.push({
         id: o.id,
         organization_name: o.organization_name,
@@ -322,7 +340,7 @@ export class SponsorshipService implements OnModuleInit {
         total_etb: Number(o.total_etb),
         status: o.status,
         created_at: o.created_at,
-        assignments: await this.withProgress(seats),
+        assignments: viewed.filter((_, i) => allSeats[i].bulk_purchase_id === o.id),
       });
     }
     return out;
@@ -562,24 +580,27 @@ export class SponsorshipService implements OnModuleInit {
     };
   }
 
-  /** Sponsor's view of each recipient — the "parent dashboard": progress + completion. */
+  /**
+   * Sponsor's view of each recipient — the "parent dashboard": progress +
+   * completion, from one batch read per 50 granted seats. Display only: when
+   * enrollment can't answer, progress is null (one warn), never an error.
+   * `progress_percent` is null when only course couldn't answer.
+   */
   private async withProgress(rows: Sponsorship[]) {
-    const out = [];
-    for (const s of rows) {
-      let progress: { progress_percent: number; lessons_complete: boolean } | null = null;
-      if (s.status === 'granted' && s.recipient_user_id) {
-        try {
-          const e = await this.internal.get<{ progress_percent: number; lessons_complete: boolean }>(
-            internalPath`/api/v1/internal/entitlements?learner_id=${s.recipient_user_id}&course_id=${s.course_id}`,
-          );
-          progress = { progress_percent: e.progress_percent ?? 0, lessons_complete: !!e.lessons_complete };
-        } catch {
-          progress = null;
-        }
-      }
-      out.push({ ...this.view(s), progress });
+    const pairOf = (s: Sponsorship) => (s.status === 'granted' && s.recipient_user_id ? `${s.recipient_user_id}:${s.course_id}` : null);
+    const pairs = rows.map(pairOf).filter((p): p is string => !!p);
+    let found: Map<string, LearnerProgress> | null = null;
+    try {
+      found = await learnerProgress(this.internal, pairs);
+    } catch (err) {
+      this.logger.warn(`sponsorship progress unavailable (${(err as Error).message})`);
     }
-    return out;
+    return rows.map((s) => {
+      const pair = pairOf(s);
+      // A granted seat whose enrollment isn't there yet reads as not started, as the single read answered.
+      const p = pair && found ? (found.get(pair) ?? { progress_percent: 0, lessons_complete: false }) : null;
+      return { ...this.view(s), progress: p ? { progress_percent: p.progress_percent, lessons_complete: p.lessons_complete } : null };
+    });
   }
 
   /**
