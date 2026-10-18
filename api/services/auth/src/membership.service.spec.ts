@@ -142,6 +142,22 @@ function setup(memberships: Row[] = []) {
   };
   const bus = { publish: jest.fn(async () => undefined) };
   const auth = { createInvite: jest.fn(async () => 'invite-token') };
+  // The outbox over the same transactions: emitted events count once the body resolves.
+  const committed: Array<[string, unknown]> = [];
+  const onEmit = jest.fn();
+  const outbox = {
+    transaction: jest.fn(async (fn: (m: typeof manager, emit: (type: string, payload: unknown) => void) => Promise<unknown>) => {
+      const queued: Array<[string, unknown]> = [];
+      const result = await dataSource.transaction((m) =>
+        fn(m, (type, payload) => {
+          onEmit(type, payload);
+          queued.push([type, payload]);
+        }),
+      );
+      committed.push(...queued);
+      return result;
+    }),
+  };
   const svc = new MembershipService(
     users as never,
     institutions as never,
@@ -150,11 +166,18 @@ function setup(memberships: Row[] = []) {
     dataSource as never,
     bus as never,
     auth as never,
+    outbox as never,
   );
-  const published = (type: string) => bus.publish.mock.calls.filter((c: unknown[]) => c[0] === type).map((c: unknown[]) => c[1]);
+  /** Everything sent: published on the bus, or committed through the outbox. */
+  const sent = (): Array<[string, unknown]> => [...(bus.publish.mock.calls as unknown as Array<[string, unknown]>), ...committed];
+  const clearSent = () => {
+    bus.publish.mockClear();
+    committed.length = 0;
+  };
+  const published = (type: string) => sent().filter((c) => c[0] === type).map((c) => c[1]);
   const userRow = (id: string) => users.rows.find((r) => r.id === id)!;
   const memberRow = (id: string) => members.rows.find((r) => r.id === id)!;
-  return { svc, users, institutions, members, profiles, audit, bus, auth, published, userRow, memberRow };
+  return { svc, users, institutions, members, profiles, audit, bus, auth, published, sent, clearSent, committed, onEmit, userRow, memberRow };
 }
 
 describe('MembershipService.invite', () => {
@@ -179,11 +202,28 @@ describe('MembershipService.invite', () => {
     const placeholder = t.users.rows.find((r) => r.email === 'new.person@x.et')!;
     expect(placeholder).toMatchObject({ role: Role.LEARNER, name: 'New Person', must_change_password: true });
     expect(t.profiles.rows.find((p) => p.user_id === placeholder.id)).toBeUndefined();
-    expect(t.auth.createInvite).toHaveBeenCalledWith(placeholder.id);
+    expect(t.auth.createInvite).toHaveBeenCalledWith(placeholder.id, expect.anything());
     expect(t.published('StaffInvited')).toEqual([
       expect.objectContaining({ user_id: placeholder.id, role: 'instructor', institution_name: 'Addis Academy', invite_url: expect.stringContaining('/accept-invite?token=invite-token') }),
     ]);
     expect(t.published('InstructorInvited')).toEqual([]);
+  });
+
+  it('the invite emails go through the outbox, never straight to the bus (review S2)', async () => {
+    const t = setup();
+    await t.svc.invite(IA1, 'inst1', { email: 'new.person@x.et' });
+    await t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' });
+    expect(t.committed.map(([type]) => type)).toEqual(['StaffInvited', 'InstructorInvited']);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('a failed outbox insert fails the setup-link invite without committing an email', async () => {
+    const t = setup();
+    t.onEmit.mockImplementationOnce(() => {
+      throw new Error('outbox insert failed');
+    });
+    await expect(t.svc.invite(IA1, 'inst1', { email: 'new.person@x.et' })).rejects.toThrow('outbox insert failed');
+    expect(t.committed).toEqual([]);
   });
 
   it('answers the same for a new email without a name (no 400 that reveals the address is unknown)', async () => {
@@ -196,11 +236,11 @@ describe('MembershipService.invite', () => {
   it.each(['qo1@x.et', 'ia2@x.et'])('gives staff and institution owners (%s) the same response, and no email', async (email) => {
     const t = setup();
     const learner = await t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' });
-    t.bus.publish.mockClear();
+    t.clearSent();
     const res = await t.svc.invite(IA1, 'inst1', { email });
     expect(Object.keys(res.membership)).toEqual(Object.keys(learner.membership));
     expect(res.membership).toMatchObject({ status: 'invited', email });
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.sent()).toEqual([]);
   });
 
   it.each(['declined', 'removed'])('re-invites a %s membership as a fresh invitation', async (status) => {
@@ -249,7 +289,7 @@ describe('MembershipService.invite', () => {
       expect(err.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
       expect(err.message).toBe("You've reached today's limit for instructor invites. Try again tomorrow.");
       expect(t.members.rows).toHaveLength(4);
-      expect(t.bus.publish).not.toHaveBeenCalled();
+      expect(t.sent()).toEqual([]);
       // Another institution still has room.
       await expect(t.svc.invite(IA2, 'inst2', { email: 'lrn1@x.et' })).resolves.toBeDefined();
     });
@@ -265,7 +305,7 @@ describe('MembershipService.invite', () => {
       const before = t.memberRow('m1').invited_at;
       const res = await t.svc.invite(IA1, 'inst1', { email: 'lrn1@x.et' });
       expect(res.membership).toMatchObject({ id: 'm1', status: 'invited' });
-      expect(t.bus.publish).not.toHaveBeenCalled();
+      expect(t.sent()).toEqual([]);
       expect(t.memberRow('m1').invited_at.getTime()).toBeGreaterThan(before.getTime());
     });
 
