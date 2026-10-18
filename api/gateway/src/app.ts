@@ -10,7 +10,7 @@ import { Agent, Server } from 'http';
 import { Agent as HttpsAgent } from 'https';
 import { env, envInt } from '@ethiopialearn/common';
 import { resolveRoute } from './routes';
-import { gatewayAuth } from './auth-middleware';
+import { clientIp, clientIpOf, gatewayAuth, refreshTokenKey } from './auth-middleware';
 import { classifyRequest, DEFAULT_LIMITS_PER_MIN as DEFAULTS, RatePolicy } from './rate-policy';
 
 @Controller('health')
@@ -76,8 +76,10 @@ export async function createGatewayApp(options: { logger?: false } = {}): Promis
   // back to IP for anonymous traffic. Credential endpoints stay IP-keyed —
   // there is no trusted user yet during a brute-force attempt. IPv6 clients
   // are bucketed by /64 so one subscriber can't rotate through a prefix.
+  // The address is the web proxy's forwarded one when it proves itself (clientIp).
+  app.use(clientIp());
   const ipKey = (req: Request): string => {
-    const ip = req.ip ?? '';
+    const ip = clientIpOf(req);
     return ip.includes(':') ? `ip6:${ip.split(':').slice(0, 4).join(':')}` : `ip:${ip}`;
   };
   const userKey = (req: Request): string => {
@@ -99,6 +101,8 @@ export async function createGatewayApp(options: { logger?: false } = {}): Promis
     });
   const limiters: Record<RatePolicy, ReturnType<typeof rateLimit> | null> = {
     'auth-strict': makeLimiter(envInt('RATE_LIMIT_AUTH_STRICT_PER_MIN', DEFAULTS['auth-strict']), ipKey),
+    // Per refresh token: anonymous, and fired on every page load (Phase 11b).
+    'auth-refresh': makeLimiter(envInt('RATE_LIMIT_AUTH_REFRESH_PER_MIN', DEFAULTS['auth-refresh']), (req) => refreshTokenKey(req) ?? ipKey(req)),
     auth: makeLimiter(envInt('RATE_LIMIT_AUTH_PER_MIN', DEFAULTS.auth), ipKey),
     ai: makeLimiter(envInt('RATE_LIMIT_AI_PER_MIN', DEFAULTS.ai), userKey),
     'community-write': makeLimiter(envInt('RATE_LIMIT_COMMUNITY_PER_MIN', DEFAULTS['community-write']), userKey),

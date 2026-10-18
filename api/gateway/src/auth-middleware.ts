@@ -1,5 +1,7 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express';
 import * as jwt from 'jsonwebtoken';
+import { createHash } from 'crypto';
+import { isIP } from 'net';
 import { env } from '@ethiopialearn/common';
 import { AuthMode, authModeFor, resolveRoute } from './routes';
 import { matchPath } from './request-path';
@@ -23,6 +25,53 @@ export function verifyBearer(req: Request): TokenClaims | null {
 
 export function validInternalToken(presented: string | undefined): boolean {
   return matchesSecret(presented, env('INTERNAL_API_TOKEN', ''));
+}
+
+const PROXY_SECRET_HEADER = 'x-web-proxy-secret';
+const CLIENT_IP_HEADER = 'x-web-client-ip';
+
+type WithClientIp = Request & { clientIp?: string };
+
+/** The caller's address for rate limits (and the access log): set by `clientIp()`, else `req.ip`. */
+export function clientIpOf(req: Request): string {
+  return (req as WithClientIp).clientIp ?? req.ip ?? '';
+}
+
+/**
+ * The web's route handler (Vercel) forwards the browser's address in
+ * `x-web-client-ip`, proved by `x-web-proxy-secret` = WEB_PROXY_SECRET. Only
+ * then is that address trusted; otherwise it's `req.ip` (trust proxy 1). Both
+ * headers are removed in every case, so they never reach a service.
+ */
+export function clientIp(): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const presented = req.headers[PROXY_SECRET_HEADER];
+    const forwarded = req.headers[CLIENT_IP_HEADER];
+    delete req.headers[PROXY_SECRET_HEADER];
+    delete req.headers[CLIENT_IP_HEADER];
+    const trusted =
+      typeof presented === 'string' &&
+      typeof forwarded === 'string' &&
+      matchesSecret(presented, env('WEB_PROXY_SECRET', '')) &&
+      isIP(forwarded) !== 0;
+    (req as WithClientIp).clientIp = trusted ? forwarded : (req.ip ?? '');
+    next();
+  };
+}
+
+/** `el_refresh` from a raw Cookie header, without logging or storing it. */
+function refreshCookie(header: string | undefined): string | undefined {
+  for (const part of (header ?? '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0 && part.slice(0, eq).trim() === 'el_refresh') return part.slice(eq + 1).trim() || undefined;
+  }
+  return undefined;
+}
+
+/** The refresh bucket's key: a hash prefix of the refresh token, so the token never sits in the limiter. */
+export function refreshTokenKey(req: Request): string | undefined {
+  const token = refreshCookie(req.headers.cookie);
+  return token ? `rt:${createHash('sha256').update(token).digest('hex').slice(0, 32)}` : undefined;
 }
 
 export interface GatewayAuthDeps {

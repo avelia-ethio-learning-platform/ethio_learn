@@ -10,6 +10,7 @@ import { createGatewayApp } from './app';
  */
 const JWT_SECRET = 'gateway-spec-jwt-secret-not-real';
 const INTERNAL = 'gateway-spec-internal-token-not-real';
+const PROXY_SECRET = 'gateway-spec-proxy-secret-not-real';
 
 let upstream: Server;
 let seen: { url: string; headers: IncomingHttpHeaders }[] = [];
@@ -30,6 +31,7 @@ beforeAll(async () => {
   process.env.JWT_SECRET = JWT_SECRET;
   process.env.INTERNAL_API_TOKEN = INTERNAL;
   process.env.AUTH_SERVICE_URL = `127.0.0.1:${port(upstream)}`;
+  process.env.WEB_PROXY_SECRET = PROXY_SECRET;
   app = await createGatewayApp({ logger: false });
   await app.listen(0, '127.0.0.1');
   base = `http://127.0.0.1:${port(app.getHttpServer() as Server)}`;
@@ -40,6 +42,7 @@ afterAll(async () => {
   await new Promise((r) => upstream.close(r));
   delete process.env.AUTH_SERVICE_URL;
   delete process.env.INTERNAL_API_TOKEN;
+  delete process.env.WEB_PROXY_SECRET;
 });
 
 beforeEach(() => {
@@ -97,5 +100,63 @@ describe('gateway pipeline', () => {
   it('answers 404 for an unknown /api/v1 route without calling upstream', async () => {
     expect((await fetch(`${base}/api/v1/nope`)).status).toBe(404);
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe('the web proxy headers', () => {
+  it.each([
+    ['the right secret', PROXY_SECRET],
+    ['a wrong secret', 'gateway-spec-proxy-secret-not-rea1'],
+    ['no secret', undefined],
+  ])('never reach a service, with %s', async (_label, secret) => {
+    const headers: Record<string, string> = { 'x-web-client-ip': '203.0.113.7' };
+    if (secret) headers['x-web-proxy-secret'] = secret;
+    expect((await fetch(`${base}/api/v1/auth/invite/abc`, { headers })).status).toBe(200);
+    expect(seen[0].headers['x-web-proxy-secret']).toBeUndefined();
+    expect(seen[0].headers['x-web-client-ip']).toBeUndefined();
+  });
+});
+
+describe('rate-limit keys', () => {
+  let limited: NestExpressApplication;
+  let url: string;
+  const login = (headers: Record<string, string> = {}) =>
+    fetch(`${url}/api/v1/auth/login`, { method: 'POST', headers }).then((r) => r.status);
+  const viaProxy = (ip: string, secret = PROXY_SECRET) => ({ 'x-web-proxy-secret': secret, 'x-web-client-ip': ip });
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_AUTH_STRICT_PER_MIN = '2';
+    process.env.RATE_LIMIT_AUTH_REFRESH_PER_MIN = '2';
+    limited = await createGatewayApp({ logger: false });
+    await limited.listen(0, '127.0.0.1');
+    url = `http://127.0.0.1:${port(limited.getHttpServer() as Server)}`;
+  });
+
+  afterAll(async () => {
+    await limited.close();
+    delete process.env.RATE_LIMIT_AUTH_STRICT_PER_MIN;
+    delete process.env.RATE_LIMIT_AUTH_REFRESH_PER_MIN;
+  });
+
+  it('buckets the login limit by the proxied client IP when the secret is right', async () => {
+    expect([await login(viaProxy('203.0.113.1')), await login(viaProxy('203.0.113.1')), await login(viaProxy('203.0.113.1'))]).toEqual([200, 200, 429]);
+    expect(await login(viaProxy('2001:db8::1'))).toBe(200); // another client, its own bucket
+  });
+
+  it('ignores the forwarded IP with a wrong secret, no secret or a non-IP value: all key by the caller', async () => {
+    expect(await login(viaProxy('198.51.100.1', 'gateway-spec-proxy-secret-not-rea1'))).toBe(200);
+    expect(await login({ 'x-web-client-ip': '198.51.100.2' })).toBe(200);
+    // The caller's (127.0.0.1) bucket is now full, whatever address it claims.
+    expect(await login(viaProxy('not-an-ip'))).toBe(429);
+    expect(await login(viaProxy('198.51.100.3', 'wrong'))).toBe(429);
+  });
+
+  it('limits refresh per refresh token: two cookies from one IP get separate buckets', async () => {
+    const refresh = (cookie: string) =>
+      fetch(`${url}/api/v1/auth/refresh`, { method: 'POST', headers: { cookie } }).then((r) => r.status);
+    expect([await refresh('el_refresh=token-a'), await refresh('theme=dark; el_refresh=token-a'), await refresh('el_refresh=token-a')]).toEqual([
+      200, 200, 429,
+    ]);
+    expect(await refresh('el_refresh=token-b')).toBe(200);
   });
 });
