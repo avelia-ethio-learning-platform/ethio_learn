@@ -68,6 +68,8 @@ function setup(opts: { chapa?: unknown } = {}) {
       coupon_code: null,
       webhook_received_at: null,
       effects_completed_at: null,
+      verify_checked_at: null,
+      verify_attempts: 0,
       created_at: new Date(Date.now() - 10 * 60_000),
       ...over,
     };
@@ -919,6 +921,66 @@ describe('PaymentService.sweepPendingPayments', () => {
     await t.service.sweepPendingPayments();
 
     expect(t.chapa.verify.mock.calls).toEqual([['TX-PENDING'], ['TX-FAILED']]);
+  });
+});
+
+describe('PaymentService.sweepPendingPayments: turn order and the attempt cap (P1-19)', () => {
+  it('with 30 pending rows, two sweeps of 25 cover all 30, never-checked first, then oldest', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    for (let i = 0; i < 30; i++) {
+      t.seed({ id: `p${i}`, chapa_tx_ref: `TX-${i}`, created_at: new Date(Date.now() - (60 - i) * 60_000) });
+    }
+    t.chapa.verify.mockResolvedValue({ status: 'pending', amount: null, currency: null });
+
+    expect(await t.service.sweepPendingPayments()).toEqual({ checked: 25 });
+    expect(t.chapa.verify.mock.calls.map(([ref]: [string]) => ref)).toEqual(Array.from({ length: 25 }, (_, i) => `TX-${i}`));
+    t.chapa.verify.mockClear();
+
+    await t.service.sweepPendingPayments();
+    const second = t.chapa.verify.mock.calls.map(([ref]: [string]) => ref);
+    // The 5 never checked go first, then the least recently checked.
+    expect(second.slice(0, 5)).toEqual(['TX-25', 'TX-26', 'TX-27', 'TX-28', 'TX-29']);
+    expect(second.slice(5, 7)).toEqual(['TX-0', 'TX-1']);
+    expect(t.row('p29')).toMatchObject({ verify_attempts: 1, verify_checked_at: expect.any(Date) });
+    expect(t.row('p0').verify_attempts).toBe(2);
+  });
+
+  it('logs a row once when it reaches 30 checks, and never selects it again', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.seed({ verify_attempts: 29, verify_checked_at: new Date(Date.now() - 5 * 60_000) });
+    t.chapa.verify.mockResolvedValue({ status: 'pending', amount: null, currency: null });
+    const warn = jest.spyOn((t.service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn');
+
+    await t.service.sweepPendingPayments();
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify).toHaveBeenCalledTimes(1);
+    expect(t.row().verify_attempts).toBe(30);
+    expect(warn.mock.calls.filter(([m]) => /unverifiable after 30 checks/.test(m))).toHaveLength(1);
+  });
+
+  it('an unreachable Chapa stamps nothing', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.seed();
+    t.chapa.verify.mockRejectedValue(new ChapaUnavailableError());
+    await t.service.sweepPendingPayments();
+    expect(t.row()).toMatchObject({ verify_attempts: 0, verify_checked_at: null });
+  });
+});
+
+describe('PaymentService.completePendingEffects: order (N2)', () => {
+  it('orders by COALESCE(webhook_received_at, created_at): a row with no webhook time sorts by its creation', async () => {
+    const t = setup();
+    const ago = (min: number) => new Date(Date.now() - min * 60_000);
+    t.seed({ id: 'hooked-new', chapa_tx_ref: 'TX-1', status: PaymentStatus.CONFIRMED, webhook_received_at: ago(5), created_at: ago(30) });
+    t.seed({ id: 'unhooked-mid', chapa_tx_ref: 'TX-2', status: PaymentStatus.CONFIRMED, webhook_received_at: null, created_at: ago(10) });
+    t.seed({ id: 'hooked-old', chapa_tx_ref: 'TX-3', status: PaymentStatus.CONFIRMED, webhook_received_at: ago(20), created_at: ago(25) });
+
+    expect(await t.service.completePendingEffects()).toEqual({ completed: 3, failed: 0 });
+    expect(t.published('PaymentConfirmed').map(([, p]) => (p as { payment_id: string }).payment_id)).toEqual(['hooked-old', 'unhooked-mid', 'hooked-new']);
   });
 });
 

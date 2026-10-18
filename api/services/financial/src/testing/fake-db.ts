@@ -27,6 +27,7 @@ import {
  * store, so race tests should not make a transaction throw.
  */
 export type Row = Record<string, any>;
+type OrderValue = 'ASC' | 'DESC' | { direction: 'ASC' | 'DESC'; nulls?: 'FIRST' | 'LAST' };
 
 interface UniqueIndex {
   columns: string[];
@@ -100,17 +101,21 @@ export class FakeRepo {
     return this.violates(candidate) !== null;
   }
 
-  private select(opts: { where?: Row | Row[]; order?: Record<string, 'ASC' | 'DESC'>; take?: number } = {}): Row[] {
+  private select(opts: { where?: Row | Row[]; order?: Record<string, OrderValue>; take?: number } = {}): Row[] {
     let out = this.rows.filter((r) => matches(r, opts.where));
-    const order = Object.entries(opts.order ?? {});
+    const order = Object.entries(opts.order ?? {}).map(([key, v]) => {
+      const dir = typeof v === 'string' ? v : v.direction;
+      // Postgres: NULLS LAST for ASC, NULLS FIRST for DESC, unless `nulls` says otherwise.
+      const nullsFirst = typeof v === 'string' || !v.nulls ? dir === 'DESC' : v.nulls === 'FIRST';
+      return { key, dir, nullsFirst };
+    });
     if (order.length) {
       out = [...out].sort((a, b) => {
-        for (const [key, dir] of order) {
+        for (const { key, dir, nullsFirst } of order) {
           const [x, y] = [a[key], b[key]];
-          if (x === y) continue;
-          // Postgres: NULLS LAST for ASC, NULLS FIRST for DESC.
-          if (x == null) return dir === 'ASC' ? 1 : -1;
-          if (y == null) return dir === 'ASC' ? -1 : 1;
+          if (x === y || (x == null && y == null)) continue;
+          if (x == null) return nullsFirst ? -1 : 1;
+          if (y == null) return nullsFirst ? 1 : -1;
           return (x < y ? -1 : 1) * (dir === 'DESC' ? -1 : 1);
         }
         return 0;
@@ -121,10 +126,10 @@ export class FakeRepo {
 
   create = jest.fn((x: Row) => ({ ...x }));
   // `lock` (FOR UPDATE) is accepted and ignored: there is no isolation to model here.
-  find = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, 'ASC' | 'DESC'>; take?: number; lock?: unknown }) =>
+  find = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, OrderValue>; take?: number; lock?: unknown }) =>
     this.select(opts).map((r) => ({ ...r })),
   );
-  findOne = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, 'ASC' | 'DESC'> }) => {
+  findOne = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, OrderValue> }) => {
     const row = this.select(opts)[0];
     return row ? { ...row } : null;
   });

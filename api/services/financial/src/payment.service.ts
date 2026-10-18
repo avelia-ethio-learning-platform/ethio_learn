@@ -125,6 +125,8 @@ export interface WebhookOutcome {
 /** Re-publish confirmed payments whose access events weren't acknowledged, once they are this old. */
 const EFFECTS_RETRY_AFTER_MS = 60_000;
 const EFFECTS_BATCH = 50;
+/** The sweep stops checking a row after this many verifies (it is logged once, at the last). */
+const MAX_VERIFY_ATTEMPTS = 30;
 
 /** Purpose-based volume tiers for bulk purchases (seats → % off). Env-overridable. */
 export function bulkDiscountPercent(seats: number): number {
@@ -528,14 +530,21 @@ export class PaymentService {
    * pages is a duplicate purchase, a refund case); one reported unpaid or
    * still pending stays failed. A failed row with no checkout URL is never
    * selected: Chapa never opened its page, so it can't have been paid.
+   *
+   * Turn order (P1-19): the least recently checked rows first (never-checked
+   * ones before all), so a busy day can't starve older rows. Each verify
+   * answer stamps the row; after MAX_VERIFY_ATTEMPTS the row is logged once
+   * and left alone (the learner's reconcile still checks it).
    */
   async sweepPendingPayments(): Promise<{ checked: number }> {
     if (chapaMode() !== 'live') return { checked: 0 };
     const now = Date.now();
     const recent = Between(new Date(now - 24 * 3600_000), new Date(now - 60_000));
+    const turnOrder = { verify_checked_at: { direction: 'ASC', nulls: 'FIRST' }, created_at: 'ASC' } as const;
+    const unexhausted = LessThan(MAX_VERIFY_ATTEMPTS);
     const pending = await this.payments.find({
-      where: { status: PaymentStatus.PENDING, method: PaymentMethod.CHAPA, created_at: recent },
-      order: { created_at: 'DESC' },
+      where: { status: PaymentStatus.PENDING, method: PaymentMethod.CHAPA, created_at: recent, verify_attempts: unexhausted },
+      order: turnOrder,
       take: 25,
     });
     const failed = await this.payments.find({
@@ -545,8 +554,9 @@ export class PaymentService {
         chapa_tx_ref: Not(IsNull()),
         chapa_checkout_url: Not(IsNull()),
         created_at: recent,
+        verify_attempts: unexhausted,
       },
-      order: { created_at: 'DESC' },
+      order: turnOrder,
       take: 10,
     });
     let checked = 0;
@@ -554,6 +564,7 @@ export class PaymentService {
       try {
         const verification = await this.chapa.verify(payment.chapa_tx_ref);
         checked += 1;
+        await this.stampVerified(payment);
         await this.applyVerification(payment, verification, 'sweep');
       } catch (err) {
         if (err instanceof ChapaUnavailableError) {
@@ -564,6 +575,15 @@ export class PaymentService {
       }
     }
     return { checked };
+  }
+
+  /** The sweep's turn: one more verify of this row, now. Only the sweep job writes these (under its lease). */
+  private async stampVerified(payment: Payment): Promise<void> {
+    const attempts = (payment.verify_attempts ?? 0) + 1;
+    await this.payments.update({ id: payment.id }, { verify_checked_at: new Date(), verify_attempts: attempts });
+    if (attempts === MAX_VERIFY_ATTEMPTS) {
+      this.logger.warn(`payment ${payment.id} (${payment.chapa_tx_ref}) unverifiable after ${MAX_VERIFY_ATTEMPTS} checks; the sweep stops checking it`);
+    }
   }
 
   /**
@@ -802,14 +822,14 @@ export class PaymentService {
     let failed = 0;
     const cutoff = new Date(Date.now() - EFFECTS_RETRY_AFTER_MS);
     const pending = { status: PaymentStatus.CONFIRMED, effects_completed_at: IsNull() };
-    const rows = await this.payments.find({
-      where: [
-        { ...pending, webhook_received_at: LessThan(cutoff) },
-        { ...pending, webhook_received_at: IsNull(), created_at: LessThan(cutoff) },
-      ],
-      order: { webhook_received_at: 'ASC' },
-      take: EFFECTS_BATCH,
-    });
+    // Oldest first by COALESCE(webhook_received_at, created_at) (N2): the two kinds of row, each
+    // read in its own order from the partial index, merged here.
+    const [stamped, unstamped] = await Promise.all([
+      this.payments.find({ where: { ...pending, webhook_received_at: LessThan(cutoff) }, order: { webhook_received_at: 'ASC' }, take: EFFECTS_BATCH }),
+      this.payments.find({ where: { ...pending, webhook_received_at: IsNull(), created_at: LessThan(cutoff) }, order: { created_at: 'ASC' }, take: EFFECTS_BATCH }),
+    ]);
+    const since = (p: Payment) => (p.webhook_received_at ?? p.created_at).getTime();
+    const rows = [...stamped, ...unstamped].sort((a, b) => since(a) - since(b)).slice(0, EFFECTS_BATCH);
     for (const payment of rows) {
       try {
         await this.completeEffects(payment);
