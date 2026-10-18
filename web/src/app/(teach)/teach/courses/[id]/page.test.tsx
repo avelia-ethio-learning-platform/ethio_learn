@@ -38,6 +38,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/extract-text', () => ({ extractDocument: vi.fn(), textToBlocks: () => [] }));
 
 import { ConfirmProvider } from '@/components/confirm/ConfirmProvider';
+import { resetAuthForTests, setAuth } from '@/lib/auth-store';
 import ManageCoursePage from './page';
 import { resetLessonUploadsForTests } from './video-upload';
 import type { KnowledgeDoc, WorkingCourse } from './working';
@@ -120,12 +121,13 @@ beforeEach(() => {
   URL.createObjectURL = vi.fn(() => 'blob:probe');
   URL.revokeObjectURL = vi.fn();
   search.value = '';
-  localStorage.setItem('el_auth', JSON.stringify({ access_token: 't', user: { id: 'u1', name: 'Almaz', email: 'a@x.et', role: 'educator' } }));
+  setAuth({ access_token: 't', user: { id: 'u1', name: 'Almaz', email: 'a@x.et', role: 'educator' } });
 });
 afterEach(() => {
   vi.restoreAllMocks();
   cleanup();
   localStorage.clear();
+  resetAuthForTests();
   resetLessonUploadsForTests();
   uploads.length = 0;
   vi.unstubAllGlobals();
