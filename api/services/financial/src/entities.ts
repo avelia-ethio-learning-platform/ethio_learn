@@ -347,6 +347,11 @@ export type SponsorshipStatus = 'requested' | 'pending_payment' | 'pending_claim
 @Index('IDX_sponsorships_source_sponsor_id_created_at', ['source', 'sponsor_id', 'created_at'])
 @Index('IDX_sponsorships_source_recipient_user_id_created_at', ['source', 'recipient_user_id', 'created_at'])
 @Index('IDX_sponsorships_pay_request_organization_name_created_at', ['organization_name', 'created_at'], { where: `source = 'pay_request'` })
+// One live seat per email on a bulk purchase (assignSeats, P2-03).
+@Index('IDX_sponsorships_bulk_purchase_id_recipient_email_unique', ['bulk_purchase_id', 'recipient_email'], {
+  unique: true,
+  where: `bulk_purchase_id IS NOT NULL AND status <> 'cancelled'`,
+})
 export class Sponsorship {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -467,6 +472,8 @@ export type ReferralStatus = 'invited' | 'signed_up' | 'rewarded';
 @Entity({ name: 'referrals' })
 // One referral per referred account.
 @Index('IDX_referrals_referred_user_id_unique', ['referred_user_id'], { unique: true, where: 'referred_user_id IS NOT NULL' })
+// One invite per (referrer, email) (P2-03); a signup without an email is exempt.
+@Index('IDX_referrals_referrer_id_referred_email_unique', ['referrer_id', 'referred_email'], { unique: true, where: `referred_email <> ''` })
 // Daily caps per referrer and per invited email (lowercased on write).
 @Index('IDX_referrals_referrer_id_created_at', ['referrer_id', 'created_at'])
 @Index('IDX_referrals_referred_email_created_at', ['referred_email', 'created_at'])

@@ -44,6 +44,7 @@ function setup() {
     db.dataSource as never,
     bus as never,
     internal as never,
+    fakeOutbox(db.dataSource).outbox as never,
   );
   const payments = new PaymentService(db.repo(Payment) as never, chapa as never, bus as never, internal as never, growth, db.dataSource as never);
   const { outbox, committed, onEmit } = fakeOutbox(db.dataSource);
@@ -436,6 +437,33 @@ describe('Pay requests: a stale call never overwrites a paid request (P2-47)', (
     t.row().status = 'granted';
     await expect(t.sponsorships.payRequest(PAYER_B, 'TOKEN', {})).rejects.toThrow('This request has already been paid');
     expect(t.db.repo(Payment).rows).toEqual([]);
+  });
+});
+
+describe('SponsorshipService.assignSeats under concurrency (P2-03)', () => {
+  const buyer = { id: 'buyer', role: 'institution_admin', email: 'buyer@x.et' } as never;
+  const order = (t: ReturnType<typeof setup>, seats: number) =>
+    t.db.repo(BulkPurchase).rows.push({ id: 'bp-1', buyer_id: 'buyer', organization_name: 'Org', course_id: 'c1', course_title: 'Course', seats, status: 'active' });
+
+  it('two concurrent requests never exceed the seats', async () => {
+    const t = setup();
+    order(t, 2);
+    const results = await Promise.allSettled([
+      t.sponsorships.assignSeats(buyer, 'bp-1', ['a@x.et', 'b@x.et']),
+      t.sponsorships.assignSeats(buyer, 'bp-1', ['c@x.et', 'd@x.et']),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect(t.db.repo(Sponsorship).rows.filter((s) => s.bulk_purchase_id === 'bp-1')).toHaveLength(2);
+  });
+
+  it('one email in two concurrent requests gets one seat; the later request reports already_assigned', async () => {
+    const t = setup();
+    order(t, 5);
+    const [a, b] = await Promise.all([t.sponsorships.assignSeats(buyer, 'bp-1', ['dup@x.et']), t.sponsorships.assignSeats(buyer, 'bp-1', ['dup@x.et'])]);
+    expect([a.results[0].status, b.results[0].status].sort()).toEqual(['already_assigned', 'invited']);
+    expect([a.assigned, b.assigned].sort()).toEqual([0, 1]);
+    expect(t.db.repo(Sponsorship).rows.filter((s) => s.recipient_email === 'dup@x.et')).toHaveLength(1);
+    expect(t.committed.filter(([type]) => type === 'SponsorshipInvited')).toHaveLength(1);
   });
 });
 

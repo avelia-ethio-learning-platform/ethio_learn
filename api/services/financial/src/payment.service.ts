@@ -88,6 +88,12 @@ const SILENT_FAIL_REASONS: ReadonlySet<string> = new Set<CheckoutFailReason>(['s
 /** 409 for a checkout whose row a retry of the same purchase superseded before it could be returned. */
 const REPLACED_BY_RETRY = 'A newer checkout for this purchase replaced this one.';
 
+/** A wallet course purchase: guarded against a concurrent one (guardCoursePurchase). */
+const isWalletCoursePurchase = (input: SessionInput) => !!input.useWallet && input.purpose === PaymentPurpose.COURSE && !!input.courseId;
+
+/** How long a pending wallet row counts as a settlement in flight (it settles within its own request). */
+const WALLET_SETTLE_MS = 5 * 60_000;
+
 /** HH:MM in Addis Ababa, for "try again after" in a coupon refusal. */
 const HOLD_ENDS_AT = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Addis_Ababa', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
@@ -228,7 +234,8 @@ export class PaymentService {
       learner_id: input.payer.id,
       course_id: input.courseId ?? PLATFORM_PAYEE_ID,
       amount_etb: due.toFixed(2),
-      method: PaymentMethod.CHAPA,
+      // A wallet payment is a wallet row from the start, so a concurrent purchase's guard sees it (B1).
+      method: input.useWallet ? PaymentMethod.WALLET : PaymentMethod.CHAPA,
       status: PaymentStatus.PENDING,
       chapa_tx_ref: txRef,
       payee_id: input.payee.id,
@@ -240,7 +247,16 @@ export class PaymentService {
       discount_etb: quote.discount_etb.toFixed(2),
       coupon_code: quote.coupon?.code ?? null,
     });
-    const opened = quote.coupon ? await this.openCouponCheckout(input, quote, draft) : { payment: await this.payments.save(draft) };
+    const opened = quote.coupon
+      ? await this.openCouponCheckout(input, quote, draft)
+      : isWalletCoursePurchase(input)
+        ? {
+            payment: await this.dataSource.transaction(async (m) => {
+              await this.guardCoursePurchase(m, input);
+              return m.getRepository(Payment).save(draft);
+            }),
+          }
+        : { payment: await this.payments.save(draft) };
     if ('reused' in opened) return opened.reused;
     const { payment } = opened;
 
@@ -322,6 +338,7 @@ export class PaymentService {
     const holdMs = couponHoldMs();
     const superseded: Payment[] = [];
     const opened = await this.dataSource.transaction(async (m): Promise<{ payment: Payment } | { reused: SessionResult }> => {
+      if (isWalletCoursePurchase(input)) await this.guardCoursePurchase(m, input);
       const payments = m.getRepository(Payment);
       const coupon = await this.growth.lockCoupon(m, code);
       const unavailable = couponUnavailable(coupon);
@@ -374,6 +391,28 @@ export class PaymentService {
     const by = 'reused' in opened ? opened.reused.payment_id : opened.payment.id;
     for (const p of superseded) this.logger.log(`payment ${p.id} (${p.chapa_tx_ref}) marked failed via checkout (superseded by payment ${by})`);
     return opened;
+  }
+
+  /**
+   * Two wallet purchases of one course must charge once (P2-03, review B1). In the
+   * transaction that inserts the row (`m`): a transaction-scoped try-lock on
+   * (learner, course), then the checks on financial's own rows, so they don't wait
+   * for enrollment to have granted the first purchase:
+   *  - a confirmed course payment for it → 409 already owned;
+   *  - the lock held by another request, or a pending wallet payment for it from
+   *    the last few minutes (a settlement in flight) → 409 in progress.
+   * The caller then inserts its row as `wallet` on `m`, before the lock is released.
+   */
+  private async guardCoursePurchase(m: EntityManager, input: SessionInput): Promise<void> {
+    const [{ locked }]: { locked: boolean }[] = await m.query(`SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS locked`, [
+      `course-purchase:${input.payer.id}:${input.courseId}`,
+    ]);
+    const payments = m.getRepository(Payment);
+    const mine = { learner_id: input.payer.id, course_id: input.courseId!, purpose: PaymentPurpose.COURSE };
+    if (await payments.findOne({ where: { ...mine, status: PaymentStatus.CONFIRMED } })) throw new ConflictException('You already own this course.');
+    // A pending wallet row settles in the request that inserted it; one older than this is a crashed request's.
+    const inFlight = { ...mine, method: PaymentMethod.WALLET, status: PaymentStatus.PENDING, created_at: MoreThan(new Date(Date.now() - WALLET_SETTLE_MS)) };
+    if (!locked || (await payments.findOne({ where: inFlight }))) throw new ConflictException('A payment for this course is in progress.');
   }
 
   /** 400 naming the payer's own open checkout that holds the coupon, with its link when it has one. */

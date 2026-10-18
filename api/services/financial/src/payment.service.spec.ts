@@ -7,7 +7,7 @@ import { ChapaUnavailableError, MockChapaProvider } from './chapa.provider';
 import { Coupon, Payment, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
-import { fakeDb, Row, uniqueViolation } from './testing/fake-db';
+import { fakeDb, Row, uniqueViolation, fakeOutbox } from './testing/fake-db';
 
 const SECRET = 'test-webhook-secret-0123456789';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -47,6 +47,7 @@ function setup(opts: { chapa?: unknown } = {}) {
     db.dataSource as never,
     bus as never,
     internal as never,
+    fakeOutbox(db.dataSource).outbox as never,
   );
   const service = new PaymentService(db.repo(Payment) as never, chapa as never, bus as never, internal as never, growth, db.dataSource as never);
   const payments = db.repo(Payment);
@@ -1141,5 +1142,68 @@ describe('PaymentService: lookups fail closed (P1-18)', () => {
     expect(await t.service.handleWebhook(successBody, signed(successBody))).toEqual({ processed: true, reason: 'confirmed' });
     expect(t.published('PaymentConfirmed')[0][1]).toMatchObject({ payment_id: 'pay-1', learner_email: '' });
     expect(t.row().effects_completed_at).toBeInstanceOf(Date);
+  });
+});
+
+describe('PaymentService: two wallet purchases of one course charge once (P2-03, review B1)', () => {
+  const learner = { id: 'u1', role: 'learner', email: 'u1@x.et' } as never;
+  const refs = (t: ReturnType<typeof setup>) => {
+    let n = 0;
+    t.chapa.generateTxRef.mockImplementation(async () => `TX-W${++n}`);
+  };
+  const ten = (t: ReturnType<typeof setup>) =>
+    t.db.repo(Coupon).rows.push({ id: 'cp-1', code: 'TEN', kind: 'percent', value: '10', active: true, uses: 0, max_uses: null, expires_at: null, course_id: null });
+
+  it.each([
+    ['without a coupon', undefined],
+    ['with a coupon', 'ten'],
+  ])('%s: of two parallel wallet buys, one confirms and one is a 409, with one debit', async (_, coupon) => {
+    const t = setup();
+    refs(t);
+    if (coupon) ten(t);
+    await t.growth.credit('u1', 2000, 'topup', 'pay-0', 'Wallet top-up');
+
+    const results = await Promise.allSettled([
+      t.service.initiate(learner, 'c1', { use_wallet: true, coupon_code: coupon }),
+      t.service.initiate(learner, 'c1', { use_wallet: true, coupon_code: coupon }),
+    ]);
+
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(refused.reason.getStatus()).toBe(409);
+    expect(t.walletRows('purchase')).toHaveLength(1);
+    expect(t.payments.rows.filter((p) => p.status === PaymentStatus.CONFIRMED)).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('a wallet buy of a course already paid for is a 409, read from the ledger (not enrollment)', async () => {
+    const t = setup();
+    refs(t);
+    t.seed({ status: PaymentStatus.CONFIRMED, method: PaymentMethod.CHAPA });
+    await t.growth.credit('u1', 2000, 'topup', 'pay-0', 'Wallet top-up');
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).rejects.toThrow('You already own this course.');
+    expect(t.walletRows('purchase')).toHaveLength(0);
+  });
+
+  it('a wallet buy while another holds the lock is a 409 in progress, and the row is inserted as wallet inside the transaction', async () => {
+    const t = setup();
+    refs(t);
+    await t.growth.credit('u1', 2000, 'topup', 'pay-0', 'Wallet top-up');
+    t.db.heldLocks.add('course-purchase:u1:c1');
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).rejects.toThrow('A payment for this course is in progress.');
+    expect(t.payments.rows).toHaveLength(0);
+    t.db.heldLocks.clear();
+
+    const result = await t.service.initiate(learner, 'c1', { use_wallet: true });
+    expect(t.row(result.payment_id)).toMatchObject({ method: PaymentMethod.WALLET, status: PaymentStatus.CONFIRMED });
+  });
+
+  it('a failed wallet attempt (balance too low) does not block the next one', async () => {
+    const t = setup();
+    refs(t);
+    await t.growth.credit('u1', 100, 'topup', 'pay-0', 'Wallet top-up');
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).rejects.toThrow('is not enough');
+    await t.growth.credit('u1', 500, 'topup', 'pay-1', 'Wallet top-up');
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).resolves.toMatchObject({ confirmed: true });
   });
 });

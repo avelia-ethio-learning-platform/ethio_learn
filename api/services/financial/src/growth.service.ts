@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, MoreThan, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
-import { dailyCapExceeded, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, PeerNotFoundError, UserContext } from '@ethiopialearn/common';
+import { dailyCapExceeded, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, OutboxService, PeerNotFoundError, UserContext } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, ReferralInviteSentPayload, Role, WalletCreditedPayload } from '@ethiopialearn/contracts';
 import { Coupon, CouponKind, Payment, Referral, ReferralCode, Wallet, WalletTransaction, WalletTxKind } from './entities';
 
@@ -79,6 +79,7 @@ export class GrowthService {
     private readonly dataSource: DataSource,
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
+    private readonly outbox: OutboxService,
   ) {}
 
   // ---- Coupons -----------------------------------------------------------
@@ -513,17 +514,26 @@ export class GrowthService {
     const signupUrl = `${env('WEB_URL', 'http://localhost:3000')}/signup?ref=${code}${roleHint ? `&role=${roleHint}` : ''}`;
     let invited = 0;
     for (const email of candidates.slice(0, remaining)) {
-      await this.referrals.save(this.referrals.create({ referrer_id: ctx.id, referred_email: email, status: 'invited' }));
-      await this.bus.publish<ReferralInviteSentPayload>('ReferralInviteSent', {
-        referrer_id: ctx.id,
-        referrer_name: me.name || 'A friend',
-        to_email: email,
-        message: (message ?? '').slice(0, 500),
-        signup_url: signupUrl,
-        existing_user: false,
-        role_hint: roleHint,
+      // The row commits with its email (the outbox), and only an insert emails: a concurrent
+      // invite of the same address by this referrer hits the unique index and sends nothing.
+      const inserted = await this.outbox.transaction(async (m, emit) => {
+        const rows: unknown[] = await m.query(
+          `INSERT INTO ${this.referrals.metadata.tablePath} (referrer_id, referred_email, status) VALUES ($1, $2, 'invited') ON CONFLICT DO NOTHING RETURNING id`,
+          [ctx.id, email],
+        );
+        if (rows.length === 0) return false;
+        emit<ReferralInviteSentPayload>('ReferralInviteSent', {
+          referrer_id: ctx.id,
+          referrer_name: me.name || 'A friend',
+          to_email: email,
+          message: (message ?? '').slice(0, 500),
+          signup_url: signupUrl,
+          existing_user: false,
+          role_hint: roleHint,
+        });
+        return true;
       });
-      invited += 1;
+      if (inserted) invited += 1;
     }
     return { invited };
   }
@@ -616,15 +626,24 @@ export class GrowthService {
     return { state: 'pending', available_at: new Date(confirmedAt.getTime() + PURCHASE_CREDIT_HOLD_MS), payment_id: payment.id };
   }
 
+  /** The user's code, created on first use. Two concurrent first calls agree on one code (ON CONFLICT on user_id). */
   private async codeFor(userId: string): Promise<string> {
     const existing = await this.referralCodes.findOne({ where: { user_id: userId } });
     if (existing) return existing.code;
     for (let i = 0; i < 5; i++) {
       const code = randomCode(8);
-      if (!(await this.referralCodes.findOne({ where: { code } }))) {
-        await this.referralCodes.save(this.referralCodes.create({ user_id: userId, code }));
-        return code;
+      if (await this.referralCodes.findOne({ where: { code } })) continue;
+      try {
+        await this.dataSource.query(`INSERT INTO ${this.referralCodes.metadata.tablePath} (user_id, code) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING`, [
+          userId,
+          code,
+        ]);
+      } catch (err) {
+        if (isUniqueViolation(err)) continue; // another user took this code meanwhile
+        throw err;
       }
+      const mine = await this.referralCodes.findOne({ where: { user_id: userId } });
+      if (mine) return mine.code;
     }
     throw new Error('Could not allocate a referral code');
   }

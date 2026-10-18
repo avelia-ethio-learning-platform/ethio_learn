@@ -82,6 +82,7 @@ function setup(opts: Options = {}) {
     db.dataSource as never,
     bus as never,
     internal as never,
+    fakeOutbox(db.dataSource).outbox as never,
   );
   const { outbox, committed, onEmit } = fakeOutbox(db.dataSource);
   const service = new RefundService(refunds as never, payments as never, bus as never, internal as never, growth, outbox as never);
