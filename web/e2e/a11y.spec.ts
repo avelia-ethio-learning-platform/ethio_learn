@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { apiGet, authFile, BASE_URL, learnerCertificateUid, seedPassword, settle } from './support';
+import { expect, test, type APIRequestContext, type Page } from './test';
+import { apiGet, authFile, BASE_URL, firstCourseId, learnerCertificateUid, ownCourseId, seedPassword, settle } from './support';
 
 // Decision 12: zero serious or critical axe violations (WCAG 2.0/2.1 A and AA)
 // on the public, learner and account pages, in light and dark, at 1440 px.
@@ -180,6 +180,46 @@ for (const theme of THEMES) {
         for (const tab of ['coupons', 'wallet', 'broadcast']) {
           await scanVisit(page, `/admin?tab=${tab}`, theme);
         }
+      });
+    });
+
+    test.describe('educator pages', () => {
+      test.use({ storageState: authFile('educator') });
+
+      test('teach, new course, analytics, coupons', async ({ page }) => {
+        for (const path of ['/teach', '/teach/new', '/teach/analytics', '/teach/coupons']) {
+          await scanVisit(page, path, theme);
+        }
+      });
+
+      test('the editor of a draft', async ({ page, request }) => {
+        await scanVisit(page, `/teach/courses/${await ownCourseId(request)}`, theme);
+      });
+    });
+
+    test.describe('institution pages', () => {
+      test.use({ storageState: authFile('institution_admin') });
+
+      test('institution, review', async ({ page }) => {
+        for (const path of ['/institution', '/institution/review']) {
+          await scanVisit(page, path, theme);
+        }
+      });
+    });
+
+    test.describe('quality pages', () => {
+      test.use({ storageState: authFile('quality_officer') });
+
+      test('qa', async ({ page }) => {
+        await scanVisit(page, '/qa', theme);
+      });
+    });
+
+    test.describe('preview', () => {
+      test.use({ storageState: authFile('platform_admin') });
+
+      test('a seeded course as the admin sees it', async ({ page, request }) => {
+        await scanVisit(page, `/preview/${await firstCourseId(request)}`, theme);
       });
     });
 

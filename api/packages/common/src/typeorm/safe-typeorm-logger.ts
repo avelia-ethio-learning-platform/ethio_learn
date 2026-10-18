@@ -32,18 +32,18 @@ export class SafeTypeOrmLogger implements TypeOrmLogger {
     this.logger = new Logger(`TypeORM:${schema}`);
   }
 
-  /** `_parameters` is never printed: that's the point of this logger. */
-  logQuery(query: string, _parameters?: unknown[]): void {
+  /** TypeORM's parameters are left out of the signatures: never printed, the point of this logger. */
+  logQuery(query: string): void {
     if (this.enabled('query')) this.logger.log(sql(query));
   }
 
-  logQueryError(error: string | Error, query: string, _parameters?: unknown[]): void {
+  logQueryError(error: string | Error, query: string): void {
     if (!this.enabled('error')) return;
     const { code, constraint } = (typeof error === 'object' && error ? error : {}) as { code?: string; constraint?: string };
     this.logger.error(`query failed (${code ?? 'no code'}${constraint ? `, constraint ${constraint}` : ''}): ${sql(query)}`);
   }
 
-  logQuerySlow(time: number, query: string, _parameters?: unknown[]): void {
+  logQuerySlow(time: number, query: string): void {
     this.logger.warn(`slow query ${time} ms: ${sql(query)}`);
   }
 

@@ -292,9 +292,15 @@ export class NotificationService implements OnModuleInit {
         layout('Refund request declined', html`<p>Your refund request for "${p.course_title}" was declined (${p.reason}). Reply to this email if you believe this is a mistake.</p>`));
     });
 
-    this.bus.subscribe<CourseCompletedPayload>('CourseCompleted', (p) =>
-      this.deliver('CourseCompleted', p.learner_id, p.learner_email, `You finished ${p.course_title}!`,
-        layout('Course completed', html`<p>Well done ${p.learner_name} — you finished every lesson in "${p.course_title}".</p>`)));
+    // A completion commits even when auth or course was asleep, so its names and email
+    // can be blank (9b). A missing email is fetched; a failed fetch throws, and the bus retries.
+    this.bus.subscribe<CourseCompletedPayload>('CourseCompleted', async (p) => {
+      const user = p.learner_email ? null : await this.userInfo(p.learner_id);
+      const name = p.learner_name || user?.name;
+      const course = p.course_title ? html`"${p.course_title}"` : 'your course';
+      await this.deliver('CourseCompleted', p.learner_id, p.learner_email || user?.email || '', `You finished ${p.course_title || 'your course'}!`,
+        layout('Course completed', html`<p>Well done${name ? html` ${name}` : ''} — you finished every lesson in ${course}.</p>`));
+    });
 
     this.bus.subscribe<AssessmentResultPayload>('AssessmentFailed', async (p) => {
       await this.inbox({ user_id: p.learner_id, type: 'assessment', title: 'Assessment not passed', body: `Your ${p.assessment_type} for "${p.course_title}" scored ${p.score}.`, link: `/learn/${p.course_id}` });

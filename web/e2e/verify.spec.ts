@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { learnerCertificateUid } from './support';
 
 // P0-18: /verify takes a certificate ID; the footer links to it.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }));
@@ -36,5 +36,35 @@ describe('Teach analytics page', () => {
     expect(ids).toHaveLength(25);
     expect(ids[0]).toBe('c1');
     expect(ids[24]).toBe('c25');
+  });
+
+  it('shows the empty state, not a skeleton, when the educator has no courses', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/courses') return [];
+      return { total_gross_etb: 0, total_net_etb: 0, by_month: [], by_course: [] };
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TeachAnalyticsPage />
+      </QueryClientProvider>,
+    );
+    expect((await screen.findAllByText('Publish a course to see analytics')).length).toBe(2);
+    await screen.findByText('No revenue in the last 12 months');
+    expect(document.querySelector('.skeleton')).toBeNull();
+    expect(apiMock.mock.calls.some(([p]) => String(p).startsWith('/enrollments/analytics'))).toBe(false);
+  });
+
+  it('shows "Couldn\'t load" with Retry when the courses query fails', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/courses') throw new Error('boom');
+      return { total_gross_etb: 0, total_net_etb: 0, by_month: [], by_course: [] };
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TeachAnalyticsPage />
+      </QueryClientProvider>,
+    );
+    expect((await screen.findAllByText("Couldn't load your courses.")).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Retry' }).length).toBeGreaterThan(0);
   });
 });

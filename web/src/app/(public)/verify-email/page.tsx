@@ -22,7 +22,6 @@ function VerifyEmail() {
     const token = params.get('token');
     if (!token) {
       setState('error');
-      setError('Missing verification token.');
       return;
     }
     api(`/auth/verify-email?token=${encodeURIComponent(token)}`, { method: 'POST', auth: false })
@@ -47,10 +46,11 @@ function VerifyEmail() {
           <MailWarning className="h-6 w-6" />
         )
       }
-      title={state === 'working' ? 'Verifying…' : state === 'ok' ? 'Email verified' : 'Verification failed'}
+      title={state === 'working' ? t('verifying') : state === 'ok' ? t('email_verified') : t('verification_failed')}
     >
       <div className="text-center">
-        <FormStatus status={status} />
+        {/* No token: said here, in the reader's language (the API's own messages stay as sent). */}
+        <FormStatus status={params.get('token') ? status : { tone: 'error', text: t('missing_token') }} />
         {state === 'error' && (
           <div className="mt-5 space-y-4 text-left">
             <Field label={t('email')}>
@@ -68,7 +68,7 @@ function VerifyEmail() {
             </Field>
             <ResendVerification email={email} />
             <Link href="/login" className="btn-ghost block text-center">
-              Go to login
+              {t('go_to_login')}
             </Link>
           </div>
         )}

@@ -1,6 +1,4 @@
-/* Fonts: Inter for Latin UI + Noto Sans Ethiopic for Amharic (ግዕዝ) glyphs. */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@300;400;500;600;700;800&display=swap');
+/* Fonts: Inter and Noto Sans Ethiopic come from next/font (app/fonts.ts). */
 
 @tailwind base;
 @tailwind components;
@@ -370,6 +368,13 @@
     border: 1px solid var(--border);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
+  }
+  /* A button kept focusable while its request runs (aria-disabled plus a busy guard) still looks busy. */
+  [aria-disabled='true'].btn,
+  [aria-disabled='true'].btn-secondary,
+  [aria-disabled='true'].btn-danger,
+  [aria-disabled='true'].btn-ghost {
+    @apply cursor-not-allowed opacity-50;
   }
 }
 

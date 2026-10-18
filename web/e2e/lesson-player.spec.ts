@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './test';
 import { apiGet, authFile } from './support';
 
 // Phase 7b: the lesson player on a phone. Reuses the stored learner login.
@@ -49,7 +49,8 @@ test('Start lesson 1 gives the video a source, and Tab goes from the player cont
   await expect.poll(() => video.getAttribute('src')).toMatch(/^(https?:|blob:)/);
 
   // Previous / Mark complete / Next are the controls after the video; the lesson list follows them.
-  await page.getByRole('button', { name: 'Next' }).focus();
+  // Resuming a finished course opens its last lesson, where Next is disabled and can't take focus.
+  await page.getByRole('button', { name: /^(Previous|Mark complete|Next)$/ }).and(page.locator(':enabled')).last().focus();
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => !!document.activeElement?.closest('aside')), 'focus moved into the lesson list').toBe(true);
 });

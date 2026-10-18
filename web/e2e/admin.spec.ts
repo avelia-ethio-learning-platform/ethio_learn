@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { authFile, BASE_URL } from './support';
 
 test.use({ storageState: authFile('platform_admin') });

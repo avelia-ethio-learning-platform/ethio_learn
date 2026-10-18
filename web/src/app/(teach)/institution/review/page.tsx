@@ -6,6 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ClipboardList, Eye, GitCompareArrows, PartyPopper, Undo2, UserRound } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { categoryLabel, pricingLabel } from '@/lib/labels';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { CHIP_CLASS, diffChips, type RevisionDiffSummary } from '@/lib/qa';
@@ -36,7 +38,7 @@ function ReviewQueue() {
     queryKey: QUEUE_KEY,
     queryFn: () => api<InstitutionQueueRow[]>('/institution/review-queue'),
   });
-  const [msg, setMsg] = useState('');
+  const [status, setOk] = useFormStatus();
 
   return (
     <PageShell>
@@ -52,9 +54,7 @@ function ReviewQueue() {
             review; live courses stay unchanged until then.
           </p>
         </div>
-        <p aria-live="polite" className={msg ? 'badge-info w-fit !whitespace-normal !rounded-xl !px-4 !py-2 !text-sm' : 'sr-only'}>
-          {msg}
-        </p>
+        <FormStatus status={status} />
         {isLoading ? (
           <div className="space-y-4">
             <div className="skeleton h-40 w-full" />
@@ -72,7 +72,7 @@ function ReviewQueue() {
             <PartyPopper className="h-5 w-5 text-brand-500" /> Nothing awaiting your review.
           </div>
         ) : (
-          queue.map((row) => <ReviewRow key={row.revision_id ?? row.id} row={row} onDecided={setMsg} />)
+          queue.map((row) => <ReviewRow key={row.revision_id ?? row.id} row={row} onDecided={setOk} />)
         )}
       </div>
     </PageShell>
@@ -85,13 +85,13 @@ function ReviewRow({ row, onDecided }: { row: InstitutionQueueRow; onDecided: (m
   const uid = useId();
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clear] = useFormStatus();
   const isRevision = row.kind === 'revision' && !!row.revision_id;
   const chips = isRevision ? diffChips(row.diff_summary) : [];
 
   const decide = async (action: 'approve' | 'reject') => {
     setBusy(true);
-    setError('');
+    clear();
     try {
       // One endpoint for both: the server decides the course itself when it is in
       // institution review, otherwise its open update.
@@ -117,7 +117,7 @@ function ReviewRow({ row, onDecided }: { row: InstitutionQueueRow; onDecided: (m
           {isRevision && row.major && <span className="badge-warn">Major update</span>}
         </div>
         <span className="badge-neutral">
-          {row.category} · {row.pricing_type}
+          {categoryLabel(row.category)} · {pricingLabel(row.pricing_type)}
         </span>
       </div>
       <h2 id={`${uid}-title`} className="mt-3 break-words font-bold text-foreground">
@@ -181,11 +181,9 @@ function ReviewRow({ row, onDecided }: { row: InstitutionQueueRow; onDecided: (m
       {isRevision && (
         <p className="mt-2 text-xs text-gray-500">Sending an update back keeps the instructor&apos;s edits so they can fix and resubmit them.</p>
       )}
-      {error && (
-        <p role="alert" className="mt-3 text-sm font-medium text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
+      <div className="mt-3">
+        <FormStatus status={status} />
+      </div>
     </article>
   );
 }

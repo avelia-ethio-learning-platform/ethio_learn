@@ -1,3 +1,9 @@
+import { securityHeaders } from './src/lib/csp.mjs';
+import { assertSiteUrl } from './src/lib/site-url.mjs';
+
+// A production build without the real site URL would publish localhost canonicals.
+assertSiteUrl(process.env);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   poweredByHeader: false,
@@ -12,6 +18,12 @@ const nextConfig = {
   // that, so say which files the route needs (Docker standalone, Vercel).
   experimental: {
     outputFileTracingIncludes: { '/courses/[id]/opengraph-image': ['./src/assets/fonts/*.ttf'] },
+  },
+
+  // CSP and the other security headers on every response, from this build's env
+  // (src/lib/csp.mjs). Report-Only on Vercel production until CSP_ENFORCE=true.
+  async headers() {
+    return [{ source: '/:path*', headers: securityHeaders(process.env) }];
   },
 
   // Browsers still ask for /favicon.ico; serve the generated 32px icon.

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { authFile } from './support';
 
 // P0-11: no role sees a page or form the API will refuse.

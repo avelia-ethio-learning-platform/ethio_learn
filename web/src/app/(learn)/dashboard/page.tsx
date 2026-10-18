@@ -26,7 +26,8 @@ import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
 import { formatDate, formatETB } from '@/lib/format';
-import { refundRuleLabel, sentenceCase, statusLabel } from '@/lib/labels';
+import { sentenceCase } from '@/lib/labels';
+import { keyed } from '@/components/Localized';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
@@ -72,7 +73,7 @@ function LearnerDashboard() {
           </span>
         }
         title={t('my_learning')}
-        subtitle="Your courses, certificates, wallet and payments in one place."
+        subtitle={t('dashboard_subtitle')}
       />
       <PendingInvitesBanner />
 
@@ -91,9 +92,9 @@ function LearnerDashboard() {
               <span className="glass-secondary flex h-14 w-14 items-center justify-center rounded-2xl">
                 <BookOpen className="h-6 w-6 text-brand-500" />
               </span>
-              <p className="text-sm text-gray-500">You haven&apos;t enrolled in any course yet.</p>
+              <p className="text-sm text-gray-500">{t('no_enrollments')}</p>
               <Link href="/courses" className="btn mt-1">
-                Browse the catalog <ArrowRight className="h-4 w-4" />
+                {t('browse_the_catalog')} <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
           ) : (
@@ -101,7 +102,7 @@ function LearnerDashboard() {
               {enrollments.map((e) => (
                 <div key={e.id} className="card card-hover">
                   <div className="flex items-start justify-between gap-3">
-                    <h3 className="min-w-0 flex-1 font-semibold text-foreground">{e.course_title ?? 'Course'}</h3>
+                    <h3 className="min-w-0 flex-1 font-semibold text-foreground">{e.course_title ?? t('course_fallback')}</h3>
                     <StatusBadge status={e.entitlement_status} />
                   </div>
                   <div className="progress-track mt-4">
@@ -112,19 +113,19 @@ function LearnerDashboard() {
                     {e.completed_at && (
                       <>
                         {' · '}
-                        <PartyPopper className="mb-0.5 inline h-3.5 w-3.5" aria-hidden="true" /> finished
+                        <PartyPopper className="mb-0.5 inline h-3.5 w-3.5" aria-hidden="true" /> {t('finished')}
                       </>
                     )}
                     {e.source === 'sponsorship' && (
                       <>
                         {' · '}
-                        <Gift className="mb-0.5 inline h-3.5 w-3.5" aria-hidden="true" /> gifted
+                        <Gift className="mb-0.5 inline h-3.5 w-3.5" aria-hidden="true" /> {t('gifted')}
                       </>
                     )}
                   </p>
                   {e.entitlement_status === 'active' && (
                     <Link href={`/learn/${e.course_id}`} className="btn-secondary mt-4 inline-flex !px-3 !py-1.5 !text-xs">
-                      {e.completed_at ? 'Revisit' : t('continue_learning')} <ArrowRight className="h-3.5 w-3.5" />
+                      {e.completed_at ? t('revisit') : t('continue_learning')} <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                   )}
                 </div>
@@ -149,7 +150,7 @@ function LearnerDashboard() {
               <span className="glass-secondary flex h-14 w-14 items-center justify-center rounded-2xl">
                 <Award className="h-6 w-6 text-brand-500" />
               </span>
-              <p className="max-w-sm text-sm text-gray-500">Complete a course (and its assessments) to earn a verifiable certificate.</p>
+              <p className="max-w-sm text-sm text-gray-500">{t('certificates_empty')}</p>
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -162,10 +163,10 @@ function LearnerDashboard() {
                     </span>
                     {c.course_title}
                   </p>
-                  <p className="mt-2 text-xs text-gray-500">Issued {formatDate(c.issued_at, locale)}</p>
+                  <p className="mt-2 text-xs text-gray-500">{t('issued_on', { date: formatDate(c.issued_at, locale) })}</p>
                   <div className="mt-3 flex flex-wrap gap-3 text-xs">
                     <a className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:underline" href={c.verify_url}>
-                      <ExternalLink className="h-3.5 w-3.5" /> Public verification
+                      <ExternalLink className="h-3.5 w-3.5" /> {t('public_verification')}
                     </a>
                     <DownloadCert id={c.id} />
                   </div>
@@ -181,13 +182,13 @@ function LearnerDashboard() {
               <ReceiptText className="h-5 w-5 text-brand-500" /> {t('payment_history')}
             </h2>
             <div className="card text-sm">
-              {!payments?.length && <p className="py-2 text-gray-500">No payments yet.</p>}
+              {!payments?.length && <p className="py-2 text-gray-500">{t('no_payments')}</p>}
               <FormStatus status={refundStatus} />
               {payments?.map((p, i) => (
                 <div key={p.id} className="flex items-center justify-between gap-2 py-2.5" style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}>
                   <span className="min-w-0 flex-1 truncate text-foreground">
                     {p.course_title}
-                    {p.purpose && p.purpose !== 'course' && <span className="ml-1 text-xs text-gray-500">({sentenceCase(p.purpose).toLowerCase()})</span>}
+                    {p.purpose && p.purpose !== 'course' && <span className="ml-1 text-xs text-gray-500">({keyed(t, 'purpose_', p.purpose, sentenceCase(p.purpose).toLowerCase())})</span>}
                   </span>
                   <span className="shrink-0 font-medium text-foreground">
                     {formatETB(p.amount_etb, locale)}{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-700 dark:text-emerald-400">−{formatETB(p.discount_etb, locale)}</span>}
@@ -216,7 +217,7 @@ function LearnerDashboard() {
               <Undo2 className="h-5 w-5 text-brand-500" /> {t('refund_requests')}
             </h2>
             <div className="card text-sm">
-              {!refunds?.length && <p className="py-2 text-gray-500">No refund requests.</p>}
+              {!refunds?.length && <p className="py-2 text-gray-500">{t('no_refunds')}</p>}
               {refunds?.map((r, i) => (
                 <div key={r.id} className="flex items-center justify-between gap-2 py-2.5" style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}>
                   <span className="min-w-0 flex-1 truncate pr-2 text-foreground">{r.reason}</span>
@@ -233,7 +234,7 @@ function LearnerDashboard() {
 
 /** Invite friends: share link + email invites; rewards land in the wallet. */
 function ReferralCard() {
-  const { locale } = useT();
+  const { t, locale } = useT();
   const { data } = useQuery({ queryKey: ['referral'], queryFn: () => api<any>('/referrals/me') });
   const [emails, setEmails] = useState('');
   const [message, setMessage] = useState('');
@@ -247,9 +248,9 @@ function ReferralCard() {
       const res = await api<{ invited: number }>('/referrals/invite', { method: 'POST', body: { emails: list, message: message || undefined } });
       if (res.invited === 0) {
         // Nothing went out: a polite note, not a success.
-        setInfo('No new invitations sent: these people already have an account or were invited recently.');
+        setInfo(t('invite_none_sent'));
       } else {
-        setOk(`Sent ${res.invited} invitation${res.invited === 1 ? '' : 's'}.`);
+        setOk(res.invited === 1 ? t('invites_sent_one') : t('invites_sent', { n: res.invited }));
       }
       setEmails('');
     } catch (err) {
@@ -259,14 +260,14 @@ function ReferralCard() {
   return (
     <div className="card">
       <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
-        <Users className="h-4 w-4 text-brand-500" /> Invite &amp; earn
+        <Users className="h-4 w-4 text-brand-500" /> {t('invite_earn')}
       </p>
       <p className="mt-1 text-sm text-gray-600">
-        Get <b>{formatETB(data?.reward_etb ?? 50, locale)}</b> in your wallet when someone you invite makes their first purchase.
+        {t('invite_reward', { amount: formatETB(data?.reward_etb ?? 50, locale) })}
       </p>
       {data && (
         <div className="mt-3 flex gap-2">
-          <input readOnly aria-label="Your invite link" className="input flex-1 text-xs" value={data.share_url} onFocus={(e) => e.currentTarget.select()} />
+          <input readOnly aria-label={t('your_invite_link')} className="input flex-1 text-xs" value={data.share_url} onFocus={(e) => e.currentTarget.select()} />
           <button
             className="btn-secondary !px-3"
             onClick={async () => {
@@ -275,20 +276,20 @@ function ReferralCard() {
               setTimeout(() => setCopied(false), 1500);
             }}
           >
-            <Copy className="h-4 w-4" /> {copied ? 'Copied' : 'Copy'}
+            <Copy className="h-4 w-4" /> {copied ? t('copied') : t('copy')}
           </button>
         </div>
       )}
       <form onSubmit={invite} className="mt-3 space-y-2">
-        <Field label="Friends' email addresses">
+        <Field label={t('friends_emails')}>
           {(ids) => <input {...ids} className="input" placeholder="friend@example.com, another@example.com" value={emails} onChange={(e) => setEmails(e.target.value)} />}
         </Field>
-        <Field label="Personal note (optional)">
+        <Field label={t('personal_note')}>
           {(ids) => (
             <div className="flex gap-2">
-              <input {...ids} className="input flex-1" placeholder="Personal note (optional)" value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />
+              <input {...ids} className="input flex-1" placeholder={t('personal_note')} value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />
               <button className="btn !px-4" disabled={!emails.trim()}>
-                <Send className="h-4 w-4" /> Invite
+                <Send className="h-4 w-4" /> {t('invite')}
               </button>
             </div>
           )}
@@ -297,7 +298,7 @@ function ReferralCard() {
       </form>
       {data?.stats && (
         <p className="mt-3 text-xs text-gray-500">
-          {data.stats.signed_up + data.stats.rewarded} joined · {data.stats.rewarded} purchased · earned {formatETB(data.stats.earned_etb, locale)}
+          {t('referral_stats', { joined: data.stats.signed_up + data.stats.rewarded, purchased: data.stats.rewarded, earned: formatETB(data.stats.earned_etb, locale) })}
         </p>
       )}
     </div>
@@ -306,17 +307,18 @@ function ReferralCard() {
 
 /** Gifts given (with each recipient's progress — the parent / sponsor view), received, and my pay requests. */
 function SponsorshipsSection() {
+  const { t } = useT();
   const { data } = useQuery({ queryKey: ['sponsorships'], queryFn: () => api<any>('/sponsorships/mine') });
   if (!data || (!data.given?.length && !data.received?.length && !data.pay_requests?.length)) return null;
   return (
     <section className="animate-fade-in-up" style={{ animationDelay: '0.08s' }}>
       <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
-        <Gift className="h-5 w-5 text-brand-500" /> Gifts &amp; sponsored learning
+        <Gift className="h-5 w-5 text-brand-500" /> {t('gifts_title')}
       </h2>
       <div className="grid gap-4 md:grid-cols-2">
         {data.given?.length > 0 && (
           <div className="card text-sm">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Courses you paid for others</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">{t('gifts_given')}</p>
             <ul className="space-y-3">
               {data.given.map((s: any) => (
                 <li key={s.id}>
@@ -332,17 +334,17 @@ function SponsorshipsSection() {
                         <div className="progress-fill" style={{ width: `${s.progress.progress_percent}%` }} />
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
-                        {s.progress.progress_percent}% complete
+                        {t('n_complete', { n: s.progress.progress_percent })}
                         {s.progress.lessons_complete && (
                           <>
                             {' · '}
-                            <PartyPopper className="mb-0.5 inline h-3.5 w-3.5" aria-hidden="true" /> finished
+                            <PartyPopper className="mb-0.5 inline h-3.5 w-3.5" aria-hidden="true" /> {t('finished')}
                           </>
                         )}
                       </p>
                     </>
                   )}
-                  {s.status === 'pending_claim' && <p className="mt-1 text-xs text-gray-500">Waiting for them to sign up with that email.</p>}
+                  {s.status === 'pending_claim' && <p className="mt-1 text-xs text-gray-500">{t('waiting_signup')}</p>}
                 </li>
               ))}
             </ul>
@@ -350,15 +352,15 @@ function SponsorshipsSection() {
         )}
         {data.received?.length > 0 && (
           <div className="card text-sm">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Gifted to you</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">{t('gifted_to_you')}</p>
             <ul className="space-y-2">
               {data.received.map((s: any) => (
                 <li key={s.id} className="flex items-center justify-between gap-2">
                   <span className="min-w-0 truncate text-foreground">
-                    <b>{s.course_title}</b> from {s.organization_name || s.sponsor_name || 'a sponsor'}
+                    <b>{s.course_title}</b> {t('gift_from', { name: s.organization_name || s.sponsor_name || t('a_sponsor') })}
                   </span>
                   <Link href={`/learn/${s.course_id}`} className="btn-secondary !px-3 !py-1 !text-xs">
-                    Open
+                    {t('open')}
                   </Link>
                 </li>
               ))}
@@ -368,19 +370,19 @@ function SponsorshipsSection() {
         {data.pay_requests?.length > 0 && (
           <div className="card text-sm">
             <p className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500">
-              <HandCoins className="h-3.5 w-3.5" /> Payment requests you sent
+              <HandCoins className="h-3.5 w-3.5" /> {t('pay_requests_sent')}
             </p>
             <ul className="space-y-2">
               {data.pay_requests.map((s: any) => (
                 <li key={s.id} className="flex flex-wrap items-center justify-between gap-2">
                   <span className="min-w-0 truncate text-foreground">
-                    <b>{s.course_title}</b> · asked {s.asked}
+                    <b>{s.course_title}</b> · {t('asked_email', { email: s.asked })}
                   </span>
                   <span className="flex items-center gap-2">
                     <StatusBadge status={s.status === 'requested' ? 'pending' : s.status === 'granted' ? 'paid' : s.status} />
                     {s.status !== 'granted' && (
                       <button className="text-xs font-medium text-brand-600 hover:underline" onClick={() => navigator.clipboard?.writeText(s.pay_url)}>
-                        Copy link
+                        {t('copy_link')}
                       </button>
                     )}
                   </span>
@@ -395,6 +397,7 @@ function SponsorshipsSection() {
 }
 
 function DownloadCert({ id }: { id: string }) {
+  const { t } = useT();
   return (
     <button
       className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:underline"
@@ -403,7 +406,7 @@ function DownloadCert({ id }: { id: string }) {
         window.open(res.url, '_blank');
       }}
     >
-      <Download className="h-3.5 w-3.5" /> Download PDF
+      <Download className="h-3.5 w-3.5" /> {t('download_pdf')}
     </button>
   );
 }
@@ -419,27 +422,28 @@ function RefundButton({
   onStart: () => void;
   onOutcome: (outcome: { ok: string } | { error: string }) => void;
 }) {
-  const { locale } = useT();
+  const { t, locale } = useT();
   const ask = useConfirm();
   const queryClient = useQueryClient();
   const request = async () => {
     const answer = await ask({
-      title: `Request a refund for ${payment.course_title}?`,
-      body: `You paid ${formatETB(payment.amount_etb, locale)}. The refund rules decide whether it is approved, reviewed by our team, or declined.`,
-      confirmLabel: 'Request refund',
-      reason: { label: 'Why do you want a refund?', required: true, minLength: 5, maxLength: 500 },
+      title: t('refund_confirm_title', { course: payment.course_title }),
+      body: t('refund_confirm_body', { amount: formatETB(payment.amount_etb, locale) }),
+      confirmLabel: t('request_refund'),
+      reason: { label: t('refund_why'), required: true, minLength: 5, maxLength: 500 },
     });
     if (!answer) return;
     onStart();
     try {
       const res = await api<{ status: string; rule: string }>(`/refunds`, { method: 'POST', body: { payment_id: payment.id, reason: answer.reason } });
-      const why = refundRuleLabel(res.rule);
+      const why = keyed(t, 'refund_rule_', res.rule, '');
+      const status = keyed(t, 'status_', res.status, sentenceCase(res.status));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['refunds'] }),
         queryClient.invalidateQueries({ queryKey: ['payments'] }),
         queryClient.invalidateQueries({ queryKey: ['enrollments'] }),
       ]);
-      onOutcome({ ok: `Refund request for ${payment.course_title}: ${statusLabel(res.status).label}${why ? ` (${why})` : ''}.` });
+      onOutcome({ ok: why ? t('refund_outcome_why', { course: payment.course_title, status, why }) : t('refund_outcome', { course: payment.course_title, status }) });
     } catch (err) {
       onOutcome({ error: (err as Error).message });
     }
@@ -450,7 +454,7 @@ function RefundButton({
       disabled={disabled}
       onClick={request}
     >
-      <RotateCcw className="h-3 w-3" /> Refund
+      <RotateCcw className="h-3 w-3" /> {t('refund')}
     </button>
   );
 }

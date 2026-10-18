@@ -1,0 +1,52 @@
+# Weekly dependency updates, grouped so a week is a handful of PRs.
+# Majors of next, react and @nestjs/* wait for Phase 11c, which moves them with
+# the tests in place. The docker ecosystem keeps the digest-pinned base images current.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /api
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      nestjs: { patterns: ['@nestjs/*'] }
+      typeorm-pg: { patterns: ['typeorm', 'pg'] }
+      testing: { patterns: ['jest', 'ts-jest', '@types/jest'] }
+      minor-and-patch: { update-types: [minor, patch] }
+    ignore:
+      - dependency-name: '@nestjs/*'
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      next-react: { patterns: ['next', 'react', 'react-dom', 'eslint-config-next'] }
+      testing: { patterns: ['vitest', '@vitest/*', '@testing-library/*', '@playwright/test', 'happy-dom'] }
+      minor-and-patch: { update-types: [minor, patch] }
+    ignore:
+      - dependency-name: next
+        update-types: [version-update:semver-major]
+      - dependency-name: eslint-config-next
+        update-types: [version-update:semver-major]
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+      # ESLint 9+ needs eslint-config-next 15+, which needs Next 15 (11c).
+      - dependency-name: eslint
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directories: [/api, /web]
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    ignore:
+      # The digest and Node 22's minors only; a new Node major is a planned change.
+      - dependency-name: node
+        update-types: [version-update:semver-major]

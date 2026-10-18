@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 
 const { apiMock, uploads, FakeUpload } = vi.hoisted(() => {
   const uploads: Array<InstanceType<typeof FakeUpload>> = [];
@@ -24,6 +24,7 @@ vi.mock('@/lib/upload', async (importOriginal) => ({
   ResumableUpload: FakeUpload,
 }));
 
+import { ConfirmProvider } from '@/components/confirm/ConfirmProvider';
 import { RevisionPanel } from './revision-banner';
 import { LessonUploadsProvider, resetLessonUploadsForTests, UploadVideoButton } from './video-upload';
 import type { WorkingCourse, WorkingRevision } from './working';
@@ -154,15 +155,22 @@ describe('<RevisionPanel />', () => {
   });
 
   it('discards only after confirmation', async () => {
-    const confirmSpy = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
-    vi.stubGlobal('confirm', confirmSpy);
-    render(<RevisionPanel course={course()} onChanged={vi.fn()} />);
+    render(
+      <ConfirmProvider>
+        <RevisionPanel course={course()} onChanged={vi.fn()} />
+      </ConfirmProvider>,
+    );
+    const dialog = () => document.querySelector('dialog')!;
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    await flush();
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    await flush();
     expect(apiMock).not.toHaveBeenCalled();
     apiMock.mockResolvedValue({ discarded: true });
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
     await flush();
-    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Discard changes' }));
+    await flush();
     expect(apiMock).toHaveBeenCalledWith('/courses/c1/revisions/discard', { method: 'POST', body: undefined });
   });
 

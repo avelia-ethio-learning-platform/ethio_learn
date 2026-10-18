@@ -322,3 +322,29 @@ export function fakeDb() {
 
   return { repo, dataSource, heldLocks };
 }
+
+/**
+ * OutboxService over a fake db: `transaction` runs fn in the db's transaction,
+ * so its writes roll back on a throw, and the events it emits count as
+ * committed, in emit order, only when it resolves. Each emit calls `onEmit`
+ * inside the transaction; make it throw to fail one after its writes (as the
+ * real outbox's row insert can).
+ */
+export function fakeOutbox(dataSource: { transaction: <T>(fn: (m: any) => Promise<T>) => Promise<T> }) {
+  const committed: Array<[string, unknown]> = [];
+  const onEmit = jest.fn();
+  const outbox = {
+    transaction: jest.fn(async <T>(fn: (m: any, emit: (type: string, payload: unknown) => void) => Promise<T>): Promise<T> => {
+      const queued: Array<[string, unknown]> = [];
+      const result = await dataSource.transaction((m) =>
+        fn(m, (type, payload) => {
+          onEmit(type, payload);
+          queued.push([type, payload]);
+        }),
+      );
+      committed.push(...queued);
+      return result;
+    }),
+  };
+  return { outbox, committed, onEmit };
+}

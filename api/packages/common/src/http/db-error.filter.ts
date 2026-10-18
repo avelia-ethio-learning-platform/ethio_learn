@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, HttpStatus, Logger } from '@nestjs/common';
+import { ArgumentsHost, Catch, Logger } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
 import { QueryFailedError } from 'typeorm';
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { domMax, LazyMotion } from 'framer-motion';
 import { Header } from './Header';
 
 vi.mock('next/navigation', () => ({
@@ -17,9 +18,12 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 
 function renderHeader() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // As under Providers, with the animation features already loaded (and `strict`, so a stray motion.* fails here).
   return render(
     <QueryClientProvider client={client}>
-      <Header />
+      <LazyMotion features={domMax} strict>
+        <Header />
+      </LazyMotion>
     </QueryClientProvider>,
   );
 }

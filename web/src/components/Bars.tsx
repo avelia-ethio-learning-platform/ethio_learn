@@ -29,7 +29,9 @@ export function Bars({
   const max = Math.max(...data.map((d) => d.value));
   return (
     <ul aria-label={title} className="flex h-36 items-stretch gap-1.5">
-      {data.map((d) => {
+      {data.map((d, i) => {
+        // Below sm, twelve labels don't fit: every other month and only the tallest value are drawn.
+        const narrowHidden = data.length > 6 ? 'hidden sm:inline' : '';
         const first = new Date(`${d.label}-01T00:00:00Z`);
         const month = formatDate(first, locale, 'month');
         return (
@@ -38,14 +40,16 @@ export function Bars({
               {formatDate(first, locale, 'month-year')}: {format(d.value)}
             </span>
             <span aria-hidden="true" className="h-4 whitespace-nowrap text-xs font-semibold text-gray-600">
-              {d.value > 0 ? compact(d.value, locale) : ''}
+              <span className={d.value === max ? '' : narrowHidden}>{d.value > 0 ? compact(d.value, locale) : ''}</span>
             </span>
             <div aria-hidden="true" className="flex w-full flex-1 items-end">
               {d.value > 0 && <div className="w-full rounded-t-md bg-brand-500/80" style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }} />}
             </div>
             <span aria-hidden="true" className="text-xs leading-tight text-gray-500">
-              {month}
-              {d.label.endsWith('-01') && <span className="block text-center">{d.label.slice(0, 4)}</span>}
+              <span className={i % 2 && !d.label.endsWith('-01') ? narrowHidden : ''}>
+                {month}
+                {d.label.endsWith('-01') && <span className="block text-center">{d.label.slice(0, 4)}</span>}
+              </span>
             </span>
           </li>
         );

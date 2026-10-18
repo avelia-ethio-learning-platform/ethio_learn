@@ -26,9 +26,8 @@ interface SessionResult {
 }
 
 export function EnrollPanel({ courseId, pricingType, price }: { courseId: string; pricingType: string; price?: number | null }) {
-  const { locale } = useT();
+  const { t, locale } = useT();
   const { user, ready } = useAuth();
-  const { t } = useT();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [formStatus, , setError, clearStatus] = useFormStatus();
@@ -61,7 +60,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
   if (user.role !== 'learner') {
     return (
       <div className="mt-4 space-y-3">
-        <p className="text-sm text-gray-500">Log in as a learner to enroll.</p>
+        <p className="text-sm text-gray-500">{t('learner_only_enroll')}</p>
         {paid && <GiftForm courseId={courseId} amountDue={quote?.amount_due_etb ?? price ?? 0} walletBalance={wallet?.balance_etb ?? 0} coupon={quote?.code ?? ''} />}
       </div>
     );
@@ -124,13 +123,13 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
         <div className="flex gap-1 rounded-xl bg-brand-500/5 p-1 text-xs font-semibold">
           {(
             [
-              ['buy', 'Buy for me'],
-              ['gift', 'Gift it'],
-              ['ask', 'Ask someone to pay'],
+              ['buy', 'mode_buy'],
+              ['gift', 'mode_gift'],
+              ['ask', 'mode_ask'],
             ] as const
-          ).map(([m, label]) => (
+          ).map(([m, key]) => (
             <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className={`flex-1 rounded-lg px-2 py-1.5 transition ${mode === m ? 'bg-card text-brand-700 shadow-sm' : 'text-gray-500 hover:text-foreground'}`}>
-              {label}
+              {t(key)}
             </button>
           ))}
         </div>
@@ -140,19 +139,19 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
         <>
           {paid && (
             <div>
-              <Field label="Coupon code" error={couponError}>
+              <Field label={t('coupon_code')} error={couponError}>
                 {(ids) => (
                   <div className="flex gap-2">
-                    <input {...ids} className="input flex-1 uppercase" placeholder="Coupon code" value={coupon} onChange={(e) => setCoupon(e.target.value)} onBlur={applyCoupon} />
+                    <input {...ids} className="input flex-1 uppercase" placeholder={t('coupon_code')} value={coupon} onChange={(e) => setCoupon(e.target.value)} onBlur={applyCoupon} />
                     <button type="button" className="btn-secondary !px-3" onClick={applyCoupon}>
-                      <Ticket className="h-4 w-4" /> Apply
+                      <Ticket className="h-4 w-4" /> {t('apply')}
                     </button>
                   </div>
                 )}
               </Field>
               {quote?.code && (
                 <p className="mt-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                  {quote.description} — you pay <b>{formatETB(quote.amount_due_etb, locale)}</b> instead of {formatETB(quote.list_price_etb, locale)}
+                  {quote.description} — {t('coupon_pay_instead', { due: formatETB(quote.amount_due_etb, locale), list: formatETB(quote.list_price_etb, locale) })}
                 </p>
               )}
             </div>
@@ -160,7 +159,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
           <button data-primary-action="enroll" className="btn w-full !py-3" onClick={() => enroll(false)} disabled={busy}>
             {busy ? (
               <>
-                <LoaderCircle className="h-4 w-4 animate-spin" /> Please wait…
+                <LoaderCircle className="h-4 w-4 animate-spin" /> {t('please_wait')}
               </>
             ) : !paid ? (
               <>
@@ -168,7 +167,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
               </>
             ) : amountDue <= 0 ? (
               <>
-                <Ticket className="h-4 w-4" /> Enroll free with coupon
+                <Ticket className="h-4 w-4" /> {t('enroll_free_coupon')}
               </>
             ) : (
               <>
@@ -179,13 +178,13 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
           </button>
           {canUseWallet && (
             <button className="btn-secondary w-full !py-2.5" onClick={() => enroll(true)} disabled={busy}>
-              <Wallet className="h-4 w-4" /> Pay {formatETB(amountDue, locale)} from my wallet ({formatETB(wallet?.balance_etb ?? 0, locale)} available)
+              <Wallet className="h-4 w-4" /> {t('pay_from_wallet_available', { amount: formatETB(amountDue, locale), balance: formatETB(wallet?.balance_etb ?? 0, locale) })}
             </button>
           )}
           {paid && !canUseWallet && (wallet?.balance_etb ?? 0) > 0 && (
-            <p className="text-center text-xs text-gray-500">Wallet balance {formatETB(wallet?.balance_etb ?? 0, locale)} — top up from your dashboard to pay with credits.</p>
+            <p className="text-center text-xs text-gray-500">{t('wallet_top_up_hint', { balance: formatETB(wallet?.balance_etb ?? 0, locale) })}</p>
           )}
-          {pricingType === 'freemium' && <p className="text-xs text-gray-500">The first section is free to preview — buy to unlock everything.</p>}
+          {pricingType === 'freemium' && <p className="text-xs text-gray-500">{t('freemium_hint')}</p>}
         </>
       )}
 
@@ -199,7 +198,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
 
 /** Buy this course for someone else — by email; they get it instantly (or on signup). */
 function GiftForm({ courseId, amountDue, walletBalance, coupon, compact = false }: { courseId: string; amountDue: number; walletBalance: number; coupon: string; compact?: boolean }) {
-  const { locale } = useT();
+  const { t, locale } = useT();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -230,28 +229,28 @@ function GiftForm({ courseId, amountDue, walletBalance, coupon, compact = false 
   if (!open) {
     return (
       <button className="btn-secondary w-full !py-2.5" onClick={() => setOpen(true)}>
-        <Gift className="h-4 w-4" /> Gift this course to someone
+        <Gift className="h-4 w-4" /> {t('gift_to_someone')}
       </button>
     );
   }
   return (
     <form onSubmit={(e) => submit(e, false)} className="glass-secondary space-y-2 rounded-xl p-3">
       <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-        <Gift className="h-4 w-4 text-brand-500" /> Gift this course
+        <Gift className="h-4 w-4 text-brand-500" /> {t('gift_this_course')}
       </p>
-      <Field label="Recipient's email">
-        {(ids) => <input {...ids} type="email" required className="input" placeholder="Recipient's email" value={email} onChange={(e) => setEmail(e.target.value)} />}
+      <Field label={t('recipient_email')}>
+        {(ids) => <input {...ids} type="email" required className="input" placeholder={t('recipient_email')} value={email} onChange={(e) => setEmail(e.target.value)} />}
       </Field>
-      <Field label="Message (optional)">
-        {(ids) => <textarea {...ids} className="input" rows={2} placeholder="A short message (optional)" value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />}
+      <Field label={t('message_optional')}>
+        {(ids) => <textarea {...ids} className="input" rows={2} placeholder={t('gift_message_placeholder')} value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />}
       </Field>
-      <p className="text-xs text-gray-500">If they don&apos;t have an account yet, we email them an invite and the course unlocks when they sign up with that address. You can follow their progress from your dashboard.</p>
+      <p className="text-xs text-gray-500">{t('gift_invite_info')}</p>
       <button className="btn w-full" disabled={busy || !email}>
-        {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} Pay {formatETB(amountDue, locale)} with Chapa
+        {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} {t('pay_with_chapa_amount', { amount: formatETB(amountDue, locale) })}
       </button>
       {walletBalance >= amountDue && amountDue > 0 && (
         <button type="button" className="btn-secondary w-full" disabled={busy || !email} onClick={(e) => submit(e, true)}>
-          <Wallet className="h-4 w-4" /> Pay from my wallet ({formatETB(walletBalance, locale)})
+          <Wallet className="h-4 w-4" /> {t('pay_from_wallet_balance', { balance: formatETB(walletBalance, locale) })}
         </button>
       )}
       <FormStatus status={status} />
@@ -261,6 +260,7 @@ function GiftForm({ courseId, amountDue, walletBalance, coupon, compact = false 
 
 /** Send a payment request to a parent, employer or friend — they pay, you get access. */
 function AskToPayForm({ courseId }: { courseId: string }) {
+  const { t } = useT();
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -273,7 +273,7 @@ function AskToPayForm({ courseId }: { courseId: string }) {
     clearStatus();
     try {
       setDone(await api<{ pay_url: string }>('/pay-requests', { method: 'POST', body: { course_id: courseId, payer_email: email, message: message || undefined } }));
-      setOk(`Request sent. We emailed ${email}.`);
+      setOk(t('request_sent', { email }));
     } catch (err) {
       setError((err as Error).message);
     }
@@ -284,22 +284,22 @@ function AskToPayForm({ courseId }: { courseId: string }) {
     <div className="space-y-2">
       {done ? (
         <div className="glass-secondary space-y-2 rounded-xl p-3 text-sm">
-          <p className="text-gray-600">You&apos;ll get access the moment they pay. You can also share this link directly:</p>
-          <input readOnly aria-label="Payment link" className="input text-xs" value={done.pay_url} onFocus={(e) => e.currentTarget.select()} />
+          <p className="text-gray-600">{t('ask_access_info')}</p>
+          <input readOnly aria-label={t('payment_link')} className="input text-xs" value={done.pay_url} onFocus={(e) => e.currentTarget.select()} />
         </div>
       ) : (
         <form onSubmit={submit} className="glass-secondary space-y-2 rounded-xl p-3">
           <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <HandCoins className="h-4 w-4 text-brand-500" /> Ask someone to pay for you
+            <HandCoins className="h-4 w-4 text-brand-500" /> {t('ask_title')}
           </p>
-          <Field label="Their email">
-            {(ids) => <input {...ids} type="email" required className="input" placeholder="Their email (parent, employer, friend…)" value={email} onChange={(e) => setEmail(e.target.value)} />}
+          <Field label={t('their_email')}>
+            {(ids) => <input {...ids} type="email" required className="input" placeholder={t('their_email_placeholder')} value={email} onChange={(e) => setEmail(e.target.value)} />}
           </Field>
-          <Field label="Message (optional)">
-            {(ids) => <textarea {...ids} className="input" rows={2} placeholder="Why this course matters to you (optional)" value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />}
+          <Field label={t('message_optional')}>
+            {(ids) => <textarea {...ids} className="input" rows={2} placeholder={t('ask_message_placeholder')} value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />}
           </Field>
           <button className="btn w-full" disabled={busy || !email}>
-            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <HandCoins className="h-4 w-4" />} Send payment request
+            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <HandCoins className="h-4 w-4" />} {t('send_payment_request')}
           </button>
         </form>
       )}

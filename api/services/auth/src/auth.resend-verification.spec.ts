@@ -77,14 +77,24 @@ function setup(opts: { user?: Row | null; sentAgo?: number[]; publishFails?: boo
       if (opts.publishFails) throw new Error('broker unreachable');
     }),
   };
-  const svc = new AuthService(users as never, verifications as never, {} as never, {} as never, bus as never, dataSource as never);
+  // Signup emits through the outbox (Phase 9b): its events land here when the transaction resolves.
+  const outboxEvents: Array<{ type: string; payload: Row }> = [];
+  const outbox = {
+    transaction: jest.fn(async (fn: (m: typeof manager, emit: (type: string, payload: Row) => void) => Promise<unknown>) => {
+      const queued: Array<{ type: string; payload: Row }> = [];
+      const result = await fn(manager, (type, payload) => queued.push({ type, payload }));
+      outboxEvents.push(...queued);
+      return result;
+    }),
+  };
+  const svc = new AuthService(users as never, verifications as never, {} as never, {} as never, bus as never, dataSource as never, outbox as never);
   (svc as unknown as { redis: { disconnect?: () => void } }).redis.disconnect?.();
   const logger = (svc as unknown as { logger: Logger }).logger;
   const logs = jest.spyOn(logger, 'log');
   const errors = jest.spyOn(logger, 'error');
   const logged = () => [...logs.mock.calls, ...errors.mock.calls].map(([line]) => String(line));
   const newRows = () => verificationRows.filter((r) => String(r.id).startsWith('v-new'));
-  return { svc, bus, calls, dataSource, newRows, logged };
+  return { svc, bus, calls, dataSource, newRows, logged, outboxEvents };
 }
 
 describe('AuthService.resendVerification', () => {
@@ -144,12 +154,20 @@ describe('AuthService.resendVerification', () => {
     const resend = setup({ sentAgo: [120] });
     await resend.svc.resendVerification(EMAIL);
 
-    for (const [t, event] of [[signup, 'UserRegistered'], [resend, 'VerificationEmailRequested']] as const) {
-      const [row] = t.newRows();
+    const [signupRow] = signup.newRows();
+    const [resendRow] = resend.newRows();
+    for (const row of [signupRow, resendRow]) {
       expect(row.token).toMatch(/^[0-9a-f]{64}$/);
       expect(Math.abs(row.expires_at.getTime() - (Date.now() + 24 * 3600 * 1000))).toBeLessThan(5000);
-      expect(t.bus.publish).toHaveBeenCalledWith(event, expect.objectContaining({ verification_url: `http://localhost:3000/verify-email?token=${row.token}` }));
     }
+    // Signup's event commits through the outbox; resend's goes on the bus.
+    expect(signup.outboxEvents).toEqual([
+      { type: 'UserRegistered', payload: expect.objectContaining({ verification_url: `http://localhost:3000/verify-email?token=${signupRow.token}` }) },
+    ]);
+    expect(resend.bus.publish).toHaveBeenCalledWith(
+      'VerificationEmailRequested',
+      expect.objectContaining({ verification_url: `http://localhost:3000/verify-email?token=${resendRow.token}` }),
+    );
   });
 
   it('locks the user row, counts and inserts inside the transaction, and publishes only after the commit', async () => {

@@ -59,6 +59,7 @@ function attemptStore(seed: Row[]) {
     },
     findOne: jest.fn(async (q: { where: Row; order?: Record<string, 'ASC' | 'DESC'> }) => select(q)[0] ?? null),
     find: jest.fn(async (q: { where: Row; order?: Record<string, 'ASC' | 'DESC'> }) => select(q)),
+    count: jest.fn(async (q: { where: Row }) => select(q).length),
     create: jest.fn((r: Row) => ({ proctor_log: [], flagged: false, terminated: false, ...r })),
     save: jest.fn(async (r: Row) => {
       if (!r.id) {
@@ -127,6 +128,28 @@ function attemptStore(seed: Row[]) {
   return repo;
 }
 
+/**
+ * outbox.transaction on the store's manager, so a throw rolls the rows back: emitted
+ * events "commit" only when the transaction does. `failInsert` makes the outbox insert
+ * at the end of the transaction fail, as a database error before commit would.
+ */
+function fakeOutbox(attempts: Row) {
+  const committed: Array<{ type: string; payload: Row }> = [];
+  const opts = { failInsert: false };
+  const outbox = {
+    transaction: jest.fn(async (fn: (m: unknown, emit: (type: string, payload: Row) => void) => Promise<unknown>) =>
+      attempts.manager.transaction(async (m: unknown) => {
+        const queued: Array<{ type: string; payload: Row }> = [];
+        const result = await fn(m, (type, payload) => queued.push({ type, payload }));
+        if (queued.length && opts.failInsert) throw new Error('outbox insert failed');
+        committed.push(...queued);
+        return result;
+      }),
+    ),
+  };
+  return { outbox, committed, opts };
+}
+
 function harness(type: AssessmentType, config: Row = {}, prior: Row[] = []) {
   const assessment = { id: 'as1', course_id: 'c1', type, pass_score: 50, config, is_required: true, state: 'live' };
   const attempts = attemptStore(
@@ -154,6 +177,8 @@ function harness(type: AssessmentType, config: Row = {}, prior: Row[] = []) {
     get: jest.fn(async (path: string) => {
       if (path.startsWith('/api/v1/internal/entitlements')) return { entitlement_status: 'active', enrollment_id: 'en1' };
       if (path.startsWith('/api/v1/internal/courses/')) return { title: 'Soil Science', owner_id: 'edu1', status: 'draft' };
+      if (path.startsWith('/api/v1/internal/users/')) return { name: 'Learner', email: 'l@x.et' };
+      if (path.startsWith('/api/v1/internal/educators/')) return { name: 'Educator' };
       throw new Error(`unexpected internal GET ${path}`);
     }),
   };
@@ -175,9 +200,11 @@ function harness(type: AssessmentType, config: Row = {}, prior: Row[] = []) {
       return `Generated question ${generated}?`;
     }),
   };
-  const svc = new AssessmentService(assessments as never, attempts as never, { publish: jest.fn() } as never, internal as never, storage as never);
+  const bus = { publish: jest.fn() };
+  const { outbox, committed, opts: outboxOpts } = fakeOutbox(attempts);
+  const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, storage as never, outbox as never);
   (svc as unknown as { ai: typeof ai }).ai = ai;
-  return { svc, attempts, assessments, storage, ai, outsideTx };
+  return { svc, attempts, assessments, storage, ai, outsideTx, bus, outbox, committed, outboxOpts };
 }
 
 const finished = (minutesAgo: number, passed: boolean | null = false): Row => ({
@@ -567,5 +594,46 @@ describe('submitAttempt(): a stale open row is refused', () => {
     const evaluate = evaluated(h);
     await h.svc.submitAttempt(learner, 'open', { answer: 'my answer' });
     expect(evaluate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('submitAttempt(): the graded result commits with its event (outbox, 9b)', () => {
+  /** An open viva graded at `score` (pass mark 50). Reads are copies, as from a real database. */
+  const viva = (score: number) => {
+    const h = harness(AssessmentType.AI_VIVA, {}, [{ id: 'open', detail: { question: 'Q?' } }]);
+    const live = h.attempts.findOne.getMockImplementation();
+    h.attempts.findOne.mockImplementation(async (q: Row) => structuredClone(await live(q)));
+    (h.svc as unknown as { ai: Row }).ai = { evaluateVivaAnswer: jest.fn(async () => ({ score, feedback: 'ok' })) };
+    return h;
+  };
+  const row = (h: ReturnType<typeof harness>) => h.attempts.rows.find((r: Row) => r.id === 'open');
+
+  it('a pass: the submitted attempt and AssessmentPassed commit in one outbox transaction', async () => {
+    const h = viva(90);
+    await h.svc.submitAttempt(learner, 'open', { answer: 'my answer' });
+    expect(h.outbox.transaction).toHaveBeenCalledTimes(1);
+    expect(row(h)).toMatchObject({ score: 90, passed: true, submitted_at: expect.any(Date) });
+    expect(h.committed).toEqual([
+      {
+        type: 'AssessmentPassed',
+        payload: expect.objectContaining({ attempt_id: 'open', learner_id: 'l1', learner_email: 'l@x.et', learner_name: 'Learner', course_title: 'Soil Science', educator_name: 'Educator', score: 90, passed: true }),
+      },
+    ]);
+    expect(h.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('a fail commits AssessmentFailed', async () => {
+    const h = viva(10);
+    await h.svc.submitAttempt(learner, 'open', { answer: 'my answer' });
+    expect(row(h)).toMatchObject({ score: 10, passed: false, submitted_at: expect.any(Date) });
+    expect(h.committed).toEqual([{ type: 'AssessmentFailed', payload: expect.objectContaining({ attempt_id: 'open', score: 10, passed: false }) }]);
+  });
+
+  it('an error before commit leaves neither: the attempt stays open and no event is committed', async () => {
+    const h = viva(90);
+    h.outboxOpts.failInsert = true;
+    await expect(h.svc.submitAttempt(learner, 'open', { answer: 'my answer' })).rejects.toThrow('outbox insert failed');
+    expect(row(h)).toMatchObject({ submitted_at: null, score: null, passed: null });
+    expect(h.committed).toEqual([]);
   });
 });

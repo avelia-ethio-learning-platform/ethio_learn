@@ -6,12 +6,11 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, FindOptionsWhere, In, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { EventBusService, InternalHttpClient, internalPath, runOnce, UserContext } from '@ethiopialearn/common';
+import { Emit, EventBusService, InternalHttpClient, internalPath, OutboxService, runOnce, UserContext } from '@ethiopialearn/common';
 import { AiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import {
   CourseAppealSubmittedPayload,
@@ -145,6 +144,7 @@ export class QualityService implements OnModuleInit {
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
     private readonly dataSource: DataSource,
+    private readonly outbox: OutboxService,
   ) {}
 
   onModuleInit() {
@@ -519,39 +519,25 @@ export class QualityService implements OnModuleInit {
     const trimmed = notes?.trim() ?? '';
     this.assertDecisionAllowed(item, action, trimmed);
 
-    const previous = {
-      status: item.status,
-      qo_id: item.qo_id,
-      coaching_notes: item.coaching_notes,
-      reviewed_at: item.reviewed_at,
-    };
     const decided = {
       status: DECISION_STATUS[action],
       qo_id: ctx.id,
       coaching_notes: trimmed,
       reviewed_at: new Date(),
     };
-    // Conditional write: of two officers deciding at once, exactly one wins and publishes.
-    await this.updateIfActionable(item.id, ctx.id, decided);
-    Object.assign(item, decided);
-
-    try {
-      await this.publishDecision(item, action, trimmed || null, ctx.id);
-    } catch (err) {
-      // The course only changes when it hears the decision. If the event never left, reopen
-      // the item so it can be decided again instead of showing as decided forever.
-      await this.reviewItems.update({ id: item.id, status: decided.status }, previous);
-      this.logger.error(`decision on item ${item.id} not published: ${(err as Error).message}`);
-      throw new ServiceUnavailableException(
-        'The decision could not be delivered to the course service, so nothing changed. Try again in a minute.',
-      );
-    }
-    return item;
+    // Conditional write: of two officers deciding at once, exactly one wins and emits. The
+    // decision commits with its event (the outbox), so the course hears it even when the
+    // broker is down at that moment: nothing to revert.
+    await this.outbox.transaction(async (m, emit) => {
+      await this.updateIfActionable(item.id, ctx.id, decided, m.getRepository(QaReviewItem));
+      this.emitDecision(emit, item, action, trimmed || null, ctx.id);
+    });
+    return Object.assign(item, decided);
   }
 
-  private async publishDecision(item: QaReviewItem, action: QaDecisionAction, notes: string | null, qoId: string) {
+  private emitDecision(emit: Emit, item: QaReviewItem, action: QaDecisionAction, notes: string | null, qoId: string) {
     if (item.kind === 'revision') {
-      await this.bus.publish<CourseRevisionReviewedPayload>('CourseRevisionReviewed', {
+      emit<CourseRevisionReviewedPayload>('CourseRevisionReviewed', {
         course_id: item.course_id,
         revision_id: item.revision_id as string, // presence checked in assertDecisionAllowed
         review_item_id: item.id,
@@ -567,7 +553,7 @@ export class QualityService implements OnModuleInit {
       });
       return;
     }
-    await this.bus.publish<CourseReviewedPayload>('CourseReviewed', {
+    emit<CourseReviewedPayload>('CourseReviewed', {
       course_id: item.course_id,
       action,
       notes,
@@ -613,8 +599,8 @@ export class QualityService implements OnModuleInit {
     }
   }
 
-  private async findItem(itemId: string): Promise<QaReviewItem> {
-    const item = await this.reviewItems.findOne({ where: { id: itemId } });
+  private async findItem(itemId: string, reviewItems: Repository<QaReviewItem> = this.reviewItems): Promise<QaReviewItem> {
+    const item = await reviewItems.findOne({ where: { id: itemId } });
     if (!item) throw new NotFoundException('Review item not found. Refresh the queue.');
     return item;
   }
@@ -634,11 +620,17 @@ export class QualityService implements OnModuleInit {
   /**
    * Applies `changes` only while the item is still open and unclaimed, claimed by this officer,
    * or its claim has lapsed — the same rule as assertActionable, enforced by the database so a
-   * concurrent claim or decision can't slip in between the read and the write.
+   * concurrent claim or decision can't slip in between the read and the write. A decision passes
+   * its transaction's repository, so the write and the re-read hold one connection.
    */
-  private async updateIfActionable(itemId: string, officerId: string, changes: ItemTransition) {
+  private async updateIfActionable(
+    itemId: string,
+    officerId: string,
+    changes: ItemTransition,
+    reviewItems: Repository<QaReviewItem> = this.reviewItems,
+  ) {
     const open = { id: itemId, status: In(OPEN_ITEM_STATUSES) };
-    const res = await this.reviewItems.update(
+    const res = await reviewItems.update(
       [
         { ...open, claimed_by: IsNull() },
         { ...open, claimed_by: officerId },
@@ -648,7 +640,7 @@ export class QualityService implements OnModuleInit {
     );
     if (res.affected) return;
     // Lost a race: re-read to report what changed.
-    this.assertActionable(await this.findItem(itemId), officerId);
+    this.assertActionable(await this.findItem(itemId, reviewItems), officerId);
     throw new ConflictException('This review changed while you were working on it. Refresh the queue and try again.');
   }
 
@@ -673,19 +665,20 @@ export class QualityService implements OnModuleInit {
     const existing = await this.courseReviews.findOne({ where: { course_id: courseId, learner_id: ctx.id } });
     if (existing) throw new BadRequestException('You already reviewed this course');
 
-    const review = await this.courseReviews.save(
-      this.courseReviews.create({ course_id: courseId, learner_id: ctx.id, rating, comment: comment ?? null }),
-    );
-
-    // Broadcast fresh aggregates so the course service can rank the catalog
-    // (event-carried state — no cross-schema reads at query time).
-    const all = await this.courseReviews.find({ where: { course_id: courseId } });
-    const totalPoints = all.reduce((s, r) => s + r.rating, 0);
-    await this.bus.publish<CourseRatedPayload>('CourseRated', {
-      course_id: courseId,
-      average_rating: Number((totalPoints / all.length).toFixed(2)),
-      rating_count: all.length,
-      total_points: totalPoints,
+    // The review commits with fresh aggregates for the course service to rank the catalog
+    // (event-carried state — no cross-schema reads at query time), in one outbox transaction.
+    const review = await this.outbox.transaction(async (m, emit) => {
+      const reviews = m.getRepository(CourseReview);
+      const saved = await reviews.save(reviews.create({ course_id: courseId, learner_id: ctx.id, rating, comment: comment ?? null }));
+      const all = await reviews.find({ where: { course_id: courseId } });
+      const totalPoints = all.reduce((s, r) => s + r.rating, 0);
+      emit<CourseRatedPayload>('CourseRated', {
+        course_id: courseId,
+        average_rating: Number((totalPoints / all.length).toFixed(2)),
+        rating_count: all.length,
+        total_points: totalPoints,
+      });
+      return saved;
     });
 
     const cache = await this.courseCache.findOne({ where: { course_id: courseId } });
@@ -746,46 +739,49 @@ export class QualityService implements OnModuleInit {
     const current = await this.trustTiers.findOne({ where: { educator_id: payeeId } });
     const previous = current?.tier ?? TrustTier.NEW;
     if (previous !== tier || !current) {
-      await this.trustTiers.save(this.trustTiers.create({ educator_id: payeeId, tier, computed_at: new Date() }));
-      if (previous !== tier) {
-        await this.bus.publish<TrustTierChangedPayload>('TrustTierChanged', {
-          educator_id: payeeId,
-          previous_tier: previous,
-          new_tier: tier,
-        });
-        this.logger.log(`trust tier ${payeeId}: ${previous} -> ${tier}`);
-      }
+      // The tier commits with its TrustTierChanged (the outbox). The event handlers call this
+      // after their runOnce returns, never inside it: an outbox transaction can't nest.
+      await this.outbox.transaction(async (m, emit) => {
+        const tiers = m.getRepository(EducatorTrustTier);
+        await tiers.save(tiers.create({ educator_id: payeeId, tier, computed_at: new Date() }));
+        if (previous !== tier) {
+          emit<TrustTierChangedPayload>('TrustTierChanged', { educator_id: payeeId, previous_tier: previous, new_tier: tier });
+        }
+      });
+      if (previous !== tier) this.logger.log(`trust tier ${payeeId}: ${previous} -> ${tier}`);
     }
   }
 
   // ---- Fraud signals (spec §10.6) ----
 
+  /**
+   * Opens a signal and commits its FraudFlagRaised with it (the outbox), so financial always
+   * hears it and holds the payee's payouts. At most one signal per subject and signal type is
+   * open (a partial unique index): a repeat, such as a redelivered event or two refund approvals
+   * running the same check, inserts nothing and emits nothing, and gets the open signal back.
+   * That signal's event committed with it.
+   */
   async raiseFraudSignal(input: {
     subject_type: FraudSubjectType;
     subject_id: string;
     signal_type: string;
     detail: string;
     payee_id?: string | null;
-  }) {
-    const signal = await this.fraudSignals.save(
-      this.fraudSignals.create({
-        subject_type: input.subject_type,
-        subject_id: input.subject_id,
-        signal_type: input.signal_type,
-        detail: input.detail,
-        payee_id: input.payee_id ?? null,
-        status: FraudSignalStatus.OPEN,
-      }),
-    );
-    await this.bus.publish<FraudFlagPayload>('FraudFlagRaised', {
-      flag_id: signal.id,
-      subject_type: signal.subject_type,
-      subject_id: signal.subject_id,
-      signal_type: signal.signal_type,
-      payee_id: signal.payee_id,
-      detail: signal.detail,
+  }): Promise<FraudSignal> {
+    return this.outbox.transaction(async (m, emit) => {
+      const signals = m.getRepository(FraudSignal);
+      const [signal]: FraudSignal[] = await m.query(
+        `INSERT INTO ${signals.metadata.tablePath} (subject_type, subject_id, signal_type, detail, payee_id, status)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING RETURNING *`,
+        [input.subject_type, input.subject_id, input.signal_type, input.detail, input.payee_id ?? null, FraudSignalStatus.OPEN],
+      );
+      if (!signal) {
+        const { subject_type, subject_id, signal_type } = input;
+        return signals.findOneOrFail({ where: { subject_type, subject_id, signal_type, status: FraudSignalStatus.OPEN } });
+      }
+      emit<FraudFlagPayload>('FraudFlagRaised', this.flagPayload(signal));
+      return signal;
     });
-    return signal;
   }
 
   async listFlags(status?: string) {
@@ -802,16 +798,24 @@ export class QualityService implements OnModuleInit {
     signal.status = FraudSignalStatus.RESOLVED;
     signal.resolved_at = new Date();
     signal.resolved_by = adminId;
-    await this.fraudSignals.save(signal);
-    await this.bus.publish<FraudFlagPayload>('FraudFlagResolved', {
+    // Financial releases the payee's held payouts on FraudFlagResolved, so it commits with the resolution.
+    await this.outbox.transaction(async (m, emit) => {
+      await m.getRepository(FraudSignal).save(signal);
+      emit<FraudFlagPayload>('FraudFlagResolved', this.flagPayload(signal));
+    });
+    return signal;
+  }
+
+  /** FraudFlagRaised and FraudFlagResolved. The FraudSignalDedupe migration builds the same shape in SQL. */
+  private flagPayload(signal: FraudSignal): FraudFlagPayload {
+    return {
       flag_id: signal.id,
       subject_type: signal.subject_type,
       subject_id: signal.subject_id,
       signal_type: signal.signal_type,
       payee_id: signal.payee_id,
       detail: signal.detail,
-    });
-    return signal;
+    };
   }
 
   // ---- Post-publish auto triggers (spec §8) ----
@@ -867,18 +871,14 @@ export class QualityService implements OnModuleInit {
       .andWhere("r.created_at > NOW() - INTERVAL '30 days'")
       .getCount();
     if (count > REFUND_ABUSE_COUNT) {
-      const open = await this.fraudSignals.findOne({
-        where: { subject_id: learnerId, signal_type: 'refund_abuse', status: FraudSignalStatus.OPEN },
+      // A learner who already has an open refund_abuse signal gets no second one (raiseFraudSignal).
+      await this.raiseFraudSignal({
+        subject_type: FraudSubjectType.USER,
+        subject_id: learnerId,
+        signal_type: 'refund_abuse',
+        detail: `${count} approved refunds in 30 days`,
+        payee_id: null,
       });
-      if (!open) {
-        await this.raiseFraudSignal({
-          subject_type: FraudSubjectType.USER,
-          subject_id: learnerId,
-          signal_type: 'refund_abuse',
-          detail: `${count} approved refunds in 30 days`,
-          payee_id: null,
-        });
-      }
     }
   }
 

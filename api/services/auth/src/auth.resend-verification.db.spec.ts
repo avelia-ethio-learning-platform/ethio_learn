@@ -66,6 +66,7 @@ describeWithDb('AuthService.resendVerification on Postgres (TEST_DATABASE_URL)',
       dataSource.getRepository(InstitutionInstructor),
       bus as never,
       dataSource,
+      {} as never, // the outbox: resend publishes on the bus
     );
     (svc as unknown as { redis: { disconnect(): void } }).redis.disconnect();
 

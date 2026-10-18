@@ -24,28 +24,32 @@ One plan, one branch and one PR per phase. Each phase runs through the team work
 | 5 | Web P0 fixes and a browser E2E harness | P0-09 (code part), P0-11 to P0-18, P1-30, P1-58 | M | impl / plan-review | done (#22) |
 | 6a | Security hardening I: platform | P0-19, P1-01, P1-05, P1-11, P1-13 | L | impl / review | done (#24) |
 | 6c | Money integrity II | P1-59, P1-60, P1-61, P1-62, P2-42, P2-46 | L | impl / review | done (#26) |
-| 6b | Security hardening II: learning integrity | P1-04, P1-09, P1-10 | L | impl / review | planned |
-| 6d | Money integrity III: pay-request writes, refunds of duplicate purchases | P1-63, P2-47, 6c review nits N1–N3 | L | impl / review | planned |
+| 6b | Security hardening II: learning integrity | P1-04, P1-09, P1-10 | L | impl / review | done (#28) |
+| 6d | Money integrity III: pay-request writes, refunds of duplicate purchases | P1-63, P2-47, 6c review nits N1–N3 | L | impl / review | done (#30) |
 | 7a | UI foundations and accessibility | P1-33, P1-37, P1-38, P1-40, P1-43, P1-45, P1-47 (bell panel), P1-48 to P1-52, P1-53 (titles, robots, site OG image), P1-54, P1-57, P2-23, P2-24, P2-27, P2-29 (shared chrome), P2-33, P2-40 | M (web only) | planner / plan-review | done (#25) |
 | 7b | Public and learner pages | P1-32, P1-34, P1-35, P1-36, P1-39, P2-22, P2-25, P2-30, P2-32, P2-35 | M (web and one auth endpoint) | planner / plan-review | done (#27) |
-| 8 | UI polish II: role dashboards (two PRs, 8a and 8b) | P1-41, P1-42, P1-44, P1-46, P1-47 (rest), the role-page parts of P1-43, P1-45 and P1-48, P2-38, P2-39, P2-41, member "Leave institution" | M | planner (8a), impl (8b) / plan-review | 8a in progress |
-| 9a | Event bus resilience and safe consumers | P1-15, P1-16, P1-20 | L | impl / review | planned |
-| 9b | Transactional outbox | P1-17 | L | impl / review | planned |
+| 8 | UI polish II: role dashboards (two PRs, 8a and 8b) | P1-41, P1-42, P1-44, P1-46, P1-47 (rest), the role-page parts of P1-43, P1-45 and P1-48, P2-38, P2-39, P2-41, member "Leave institution" | M | planner (8a), impl (8b) / plan-review | done (#29, #31) |
+| 9a | Event bus resilience and safe consumers | P1-15, P1-16, P1-20 | L | impl / review | done (#48) |
+| 9b | Transactional outbox | P1-17 | L | impl / review | done (#48) |
 | 9c | Outbound calls, scheduled jobs and status codes | P0-09 (ops part: jobs on sleeping instances), P1-18, P1-19, P1-23, P2-03 (rest), P2-15 | L | impl / review | planned |
 | 9d | Observability | P1-21, slow-query log parameters (Phase 2 review) | L | impl / review | planned |
 | 9e | Read paths | P1-22, P2-04 | L | impl / review | planned |
-| 10 | Security headers, performance, SEO and Amharic for new learners | P1-06, P1-53 (rest), P1-55, P1-56, P2-26, P2-28, P2-34 | M | impl / plan-review | planned |
-| 11a | CI/CD gates and repo hygiene | P0-09 (ops docs), P1-24, P1-26, P1-28, P2-16 to P2-21 | M | impl / plan-review | planned |
+| 10 | Security headers, performance, SEO and Amharic for new learners | P1-06, P1-53 (rest), P1-55, P1-56, P2-26, P2-28, P2-34 | M | impl / plan-review | done (#37) |
+| 11a | CI/CD gates and repo hygiene | P0-09 (ops docs), P1-24, P1-26, P1-28, P2-16 to P2-21 | M | impl / plan-review | done (#32) |
+| 11d | Contributor guide, features and roadmap, color system (docs) | user request (2026-10-03): collaboration guidelines, README, a features and roadmap doc, the color system | S (docs only) | planner / plan-review | done (#34) |
+| 7c | Color system in code: status tokens, contrast in both themes, guard tests | user request (2026-10-03): "the best" UI coloring; spec in `docs/COLOR_SYSTEM.md` | M (web only) | impl / plan-review | plan approved; starts after 10 is approved |
 | 11b | Auth transport and tests for the high-risk paths | P1-07, P1-29 | L | impl / review | planned |
 | 11c | Dependencies and Next 15 | P1-08 | M | impl / plan-review | planned |
 | 12a | Motion system, shared primitives, shell, Home and Explore | user request (2026-10-03): calmer, consistent motion and UI polish | M (web only) | impl / plan-review | planned |
 | 12b | Motion and polish: course page, checkout, learner path, certificates, dashboards | same request | M (web only) | impl / plan-review | planned |
+| 13 | Product gaps: exam room link, course comments, per-user read flags for role notifications, institution admins on `/teach`, course language, admin UI for API-only tools and a Messages link | user request (2026-10-18), from the known gaps in `docs/FEATURES_AND_ROADMAP.md` | M | impl / review | planned |
 
 The rows are in build order: 6c goes before 6b. When a phase merges, its row's status becomes `done (#PR)` and its `plan.md` status becomes `done`.
 
 Remaining P2s are picked up opportunistically inside the phase that touches the same files, or left for after launch.
 
 ## Change log
+- **2026-10-18:** phase 13 was added for the six product gaps, at the user's choice. It goes after 12b.
 - **2026-10-02:** the original phase 3 was split into 3 (access control, plus the exploitable web holes P0-01, P0-02 and P0-10, moved from the web P0 phase) and 4 (payment integrity). Reasons: a reviewable PR size, and the most exploitable holes first. The old phases 4–9 became 5 and 7–11.
 - **2026-10-02:** phase 6 was added for the security P1s: P1-01, P1-05 and P1-13 came out of the old phase 3, and P1-04, P1-09, P1-10 and P1-11 had no phase. It was split into 6a (platform) and 6b (learning integrity), because seven findings across every service would make one unreviewable PR.
 - **2026-10-02:** 6c was added for three money gaps found in the Phase 4 code review (P1-59, P1-60, P2-42), so Phase 4 didn't grow mid-review. P1-61, P1-62 and P2-46, found during 6a, joined it on 2026-10-03.
@@ -53,6 +57,10 @@ Remaining P2s are picked up opportunistically inside the phase that touches the 
 - **2026-10-02 and 2026-10-03:** for the same reason, phase 8 ships as two PRs (8a, 8b), phase 9 was split into 9a–9e and phase 11 into 11a–11c.
 - **2026-10-03:** 6a gained P0-19, found during Phase 5.
 - **2026-10-03:** 6d was added for two money gaps found in the Phase 6c code review (P1-63, P2-47) plus its three nits, so 6c didn't grow mid-review. It goes after 6b.
+- **2026-10-03:** 11d and 7c were added at the user's request.
+  - 11d is docs only: CONTRIBUTING, `docs/FEATURES_AND_ROADMAP.md`, `docs/COLOR_SYSTEM.md` and a README refresh. It goes after 11a, which rewrites the README and the deployment docs.
+  - 7c brings the web onto the color system. It runs after 10, because they touch the same pages, and before 12a, so the motion polish starts from the final colors.
+  - Their rows sit after 11a in this table. They run on the web track, in parallel with the backend phases 9a–9e.
 - **2026-10-03:** 7b merged (#27). The planner implements 8a in the web worktree while ethio-impl runs 6b and 6d.
 - **2026-10-03:** phase 12 (motion and UI polish, the user's request) was added after 11c, at the user's choice, so it builds on Phase 10's `LazyMotion` and 11c's Next 15 instead of redoing them. It ships as 12a and 12b, with a before/after for the user between them.
 

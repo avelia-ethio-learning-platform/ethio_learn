@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { findPrimaryAction, scrollBehavior, type PrimaryActionKind } from '@/lib/course-page';
 
 /**
@@ -13,7 +13,7 @@ import { findPrimaryAction, scrollBehavior, type PrimaryActionKind } from '@/lib
  * While visible it publishes its height as `--buy-bar-h`, which the page body and
  * the waking-up notice use to stay clear of it.
  */
-export function MobileBuyBar({ targetId, price }: { targetId: string; price: string }) {
+export function MobileBuyBar({ targetId, price }: { targetId: string; price: ReactNode }) {
   const [outOfView, setOutOfView] = useState(false);
   const [action, setAction] = useState<{ label: string; kind: PrimaryActionKind } | null>(null);
   const barRef = useRef<HTMLDivElement>(null);

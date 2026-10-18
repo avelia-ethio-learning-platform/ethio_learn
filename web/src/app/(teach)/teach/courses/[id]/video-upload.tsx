@@ -3,6 +3,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ImagePlus, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import {
   discardResumableUpload,
   fingerprintKey,
@@ -333,6 +334,7 @@ export function LessonUploadStatus({ lessonId }: { lessonId: string }) {
 /** "Unfinished upload: lecture3.mp4 · 62% · Resume (choose the same file) · Discard" */
 export function ResumeHints({ lessonId, disabled }: { lessonId: string; disabled: boolean }) {
   const { hints, uploads, start, discardHint } = useUploads();
+  const ask = useConfirm();
   const [error, setError] = useState('');
   const active = uploads[lessonId];
   const list = hints[lessonId] ?? [];
@@ -353,13 +355,16 @@ export function ResumeHints({ lessonId, disabled }: { lessonId: string; disabled
               accept={VIDEO_ACCEPT}
               className="sr-only"
               disabled={disabled}
-              onChange={(e) => {
+              onChange={async (e) => {
                 const file = e.target.files?.[0];
                 e.currentTarget.value = '';
                 if (!file) return;
                 if (
                   (file.name !== hint.fileName || file.size !== hint.size) &&
-                  !confirm(`That is not ${hint.fileName}, so it will upload from the start. Continue?`)
+                  !(await ask({
+                    title: `That is not ${hint.fileName}, so it will upload from the start. Continue?`,
+                    confirmLabel: 'Upload from the start',
+                  }))
                 ) {
                   return;
                 }
