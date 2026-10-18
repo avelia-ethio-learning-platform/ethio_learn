@@ -266,7 +266,7 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
           <h2 className="font-semibold">Project submissions awaiting review</h2>
           <ul className="mt-2 space-y-2 text-sm">
             {pendingProjects.map((p) => (
-              <li key={p.attempt_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
+              <li key={p.attempt_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 transition-colors duration-fast hover:bg-brand-500/5">
                 <span>Submitted {formatDate(p.submitted_at, locale, 'datetime')}</span>
                 <span className="flex gap-2">
                   {p.download_url && <a className="font-medium text-brand-600 hover:underline" href={p.download_url} target="_blank">Download</a>}

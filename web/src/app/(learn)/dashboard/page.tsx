@@ -98,7 +98,7 @@ function LearnerDashboard() {
               </Link>
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="fade-in grid gap-4 sm:grid-cols-2">
               {enrollments.map((e) => (
                 <div key={e.id} className="card card-hover">
                   <div className="flex items-start justify-between gap-3">

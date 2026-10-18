@@ -17,9 +17,9 @@ export function BackButton({ fallback = '/', label }: { fallback?: string; label
         if (typeof window !== 'undefined' && window.history.length > 1) router.back();
         else router.push(fallback);
       }}
-      className="group mb-6 inline-flex items-center gap-2 rounded-xl px-2 py-1 text-sm font-medium text-gray-500 transition-colors hover:text-brand-600"
+      className="group mb-6 inline-flex items-center gap-2 rounded-xl px-2 py-1 text-sm font-medium text-gray-500 transition-colors duration-fast hover:text-brand-600"
     >
-      <ArrowLeft className="h-4 w-4 transition-transform duration-200 group-hover:-translate-x-1" />
+      <ArrowLeft className="h-4 w-4 transition-transform duration-fast group-hover:-translate-x-1" />
       {label ?? t('back')}
     </button>
   );

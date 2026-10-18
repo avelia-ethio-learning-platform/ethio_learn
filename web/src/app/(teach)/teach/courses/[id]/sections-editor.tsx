@@ -159,7 +159,7 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
   };
 
   return (
-    <li className="rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-500/5">
+    <li className="rounded-lg px-2 py-1.5 transition-colors duration-fast hover:bg-brand-500/5">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="flex min-w-[10rem] flex-1 items-center gap-2">
           <Play aria-hidden className={`h-3.5 w-3.5 shrink-0 ${lesson.has_video ? 'text-brand-400' : 'text-gray-500'}`} />

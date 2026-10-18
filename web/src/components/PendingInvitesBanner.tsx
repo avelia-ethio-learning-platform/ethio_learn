@@ -21,7 +21,7 @@ export function PendingInvitesBanner() {
   return (
     <Link
       href="/account/invites"
-      className="card mb-6 flex items-center justify-between gap-3 !rounded-2xl !py-3 text-sm transition-colors hover:bg-brand-500/5"
+      className="card mb-6 flex items-center justify-between gap-3 !rounded-2xl !py-3 text-sm transition-colors duration-fast hover:bg-brand-500/5"
     >
       <span className="flex items-center gap-2 text-foreground">
         <MailOpen className="h-4 w-4 shrink-0 text-brand-500" /> {label}

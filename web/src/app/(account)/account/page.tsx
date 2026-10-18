@@ -192,7 +192,7 @@ function DangerZone({ role }: { role: string }) {
       <FormStatus status={status} />
       {!open ? (
         <button
-          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-danger-line px-4 py-2 text-sm font-semibold text-danger transition-colors hover:bg-danger-soft"
+          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-danger-line px-4 py-2 text-sm font-semibold text-danger transition-colors duration-fast hover:bg-danger-soft"
           onClick={() => setOpen(true)}
         >
           Delete my account…

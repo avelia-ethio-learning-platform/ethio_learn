@@ -28,7 +28,7 @@ export function Bars({
   if (data.every((d) => d.value <= 0)) return <EmptyRows label={empty} />;
   const max = Math.max(...data.map((d) => d.value));
   return (
-    <ul aria-label={title} className="flex h-36 items-stretch gap-1.5">
+    <ul aria-label={title} className="fade-in flex h-36 items-stretch gap-1.5">
       {data.map((d, i) => {
         // Below sm, twelve labels don't fit: every other month and only the tallest value are drawn.
         const narrowHidden = data.length > 6 ? 'hidden sm:inline' : '';

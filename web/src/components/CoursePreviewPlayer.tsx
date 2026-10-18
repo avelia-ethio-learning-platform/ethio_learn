@@ -78,9 +78,9 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
           <li key={l.id}>
             <button
               onClick={() => play(l)}
-              className="group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-brand-600 transition-colors hover:bg-brand-500/10"
+              className="group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-brand-600 transition-colors duration-fast hover:bg-brand-500/10"
             >
-              <PlayCircle className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
+              <PlayCircle className="h-4 w-4 shrink-0 transition-transform duration-fast group-hover:scale-110" />
               <span className="min-w-0 flex-1 truncate">{l.title}</span>
               <span className="max-w-[40%] shrink-0 truncate text-xs text-gray-500">({l.section})</span>
             </button>

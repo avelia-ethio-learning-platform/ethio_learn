@@ -136,7 +136,7 @@ function PaymentsTab() {
             <button
               type="button"
               aria-expanded={openId === p.id}
-              className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-brand-500/5"
+              className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2.5 text-left transition-colors duration-fast hover:bg-brand-500/5"
               onClick={() => setOpenId(openId === p.id ? null : p.id)}
             >
               <span className="min-w-0 flex-1">
@@ -148,7 +148,7 @@ function PaymentsTab() {
               <StatusBadge status={p.status} />
               <ChevronDown
                 aria-hidden="true"
-                className={`h-4 w-4 shrink-0 text-gray-500 transition-transform duration-200 ${openId === p.id ? 'rotate-180' : ''}`}
+                className={`h-4 w-4 shrink-0 text-gray-500 transition-transform duration-base ${openId === p.id ? 'rotate-180' : ''}`}
               />
             </button>
             {openId === p.id && (
@@ -311,7 +311,7 @@ function PayoutsTab() {
       <FormStatus status={status} />
       <div className="divide-y text-sm">
         {payouts?.map((p) => (
-          <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
+          <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors duration-fast hover:bg-brand-500/5">
             <span className="truncate pr-2 text-xs text-gray-500">{payeeName(p.payee_type, p.payee_id)}</span>
             <span className="font-medium text-foreground">net {formatETB(p.net_amount_etb, locale)}</span>
             <span className="flex items-center gap-2">
@@ -367,7 +367,7 @@ function RefundsTab() {
       <FormStatus status={status} />
       <div className="divide-y text-sm">
         {refunds?.map((r) => (
-          <div key={r.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
+          <div key={r.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors duration-fast hover:bg-brand-500/5">
             <span className="min-w-0 pr-2">
               {(r.course_title || r.amount_etb != null) && (
                 <span className="block truncate font-medium text-foreground">
@@ -428,7 +428,7 @@ function FraudTab() {
       <FormStatus status={status} />
       <div className="divide-y text-sm">
         {flags?.map((f) => (
-          <div key={f.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
+          <div key={f.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors duration-fast hover:bg-brand-500/5">
             <span>
               <strong>{fraudSignalLabel(f.signal_type)}</strong> on {fraudSubjectLabel(f.subject_type).toLowerCase()}{' '}
               <code className="text-xs">{f.subject_id.slice(0, 8)}</code>
@@ -517,7 +517,7 @@ function UsersTab() {
           // The API refuses a status change on your own account, so its buttons don't show.
           const isMe = u.id === me?.id;
           return (
-            <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
+            <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition-colors duration-fast hover:bg-brand-500/5">
               <span className="min-w-0">
                 <span className="text-foreground">{u.name}</span> <span className="text-gray-500">({u.email})</span>
                 <span className="badge-neutral ml-2">{roleLabel(u.role)}</span>
@@ -641,7 +641,7 @@ function CoursesTab() {
       <div className="divide-y text-sm">
         {!data?.length && <EmptyRows label="No courses match." />}
         {data?.map((c) => (
-          <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5">
+          <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors duration-fast hover:bg-brand-500/5">
             <span className="flex min-w-0 items-center gap-2 text-foreground"><span className="truncate">{c.title}</span> <StatusBadge status={c.status} /></span>
             <span className="flex shrink-0 gap-3 text-xs">
               {(c.status === 'published' || c.status === 'flagged') && (

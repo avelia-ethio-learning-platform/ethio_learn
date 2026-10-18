@@ -417,7 +417,7 @@ export function UploadVideoButton({ lessonId, hasVideo, disabled }: { lessonId: 
     <span className="inline-flex flex-col items-end">
       {/* Full-opacity text: at 70–90% opacity the link fell under 4.5:1 (axe). "replace" is quieter through its colour, not opacity. */}
       <label
-        className={`rounded-lg px-2 py-0.5 text-xs font-medium transition-all focus-within:ring-2 focus-within:ring-brand-500 ${
+        className={`rounded-lg px-2 py-0.5 text-xs font-medium transition-all duration-fast focus-within:ring-2 focus-within:ring-brand-500 ${
           hasVideo ? 'text-muted-foreground hover:text-brand-600' : 'text-brand-600'
         } ${disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-brand-500/10'}`}
       >
