@@ -1055,3 +1055,43 @@ describe('PaymentService.mockComplete', () => {
     await expect(t.service.mockComplete('TX-TEST', 'success')).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+describe('PaymentService: lookups fail closed (P1-18)', () => {
+  const learner = { id: 'u1', role: 'learner', email: 'u1@x.et' } as never;
+  const entitlementsDown = (t: ReturnType<typeof setup>) => {
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.includes('/entitlements')) throw new PeerUnavailableError();
+      return get(path);
+    });
+  };
+
+  it('checkout with the enrollment peer down is a 503 and writes no payment row', async () => {
+    const t = setup();
+    entitlementsDown(t);
+    await expect(t.service.initiate(learner, 'c1')).rejects.toBeInstanceOf(PeerUnavailableError);
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it('the abandoned-checkout nudge stops before claiming a row when ownership cannot be checked', async () => {
+    const t = setup();
+    t.seed({ created_at: new Date(Date.now() - 2 * 3600_000) });
+    entitlementsDown(t);
+    await expect(t.service.nudgeAbandonedCheckouts()).rejects.toBeInstanceOf(PeerUnavailableError);
+    expect(t.row().nudged_at ?? null).toBeNull();
+    expect(t.published('PaymentAbandoned')).toHaveLength(0);
+  });
+
+  it('with auth down, PaymentConfirmed (access) is still published, with a blank email for notification to look up', async () => {
+    const t = setup();
+    t.seed();
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.includes('/internal/users/')) throw new PeerUnavailableError();
+      return get(path);
+    });
+    expect(await t.service.handleWebhook(successBody, signed(successBody))).toEqual({ processed: true, reason: 'confirmed' });
+    expect(t.published('PaymentConfirmed')[0][1]).toMatchObject({ payment_id: 'pay-1', learner_email: '' });
+    expect(t.row().effects_completed_at).toBeInstanceOf(Date);
+  });
+});

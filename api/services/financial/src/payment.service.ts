@@ -1070,13 +1070,14 @@ export class PaymentService {
 
   // ---- helpers -----------------------------------------------------------
 
+  /**
+   * Whether the learner already has access. Fails closed (P1-18): a failed lookup
+   * throws the client's typed error (503 with Retry-After), never "not owned",
+   * which would open a second checkout for a course the learner has.
+   */
   private async ownsCourse(learnerId: string, courseId: string): Promise<boolean> {
-    try {
-      const e = await this.internal.get<{ entitlement_status: string }>(internalPath`/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`);
-      return e.entitlement_status === 'active';
-    } catch {
-      return false;
-    }
+    const e = await this.internal.get<{ entitlement_status: string }>(internalPath`/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`);
+    return e.entitlement_status === 'active';
   }
 
   publicView(p: Payment) {

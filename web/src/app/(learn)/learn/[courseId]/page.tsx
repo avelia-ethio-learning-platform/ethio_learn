@@ -22,6 +22,7 @@ import { LessonList } from './lesson-list';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { attachVideo } from '@/lib/video';
+import { percentLabel, percentWidth } from '@/lib/progress';
 
 interface Lesson {
   id: string;
@@ -113,7 +114,7 @@ function Player({ courseId }: { courseId: string }) {
   const { data: progress } = useQuery({
     queryKey: ['progress', enrollmentId],
     queryFn: () =>
-      api<{ completed_lessons: { lesson_id: string }[]; progress_percent: number; completed_at: string | null; changelog_seen_at: string | null }>(
+      api<{ completed_lessons: { lesson_id: string }[]; progress_percent: number | null; completed_at: string | null; changelog_seen_at: string | null }>(
         `/enrollments/${enrollmentId}/progress`,
       ),
     enabled: !!enrollmentId,
@@ -426,14 +427,14 @@ function Player({ courseId }: { courseId: string }) {
                 <span>
                   {/* Completion is permanent (the certificate stands), but an approved
                       course update can add lessons afterwards and pull the percentage below 100. */}
-                  {progress.completed_at && progress.progress_percent < 100
+                  {progress.completed_at && progress.progress_percent != null && progress.progress_percent < 100
                     ? `${progress.progress_percent}% complete — new lessons were added since you completed`
-                    : `${progress.progress_percent}% complete${progress.completed_at ? ' — course completed' : ''}`}
+                    : `${percentLabel(progress.progress_percent)} complete${progress.completed_at ? ' — course completed' : ''}`}
                 </span>
-                <span className="font-semibold text-brand-600">{progress.progress_percent}%</span>
+                <span className="font-semibold text-brand-600">{percentLabel(progress.progress_percent)}</span>
               </div>
               <div className="progress-track mt-2">
-                <div className="progress-fill" style={{ width: `${progress.progress_percent}%` }} />
+                <div className="progress-fill" style={{ width: percentWidth(progress.progress_percent) }} />
               </div>
             </div>
           )}

@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, MoreThan, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
-import { dailyCapExceeded, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { dailyCapExceeded, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, PeerNotFoundError, UserContext } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, ReferralInviteSentPayload, Role, WalletCreditedPayload } from '@ethiopialearn/contracts';
 import { Coupon, CouponKind, Payment, Referral, ReferralCode, Wallet, WalletTransaction, WalletTxKind } from './entities';
 
@@ -490,7 +490,10 @@ export class GrowthService {
       try {
         await this.internal.get(internalPath`/api/v1/internal/users/by-email/${email}`);
         continue; // an existing account: nothing to send
-      } catch {
+      } catch (err) {
+        // Only a 404 means "no account". Auth asleep or failing is the client's 503: an
+        // existing user must not be recorded as invited and emailed (6a review S3).
+        if (!(err instanceof PeerNotFoundError)) throw err;
         fresh.push(email);
       }
     }

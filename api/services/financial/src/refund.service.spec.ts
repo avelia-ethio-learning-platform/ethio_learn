@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { PeerUnavailableError } from '@ethiopialearn/common';
 import { EntitlementStatus, PaymentStatus, RefundStatus } from '@ethiopialearn/contracts';
 import { Coupon, Payment, Referral, ReferralCode, RefundRequest, Sponsorship, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
@@ -25,7 +26,8 @@ interface Options {
   noEnrollment?: boolean;
   /** The enrollment's entitlement; active unless set (refunded: a re-purchase whose grant isn't consumed yet). */
   entitlementStatus?: EntitlementStatus;
-  progress?: number;
+  /** null: enrollment couldn't reach the course service. */
+  progress?: number | null;
   certificateIssued?: boolean;
   assessmentPassed?: boolean;
 }
@@ -59,7 +61,7 @@ function setup(opts: Options = {}) {
           entitlement_status: opts.entitlementStatus ?? EntitlementStatus.ACTIVE,
           enrollment_id: 'e1',
           enrolled_at: ago((opts.enrolledDaysAgo ?? opts.confirmedDaysAgo ?? 1) * DAY).toISOString(),
-          progress_percent: opts.progress ?? 0,
+          progress_percent: opts.progress === undefined ? 0 : opts.progress,
         };
       }
       if (path.includes('/outcomes-status')) {
@@ -110,6 +112,14 @@ function setup(opts: Options = {}) {
 }
 
 describe('RefundService rule engine (spec §10.4)', () => {
+  it('unknown progress (null) is a 503 before any decision: never read as 0% and auto-approved (P1-18)', async () => {
+    const { service, payment, refunds, committed } = setup({ progress: null, confirmedDaysAgo: 2 });
+    await expect(service.request(ctx, 'pay-1', 'changed my mind')).rejects.toBeInstanceOf(PeerUnavailableError);
+    expect(refunds.rows).toHaveLength(0);
+    expect(committed).toHaveLength(0);
+    expect(payment()).toMatchObject({ status: PaymentStatus.CONFIRMED, refund_requested_at: null });
+  });
+
   it('auto-approves <20% progress within 7 days and revokes entitlement via RefundApproved', async () => {
     const { service, payment, published } = setup({ progress: 10, confirmedDaysAgo: 2 });
     const result = await service.request(ctx, 'pay-1', 'changed my mind');

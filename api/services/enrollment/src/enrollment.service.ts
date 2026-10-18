@@ -346,6 +346,7 @@ export class EnrollmentService implements OnModuleInit {
   private async announceMilestone(enrollment: Enrollment, learnerEmail: string) {
     if (enrollment.completed_at) return;
     const percent = await this.progressPercent(enrollment);
+    if (percent == null) return; // unknown now; the next lesson completion announces it
     const sent = enrollment.milestones_sent ?? [];
     const due = MILESTONES.filter((m) => percent >= m && !sent.includes(m));
     if (!due.length) return;
@@ -375,7 +376,7 @@ export class EnrollmentService implements OnModuleInit {
    * resets the ladder (see touch()).
    */
   @Cron('0 6 * * *')
-  async nudgeInactiveLearners(): Promise<void> {
+  async nudgeInactiveLearners(): Promise<{ sent: number }> {
     const inAppDays = envInt('INACTIVITY_DAYS', 7);
     const emailDays = envInt('INACTIVITY_EMAIL_DAYS', 14);
     const now = Date.now();
@@ -391,6 +392,13 @@ export class EnrollmentService implements OnModuleInit {
     });
     let sent = 0;
     for (const e of candidates) {
+      // Before the claim: with the course service unreachable the nudge would say "0% through",
+      // so the run ends here and the next one picks this row up again.
+      const progress = await this.progressPercent(e);
+      if (progress == null) {
+        this.logger.warn(`inactivity run stopped after ${sent} nudge(s): course progress unavailable`);
+        break;
+      }
       const since = e.last_activity_at ?? e.enrolled_at;
       const days = Math.floor((now - since.getTime()) / 86_400_000);
       const channel: 'in_app' | 'email' = e.nudge_level === 0 ? 'in_app' : 'email';
@@ -403,12 +411,13 @@ export class EnrollmentService implements OnModuleInit {
         course_id: e.course_id,
         course_title: cached?.title ?? 'your course',
         days_inactive: days,
-        progress_percent: await this.progressPercent(e),
+        progress_percent: progress,
         channel,
       });
       sent += 1;
     }
     if (sent) this.logger.log(`inactivity nudges published: ${sent}`);
+    return { sent };
   }
 
   // ---- Analytics ---------------------------------------------------------
@@ -430,11 +439,12 @@ export class EnrollmentService implements OnModuleInit {
       const rows = await this.enrollments.find({ where: { course_id: courseId } });
       const active = rows.filter((r) => r.entitlement_status === EntitlementStatus.ACTIVE);
       const completed = active.filter((r) => !!r.completed_at);
-      let lessonCount = 0;
+      // null: the course service can't be reached, so the average is unknown (not 0%).
+      let lessonCount: number | null;
       try {
         lessonCount = (await this.internal.get<{ lesson_ids: string[] }>(internalPath`/api/v1/internal/courses/${courseId}/lesson-ids`)).lesson_ids.length;
       } catch {
-        lessonCount = 0;
+        lessonCount = null;
       }
       // Lessons completed per enrollment in one grouped query (no N+1).
       const doneRows = active.length
@@ -447,9 +457,12 @@ export class EnrollmentService implements OnModuleInit {
             .getRawMany<{ enrollment_id: string; done: string }>()
         : [];
       const doneMap = new Map(doneRows.map((r) => [r.enrollment_id, Number(r.done)]));
-      const avgProgress = active.length && lessonCount
-        ? Math.round(active.reduce((s, r) => s + Math.min(100, ((doneMap.get(r.id) ?? 0) / lessonCount) * 100), 0) / active.length)
-        : 0;
+      const avgProgress =
+        lessonCount == null
+          ? null
+          : active.length && lessonCount
+            ? Math.round(active.reduce((s, r) => s + Math.min(100, ((doneMap.get(r.id) ?? 0) / lessonCount) * 100), 0) / active.length)
+            : 0;
 
       const week = Date.now() - 7 * 86_400_000;
       const month = Date.now() - 30 * 86_400_000;
@@ -781,18 +794,24 @@ export class EnrollmentService implements OnModuleInit {
     return true;
   }
 
-  private async progressPercent(enrollment: Enrollment): Promise<number> {
+  /**
+   * Percent of the course's current lessons completed, or null when the course
+   * service can't be reached (P1-18): "unknown", never a made-up 0%.
+   */
+  private async progressPercent(enrollment: Enrollment): Promise<number | null> {
+    let lessonIds: string[];
     try {
-      const { lesson_ids } = await this.internal.get<{ lesson_ids: string[] }>(
+      ({ lesson_ids: lessonIds } = await this.internal.get<{ lesson_ids: string[] }>(
         internalPath`/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`,
-      );
-      if (lesson_ids.length === 0) return 0;
-      // Only count lessons that still exist (an educator may have removed some).
-      const done = await this.progress.count({ where: { enrollment_id: enrollment.id, lesson_id: In(lesson_ids) } });
-      return Math.min(100, Math.round((done / lesson_ids.length) * 100));
-    } catch {
-      return 0;
+      ));
+    } catch (err) {
+      this.logger.warn(`progress of enrollment ${enrollment.id} unknown: ${(err as Error).message}`);
+      return null;
     }
+    if (lessonIds.length === 0) return 0;
+    // Only count lessons that still exist (an educator may have removed some).
+    const done = await this.progress.count({ where: { enrollment_id: enrollment.id, lesson_id: In(lessonIds) } });
+    return Math.min(100, Math.round((done / lessonIds.length) * 100));
   }
 
   private async ownerIdsFor(ctx: UserContext): Promise<string[]> {

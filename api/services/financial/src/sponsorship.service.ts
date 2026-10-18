@@ -566,13 +566,14 @@ export class SponsorshipService implements OnModuleInit {
   private async withProgress(rows: Sponsorship[]) {
     const out = [];
     for (const s of rows) {
-      let progress: { progress_percent: number; lessons_complete: boolean } | null = null;
+      // progress_percent null: enrollment couldn't reach the course service (shown as "—").
+      let progress: { progress_percent: number | null; lessons_complete: boolean } | null = null;
       if (s.status === 'granted' && s.recipient_user_id) {
         try {
-          const e = await this.internal.get<{ progress_percent: number; lessons_complete: boolean }>(
+          const e = await this.internal.get<{ progress_percent: number | null; lessons_complete: boolean }>(
             internalPath`/api/v1/internal/entitlements?learner_id=${s.recipient_user_id}&course_id=${s.course_id}`,
           );
-          progress = { progress_percent: e.progress_percent ?? 0, lessons_complete: !!e.lessons_complete };
+          progress = { progress_percent: e.progress_percent ?? null, lessons_complete: !!e.lessons_complete };
         } catch {
           progress = null;
         }

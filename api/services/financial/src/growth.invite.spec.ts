@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common';
+import { PeerAsleepError, PeerNotFoundError } from '@ethiopialearn/common';
 import { Coupon, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { fakeDb } from './testing/fake-db';
@@ -14,7 +15,7 @@ function setup() {
     get: jest.fn(async (path: string) => {
       const byEmail = /\/internal\/users\/by-email\/(.+)$/.exec(path);
       if (byEmail) {
-        if (!ACCOUNTS.has(decodeURIComponent(byEmail[1]))) throw new Error('404');
+        if (!ACCOUNTS.has(decodeURIComponent(byEmail[1]))) throw new PeerNotFoundError();
         return { id: 'someone', email: decodeURIComponent(byEmail[1]) };
       }
       return { email: 'me@x.et', name: 'Me' };
@@ -37,6 +38,17 @@ function setup() {
 }
 
 describe('GrowthService.invite', () => {
+  it('auth asleep: 503, with no referral row and no event (only a 404 means "no account")', async () => {
+    const t = setup();
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.includes('/by-email/')) throw new PeerAsleepError();
+      return { email: 'me@x.et', name: 'Me' };
+    });
+    await expect(t.svc.invite(ME, ['new1@x.et'], '', 'learner')).rejects.toBeInstanceOf(PeerAsleepError);
+    expect(t.rows()).toHaveLength(0);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
   const OLD_ENV = process.env.REFERRAL_INVITES_PER_DAY;
   afterEach(() => {
     if (OLD_ENV === undefined) delete process.env.REFERRAL_INVITES_PER_DAY;
