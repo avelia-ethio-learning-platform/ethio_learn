@@ -1,5 +1,5 @@
 import { expect, test } from './test';
-import { authFile } from './support';
+import { authFile, learnerCertificateUid } from './support';
 
 // P1-57: with reduced motion on, the hero heading is fully opaque at first
 // paint, not faded in after hydration.
@@ -131,4 +131,25 @@ test.describe('signed in as platform_admin', () => {
     await dialog.getByRole('button', { name: 'Cancel' }).click({ timeout: 1000 });
     await expect(dialog).toBeHidden();
   });
+});
+
+// Phase 12b: the payment-return states and the certificate page under reduced motion.
+test.describe('signed in as a learner, 12b', () => {
+  test.use({ storageState: authFile('learner') });
+
+  test('payment return: the confirmed state is at rest, and "Start learning" has focus', async ({ page }) => {
+    await page.route('**/api/v1/payments/reconcile', (route) => route.fulfill({ json: { status: 'confirmed' } }));
+    await page.goto('/payment/return?course_id=demo-course&tx_ref=demo-tx');
+    const start = page.getByRole('link', { name: 'Start learning' });
+    await expect(start).toBeFocused();
+    await expectAtRest(start.locator('xpath=..'));
+    await start.click({ timeout: 1000, trial: true });
+  });
+});
+
+test('a valid certificate: the card and the flag band are at rest and fully opaque', async ({ page, request }) => {
+  const uid = await learnerCertificateUid(request);
+  await page.goto(`/verify/${uid}`);
+  const card = page.locator('main .card').first();
+  await expectAtRest(card);
 });
