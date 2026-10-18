@@ -23,6 +23,7 @@ function PaymentReturn() {
   const instant = params.get('instant') === '1'; // wallet / 100% coupon — already confirmed server-side
   const [state, setState] = useState<State>('polling');
   const done = useRef(false);
+  const startRef = useRef<HTMLAnchorElement>(null);
 
   /** One reconcile + entitlement check. Returns true once a terminal state is reached. */
   const check = useCallback(async (): Promise<boolean> => {
@@ -73,6 +74,12 @@ function PaymentReturn() {
     return () => clearInterval(timer);
   }, [courseId, check]);
 
+  // Once access is granted, the way forward is where focus goes.
+  useEffect(() => {
+    if (state === 'active') startRef.current?.focus();
+  }, [state]);
+
+  // Each state's icon, title and body are keyed on the state, so a change crossfades (.fade-in).
   const icons: Record<State, React.ReactNode> = {
     polling: <LoaderCircle className="h-6 w-6 animate-spin" />,
     active: <PartyPopper className="h-6 w-6" />,
@@ -87,8 +94,19 @@ function PaymentReturn() {
   };
 
   return (
-    <AuthShell icon={icons[state]} title={t(titles[state])}>
-      <div className="text-center">
+    <AuthShell
+      icon={
+        <span key={state} className="fade-in flex">
+          {icons[state]}
+        </span>
+      }
+      title={
+        <span key={state} className="fade-in inline-block">
+          {t(titles[state])}
+        </span>
+      }
+    >
+      <div key={state} className="fade-in text-center">
         {state === 'polling' && (
           <p className="text-sm leading-relaxed text-gray-500">
             {t('pay_checking_chapa')}
@@ -99,7 +117,7 @@ function PaymentReturn() {
             <p className="text-sm leading-relaxed text-gray-500">
               {t(purpose === 'wallet_topup' ? 'pay_done_wallet' : purpose === 'gift' || purpose === 'pay_request' ? 'pay_done_gift' : purpose === 'bulk' ? 'pay_done_bulk' : 'pay_done_course')}
             </p>
-            <Link href={purpose === 'course' && courseId ? `/learn/${courseId}` : purpose === 'bulk' ? '/institution' : '/dashboard'} className="btn mt-5 inline-flex !px-8 !py-3">
+            <Link ref={startRef} href={purpose === 'course' && courseId ? `/learn/${courseId}` : purpose === 'bulk' ? '/institution' : '/dashboard'} className="btn mt-5 inline-flex !px-8 !py-3">
               {t(purpose === 'course' ? 'start_learning' : 'continue')} <ArrowRight className="h-4 w-4" />
             </Link>
           </>

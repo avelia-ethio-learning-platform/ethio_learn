@@ -96,11 +96,11 @@ export default function PayRequestPage() {
           </button>
         ) : (
           <>
-            <button className="btn w-full !py-3" disabled={busy} onClick={() => pay(false)}>
-              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} Pay {formatETB(data.price_etb ?? 0, locale)} with Chapa
+            <button className="btn w-full !py-3" disabled={busy} aria-busy={busy} onClick={() => pay(false)}>
+              <ShoppingCart className="h-4 w-4" /> Pay {formatETB(data.price_etb ?? 0, locale)} with Chapa
             </button>
             {canWallet && (
-              <button className="btn-secondary w-full" disabled={busy} onClick={() => pay(true)}>
+              <button className="btn-secondary w-full" disabled={busy} aria-busy={busy} onClick={() => pay(true)}>
                 <Wallet className="h-4 w-4" /> Pay from my wallet ({formatETB(wallet?.balance_etb ?? 0, locale)})
               </button>
             )}

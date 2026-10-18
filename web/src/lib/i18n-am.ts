@@ -220,7 +220,6 @@ export const am: Dictionary = {
   coupon_code: 'የኩፖን ኮድ',
   apply: 'ተግብር',
   coupon_pay_instead: 'ከ{list} ይልቅ {due} ይከፍላሉ',
-  please_wait: 'እባክዎ ይጠብቁ…',
   enroll_free_coupon: 'በኩፖን በነጻ ይመዝገቡ',
   pay_from_wallet_available: 'ከዋሌቴ {amount} ክፈል ({balance} አለ)',
   wallet_top_up_hint: 'የዋሌት ቀሪ ሂሳብ {balance} — በክሬዲት ለመክፈል ከዳሽቦርድዎ ይሙሉ።',

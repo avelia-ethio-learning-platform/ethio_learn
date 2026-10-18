@@ -30,9 +30,9 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
 
   return (
     <div className="page-shell flex min-h-[70vh] items-center justify-center">
-      {/* No enter animation: this card is the LCP element. */}
+      {/* The card has no enter animation (it is the LCP element); a valid certificate's flag band wipes in. */}
       <div className="card w-full max-w-lg overflow-hidden !rounded-3xl !p-0 text-center shadow-elevated">
-        <span className={`block h-1.5 w-full ${result.valid ? 'gradient-ethiopia' : 'bg-danger-solid'}`} />
+        <span className={`block h-1.5 w-full ${result.valid ? 'band-wipe gradient-ethiopia' : 'bg-danger-solid'}`} />
         <div className="p-8 sm:p-10">
           {result.valid ? (
             <>

@@ -64,60 +64,72 @@ export function LessonList({
           {expanded ? 'Show current section only' : `All lessons (${total})`}
         </button>
       )}
-      <div id={listId} className="space-y-3">
+      <div id={listId} className="-mb-3 flex flex-col">
         {sections.map((section) => {
           const doneInSection = section.lessons.filter((l) => completedIds.has(l.id)).length;
           const collapsed = !expanded && section.id !== focusId;
           return (
-            <div key={section.id} className={`card !p-4 ${collapsed ? 'hidden lg:block' : ''}`}>
-              <h3 className="flex items-center justify-between gap-2 text-sm font-bold text-foreground">
-                <span className="min-w-0 truncate">{section.title}</span>
-                <span
-                  className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    doneInSection === section.lessons.length && section.lessons.length > 0
-                      ? 'bg-success-soft text-success'
-                      : 'bg-brand-500/10 text-brand-600'
-                  }`}
-                >
-                  {doneInSection}/{section.lessons.length}
-                </span>
-              </h3>
-              <ul className="mt-2 space-y-1">
-                {section.lessons.map((lesson) => {
-                  const isActive = lesson.id === activeId;
-                  const done = completedIds.has(lesson.id);
-                  const watched = watchedPercent(lesson.id);
-                  return (
-                    <li key={lesson.id}>
-                      <button
-                        onClick={() => onPlay(lesson.id)}
-                        aria-current={isActive ? 'true' : undefined}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors ${
-                          isActive ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600 hover:bg-brand-500/5 hover:text-foreground'
-                        }`}
-                      >
-                        <span className="flex min-w-0 flex-1 items-center gap-2">
-                          {done ? (
-                            <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden />
-                          ) : (
-                            <Play className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-500'}`} aria-hidden />
-                          )}
-                          <span className="min-w-0">
-                            <span className="block truncate">{lesson.title}</span>
-                            {done && <span className="sr-only">Completed</span>}
-                            {!done && watched > 0 && (
-                              <span className="progress-track mt-1 block h-1 w-24">
-                                <span className="progress-fill block" style={{ transform: `scaleX(${watched / 100})` }} />
+            // Below lg a section that is not the current one folds away (grid rows 0fr to 1fr); from lg every section shows.
+            <div
+              key={section.id}
+              className={`grid transition-[grid-template-rows] duration-base ease-out-quart motion-reduce:transition-none lg:grid-rows-[1fr] ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}
+            >
+              {/* invisible while folded, so a folded section's lessons are not tab stops; the visibility transition keeps it shown until the fold ends. */}
+              <div
+                className={`-mx-2 min-h-0 overflow-hidden px-2 transition-[visibility] duration-base motion-reduce:transition-none lg:visible ${collapsed ? 'invisible' : 'visible'}`}
+              >
+                <div className="card mb-3 !p-4">
+                  <h3 className="flex items-center justify-between gap-2 text-sm font-bold text-foreground">
+                    <span className="min-w-0 truncate">{section.title}</span>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        doneInSection === section.lessons.length && section.lessons.length > 0
+                          ? 'bg-success-soft text-success'
+                          : 'bg-brand-500/10 text-brand-600'
+                      }`}
+                    >
+                      {doneInSection}/{section.lessons.length}
+                    </span>
+                  </h3>
+                  <ul className="mt-2 space-y-1">
+                    {section.lessons.map((lesson) => {
+                      const isActive = lesson.id === activeId;
+                      const done = completedIds.has(lesson.id);
+                      const watched = watchedPercent(lesson.id);
+                      return (
+                        <li key={lesson.id}>
+                          <button
+                            onClick={() => onPlay(lesson.id)}
+                            aria-current={isActive ? 'true' : undefined}
+                            className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors duration-fast ${
+                              isActive ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600 hover:bg-brand-500/5 hover:text-foreground'
+                            }`}
+                          >
+                            <span className="flex min-w-0 flex-1 items-center gap-2">
+                              {/* Completing a lesson swaps Play for a check that fades and scales in (.check-pop). */}
+                              {done ? (
+                                <CheckCircle2 key="done" className="check-pop h-4 w-4 shrink-0 text-success" aria-hidden />
+                              ) : (
+                                <Play key="todo" className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-500'}`} aria-hidden />
+                              )}
+                              <span className="min-w-0">
+                                <span className="block truncate">{lesson.title}</span>
+                                {done && <span className="sr-only">Completed</span>}
+                                {!done && watched > 0 && (
+                                  <span className="progress-track mt-1 block h-1 w-24">
+                                    <span className="progress-fill block" style={{ transform: `scaleX(${watched / 100})` }} />
+                                  </span>
+                                )}
                               </span>
-                            )}
-                          </span>
-                        </span>
-                        <span className="shrink-0 text-xs text-gray-500">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                            </span>
+                            <span className="shrink-0 text-xs text-gray-500">{Math.max(1, Math.round(lesson.duration_seconds / 60))}m</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </div>
             </div>
           );
         })}

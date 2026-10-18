@@ -537,6 +537,14 @@
   100% { transform: translateX(100%); }
 }
 
+@keyframes el-pop {
+  from { opacity: 0.01; transform: scale(0.8); }
+}
+
+@keyframes el-wipe {
+  from { transform: scaleX(0); }
+}
+
 @keyframes el-spin {
   to { transform: rotate(360deg); }
 }
@@ -555,6 +563,17 @@
 /* Content that replaces a skeleton or a previous result: a crossfade, no movement. */
 .fade-in {
   animation: el-fade-in var(--dur-base) var(--ease-out-quart) backwards;
+}
+
+/* A state icon that has just changed (a lesson's check, the certificate's award): a fade and a scale from .8. */
+.check-pop {
+  animation: el-pop var(--dur-base) var(--ease-out-expo) backwards;
+}
+
+/* The certificate page's flag band wipes in from the left; the card itself never moves (it is the LCP element). */
+.band-wipe {
+  transform-origin: left;
+  animation: el-wipe var(--dur-slow) var(--ease-out-expo) backwards;
 }
 
 /* The page under a route group's template.tsx. */
@@ -597,6 +616,8 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-in,
   .fade-in,
+  .check-pop,
+  .band-wipe,
   .route-enter,
   .dialog-enter[open],
   .dialog-enter[open]::backdrop,
