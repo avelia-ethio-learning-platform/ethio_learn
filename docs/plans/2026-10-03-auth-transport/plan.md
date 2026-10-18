@@ -279,3 +279,16 @@ Line numbers at `62e29a1` (the Phase 5 branch); 6a, 7b and 9c–9e touch some of
 - **WebKit in Playwright isn't Safari.** ITP's heuristics aren't the same, so the real-device check stays in Rollout.
 
 ## Progress and deviations (implementer)
+Implemented 2026-10-18/19 on `fix/auth-transport` (PR #53, draft), built from the drift check's amendments (`drift.md` A1–A6).
+
+- **Steps 1–9 done; webkit project and the CI coverage table dropped** (drift check). `test:coverage` exists; CI keeps `pnpm test`.
+- **Coverage (stmts / branches), before → after:** gateway 31.9/38.8 → 85.0/74.1; common 72.0/41.9 → 79.8/74.2; auth 64.4/38.5 → 71.0/52.9; financial 84.6/77.4, enrollment 73.5/67.8, outcomes 77.3/71.8 unchanged. Before measured with the gateway split already in place (its code was untested either way).
+- **Already covered, nothing added:** initiate pricing with coupon (`coupon-hold.spec.ts`) and wallet (`payment.service.spec.ts`), grant and refund idempotency (`enrollment.service.spec.ts` "already active", "already refunded"), `issue()` races (`certificate.service.spec.ts`).
+- **Deviations:**
+  - the route handler reads the path from `new URL(req.url)` (equal to `req.nextUrl`), so it runs on Next 14 and 15 and tests with a plain `Request`;
+  - `useAuth()` reads the store through `useSyncExternalStore`; the boot runs from `Providers` only, and the store reads the hint lazily, so component tests without `Providers` are ready at once when there's no hint;
+  - `auth.setup.ts` still logs each role in through the form (P0-11) and saves only its access token for API-level calls (`tokenFor`); browser specs use `loggedInAs`;
+  - the password-change spec uses the quality officer and restores the seeded password through the API in `finally`;
+  - `requireInternalToken()` extracted from `bootstrapService()` to test it;
+  - e2e limits live in `api/.env.example` (300 login / 600 auth per min, local and CI); the smoke loop reads the stack's value; `sleep 60` removed;
+  - 9d's access-log `ip` is left to 9d (A1): it should read `clientIpOf(req)` from `auth-middleware.ts`.
