@@ -2,18 +2,28 @@
 // Scheduler client: wakes the sleeping Render free-tier services a job needs, then starts the
 // job(s) through the gateway and prints each service's job status. Run by .github/workflows/jobs.yml.
 //
-//   node scripts/run-jobs.mjs <frequent|payouts|inactivity|financial/sweep|financial/effects|
+//   node scripts/run-jobs.mjs <frequent|daily|financial/sweep|financial/effects|
 //                              financial/nudges|financial/payouts|enrollment/inactivity>
 //
-// Env: JOBS_TOKEN, RENDER_SERVICE_URLS (comma-separated public /health URLs) - both required.
-//      GATEWAY_URL (optional, local runs: gateway base instead of the gateway health URL minus /health),
-//      WAKE=0 (with GATEWAY_URL: skip waking), WAKE_INTERVAL_MS / WAKE_TIMEOUT_MS (default 10000 / 90000).
+// Env: JOBS_TOKEN, RENDER_SERVICE_URLS (comma-separated public /health URLs) - both required,
+//      except that a local run (GATEWAY_URL + WAKE=0) needs no service URLs and wakes nothing.
+//      GATEWAY_URL (optional: gateway base instead of the gateway health URL minus /health),
+//      WAKE_INTERVAL_MS / WAKE_TIMEOUT_MS (default 10000 / 90000).
 // Test: node --test scripts/run-jobs.test.mjs
 
+// The services each job calls, so a run wakes only those (each wake costs free instance-hours).
+// A sleeping peer the job doesn't list here only degrades it safely (e.g. no learner name).
+const NEEDS = {
+  'financial/sweep': ['financial'], // Chapa verify; the receipt looks the learner up later
+  'financial/effects': ['financial'],
+  'financial/nudges': ['financial', 'enrollment', 'auth'], // ownership fails closed; the learner's email
+  'financial/payouts': ['financial', 'quality', 'auth'], // trust tier (hold days); the payee's email
+  'enrollment/inactivity': ['enrollment', 'course'], // lesson ids for progress (fails closed)
+};
+const groupOf = (jobs) => ({ wake: [...new Set(['gateway', ...jobs.flatMap((j) => NEEDS[j])])], jobs });
 const GROUPS = {
-  frequent: { wake: ['gateway', 'financial'], jobs: ['financial/sweep', 'financial/effects', 'financial/nudges'] },
-  payouts: { wake: ['gateway', 'financial', 'auth'], jobs: ['financial/payouts'] },
-  inactivity: { wake: ['gateway', 'enrollment', 'course'], jobs: ['enrollment/inactivity'] },
+  frequent: groupOf(['financial/sweep', 'financial/effects']),
+  daily: groupOf(Object.keys(NEEDS)),
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -23,13 +33,9 @@ const fail = (msg) => {
 };
 
 function resolveGroup(arg) {
-  if (GROUPS[arg]) return GROUPS[arg];
-  const m = /^(financial|enrollment)\/(sweep|effects|nudges|payouts|inactivity)$/.exec(arg ?? '');
-  if (!m) fail(`usage: run-jobs.mjs <${Object.keys(GROUPS).join('|')}|financial/<job>|enrollment/inactivity>`);
-  const wake = ['gateway', m[1]];
-  if (arg === 'financial/payouts') wake.push('auth');
-  if (arg === 'enrollment/inactivity') wake.push('course');
-  return { wake, jobs: [arg] };
+  if (Object.hasOwn(GROUPS, arg ?? '')) return GROUPS[arg];
+  if (Object.hasOwn(NEEDS, arg ?? '')) return groupOf([arg]);
+  return fail(`usage: run-jobs.mjs <${[...Object.keys(GROUPS), ...Object.keys(NEEDS)].join('|')}>`);
 }
 
 function findUrl(urls, service) {
@@ -60,17 +66,21 @@ async function wakeOne(service, url, intervalMs, timeoutMs) {
 async function main() {
   const group = resolveGroup(process.argv[2]);
   const token = process.env.JOBS_TOKEN?.trim();
-  const urls = (process.env.RENDER_SERVICE_URLS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (!token || urls.length === 0) fail('JOBS_TOKEN and RENDER_SERVICE_URLS must be set (see DEPLOYMENT.md)');
+  // A local run: the gateway named directly, nothing woken, no service URLs read.
+  const local = process.env.WAKE === '0' && !!process.env.GATEWAY_URL;
+  const urls = local ? [] : (process.env.RENDER_SERVICE_URLS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!token || (!local && urls.length === 0)) fail('JOBS_TOKEN and RENDER_SERVICE_URLS must be set (see DEPLOYMENT.md)');
 
   const serviceUrls = {};
-  for (const s of group.wake) {
-    serviceUrls[s] = findUrl(urls, s);
-    if (!serviceUrls[s] && !(s === 'gateway' && process.env.GATEWAY_URL)) fail(`no URL for service "${s}" in RENDER_SERVICE_URLS`);
+  if (!local) {
+    for (const s of group.wake) {
+      serviceUrls[s] = findUrl(urls, s);
+      if (!serviceUrls[s] && !(s === 'gateway' && process.env.GATEWAY_URL)) fail(`no URL for service "${s}" in RENDER_SERVICE_URLS`);
+    }
   }
   const gatewayBase = (process.env.GATEWAY_URL ?? serviceUrls.gateway.replace(/\/health\/?$/, '')).replace(/\/$/, '');
 
-  if (!(process.env.WAKE === '0' && process.env.GATEWAY_URL)) {
+  if (!local) {
     const interval = Number(process.env.WAKE_INTERVAL_MS) || 10000;
     const timeout = Number(process.env.WAKE_TIMEOUT_MS) || 90000;
     await Promise.all(group.wake.filter((s) => serviceUrls[s]).map((s) => wakeOne(s, serviceUrls[s], interval, timeout)));

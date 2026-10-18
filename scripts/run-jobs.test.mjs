@@ -8,12 +8,14 @@ const TOKEN = 'test-jobs-token';
 
 async function stub(handler) {
   const requests = [];
+  const hosts = [];
   const server = http.createServer((req, res) => {
     requests.push(`${req.method} ${req.url}`);
+    if (req.url === '/health') hosts.push(req.headers.host.split('.')[0]);
     handler(req, res, requests);
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  return { requests, port: server.address().port, close: () => server.close() };
+  return { requests, hosts, port: server.address().port, close: () => server.close() };
 }
 
 function run(args, env) {
@@ -62,8 +64,9 @@ test('wake retries a 503 health URL, then started and already-running are printe
   assert.ok(health >= 3, 'health retried');
   assert.match(r.out, /financial\/sweep: started/);
   assert.match(r.out, /financial\/effects: already running/);
-  assert.match(r.out, /financial\/nudges: started/);
   assert.match(r.out, /financial\/sweep: started=T1/);
+  // frequent wakes only the gateway and financial
+  assert.deepEqual([...new Set(s.hosts)].sort(), ['financial', 'gateway']);
   assert.ok(!r.out.includes(TOKEN));
 });
 
@@ -82,4 +85,30 @@ test('a service that never wakes exits 1 naming it', async () => {
   s.close();
   assert.equal(r.code, 1);
   assert.match(r.out, /not up after/);
+});
+
+test('daily wakes only the services its jobs call, and starts all five jobs', async () => {
+  const s = await stub(jobsHandler(() => ({ started: true })));
+  const services = ['gateway', 'financial', 'enrollment', 'auth', 'course', 'quality', 'notification', 'outcomes'];
+  const urls = services.map((x) => `http://${x}.localhost:${s.port}/health`).join(',');
+  const r = await run(['daily'], { JOBS_TOKEN: TOKEN, RENDER_SERVICE_URLS: urls });
+  s.close();
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual([...new Set(s.hosts)].sort(), ['auth', 'course', 'enrollment', 'financial', 'gateway', 'quality']);
+  for (const job of ['financial/sweep', 'financial/effects', 'financial/nudges', 'financial/payouts', 'enrollment/inactivity']) assert.match(r.out, new RegExp(`${job}: started`));
+});
+
+test('a local run (GATEWAY_URL + WAKE=0) needs no service URLs and wakes nothing', async () => {
+  const s = await stub(jobsHandler(() => ({ started: true })));
+  const r = await run(['financial/sweep'], { JOBS_TOKEN: TOKEN, GATEWAY_URL: `http://127.0.0.1:${s.port}`, WAKE: '0' });
+  s.close();
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(s.hosts, []);
+  assert.deepEqual(s.requests, ['POST /api/v1/jobs/financial/sweep', 'GET /api/v1/jobs/financial']);
+});
+
+test('an unknown group exits 1 with the usage', async () => {
+  const r = await run(['payouts'], { JOBS_TOKEN: TOKEN, RENDER_SERVICE_URLS: 'http://gateway.localhost:1/health' });
+  assert.equal(r.code, 1);
+  assert.match(r.out, /usage: run-jobs.mjs <frequent\|daily\|financial\/sweep/);
 });

@@ -451,7 +451,7 @@ export class PaymentService {
     const learner = await this.learnerInfo(input.payer.id);
     const [firstName, ...rest] = (learner.name || 'EthiopiaLearn Learner').trim().split(/\s+/);
 
-    // Local-dev URL handling: Chapa's SDK validation rejects `localhost` URLs
+    // Local-dev URL handling: Chapa rejects `localhost` URLs
     // (no TLD), and Chapa's servers can't call a localhost callback anyway.
     const isLocal = (u: string) => /\/\/(localhost|127\.0\.0\.1)([:/]|$)/.test(u);
     const returnPath = input.returnPath ?? `/payment/return?course_id=${input.courseId}&tx_ref=${payment.chapa_tx_ref}&purpose=${input.purpose}`;

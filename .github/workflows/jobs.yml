@@ -1,14 +1,15 @@
-# Scheduled jobs: wakes the sleeping Render free-tier services each job needs, then starts the job
-# through the gateway (scripts/run-jobs.mjs). Secrets/vars: JOBS_TOKEN (secret), RENDER_SERVICE_URLS (variable).
+# Scheduled jobs: wakes the sleeping Render free-tier services each job calls, then starts the jobs
+# through the gateway (scripts/run-jobs.mjs, which lists each job's services). Secrets/vars:
+# JOBS_TOKEN (secret), RENDER_SERVICE_URLS (variable). While a service is awake its in-process
+# crons run the same jobs on their own; this schedule is the backstop for when it sleeps.
 #
-# Instance-hour budget (Render free tier gives 750 h/month across all free services; exhausting them
-# suspends every free service until next month):
-#   frequent   every 4 h  -> ~90 h/month of woken-service time
-#   payouts    daily      -> ~23 h/month
-#   inactivity daily      -> ~23 h/month
-#   total                 -> ~136 h of the 750 h
-# To change the cadence, edit the cron lines below and the matching case in "Pick the job group"
-# (the schedule string is the lookup key, so they must stay identical).
+# Instance-hour budget (Render free tier: 750 h/month across all free services; exhausting them
+# suspends every free service until next month). Each woken service stays up ~15 min:
+#   daily     02:15 UTC  6 services (gateway, financial, enrollment, auth, course, quality)  -> ~45 h/month
+#   frequent  14:15 UTC  2 services (gateway, financial)                                     -> ~15 h/month
+#   total                                                                                     -> ~60 h of the 750 h
+# Services already awake for real traffic cost nothing extra. To change the cadence, edit the cron
+# lines below and the matching case in "Pick the job group" (the schedule string is the lookup key).
 #
 # GitHub disables scheduled workflows after 60 days without repository activity; re-enable them in the
 # Actions tab (or push any commit) if the jobs stop running.
@@ -16,9 +17,8 @@ name: jobs
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
     - cron: '15 2 * * *'
-    - cron: '15 6 * * *'
+    - cron: '15 14 * * *'
   workflow_dispatch:
     inputs:
       job:
@@ -28,8 +28,7 @@ on:
         default: frequent
         options:
           - frequent
-          - payouts
-          - inactivity
+          - daily
           - financial/sweep
           - financial/effects
           - financial/nudges
@@ -44,13 +43,13 @@ concurrency:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Pick the job group
@@ -59,9 +58,8 @@ jobs:
           DISPATCH_JOB: ${{ inputs.job }}
         run: |
           case "$SCHEDULE" in
-            '0 */4 * * *') group=frequent ;;
-            '15 2 * * *') group=payouts ;;
-            '15 6 * * *') group=inactivity ;;
+            '15 2 * * *') group=daily ;;
+            '15 14 * * *') group=frequent ;;
             *) group="$DISPATCH_JOB" ;;
           esac
           if [ -z "$group" ]; then echo "no job group for this trigger" >&2; exit 1; fi
