@@ -27,7 +27,7 @@ const PALETTE = new RegExp(
   `(?<![\\w-])(?:text|bg|border|from|to|via|fill|ring|ring-offset|stroke|outline|decoration|divide|placeholder|accent|caret|shadow)(?:-[trblxyse])?-(?:${HUES})-\\d{2,3}\\b`,
   'g',
 );
-const HEX = /#(?:[0-9a-f]{3}|[0-9a-f]{6})\b/gi;
+const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;
 
 function sources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

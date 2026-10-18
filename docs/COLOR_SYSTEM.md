@@ -81,6 +81,7 @@ Four statuses, each with four roles.
 
 - **Text** is for words and icons placed next to words.
 - **Soft** and **line** together make a callout or a badge.
+- **Status text sits on its own soft tint once. Never stack soft tints**, and never put one status's text on another's tint: a mark inside a tinted block drops the block's tint (the block keeps only its line), or the text goes `text-foreground` with a status icon.
 - **Solid** is for graphics with no text on them: a status dot, a bar, an icon standing alone.
   - **Never put text on a solid.** White on dark-mode `#ef4444` is 3.8:1.
   - A destructive button is `.btn-danger` (`#b91c1c`, white text 6.47:1, fixed in both themes).

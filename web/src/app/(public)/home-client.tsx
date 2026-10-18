@@ -104,7 +104,7 @@ export function HomeClient({
 
                 <h1 className="mt-6 text-balance text-4xl font-extrabold leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-6xl">
                   {t('hero_title_1')}{' '}
-                  <span className="block bg-gradient-to-r from-white/75 to-white bg-clip-text text-transparent">
+                  <span className="block bg-gradient-to-r from-white/90 to-white bg-clip-text text-transparent">
                     {t('hero_title_2')}
                   </span>
                 </h1>
@@ -123,7 +123,7 @@ export function HomeClient({
                     name="q"
                     aria-label={t('search_placeholder')}
                     placeholder={t('search_placeholder')}
-                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/75"
+                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/90"
                   />
                   <button className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-brand-700 transition-colors hover:bg-brand-50">
                     {t('search')}
