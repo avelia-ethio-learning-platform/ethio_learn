@@ -57,16 +57,16 @@ All configuration is environment variables. `render.yaml` holds the shared group
 
 | Deployable | Needs | Notes |
 |---|---|---|
-| gateway | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CORS_ORIGINS`/`WEB_URL`, one `*_SERVICE_URL` per service, `JOBS_TOKEN` | The only place service addresses exist. `CORS_ORIGINS` replaces the `WEB_URL` default rather than extending it. The rate limiter (`RATE_LIMIT_*`) is in memory, per instance. `JOBS_TOKEN` (gateway only, a long random value) authenticates `/api/v1/jobs/*`; unset, those routes answer 401. |
+| gateway | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CORS_ORIGINS`/`WEB_URL`, one `*_SERVICE_URL` per service, `JOBS_TOKEN`, `WEB_PROXY_SECRET` | The only place service addresses exist. `WEB_PROXY_SECRET`: see Auth transport below. `CORS_ORIGINS` replaces the `WEB_URL` default rather than extending it. The rate limiter (`RATE_LIMIT_*`) is in memory, per instance. `JOBS_TOKEN` (gateway only, a long random value) authenticates `/api/v1/jobs/*`; unset, those routes answer 401. |
 | GitHub Actions | secret `JOBS_TOKEN` (same value), variable `RENDER_SERVICE_URLS` (the eight public `/health` URLs, comma-separated) | Used by the `jobs` workflow (below). Until both are set it stops at its first step. |
 | every service | `DATABASE_URL`, `RABBITMQ_URL`, `JWT_SECRET`, `INTERNAL_API_TOKEN`, `GATEWAY_INTERNAL_URL` | `PORT` is injected by Render. |
-| auth | + `REDIS_URL`, `WEB_URL`, `COOKIE_SAMESITE=none` | |
+| auth | + `REDIS_URL`, `WEB_URL`, `COOKIE_SAMESITE=lax` | |
 | course | + `S3_*`, `GROQ_API_KEY` | |
 | outcomes | + `S3_*`, `GROQ_API_KEY`, `CERT_SIGNING_SECRET` | |
 | financial | + `CHAPA_MODE`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `CHAPA_FALLBACK_EMAIL`, `GATEWAY_PUBLIC_URL`, `WEB_URL` | Register `<GATEWAY_PUBLIC_URL>/api/v1/payments/webhook/chapa` in the Chapa dashboard. `CHAPA_WEBHOOK_SECRET` is the dashboard's webhook secret hash, not a `CHAPUBK_…` public key. |
 | quality | + `GROQ_API_KEY` | |
 | notification | + `SMTP_*` (or `BREVO_API_KEY`/`RESEND_API_KEY`), `EMAIL_FROM`, `PLATFORM_ADMIN_EMAIL`, `SUPPORT_EMAIL`, `WEB_URL` | `EMAIL_FROM` must be a Brevo-verified sender. |
-| web (Vercel) | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_WAKE_URLS`, `NEXT_PUBLIC_MEDIA_ORIGINS`, `CSP_ENFORCE` | The production build fails when `NEXT_PUBLIC_SITE_URL` is unset, not `https://` or a placeholder. The last two set the Content Security Policy (below). |
+| web (Vercel) | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_WAKE_URLS`, `NEXT_PUBLIC_MEDIA_ORIGINS`, `CSP_ENFORCE`, `WEB_PROXY_SECRET` (server-only), `GATEWAY_INTERNAL_URL` (optional) | The production build fails when `NEXT_PUBLIC_SITE_URL` is unset, not `https://` or a placeholder. The last two set the Content Security Policy (below). |
 
 **Secrets.** `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` are long random values, at least 32 characters. With `NODE_ENV=production`, every service and the gateway refuse to boot when:
 - a secret they need is missing, shorter than 32 characters or a value from the repo;
@@ -77,12 +77,20 @@ The log names each variable, never its value, so a failed boot says what to set.
 
 ## Render and Vercel: what's easy to miss
 
-- **The refresh cookie is cross-site.** `*.vercel.app` and `*.onrender.com` are different registrable domains, so a `SameSite=Lax` cookie is never sent on the refresh call. Every session would then die at the 15-minute access-token expiry. `COOKIE_SAMESITE=none` (set in `render.yaml`) forces `Secure` on.
+- **The refresh cookie is first-party on the web host** (Auth transport, below). `*.vercel.app` and `*.onrender.com` are different sites, which is why auth goes through the web's own route handlers.
 - **CORS is an explicit allowlist,** and the localhost escape hatch is off in production. Vercel preview deployments get random hostnames, so they're blocked unless added to `CORS_ORIGINS`.
 - **Neon needs TLS and small pools.** `buildTypeOrmOptions` turns SSL on when the connection string carries `sslmode=require`; `DB_SSL` overrides that either way. Use the pooled (`…-pooler.…`) host. `render.yaml` sets `DB_POOL_MAX=3` and `DB_POOL_MIN=0`, because eight pools add up against Neon's connection cap.
 - **Outbound SMTP:** Render's free instances block ports 25, 465 and 587. `render.yaml` uses Brevo on port 2525 (plain connect, then STARTTLS); `BREVO_API_KEY` (HTTPS) is the alternative.
 - **R2:** signed URLs are signed against the S3 API endpoint (`S3_ENDPOINT`), not the public `r2.dev` host. Keep `videos/` private; `thumbnails/` is public-read.
 - **Before the first boot** of a new database, run `docker/postgres-init.sql` once to create the seven schemas and `pgcrypto`. Migrations create the tables, never the schemas.
+
+## Auth transport (Phase 11b)
+
+- **What goes through the web origin:** `/api/v1/auth/*` and `PUT /api/v1/profiles/password`, via Next route handlers (`web/src/lib/gateway-proxy.ts`). They set or read the refresh cookie, which is now `SameSite=Lax` on the web host, so Safari's and Brave's third-party cookie blocking no longer signs anyone out. Every other call goes straight to the gateway with the bearer token and no cookies.
+- **Tokens:** the access token lives in memory only. `localStorage.el_session` holds the public user as a hint; with it, each page load runs one refresh.
+- **`WEB_PROXY_SECRET`:** one long random value, set on **Vercel** (Production, a plain server variable, never `NEXT_PUBLIC_`) and on the **Render gateway** only. With it, the gateway keys the login and `/auth` limits by the browser's IP (`x-web-client-ip`) instead of Vercel's. Never set it for a self-hosted web (`web/Dockerfile`): its proxy doesn't overwrite `x-forwarded-for`. Unset, the gateway keys by the proxy's IP: safe, but coarse.
+- **Refresh limit:** per refresh token, `RATE_LIMIT_AUTH_REFRESH_PER_MIN` (10). A rotated token still works for 30 s and returns the same successor, so a lost response isn't a sign-out.
+- **Deploying it:** set the secret on both before the merge (Vercel reads env at build time), and merge at a quiet time: until the gateway deploys, `/auth` limits key by Vercel's egress IP. Everyone signs in once more afterwards, because the old cookies live on the API host. Watch for 5xx on `/api/v1/auth/*` after the deploy.
 
 ## Cold starts and waking
 
