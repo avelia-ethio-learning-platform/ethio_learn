@@ -165,7 +165,7 @@ function Messenger() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{t.peer.name}</span>
-                    {t.unread > 0 && <span aria-label={`${t.unread} unread`} className="rounded-full bg-red-600 px-1.5 text-xs font-bold text-white">{t.unread}</span>}
+                    {t.unread > 0 && <span aria-label={`${t.unread} unread`} className="badge-count rounded-full px-1.5 text-xs font-bold">{t.unread}</span>}
                   </div>
                   <p className="truncate text-xs text-gray-500">
                     <span className="text-gray-500">{peerRole(t.peer.role)} · </span>
@@ -190,9 +190,10 @@ function Messenger() {
               <div className="flex-1 space-y-2 overflow-y-auto p-4">
                 {conversation?.messages.map((m) => (
                   <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${m.mine ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                    <div className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${m.mine ? 'brand-fill' : 'bg-gray-100 text-gray-900'}`}>
                       <p className="whitespace-pre-wrap">{m.body}</p>
-                      <p className={`mt-0.5 text-right text-xs ${m.mine ? 'text-blue-100' : 'text-gray-500'}`}>
+                      {/* Full white: at 85% it drops under 4.5:1 at the fill's lighter end. */}
+                      <p className={`mt-0.5 text-right text-xs ${m.mine ? 'text-white' : 'text-gray-500'}`}>
                         {formatDate(m.created_at, locale, 'datetime')}
                       </p>
                     </div>

@@ -15,6 +15,7 @@ paths = [
   '''scripts/(demo-seed|e2e-smoke)\.mjs$''',
 ]
 regexes = [
+  '''jobs-secret-012345678[0-9]''', # fake JOBS_TOKEN in api/gateway/src/secrets.spec.ts
   '''REPLACE[_-][A-Z_]+''',
   '''gsk_REPLACE_ME''',
   '''gsk_REPLACE_WITH_A_FRESH_GROQ_KEY''',

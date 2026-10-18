@@ -150,7 +150,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
                 )}
               </Field>
               {quote?.code && (
-                <p className="mt-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                <p className="mt-1.5 text-xs font-medium text-success">
                   {quote.description} — {t('coupon_pay_instead', { due: formatETB(quote.amount_due_etb, locale), list: formatETB(quote.list_price_etb, locale) })}
                 </p>
               )}

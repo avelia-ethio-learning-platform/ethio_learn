@@ -39,7 +39,7 @@ export function ReviewBox({ courseId, progressPercent }: { courseId: string; pro
             onKeyDown={(e) => onStarKey(e, n)}
             className="rounded transition-transform hover:scale-110"
           >
-            <Star aria-hidden className={`h-7 w-7 ${n <= rating ? 'fill-amber-400 text-amber-400' : 'text-gray-500'}`} />
+            <Star aria-hidden className={`h-7 w-7 ${n <= rating ? 'fill-rating text-rating' : 'text-gray-500'}`} />
           </button>
         ))}
       </div>

@@ -22,8 +22,7 @@ describe('<Field />', () => {
     const input = screen.getByLabelText('Email');
     const alert = screen.getByRole('alert');
     expect(alert.textContent).toBe('Enter a valid email');
-    expect(alert.className).toContain('text-red-600');
-    expect(alert.className).toContain('dark:text-red-400');
+    expect(alert.className).toContain('text-danger');
     expect(input.getAttribute('aria-invalid')).toBe('true');
     const ids = input.getAttribute('aria-describedby')!.split(' ');
     expect(ids).toContain(alert.id);

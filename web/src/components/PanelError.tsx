@@ -18,7 +18,7 @@ export function PanelError({ panel, onRetry }: { panel: string; onRetry: () => P
   };
   return (
     <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm">
-      <p className="text-red-600 dark:text-red-400">Couldn&apos;t load {panel}.</p>
+      <p className="text-danger">Couldn&apos;t load {panel}.</p>
       <button type="button" onClick={retry} disabled={retrying} className="btn-secondary !px-3 !py-1 !text-xs">
         {retrying ? 'Retrying…' : 'Retry'}
       </button>

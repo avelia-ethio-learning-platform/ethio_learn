@@ -175,7 +175,7 @@ function CommentItem({
             </Link>
           )}
           {canDelete && (
-            <button className="text-red-600 dark:text-red-400 hover:underline" onClick={() => onDelete(node.id)}>
+            <button className="text-danger hover:underline" onClick={() => onDelete(node.id)}>
               Delete
             </button>
           )}

@@ -132,7 +132,6 @@ function QuizForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => v
                 <input
                   type="radio"
                   name={`q${i}`}
-                  className="accent-blue-600"
                   checked={answers[i] === j}
                   onChange={() => setAnswers((prev) => prev.map((v, k) => (k === i ? j : v)))}
                 />
