@@ -7,6 +7,17 @@ import type { Config } from 'tailwindcss';
  */
 const channel = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 
+/**
+ * A status role (docs/COLOR_SYSTEM.md): `text-success` for words, `bg-success-soft` with
+ * `border-success-line` for a callout or badge, and `bg-success-solid` for a graphic with no text on it.
+ */
+const status = (name: string) => ({
+  DEFAULT: channel(name),
+  soft: `var(--${name}-soft)`,
+  line: `var(--${name}-line)`,
+  solid: channel(`${name}-solid`),
+});
+
 const config: Config = {
   content: ['./src/**/*.{ts,tsx}'],
   darkMode: 'class',
@@ -49,9 +60,15 @@ const config: Config = {
           800: channel('gray-800'),
           900: channel('gray-900'),
         },
+        success: status('success'),
+        warning: status('warning'),
+        danger: status('danger'),
+        info: status('info'),
+        rating: channel('rating'),
       },
       borderColor: {
         DEFAULT: 'var(--border)',
+        'input-border': 'var(--input-border)',
       },
       fontFamily: {
         // next/font variables (app/fonts.ts)
