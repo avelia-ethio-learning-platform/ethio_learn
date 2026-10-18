@@ -235,7 +235,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
           </p>
           {proctored ? (
             <>
-              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="rounded-lg border border-warning-line bg-warning-soft p-3 text-sm text-warning">
                 <p className="font-semibold">
                   <Camera className="mr-1 inline h-4 w-4" aria-hidden="true" />
                   This exam is proctored. During the exam:</p>
@@ -252,9 +252,9 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                 <div className="space-y-1 text-sm">
                   <p>
                     {proctorStatus.camera === 'on' ? (
-                      <><Check className="mr-1 inline h-4 w-4 text-green-700" aria-hidden="true" />Camera ready</>
+                      <><Check className="mr-1 inline h-4 w-4 text-success" aria-hidden="true" />Camera ready</>
                     ) : proctorStatus.camera === 'denied' ? (
-                      <><CircleX className="mr-1 inline h-4 w-4 text-red-700" aria-hidden="true" />Camera blocked — allow camera access to start</>
+                      <><CircleX className="mr-1 inline h-4 w-4 text-danger" aria-hidden="true" />Camera blocked — allow camera access to start</>
                     ) : (
                       <><Loader2 className="mr-1 inline h-4 w-4" aria-hidden="true" />Requesting camera…</>
                     )}
@@ -262,19 +262,19 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                   <p>
                     {modelState === 'ready' &&
                       (proctorStatus.faces === null ? (
-                        <><Check className="mr-1 inline h-4 w-4 text-green-700" aria-hidden="true" />Face detection ready</>
+                        <><Check className="mr-1 inline h-4 w-4 text-success" aria-hidden="true" />Face detection ready</>
                       ) : proctorStatus.faces === 1 ? (
-                        <><Check className="mr-1 inline h-4 w-4 text-green-700" aria-hidden="true" />One face detected</>
+                        <><Check className="mr-1 inline h-4 w-4 text-success" aria-hidden="true" />One face detected</>
                       ) : proctorStatus.faces === 0 ? (
                         <><Eye className="mr-1 inline h-4 w-4" aria-hidden="true" />Position your face in view</>
                       ) : (
-                        <><AlertTriangle className="mr-1 inline h-4 w-4 text-amber-700" aria-hidden="true" />Multiple faces in view</>
+                        <><AlertTriangle className="mr-1 inline h-4 w-4 text-warning" aria-hidden="true" />Multiple faces in view</>
                       ))}
                     {modelState === 'loading' && (
                       <><Loader2 className="mr-1 inline h-4 w-4" aria-hidden="true" />Loading face detection…</>
                     )}
                     {modelState === 'unavailable' && (
-                      <><AlertTriangle className="mr-1 inline h-4 w-4 text-amber-700" aria-hidden="true" />Face detection unavailable — tab &amp; clipboard monitoring still apply</>
+                      <><AlertTriangle className="mr-1 inline h-4 w-4 text-warning" aria-hidden="true" />Face detection unavailable — tab &amp; clipboard monitoring still apply</>
                     )}
                   </p>
                 </div>
@@ -304,14 +304,14 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
     return (
       <div className="page-shell max-w-2xl space-y-4">
         {result ? (
-          <div className={`card border-2 ${terminated ? 'border-red-300 bg-red-50' : result.passed ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/40' : 'border-amber-300 dark:border-amber-700'}`}>
+          <div className={`card border-2 ${terminated ? 'border-danger-line bg-danger-soft' : result.passed ? 'border-success-line bg-success-soft' : 'border-warning-line'}`}>
             {terminated ? (
               <>
-                <h1 className="text-xl font-bold text-red-800">
+                <h1 className="text-xl font-bold text-danger">
                   <Ban className="mr-1 inline h-5 w-5" aria-hidden="true" />
                   Exam ended by proctoring
                 </h1>
-                <p className="mt-1 text-sm text-red-700">{result.termination_reason ?? 'Repeated violations of the exam rules.'} The attempt is flagged for your educator with the full violation report below.</p>
+                <p className="mt-1 text-sm text-danger">{result.termination_reason ?? 'Repeated violations of the exam rules.'} The attempt is flagged for your educator with the full violation report below.</p>
               </>
             ) : (
               <>
@@ -321,8 +321,8 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                     'Not passed yet'
                   )}</h1>
                 <p className="mt-1 text-3xl font-bold">{result.score}%</p>
-                {result.flagged && <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
-                    <AlertTriangle className="mr-1 inline h-4 w-4" aria-hidden="true" />
+                {result.flagged && <p className="mt-1 text-sm text-foreground">
+                    <AlertTriangle className="mr-1 inline h-4 w-4 text-warning" aria-hidden="true" />
                     This attempt has proctoring flags — see the report below.</p>}
               </>
             )}
@@ -346,7 +346,7 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                   <li key={b.index} className="rounded-lg border p-3 text-sm">
                     <div className="flex items-start justify-between gap-3">
                       <p className="font-medium">{b.index + 1}. {q?.prompt}</p>
-                      <span className={`shrink-0 rounded px-2 py-0.5 text-xs ${b.earned >= b.points ? 'bg-green-100 text-green-800' : b.earned > 0 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'}`}>
+                      <span className={`shrink-0 rounded px-2 py-0.5 text-xs ${b.earned >= b.points ? 'bg-success-soft text-success' : b.earned > 0 ? 'bg-warning-soft text-warning' : 'bg-danger-soft text-danger'}`}>
                         {b.earned}/{b.points} pt{b.points !== 1 ? 's' : ''}
                       </span>
                     </div>
@@ -420,17 +420,17 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
         <div className="text-sm font-semibold">{answered}/{attempt?.questions.length} answered</div>
         <div className="flex items-center gap-2 text-xs">
           {Object.entries(warnings).map(([t, n]) => (
-            <span key={t} className="rounded bg-amber-100 px-2 py-0.5 text-amber-800">{VIOLATION_LABELS[t] ?? t}: {n}/{attempt?.warning_limit}</span>
+            <span key={t} className="rounded bg-warning-soft px-2 py-0.5 text-warning">{VIOLATION_LABELS[t] ?? t}: {n}/{attempt?.warning_limit}</span>
           ))}
           {secondsLeft !== null && (
-            <span className={`rounded px-2 py-0.5 font-mono font-semibold ${secondsLeft < 60 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}><Clock className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />{fmtTime(secondsLeft)}</span>
+            <span className={`rounded px-2 py-0.5 font-mono font-semibold ${secondsLeft < 60 ? 'bg-danger-soft text-danger' : 'bg-gray-100 text-gray-700'}`}><Clock className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />{fmtTime(secondsLeft)}</span>
           )}
         </div>
       </div>
 
       <div role="alert">
         {banner && (
-          <div key={banner.key} className="mb-4 animate-pulse rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm font-medium text-amber-900">
+          <div key={banner.key} className="mb-4 animate-pulse rounded-lg border border-warning-line bg-warning-soft p-3 text-sm font-medium text-warning">
             <AlertTriangle className="mr-1.5 inline h-4 w-4" aria-hidden="true" />
             {banner.text}
           </div>
@@ -479,8 +479,9 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
       {proctored && (
         <div className="fixed bottom-4 right-4 z-30 overflow-hidden rounded-xl border-2 border-white shadow-lg">
           <video ref={setVideoEl} muted playsInline className="h-24 w-32 bg-gray-900 object-cover" />
-          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-xs font-semibold text-white ${proctorStatus.faces === 1 ? 'bg-green-700' : 'bg-red-600'}`}>
-            {proctorStatus.faceModel !== 'ready' ? 'REC' : proctorStatus.faces === 1 ? '● OK' : proctorStatus.faces === 0 ? '● NO FACE' : `● ${proctorStatus.faces} FACES`}
+          {/* Fixed colours over the video: white on black/75 while recording or OK, .badge-count (fixed red) for a problem. */}
+          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-xs font-semibold ${proctorStatus.faceModel !== 'ready' || proctorStatus.faces === null || proctorStatus.faces === 1 ? 'bg-black/75 text-white' : 'badge-count'}`}>
+            {proctorStatus.faceModel !== 'ready' || proctorStatus.faces === null ? 'REC' : proctorStatus.faces === 1 ? '● OK' : proctorStatus.faces === 0 ? '● NO FACE' : `● ${proctorStatus.faces} FACES`}
           </div>
         </div>
       )}

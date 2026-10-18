@@ -181,8 +181,8 @@ function DangerZone({ role }: { role: string }) {
   };
 
   return (
-    <div className="card animate-fade-in-up !rounded-3xl !border-red-400/30">
-      <h2 className="flex items-center gap-2 font-bold text-red-600 dark:text-red-400">
+    <div className="card animate-fade-in-up !rounded-3xl !border-danger-line">
+      <h2 className="flex items-center gap-2 font-bold text-danger">
         <ShieldAlert className="h-4 w-4" /> Danger zone
       </h2>
       <p className="mt-1 text-sm leading-relaxed text-gray-500">
@@ -192,7 +192,7 @@ function DangerZone({ role }: { role: string }) {
       <FormStatus status={status} />
       {!open ? (
         <button
-          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-red-400/40 px-4 py-2 text-sm font-semibold text-red-600 dark:text-red-400 transition-colors hover:bg-red-500/10"
+          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-danger-line px-4 py-2 text-sm font-semibold text-danger transition-colors hover:bg-danger-soft"
           onClick={() => setOpen(true)}
         >
           Delete my account…
@@ -204,7 +204,7 @@ function DangerZone({ role }: { role: string }) {
           </Field>
           <div className="flex gap-2 pt-1">
             <button
-              className="inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow transition-all hover:bg-red-700 disabled:opacity-50"
+              className="btn-danger"
               disabled={busy || !password}
               onClick={remove}
             >

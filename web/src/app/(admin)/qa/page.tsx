@@ -128,7 +128,7 @@ function QaQueue() {
             <div className="skeleton h-40 w-full" />
           </div>
         ) : isError ? (
-          <div className="card flex flex-col items-center gap-3 py-10 text-center text-sm text-red-600 dark:text-red-400">
+          <div className="card flex flex-col items-center gap-3 py-10 text-center text-sm text-danger">
             Could not load the review queue.
             <button className="btn-secondary" onClick={() => refetch()}>
               Try again
@@ -286,7 +286,7 @@ function QueueCard({
       )}
 
       {'similarity_score' in plagiarism && (
-        <p className={`mt-3 text-sm font-medium ${plagiarism.flagged ? 'text-red-600 dark:text-red-400' : 'text-gray-500'}`}>
+        <p className={`mt-3 text-sm font-medium ${plagiarism.flagged ? 'text-danger' : 'text-gray-500'}`}>
           AI plagiarism screen{isRevision ? ' (new text only)' : ''}: score {String(plagiarism.similarity_score)}/100
           {plagiarism.flagged ? ' — FLAGGED' : ' — clear'} {plagiarism.reason ? `(${String(plagiarism.reason)})` : ''}
         </p>
@@ -358,7 +358,7 @@ function QueueCard({
             })}
           </div>
           {!gate.allowed && (
-            <p id={gateId} className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+            <p id={gateId} className="mt-2 text-xs font-medium text-warning">
               {gate.reason}
             </p>
           )}

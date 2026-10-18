@@ -75,7 +75,7 @@ export function LessonList({
                 <span
                   className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     doneInSection === section.lessons.length && section.lessons.length > 0
-                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                      ? 'bg-success-soft text-success'
                       : 'bg-brand-500/10 text-brand-600'
                   }`}
                 >
@@ -98,7 +98,7 @@ export function LessonList({
                       >
                         <span className="flex min-w-0 flex-1 items-center gap-2">
                           {done ? (
-                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden />
                           ) : (
                             <Play className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-500'}`} aria-hidden />
                           )}
@@ -106,8 +106,8 @@ export function LessonList({
                             <span className="block truncate">{lesson.title}</span>
                             {done && <span className="sr-only">Completed</span>}
                             {!done && watched > 0 && (
-                              <span className="mt-1 block h-1 w-24 overflow-hidden rounded-full bg-gray-200">
-                                <span className="block h-full bg-brand-500" style={{ width: `${watched}%` }} />
+                              <span className="progress-track mt-1 block h-1 w-24">
+                                <span className="progress-fill block" style={{ width: `${watched}%` }} />
                               </span>
                             )}
                           </span>

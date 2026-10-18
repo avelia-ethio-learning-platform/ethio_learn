@@ -59,10 +59,10 @@ describe('<PasswordStrength />', () => {
 
   it('ticks the length and each met category, and says 3 of these 4', () => {
     render(<PasswordStrength value="Password" />);
-    expect(screen.getByText(/At least 8 characters/).className).toContain('text-green-700');
+    expect(screen.getByText(/At least 8 characters/).className).toContain('text-success');
     expect(screen.getByText(/3 of these 4/).className).toContain('text-gray-500'); // two categories only
-    expect(screen.getByText('lowercase').className).toContain('text-green-700');
-    expect(screen.getByText('uppercase').className).toContain('text-green-700');
+    expect(screen.getByText('lowercase').className).toContain('text-success');
+    expect(screen.getByText('uppercase').className).toContain('text-success');
     expect(screen.getByText('number').className).toContain('text-gray-500');
     expect(screen.getByText('symbol').className).toContain('text-gray-500');
   });

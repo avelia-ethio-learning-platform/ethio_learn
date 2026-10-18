@@ -40,8 +40,8 @@ export function FollowInstructorButton({ instructorId }: { instructorId: string 
       aria-pressed={following}
       className={`group shrink-0 rounded-md px-4 py-2 text-sm font-semibold transition active:scale-95 ${
         following
-          ? 'bg-brand-100 text-brand-800 hover:bg-red-50 hover:text-red-600'
-          : 'bg-blue-700 text-white hover:bg-blue-800'
+          ? 'bg-brand-100 text-brand-800 hover:bg-danger-soft hover:text-danger'
+          : 'brand-fill hover:brightness-105'
       }`}
       title={following ? 'You get alerts when this instructor posts a new course' : 'Get alerts when this instructor posts a new course'}
     >

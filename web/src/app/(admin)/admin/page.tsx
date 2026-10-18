@@ -377,10 +377,10 @@ function RefundsTab() {
               <span className="block truncate text-gray-500">{r.reason}</span>
             </span>
             <span className="flex shrink-0 gap-3">
-              <button type="button" className="font-medium text-emerald-700 hover:underline dark:text-emerald-400" disabled={busy} onClick={() => decide(r, 'approve')}>
+              <button type="button" className="font-medium text-success hover:underline" disabled={busy} onClick={() => decide(r, 'approve')}>
                 Approve
               </button>
-              <button type="button" className="font-medium text-red-600 hover:underline dark:text-red-400" disabled={busy} onClick={() => decide(r, 'deny')}>
+              <button type="button" className="font-medium text-danger hover:underline" disabled={busy} onClick={() => decide(r, 'deny')}>
                 Deny
               </button>
             </span>
@@ -522,22 +522,22 @@ function UsersTab() {
                 <span className="text-foreground">{u.name}</span> <span className="text-gray-500">({u.email})</span>
                 <span className="badge-neutral ml-2">{roleLabel(u.role)}</span>
                 {isMe && <span className="badge-info ml-1">You</span>}
-                {!u.email_verified && <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">unverified</span>}
+                {!u.email_verified && <span className="ml-1 text-xs text-warning">unverified</span>}
               </span>
               <span className="flex items-center gap-2">
                 <StatusBadge status={u.status} />
                 {!isMe &&
                   (u.status === 'active' ? (
                     <>
-                      <button type="button" className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-400" aria-disabled={busy} onClick={() => setUserStatus(u, 'suspended')}>
+                      <button type="button" className="text-xs font-medium text-warning hover:underline" aria-disabled={busy} onClick={() => setUserStatus(u, 'suspended')}>
                         Suspend
                       </button>
-                      <button type="button" className="text-xs font-medium text-red-600 hover:underline dark:text-red-400" aria-disabled={busy} onClick={() => setUserStatus(u, 'banned')}>
+                      <button type="button" className="text-xs font-medium text-danger hover:underline" aria-disabled={busy} onClick={() => setUserStatus(u, 'banned')}>
                         Ban
                       </button>
                     </>
                   ) : (
-                    <button type="button" className="text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-400" aria-disabled={busy} onClick={() => setUserStatus(u, 'active')}>
+                    <button type="button" className="text-xs font-medium text-success hover:underline" aria-disabled={busy} onClick={() => setUserStatus(u, 'active')}>
                       Reactivate
                     </button>
                   ))}
@@ -655,7 +655,7 @@ function CoursesTab() {
                 </button>
               )}
               {c.status !== 'archived' && (
-                <button type="button" className="font-medium text-red-600 hover:underline dark:text-red-400" disabled={busy} onClick={() => act(c, 'archive')}>
+                <button type="button" className="font-medium text-danger hover:underline" disabled={busy} onClick={() => act(c, 'archive')}>
                   Archive
                 </button>
               )}

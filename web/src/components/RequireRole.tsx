@@ -44,7 +44,7 @@ export function RequireRole({ roles, children }: { roles: string[]; children: Re
     return (
       <div className="page-shell flex min-h-[60vh] items-center justify-center">
         <div className="card w-full max-w-md animate-fade-in-up !rounded-3xl p-8 text-center">
-          <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-500">
+          <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-warning-soft text-warning">
             <ShieldAlert className="h-5 w-5" />
           </span>
           <h1 className="text-lg font-bold text-foreground">{t('gate_denied_title')}</h1>

@@ -86,6 +86,37 @@ export async function ownCourseId(request: APIRequestContext): Promise<string> {
   return ((await res.json()) as { id: string }).id;
 }
 
+/**
+ * The e2e draft with at least one lesson, so the editor shows its lesson-row controls
+ * ("upload video"). Adds a section and a lesson through the API only when the draft has none.
+ */
+export async function draftWithLesson(request: APIRequestContext): Promise<string> {
+  const id = await ownCourseId(request);
+  // The working copy is what the editor renders, so its lesson count is the one that matters.
+  const course = await apiGet<{ sections: { id: string; lessons: { id: string }[] }[] }>(request, `/courses/${id}/working`, 'educator');
+  if (course.sections.some((s) => s.lessons.length > 0)) return id;
+  const headers = { Authorization: `Bearer ${tokenFor('educator')}` };
+  let section = course.sections[0];
+  if (!section) {
+    const res = await request.post(`${API_URL}/api/v1/courses/${id}/sections`, { headers, data: { title: 'Section 1', is_free_preview: false } });
+    expect(res.ok(), `POST /courses/${id}/sections → ${res.status()}`).toBe(true);
+    section = (await res.json()) as { id: string; lessons: { id: string }[] };
+  }
+  const res = await request.post(`${API_URL}/api/v1/sections/${section.id}/lessons`, { headers, data: { title: 'Lesson 1', duration_seconds: 60 } });
+  expect(res.ok(), `POST /sections/${section.id}/lessons → ${res.status()}`).toBe(true);
+  return id;
+}
+
+/** The seeded quiz's exam route (scripts/demo-seed.mjs adds a quiz to a tech course). */
+export async function seededExamPath(request: APIRequestContext): Promise<string> {
+  const { items } = await apiGet<{ items: { id: string; category: string }[] }>(request, '/search?page=1&limit=50');
+  for (const course of items) {
+    const quiz = (await apiGet<{ id: string; type: string }[]>(request, `/assessments?course_id=${course.id}`, 'learner')).find((a) => a.type === 'quiz');
+    if (quiz) return `/learn/${course.id}/exam/${quiz.id}`;
+  }
+  throw new Error('the e2e stack has a course with a quiz (scripts/demo-seed.mjs)');
+}
+
 export async function learnerCertificateUid(request: APIRequestContext): Promise<string> {
   const certs = await apiGet<{ certificate_uid: string }[]>(request, '/me/certificates', 'learner');
   expect(certs.length, 'the seeded learner has a certificate (scripts/demo-seed.mjs)').toBeGreaterThan(0);

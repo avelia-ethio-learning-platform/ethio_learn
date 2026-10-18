@@ -32,8 +32,9 @@ export function PasswordStrength({ value }: { value: string }) {
   const { t } = useT();
   if (!value) return null;
   const { score, label, lengthOk, categoriesMet, categories } = scorePassword(value);
-  const colors = ['bg-red-500', 'bg-red-500', 'bg-amber-500', 'bg-yellow-500', 'bg-green-600'];
-  const tone = (ok: boolean) => (ok ? 'text-green-700 dark:text-green-400' : 'text-gray-500');
+  // Status solids on the gray-200 track; the label below says the strength, so the colour isn't the only signal.
+  const colors = ['bg-danger-solid', 'bg-danger-solid', 'bg-warning-solid', 'bg-warning-solid', 'bg-success-solid'];
+  const tone = (ok: boolean) => (ok ? 'text-success' : 'text-gray-500');
   const mark = (ok: boolean) => (
     <>
       {ok ? <Check className="mr-1 inline h-3 w-3" aria-hidden="true" /> : <Circle className="mr-1 inline h-3 w-3" aria-hidden="true" />}

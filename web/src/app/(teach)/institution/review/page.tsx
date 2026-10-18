@@ -61,7 +61,7 @@ function ReviewQueue() {
             <div className="skeleton h-40 w-full" />
           </div>
         ) : isError ? (
-          <div className="card flex flex-col items-center gap-3 py-10 text-center text-sm text-red-600 dark:text-red-400">
+          <div className="card flex flex-col items-center gap-3 py-10 text-center text-sm text-danger">
             Could not load the review queue.
             <button className="btn-secondary" onClick={() => refetch()}>
               Try again

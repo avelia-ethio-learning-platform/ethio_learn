@@ -398,9 +398,9 @@ function Player({ courseId }: { courseId: string }) {
               </div>
             </div>
           ) : null}
-          {videoError && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{videoError}</p>}
+          {videoError && <p className="mt-2 text-sm font-medium text-warning">{videoError}</p>}
           {completeError && (
-            <p role="alert" className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">
+            <p role="alert" className="mt-2 text-sm font-medium text-warning">
               {completeError}
             </p>
           )}
