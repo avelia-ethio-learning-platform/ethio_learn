@@ -22,7 +22,7 @@ import {
 } from '@ethiopialearn/contracts';
 import { Course, CoursePending, CourseRevision, Lesson, LessonPending, PendingState, Section, SectionPending } from './entities';
 import { CourseExtrasService } from './course-extras.service';
-import { CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UpdateSectionDto } from './dto';
+import { COURSE_LANGUAGES, CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UpdateSectionDto } from './dto';
 import { VideoKeyService } from './video-key.service';
 import { applyStagedRows, hasStagedRows } from './staging';
 
@@ -450,6 +450,7 @@ export class CourseService implements OnModuleInit {
       title: dto.title,
       description: dto.description,
       category: dto.category,
+      language: dto.language,
       thumbnail_url: dto.thumbnail_url,
       pricing_type: dto.pricing_type,
       price_etb: dto.price_etb === undefined ? undefined : dto.price_etb != null ? dto.price_etb.toFixed(2) : null,
@@ -1105,7 +1106,7 @@ export class CourseService implements OnModuleInit {
     return course;
   }
 
-  async search(params: { q?: string; category?: string; pricing_type?: string; sort?: string; page: number; limit: number }) {
+  async search(params: { q?: string; category?: string; pricing_type?: string; language?: string; sort?: string; page: number; limit: number }) {
     const cacheKey = JSON.stringify(params);
     const cached = this.searchCache.get(cacheKey);
     if (cached) return cached;
@@ -1122,6 +1123,9 @@ export class CourseService implements OnModuleInit {
     }
     if (params.pricing_type && Object.values(PricingType).includes(params.pricing_type as PricingType)) {
       qb.andWhere('c.pricing_type = :pricing', { pricing: params.pricing_type });
+    }
+    if (params.language && COURSE_LANGUAGES.includes(params.language)) {
+      qb.andWhere('c.language = :language', { language: params.language });
     }
 
     // Catalog ordering. Default "top": Bayesian-weighted rating so one lone

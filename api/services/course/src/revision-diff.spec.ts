@@ -24,6 +24,7 @@ function course(over: Partial<CourseLike> = {}): CourseLike {
     title: 'Approved title',
     description: 'Approved description of the course',
     category: 'programming',
+    language: 'en',
     thumbnail_url: 'http://x/thumb.png',
     pricing_type: 'paid',
     price_etb: '500.00',
@@ -81,6 +82,7 @@ describe('merge helpers', () => {
       title: 'T2',
       description: 'Approved description of the course',
       category: 'programming',
+      language: 'en',
       thumbnail_url: null,
       pricing_type: 'paid',
       price_etb: '500.00',
@@ -104,6 +106,13 @@ describe('merge helpers', () => {
 });
 
 describe('computeDiff', () => {
+  it('lists a staged course language as a metadata change (13a gap 5)', () => {
+    const diff = computeDiff({ course: course({ pending: { language: 'am' } }), sections: [], lessons: [], pendingKnowledge: [] });
+    expect(diff.metadata).toEqual([{ field: 'language', before: 'en', after: 'am' }]);
+    expect(diff.diff_summary.fields_changed).toEqual(['language']);
+    expect(diff.empty).toBe(false);
+  });
+
   it('produces the documented before/after shape', () => {
     const diff = computeDiff(stagedState(), [{ id: 'a1' }]);
 

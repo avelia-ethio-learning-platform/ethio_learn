@@ -150,10 +150,11 @@ export class CourseController {
     @Query('q') q: string | undefined,
     @Query('category') category: string | undefined,
     @Query('pricing_type') pricingType: string | undefined,
+    @Query('language') language: string | undefined,
     @Query('sort') sort: string | undefined,
     @Query() paging: SearchPage,
   ) {
-    return this.service.search({ q, category, pricing_type: pricingType, sort, page: paging.page, limit: paging.limit });
+    return this.service.search({ q, category, pricing_type: pricingType, language, sort, page: paging.page, limit: paging.limit });
   }
 
   /** [PUBLIC] Top educators leaderboard (ranked by total rating points). */

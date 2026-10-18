@@ -3,7 +3,10 @@ import { FindOperator } from 'typeorm';
 import { ProcessedEvent, ROLES_KEY, UserContext } from '@ethiopialearn/common';
 import { MockAiAssessor } from '@ethiopialearn/ai';
 import { PricingType, Role } from '@ethiopialearn/contracts';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { CourseService } from './course.service';
+import { CreateCourseDto, UpdateCourseDto } from './dto';
 import { CourseController } from './course.controller';
 import { CourseInternalController } from './internal.controller';
 import { mergedLesson } from './revision-diff';
@@ -1191,6 +1194,45 @@ describe('An institution admin authors a course (13a gap 4)', () => {
     });
     await expect(h.service.create(INST_ADMIN, dto)).rejects.toThrow(new BadRequestException('Create your institution profile before creating courses'));
     expect(h.courses.rows).toHaveLength(1);
+  });
+});
+
+describe('Course language (13a gap 5)', () => {
+  const errorsFor = async (Dto: new () => object, body: Record<string, unknown>) =>
+    (await validate(plainToInstance(Dto, body), { whitelist: true })).map((e) => e.property);
+
+  it('accepts English and Amharic, and rejects any other language with a 400', async () => {
+    const create = { title: 'A course title', description: 'A description long enough', category: 'programming', pricing_type: 'free' };
+    expect(await errorsFor(CreateCourseDto, { ...create, language: 'am' })).toEqual([]);
+    expect(await errorsFor(CreateCourseDto, { ...create, language: 'fr' })).toEqual(['language']);
+    expect(await errorsFor(UpdateCourseDto, { language: 'en' })).toEqual([]);
+    expect(await errorsFor(UpdateCourseDto, { language: 'fr' })).toEqual(['language']);
+  });
+
+  it('stages a language change on a live course and writes it on a draft', async () => {
+    const live = setup();
+    await live.service.update(OWNER, 'c1', { language: 'am' });
+    expect(live.course.pending).toEqual({ language: 'am' });
+    expect(live.course.language).toBe('en');
+
+    const draft = setup({ course: { status: 'draft', published_at: null } });
+    await draft.service.update(OWNER, 'c1', { language: 'am' });
+    expect(draft.course.language).toBe('am');
+  });
+
+  it('filters the catalog by a known language and ignores an unknown one', async () => {
+    const h = setup();
+    const where: unknown[][] = [];
+    const qb: Record<string, jest.Mock> = {};
+    for (const name of ['where', 'orderBy', 'addOrderBy', 'take', 'skip']) qb[name] = jest.fn(() => qb);
+    qb.andWhere = jest.fn((...args: unknown[]) => (where.push(args), qb));
+    qb.getManyAndCount = jest.fn(async () => [[], 0]);
+    (h.courses as unknown as { createQueryBuilder: () => typeof qb }).createQueryBuilder = () => qb;
+    await h.service.search({ language: 'am', page: 1, limit: 12 });
+    expect(where).toContainEqual(['c.language = :language', { language: 'am' }]);
+    where.length = 0;
+    await h.service.search({ language: 'fr', page: 1, limit: 12 });
+    expect(where.map((args) => args[0])).not.toContain('c.language = :language');
   });
 });
 

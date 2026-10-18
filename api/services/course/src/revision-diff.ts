@@ -15,6 +15,7 @@ export interface CoursePendingFields {
   title?: string;
   description?: string;
   category?: string;
+  language?: string;
   thumbnail_url?: string | null;
   pricing_type?: string;
   price_etb?: string | null;
@@ -38,6 +39,7 @@ export interface CourseLike {
   title: string;
   description: string;
   category: string;
+  language: string;
   thumbnail_url: string | null;
   pricing_type: string;
   price_etb: string | null;
@@ -82,7 +84,7 @@ export interface RevisionState {
   pendingKnowledge: KnowledgeLike[];
 }
 
-export const COURSE_DIFF_FIELDS = ['title', 'description', 'category', 'thumbnail_url', 'pricing_type', 'price_etb'] as const;
+export const COURSE_DIFF_FIELDS = ['title', 'description', 'category', 'language', 'thumbnail_url', 'pricing_type', 'price_etb'] as const;
 export type CourseDiffField = (typeof COURSE_DIFF_FIELDS)[number];
 
 export const CHANGED_TEXT_MAX = 8000;
@@ -140,6 +142,7 @@ export function mergedCourse(c: CourseLike) {
     title: pick<CoursePendingFields, 'title'>(p, 'title', c.title) as string,
     description: pick<CoursePendingFields, 'description'>(p, 'description', c.description) as string,
     category: pick<CoursePendingFields, 'category'>(p, 'category', c.category) as string,
+    language: pick<CoursePendingFields, 'language'>(p, 'language', c.language) as string,
     thumbnail_url: pick<CoursePendingFields, 'thumbnail_url'>(p, 'thumbnail_url', c.thumbnail_url) ?? null,
     pricing_type: pick<CoursePendingFields, 'pricing_type'>(p, 'pricing_type', c.pricing_type) as string,
     price_etb: pick<CoursePendingFields, 'price_etb'>(p, 'price_etb', c.price_etb) ?? null,
