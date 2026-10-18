@@ -8,7 +8,6 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Cron } from '@nestjs/schedule';
 import { In, IsNull, LessThan, MoreThan, Repository } from 'typeorm';
 import { envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, OutboxService, UserContext } from '@ethiopialearn/common';
 import {
@@ -373,9 +372,8 @@ export class EnrollmentService implements OnModuleInit {
    * Inactivity nudges, daily at 06:00 UTC (09:00 Addis). An active, unfinished
    * enrollment with no activity for INACTIVITY_DAYS gets an in-app ping; if it
    * is still idle after INACTIVITY_EMAIL_DAYS it gets one email. Any activity
-   * resets the ladder (see touch()).
+   * resets the ladder (see touch()). The `inactivity` job (jobs.ts).
    */
-  @Cron('0 6 * * *')
   async nudgeInactiveLearners(): Promise<{ sent: number }> {
     const inAppDays = envInt('INACTIVITY_DAYS', 7);
     const emailDays = envInt('INACTIVITY_EMAIL_DAYS', 14);

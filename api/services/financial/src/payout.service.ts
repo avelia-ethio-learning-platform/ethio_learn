@@ -1,5 +1,4 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -67,13 +66,8 @@ export class PayoutService implements OnModuleInit {
     });
   }
 
-  /** Nightly payout run (spec §12.3). */
-  @Cron('0 2 * * *')
-  async nightly() {
-    await this.runPayouts();
-  }
-
   /**
+   * The nightly `payouts` job (jobs.ts, spec §12.3), the admin trigger and the command.
    * One payout per payee per run, never two for one payment (P1-14), even when
    * runs overlap (cron, command and admin trigger) or one crashes:
    * - payees are paged with a keyset cursor;

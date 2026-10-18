@@ -180,6 +180,11 @@ services:
         value: https://ethiopialearn-quality.onrender.com
       - key: NOTIFICATION_SERVICE_URL
         value: https://ethiopialearn-notification.onrender.com
+      # The scheduler's token (.github/workflows/jobs.yml): gateway only, not the
+      # shared group, so the mesh-wide INTERNAL_API_TOKEN never goes to GitHub.
+      # Set in the dashboard and as the JOBS_TOKEN Actions secret.
+      - key: JOBS_TOKEN
+        sync: false
 
   # ---- domain services -----------------------------------------------------
   # These trust the gateway's x-user-* headers, so they are only safe because

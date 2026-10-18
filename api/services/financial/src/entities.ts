@@ -105,6 +105,14 @@ export class Payment {
   @Column({ type: 'timestamptz', nullable: true })
   refund_requested_at: Date | null;
 
+  /** The sweep's last Chapa verify of this row; it checks the least recently checked first (P1-19). */
+  @Column({ type: 'timestamptz', nullable: true })
+  verify_checked_at: Date | null;
+
+  /** Sweep verifies so far; the sweep stops checking a row at 30. */
+  @Column({ type: 'int', default: 0 })
+  verify_attempts: number;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 }

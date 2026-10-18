@@ -9,7 +9,6 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Cron } from '@nestjs/schedule';
 import { Between, DataSource, EntityManager, In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, PeerNotFoundError, stableEventId, UserContext } from '@ethiopialearn/common';
@@ -143,7 +142,6 @@ export function bulkDiscountPercent(seats: number): number {
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
   private readonly purposeHandlers = new Map<PaymentPurpose, PurposeHandler[]>();
-  private completingEffects = false;
 
   constructor(
     @InjectRepository(Payment) private readonly payments: Repository<Payment>,
@@ -520,8 +518,9 @@ export class PaymentService {
   }
 
   /**
-   * Safety net for missed webhooks and abandoned return pages. Every 2 minutes,
-   * ask Chapa about recent pending payments and apply the standard rules.
+   * Safety net for missed webhooks and abandoned return pages: ask Chapa about
+   * recent pending payments and apply the standard rules. The `sweep` job
+   * (jobs.ts: every 2 min while awake, and the GitHub schedule).
    *
    * Then it re-checks recent failed Chapa payments that had a checkout page,
    * such as one a retry of the same purchase superseded. One Chapa reports
@@ -530,9 +529,8 @@ export class PaymentService {
    * still pending stays failed. A failed row with no checkout URL is never
    * selected: Chapa never opened its page, so it can't have been paid.
    */
-  @Cron('*/2 * * * *')
-  async sweepPendingPayments(): Promise<void> {
-    if (chapaMode() !== 'live') return;
+  async sweepPendingPayments(): Promise<{ checked: number }> {
+    if (chapaMode() !== 'live') return { checked: 0 };
     const now = Date.now();
     const recent = Between(new Date(now - 24 * 3600_000), new Date(now - 60_000));
     const pending = await this.payments.find({
@@ -551,9 +549,11 @@ export class PaymentService {
       order: { created_at: 'DESC' },
       take: 10,
     });
+    let checked = 0;
     for (const payment of [...pending, ...failed]) {
       try {
         const verification = await this.chapa.verify(payment.chapa_tx_ref);
+        checked += 1;
         await this.applyVerification(payment, verification, 'sweep');
       } catch (err) {
         if (err instanceof ChapaUnavailableError) {
@@ -563,6 +563,7 @@ export class PaymentService {
         this.logger.warn(`sweep: could not verify ${payment.chapa_tx_ref}: ${(err as Error).message}`);
       }
     }
+    return { checked };
   }
 
   /**
@@ -576,9 +577,9 @@ export class PaymentService {
    * claims a row sends its reminder, so each payment gets at most one. The
    * claim comes before the publish: a publish that fails after the claim
    * loses that one reminder, and ends the run, rather than sending two.
+   * The `nudges` job (jobs.ts: hourly while awake, and the GitHub schedule).
    */
-  @Cron('15 * * * *')
-  async nudgeAbandonedCheckouts(): Promise<void> {
+  async nudgeAbandonedCheckouts(): Promise<{ sent: number }> {
     const now = Date.now();
     const rows = await this.payments.find({
       where: {
@@ -611,6 +612,7 @@ export class PaymentService {
       sent += 1;
     }
     if (sent) this.logger.log(`abandoned-checkout nudges sent: ${sent}`);
+    return { sent };
   }
 
   /**
@@ -790,50 +792,39 @@ export class PaymentService {
 
   /**
    * Re-publishes the access events of confirmed payments that aren't marked
-   * done, oldest first (P0-05). Runs in every CHAPA_MODE. Skips a tick while
-   * the previous run is still going (with the broker down a run can outlast
-   * the interval), stops at the first broker failure, and logs and skips a
-   * payment that fails for its own reason so it can't block the rest.
-   * Returns null when the tick was skipped.
+   * done, oldest first (P0-05). Runs in every CHAPA_MODE. The `effects` job
+   * (jobs.ts): its lease keeps runs from overlapping (with the broker down a
+   * run can outlast the interval). Stops at the first broker failure, and
+   * logs and skips a payment that fails for its own reason so it can't block the rest.
    */
-  @Cron('*/2 * * * *')
-  async completePendingEffects(): Promise<{ completed: number; failed: number } | null> {
-    if (this.completingEffects) {
-      this.logger.warn('re-publish run still in progress; skipping this tick');
-      return null;
-    }
-    this.completingEffects = true;
+  async completePendingEffects(): Promise<{ completed: number; failed: number }> {
     let completed = 0;
     let failed = 0;
-    try {
-      const cutoff = new Date(Date.now() - EFFECTS_RETRY_AFTER_MS);
-      const pending = { status: PaymentStatus.CONFIRMED, effects_completed_at: IsNull() };
-      const rows = await this.payments.find({
-        where: [
-          { ...pending, webhook_received_at: LessThan(cutoff) },
-          { ...pending, webhook_received_at: IsNull(), created_at: LessThan(cutoff) },
-        ],
-        order: { webhook_received_at: 'ASC' },
-        take: EFFECTS_BATCH,
-      });
-      for (const payment of rows) {
-        try {
-          await this.completeEffects(payment);
-          completed += 1;
-        } catch (err) {
-          if (err instanceof BrokerPublishError) {
-            this.logger.warn(`re-publish run stopped at payment ${payment.id}: ${err.message}`);
-            break;
-          }
-          failed += 1;
-          this.logger.error(`payment ${payment.id}: could not complete its access events, skipped this run: ${(err as Error).message}`);
+    const cutoff = new Date(Date.now() - EFFECTS_RETRY_AFTER_MS);
+    const pending = { status: PaymentStatus.CONFIRMED, effects_completed_at: IsNull() };
+    const rows = await this.payments.find({
+      where: [
+        { ...pending, webhook_received_at: LessThan(cutoff) },
+        { ...pending, webhook_received_at: IsNull(), created_at: LessThan(cutoff) },
+      ],
+      order: { webhook_received_at: 'ASC' },
+      take: EFFECTS_BATCH,
+    });
+    for (const payment of rows) {
+      try {
+        await this.completeEffects(payment);
+        completed += 1;
+      } catch (err) {
+        if (err instanceof BrokerPublishError) {
+          this.logger.warn(`re-publish run stopped at payment ${payment.id}: ${err.message}`);
+          break;
         }
+        failed += 1;
+        this.logger.error(`payment ${payment.id}: could not complete its access events, skipped this run: ${(err as Error).message}`);
       }
-      if (rows.length) this.logger.log(`re-publish run: ${completed} of ${rows.length} confirmed payment(s) completed, ${failed} failed`);
-      return { completed, failed };
-    } finally {
-      this.completingEffects = false;
     }
+    if (rows.length) this.logger.log(`re-publish run: ${completed} of ${rows.length} confirmed payment(s) completed, ${failed} failed`);
+    return { completed, failed };
   }
 
   /**

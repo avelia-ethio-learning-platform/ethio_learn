@@ -774,20 +774,6 @@ describe('PaymentService: no lost access (P0-05)', () => {
     expect(await t.service.completePendingEffects()).toEqual({ completed: 1, failed: 0 });
   });
 
-  it('skips a tick while the previous run is still going', async () => {
-    const t = setup();
-    t.seed({ status: PaymentStatus.CONFIRMED, webhook_received_at: new Date(Date.now() - 5 * 60_000) });
-    let release!: () => void;
-    t.bus.publishConfirmed.mockImplementationOnce(() => new Promise<void>((resolve) => (release = resolve)));
-
-    const first = t.service.completePendingEffects();
-    await new Promise((r) => setImmediate(r));
-    expect(await t.service.completePendingEffects()).toBeNull();
-    release();
-    expect(await first).toEqual({ completed: 1, failed: 0 });
-    expect(t.bus.publishConfirmed).toHaveBeenCalledTimes(1);
-  });
-
   it('stops the run at the first broker failure, oldest first', async () => {
     const t = setup();
     t.seed({ id: 'older', chapa_tx_ref: 'TX-1', status: PaymentStatus.CONFIRMED, webhook_received_at: new Date(Date.now() - 10 * 60_000) });
