@@ -1165,6 +1165,35 @@ describe('Submitting an institution course', () => {
   });
 });
 
+describe('An institution admin authors a course (13a gap 4)', () => {
+  const dto = { title: 'Inst course', description: 'd', category: 'programming', language: 'en', pricing_type: PricingType.FREE } as never;
+
+  it('creates it owned by the institution, with no institution queue', async () => {
+    const h = setup();
+    const view = await h.service.create(INST_ADMIN, dto);
+    const row = h.courses.rows.find((r) => r.id === (view as { id: string }).id)!;
+    expect(row).toEqual(expect.objectContaining({ owner_id: 'inst1', owner_type: 'institution', created_by: 'ia1', institution_id: null }));
+  });
+
+  it('submits it to the QO queue, naming the institution as owner', async () => {
+    const h = setup({ course: { status: 'draft', published_at: null, owner_id: 'inst1', owner_type: 'institution', created_by: 'ia1' } });
+    await h.service.submit(INST_ADMIN, 'c1');
+    expect(h.course.status).toBe('submitted');
+    expect(h.committed).toContainEqual({ type: 'CourseSubmitted', payload: expect.objectContaining({ course_id: 'c1', owner_type: 'institution' }) });
+    expect(h.bus.publish).not.toHaveBeenCalledWith('CourseSubmittedToInstitution', expect.anything());
+  });
+
+  it('asks an admin without an institution profile to create one first', async () => {
+    const h = setup();
+    h.internal.get.mockImplementation(async (path: string) => {
+      if (path.includes('/institutions/by-owner/')) throw new Error('404');
+      return {} as never;
+    });
+    await expect(h.service.create(INST_ADMIN, dto)).rejects.toThrow(new BadRequestException('Create your institution profile before creating courses'));
+    expect(h.courses.rows).toHaveLength(1);
+  });
+});
+
 describe('Lifecycle transitions write only the columns they change', () => {
   const decision = (action: string) => ({ course_id: 'c1', action, notes: 'n', qo_id: 'qo1', owner_user_id: 'edu1', owner_email: 'e@x.et', course_title: 'x' });
   // A revision apply that commits while the transition holds a stale entity.

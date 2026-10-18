@@ -339,21 +339,21 @@ export class CourseService implements OnModuleInit {
   }
 
   async create(ctx: UserContext, dto: CreateCourseDto) {
-    // Institutions do not author courses directly — their instructors do.
-    if (ctx.role === Role.INSTITUTION_ADMIN) {
-      throw new ForbiddenException('Institutions do not create courses directly. Invite instructors to create courses.');
-    }
+    // An institution admin's course is owned by the institution (400 without a profile).
+    const { ownerId, ownerType } = await this.resolveOwner(ctx);
     if (dto.pricing_type === PricingType.PAID && !dto.price_etb) {
       throw new BadRequestException('Set a price for a paid course.');
     }
     // Check every lesson video before anything is written, so a bad key cannot
     // leave a half-created course behind.
     if (dto.sections) await this.assertSectionVideoKeys({ created_by: ctx.id, owner_id: ctx.id }, dto.sections);
+    // The instructor membership (null for an admin): it routes reviews to the
+    // institution's queue, so an admin's own courses go to the QO queue.
     const institution = await this.resolveInstitution(ctx.id);
     const course = await this.courses.save(
       this.courses.create({
-        owner_id: ctx.id,
-        owner_type: OwnerType.EDUCATOR,
+        owner_id: ownerId,
+        owner_type: ownerType,
         created_by: ctx.id,
         institution_id: institution?.institution_id ?? null,
         title: dto.title,
