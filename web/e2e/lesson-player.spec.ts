@@ -18,7 +18,7 @@ async function enrolledCourse(request: APIRequestContext): Promise<{ id: string;
   return { id: course.id, firstLessonHasVideo: !!playable };
 }
 
-test('the empty player offers Start or Resume, has no video, and the lesson list comes before the assessments', async ({ page, request }) => {
+test('the empty player offers Start or Resume, has no video, and the lesson list comes before the assessments', { tag: '@flow' }, async ({ page, request }) => {
   const { id } = await enrolledCourse(request);
   await page.goto(`/learn/${id}`);
   const start = page.getByRole('button', { name: START });
@@ -38,7 +38,7 @@ test('the empty player offers Start or Resume, has no video, and the lesson list
   expect(await page.evaluate(() => !!document.activeElement?.closest('aside')), 'focus moved into the lesson list').toBe(true);
 });
 
-test('Start lesson 1 gives the video a source, and Tab goes from the player controls to the lesson list', async ({ page, request }) => {
+test('Start lesson 1 gives the video a source, and Tab goes from the player controls to the lesson list', { tag: '@flow' }, async ({ page, request }) => {
   const { id, firstLessonHasVideo } = await enrolledCourse(request);
   test.skip(!firstLessonHasVideo, 'the seed made no sample video (scripts/demo-seed.mjs: video is optional), so there is nothing to play');
   await page.goto(`/learn/${id}`);
@@ -55,7 +55,7 @@ test('Start lesson 1 gives the video a source, and Tab goes from the player cont
   expect(await page.evaluate(() => !!document.activeElement?.closest('aside')), 'focus moved into the lesson list').toBe(true);
 });
 
-test('an unknown or malformed course id says "Course not found"', async ({ page }) => {
+test('an unknown or malformed course id says "Course not found"', { tag: '@flow' }, async ({ page }) => {
   for (const courseId of ['00000000-0000-4000-8000-000000000000', 'not-a-uuid']) {
     await page.goto(`/learn/${courseId}`);
     await expect(page.getByRole('heading', { name: 'Course not found' }), courseId).toBeVisible({ timeout: 15_000 });

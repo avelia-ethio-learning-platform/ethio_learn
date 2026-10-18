@@ -33,7 +33,7 @@ async function ogImagePath(page: Page, courseId: string): Promise<string> {
   return url.pathname + url.search;
 }
 
-test.describe('course page at 375 px', () => {
+test.describe('course page at 375 px', { tag: '@flow' }, () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
   // Every seeded course, so a long (three-line) title is covered too.

@@ -32,6 +32,13 @@ export default defineConfig({
   projects: [
     { name: 'setup', testMatch: /auth\.setup\.ts/ },
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, dependencies: ['setup'] },
+    // Phase 12: the key flows (tests tagged @flow) again with reduced motion on.
+    {
+      name: 'reduced-motion',
+      use: { ...devices['Desktop Chrome'], reducedMotion: 'reduce' },
+      grep: /@flow/,
+      dependencies: ['setup'],
+    },
   ],
   // NODE_ENV is pinned: a caller's NODE_ENV=development (e.g. api/.env.example
   // exported into the shell) makes `next start` drop the stale-page fallback.
