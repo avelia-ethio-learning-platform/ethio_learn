@@ -140,6 +140,25 @@ The log names each variable, never its value, so a failed boot says what to set.
 - its own secrets;
 - a Vercel environment pointing at it.
 
+## Dependencies
+
+**Versions (Phase 11c):**
+- **Web:** Next 15.5 (npm's `backport` line, still patched) with React 19. Next 16 is follow-up P2-44: it removes the synchronous request APIs (15 only deprecates them) and makes `opengraph-image`'s `params` a Promise.
+- **API:** Nest stays on 10.x (P2-45: a Nest major brings Express 5). Transitive fixes are forced inside their majors with `pnpm.overrides` in `api/package.json` (body-parser, brace-expansion, multer, nanoid, proxy-addr, qs); web overrides Next's bundled postcss.
+- **Gate:** `pnpm audit --prod --audit-level high` is clean for both workspaces.
+
+**Advisories:** Dependabot security-update PRs are off. Advisories arrive as Dependabot alerts and in CI's `audit` job summary; re-enable the PRs once the alerts can be fixed by one. Dependabot proposes no npm majors (planned work).
+
+**Accepted, each with why it isn't reachable:**
+
+| Package | Advisory | Why it stays |
+|---|---|---|
+| braces 3.0.3 (high, no fix) | GHSA-vfj7-8cjw-p6xm, ignored as `CVE-2026-93687` in `pnpm.auditConfig.ignoreCves` (pnpm 9.4 doesn't read `ignoreGhsas`) | Only path: gateway → http-proxy-middleware → micromatch. The gateway's proxy has a `router` and no `pathFilter`, so HPM matches the default `'/'` by string prefix and never calls micromatch. |
+| @nestjs/core 10.4 (moderate) | GHSA-36xv-jgw5-4q75, fixed only in ≥ 11.1.18 | The concrete reason for P2-45 (Nest major). |
+| file-type 20 (moderate) | GHSA-5v7r-6r5c-r473, GHSA-j47w-4g3g-c36v | Only `@nestjs/common`'s `FileTypeValidator` uses it; no multipart route is mounted (uploads go to storage by signed URL). |
+| uuid 9 (moderate) | GHSA-w5hq-g745-h8pq | Affects v3/v5/v6 called with a `buf`; the api calls `v4()` and `v5(name, ns)` only. The fix is a major. |
+| sprintf-js (web, moderate, no fix) | GHSA-hp3w-g68c-fv3c | Via mammoth in the browser, on the user's own document. |
+
 ## Database migrations
 
 Each service runs its pending TypeORM migrations on boot, inside `DataSource.initialize()` and before it listens, so a health check only passes once the schema is current. `synchronize` is off and can't be switched back on: `DB_SYNC` is ignored with a warning. Migrations live in `api/services/<svc>/src/migrations/`; the README's "Changing the schema" section has the developer workflow.
