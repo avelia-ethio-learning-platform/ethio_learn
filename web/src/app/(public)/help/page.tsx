@@ -175,9 +175,9 @@ function ContactForm() {
 export default function HelpPage() {
   return (
     <div className="page-shell max-w-3xl">
-      <div className="animate-in rounded-2xl bg-gradient-to-br from-blue-700 to-blue-900 px-6 py-10 text-white">
+      <div className="brand-panel animate-in rounded-2xl px-6 py-10">
         <h1 className="text-3xl font-bold">Help &amp; Support</h1>
-        <p className="mt-2 max-w-xl text-blue-100">
+        <p className="mt-2 max-w-xl text-white/85">
           Answers to common questions, and a direct line to our team when you need a hand.
         </p>
       </div>

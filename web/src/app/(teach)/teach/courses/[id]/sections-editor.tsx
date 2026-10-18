@@ -101,7 +101,7 @@ function SectionCard({ section, edit, refresh }: { section: WorkingSection; edit
               <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
             </button>
             <button
-              className="btn-ghost btn-sm inline-flex items-center gap-1 !text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:!text-red-400"
+              className="btn-ghost btn-sm inline-flex items-center gap-1 !text-danger disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!editable}
               aria-disabled={removeBusy}
               onClick={remove}
@@ -187,7 +187,7 @@ function LessonRow({ lesson, sectionState, edit, refresh }: { lesson: WorkingLes
               edit
             </button>
             <button
-              className="btn-ghost btn-sm !text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:!text-red-400"
+              className="btn-ghost btn-sm !text-danger disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!editable}
               aria-label={`Remove lesson ${lesson.title}`}
               aria-disabled={removeBusy}

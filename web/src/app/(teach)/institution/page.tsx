@@ -195,13 +195,13 @@ function InstitutionCourseRow({
           ) : (
             <>
               <p className="flex items-center gap-1 text-xs font-semibold text-gray-600">
-                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                <Star className="h-3.5 w-3.5 fill-rating text-rating" />
                 {reviews.average_rating} · {reviews.review_count} review{reviews.review_count === 1 ? '' : 's'}
               </p>
               <ul className="mt-2 space-y-1">
                 {reviews.reviews.map((r: any) => (
                   <li key={r.id} className="text-xs text-gray-600">
-                    <span className="text-amber-700 dark:text-amber-400">{'★'.repeat(r.rating)}</span>
+                    <span className="text-warning">{'★'.repeat(r.rating)}</span>
                     {r.comment ? ` — ${r.comment}` : ''}
                   </li>
                 ))}

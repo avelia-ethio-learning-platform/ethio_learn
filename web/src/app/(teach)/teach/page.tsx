@@ -143,7 +143,7 @@ function EducatorSetup() {
   const [status, setOk, setError, clear] = useFormStatus();
   const [busy, setBusy] = useState(false);
   return (
-    <div className="card animate-fade-in-up !border-amber-400/40 bg-gradient-to-br from-amber-500/10 to-transparent">
+    <div className="card animate-fade-in-up !border-warning-line bg-gradient-to-br from-warning-soft to-transparent">
       <p className="text-sm font-bold text-foreground">Finish your educator profile</p>
       <form
         className="mt-3 grid gap-3 sm:grid-cols-2"

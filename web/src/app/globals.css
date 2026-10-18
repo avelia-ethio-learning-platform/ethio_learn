@@ -14,7 +14,7 @@
   --background-secondary: #fafbff;
   --background-tertiary: #f1f5ff;
   --foreground: #0f172a;
-  --muted-foreground: #64748b;
+  --muted-foreground: #5b6b80;
 
   --glass-primary: rgba(255, 255, 255, 0.85);
   --glass-secondary: rgba(255, 255, 255, 0.7);
@@ -24,8 +24,30 @@
   --card-border: rgba(59, 130, 246, 0.1);
   --popover: rgba(255, 255, 255, 0.98);
   --border: rgba(59, 130, 246, 0.14);
+  /* The edge is what identifies a field, so it is 3:1 on the page (docs/COLOR_SYSTEM.md). */
+  --input-border: #7c8ba1;
   --input-background: rgba(255, 255, 255, 0.9);
   --ring: rgba(59, 130, 246, 0.35);
+
+  /* Status roles (docs/COLOR_SYSTEM.md): text and solid are RGB channels, soft and line are rgba. */
+  --success: 4 120 87;
+  --success-soft: rgba(16, 185, 129, 0.12);
+  --success-line: rgba(16, 185, 129, 0.3);
+  --success-solid: 5 150 105;
+  --warning: 180 83 9;
+  --warning-soft: rgba(245, 158, 11, 0.12);
+  --warning-line: rgba(245, 158, 11, 0.35);
+  --warning-solid: 217 119 6;
+  --danger: 185 28 28;
+  --danger-soft: rgba(239, 68, 68, 0.1);
+  --danger-line: rgba(239, 68, 68, 0.3);
+  --danger-solid: 220 38 38;
+  --info: 29 78 216;
+  --info-soft: rgba(59, 130, 246, 0.1);
+  --info-line: rgba(59, 130, 246, 0.3);
+  --info-solid: 37 99 235;
+  /* Rating stars: 3:1 as a graphic; the number is always printed next to them. */
+  --rating: 217 119 6;
 
   /* Blue brand scale (template's --blue-*) as RGB channels */
   --brand-50: 239 246 255;
@@ -45,7 +67,7 @@
   --gray-200: 226 232 240;
   --gray-300: 203 213 225;
   --gray-400: 148 163 184;
-  --gray-500: 100 116 139;
+  --gray-500: 91 107 128; /* = --muted-foreground: 4.5:1 on the page, cards and gray-100 */
   --gray-600: 71 85 105;
   --gray-700: 51 65 85;
   --gray-800: 30 41 59;
@@ -69,7 +91,7 @@
   --background-secondary: #1e293b;
   --background-tertiary: #334155;
   --foreground: #f8fafc;
-  --muted-foreground: #94a3b8;
+  --muted-foreground: #9aa8bd;
 
   --glass-primary: rgba(30, 41, 59, 0.8);
   --glass-secondary: rgba(30, 41, 59, 0.6);
@@ -79,8 +101,27 @@
   --card-border: rgba(59, 130, 246, 0.16);
   --popover: rgba(15, 23, 42, 0.97);
   --border: rgba(59, 130, 246, 0.22);
+  --input-border: #64748b;
   --input-background: rgba(15, 23, 42, 0.6);
   --ring: rgba(96, 165, 250, 0.45);
+
+  --success: 52 211 153;
+  --success-soft: rgba(16, 185, 129, 0.14);
+  --success-line: rgba(16, 185, 129, 0.35);
+  --success-solid: 16 185 129;
+  --warning: 251 191 36;
+  --warning-soft: rgba(245, 158, 11, 0.14);
+  --warning-line: rgba(245, 158, 11, 0.35);
+  --warning-solid: 245 158 11;
+  --danger: 248 113 113;
+  --danger-soft: rgba(239, 68, 68, 0.14);
+  --danger-line: rgba(239, 68, 68, 0.35);
+  --danger-solid: 239 68 68;
+  --info: 147 197 253;
+  --info-soft: rgba(59, 130, 246, 0.14);
+  --info-line: rgba(59, 130, 246, 0.35);
+  --info-solid: 96 165 250;
+  --rating: 251 191 36;
 
   /* Inverted blue scale: tints become deep navy, text blues become light */
   --brand-50: 23 37 84;
@@ -100,7 +141,7 @@
   --gray-200: 44 58 82;
   --gray-300: 51 65 85;
   --gray-400: 100 116 139;
-  --gray-500: 148 163 184;
+  --gray-500: 154 168 189; /* = --muted-foreground */
   --gray-600: 178 191 210;
   --gray-700: 203 213 225;
   --gray-800: 226 232 240;
@@ -138,6 +179,12 @@
 
   ::selection {
     background: rgba(59, 130, 246, 0.25);
+  }
+
+  /* Native checkboxes and radios match the brand instead of the browser's default blue. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: rgb(var(--brand-600));
   }
 
   /* Themed scrollbar (from template) */
@@ -258,6 +305,34 @@
     background: #991b1b;
   }
 
+  /* Count bubbles (the bell's unread count, a thread's unread count) and the exam camera's
+     problem tag: colours only, so each keeps its own size. The same red-700 as .btn-danger,
+     because white text never sits on a status *-solid (3.8:1 on dark-mode red). */
+  .badge-count {
+    background: #b91c1c;
+    color: #fff;
+  }
+
+  /* Always-dark brand panels (the Home hero, the help banner): a fixed gradient with white text.
+     Dark mode keeps its deeper navy. --brand-50 and --brand-700 are pinned to their light values so
+     a white control on the panel (`bg-white text-brand-700 hover:bg-brand-50`) reads in both themes. */
+  .brand-panel {
+    --brand-50: 239 246 255;
+    --brand-700: 29 78 216;
+    background: linear-gradient(135deg, #1d4ed8, #1e3a8a);
+    color: #fff;
+  }
+  .dark .brand-panel {
+    background: linear-gradient(135deg, #172554, #1e1b4b);
+  }
+
+  /* Small brand fills with white on them (the header avatar, stat tiles, chat bubbles, a selected
+     chip): .btn's stops, fixed in both themes, since dark-mode brand-600 is too light for white text. */
+  .brand-fill {
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
+    color: #fff;
+  }
+
   /* Row actions: a 32 px target. Declared after .btn* so its padding wins. */
   .btn-sm {
     @apply min-h-8 px-3 py-1 text-xs;
@@ -266,7 +341,7 @@
   .input {
     @apply block w-full rounded-xl px-3.5 py-2.5 text-sm text-foreground placeholder:text-gray-500;
     background: var(--input-background);
-    border: 1px solid var(--border);
+    border: 1px solid var(--input-border);
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
   }
   .input:focus,
@@ -307,42 +382,21 @@
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
   }
 
-  /* -------- Status badges (dark-mode aware) -------- */
+  /* -------- Status badges: the status roles, so both themes come from the tokens -------- */
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
   }
   .badge-success {
-    @apply badge;
-    color: #047857;
-    background: rgba(16, 185, 129, 0.12);
-    border: 1px solid rgba(16, 185, 129, 0.25);
-  }
-  .dark .badge-success {
-    color: #34d399;
+    @apply badge border border-success-line bg-success-soft text-success;
   }
   .badge-warn {
-    @apply badge;
-    color: #b45309;
-    background: rgba(245, 158, 11, 0.12);
-    border: 1px solid rgba(245, 158, 11, 0.28);
-  }
-  .dark .badge-warn {
-    color: #fbbf24;
+    @apply badge border border-warning-line bg-warning-soft text-warning;
   }
   .badge-danger {
-    @apply badge;
-    color: #b91c1c;
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.25);
-  }
-  .dark .badge-danger {
-    color: #f87171;
+    @apply badge border border-danger-line bg-danger-soft text-danger;
   }
   .badge-info {
-    @apply badge;
-    color: rgb(var(--brand-700));
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.25);
+    @apply badge border border-info-line bg-info-soft text-info;
   }
   .badge-neutral {
     @apply badge text-gray-600;
@@ -357,7 +411,8 @@
   }
   .progress-fill {
     @apply h-full rounded-full;
-    background: linear-gradient(90deg, #2563eb, #60a5fa);
+    /* Solid brand-600: 3:1 on the track in both themes (a gradient's light end was 2.2:1). */
+    background: rgb(var(--brand-600));
     transition: width 0.5s var(--ease-out-quart);
   }
 

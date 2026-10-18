@@ -43,7 +43,7 @@ export function Bars({
               <span className={d.value === max ? '' : narrowHidden}>{d.value > 0 ? compact(d.value, locale) : ''}</span>
             </span>
             <div aria-hidden="true" className="flex w-full flex-1 items-end">
-              {d.value > 0 && <div className="w-full rounded-t-md bg-brand-500/80" style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }} />}
+              {d.value > 0 && <div className="w-full rounded-t-md bg-brand-600" style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }} />}
             </div>
             <span aria-hidden="true" className="text-xs leading-tight text-gray-500">
               <span className={i % 2 && !d.label.endsWith('-01') ? narrowHidden : ''}>

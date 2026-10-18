@@ -59,7 +59,7 @@ export function SearchPicker({
             ref={clearRef}
             type="button"
             aria-label={`Clear ${label.toLowerCase()}`}
-            className="btn-ghost btn-sm text-gray-500 hover:text-red-600"
+            className="btn-ghost btn-sm text-gray-500 hover:text-danger"
             onClick={() => {
               onSelect(null);
               setQ('');
