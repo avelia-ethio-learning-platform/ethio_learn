@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { m, type Variants } from 'framer-motion';
+import { m } from 'framer-motion';
 import {
   ArrowRight,
   BadgeCheck,
@@ -20,20 +20,15 @@ import {
   SearchX,
 } from 'lucide-react';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
+import { EmptyRows } from '@/components/EmptyRows';
 import { COURSE_CATEGORIES } from '@/lib/categories';
 import { useT } from '@/lib/i18n';
+import { inView, listStagger, rise } from '@/lib/motion';
 
 const CATEGORIES = ['tech', 'business', 'freelancing', 'healthcare', 'other'] as const;
 
-const fadeUp: Variants = {
-  hidden: { opacity: 0, y: 30 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } },
-};
-
-const stagger: Variants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.12 } },
-};
+/** A below-the-fold block that rises in once, as one piece or staggering its `rise` children. */
+const reveal = { initial: 'hidden', whileInView: 'visible', viewport: inView } as const;
 
 export function HomeClient({
   courses,
@@ -74,7 +69,7 @@ export function HomeClient({
       <section className="relative px-3 pb-16 sm:px-6">
         {/* Soft section backdrop behind the panel */}
         <div className="absolute inset-0 -z-10">
-          <div className="absolute inset-0 bg-gradient-to-b from-brand-50/60 via-background to-background transition-colors duration-300" />
+          <div className="absolute inset-0 bg-gradient-to-b from-brand-50/60 via-background to-background transition-colors duration-base" />
           <div className="absolute -left-32 -top-24 h-72 w-72 rounded-full bg-brand-400/15 blur-3xl" />
           <div className="absolute -right-24 top-40 h-64 w-64 rounded-full bg-brand-600/10 blur-3xl" />
         </div>
@@ -125,7 +120,7 @@ export function HomeClient({
                     placeholder={t('search_placeholder')}
                     className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/75"
                   />
-                  <button className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-brand-700 transition-colors hover:bg-brand-50">
+                  <button className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-brand-700 transition duration-fast hover:bg-brand-50 active:scale-[.98]">
                     {t('search')}
                   </button>
                 </form>
@@ -134,14 +129,14 @@ export function HomeClient({
                 <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
                   <Link
                     href="/courses"
-                    className="inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-3.5 text-base font-bold text-brand-700 shadow-floating transition hover:scale-[1.02] active:scale-[.98] hover:bg-brand-50"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-3.5 text-base font-bold text-brand-700 shadow-floating transition duration-fast hover:bg-brand-50 active:scale-[.98]"
                   >
                     {t('explore_courses')}
                     <ArrowRight className="h-5 w-5" />
                   </Link>
                   <Link
                     href="/signup?role=educator"
-                    className="inline-flex items-center gap-2 rounded-2xl border border-white/25 bg-white/10 px-7 py-3.5 text-base font-semibold text-white backdrop-blur-sm transition hover:scale-[1.02] active:scale-[.98] hover:bg-white/20"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/25 bg-white/10 px-7 py-3.5 text-base font-semibold text-white backdrop-blur-sm transition duration-fast hover:bg-white/20 active:scale-[.98]"
                   >
                     {t('become_educator')}
                   </Link>
@@ -187,17 +182,13 @@ export function HomeClient({
           {/* Stats */}
           <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-3 md:gap-7">
             {stats.map((stat) => (
-              <m.div
-                key={stat.label}
-                className="glass-heavy rounded-2xl p-6 text-center"
-                whileHover={{ y: -5 }}
-              >
+              <div key={stat.label} className="glass-heavy rounded-2xl p-6 text-center">
                 <span className="brand-fill mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl">
                   <stat.icon className="h-5 w-5 text-white" />
                 </span>
                 <p className="gradient-text-blue text-3xl font-extrabold md:text-4xl">{stat.value}</p>
                 <p className="mt-1 text-sm font-medium text-gray-500">{stat.label}</p>
-              </m.div>
+              </div>
             ))}
           </div>
         </div>
@@ -207,27 +198,21 @@ export function HomeClient({
       <section id="courses" className="relative scroll-mt-24 py-20">
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-brand-50/40 to-transparent" />
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-          <m.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
-            <m.span variants={fadeUp} className="section-badge">
+          <m.div className="text-center" variants={listStagger} {...reveal}>
+            <m.span variants={rise} className="section-badge">
               <Sparkles className="h-4 w-4 text-brand-500" />
               {total > 0 ? `${total} ${t('courses')}` : t('courses')}
             </m.span>
-            <m.h2 variants={fadeUp} className="mt-6 text-3xl font-bold text-foreground md:text-5xl">
+            <m.h2 variants={rise} className="mt-6 text-3xl font-bold text-foreground md:text-5xl">
               {t('latest_courses')}
             </m.h2>
-            <m.p variants={fadeUp} className="mx-auto mt-3 max-w-xl text-gray-500">
+            <m.p variants={rise} className="mx-auto mt-3 max-w-xl text-gray-500">
               {t('courses_section_sub')}
             </m.p>
           </m.div>
 
           {/* Category quick links — full filtering lives on /courses */}
-          <m.div
-            className="mt-10 flex flex-wrap items-center justify-center gap-2"
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-          >
+          <m.div className="mt-10 flex flex-wrap items-center justify-center gap-2" variants={rise} {...reveal}>
             {CATEGORIES.map((c) => (
               <Link key={c} href={`/courses?category=${c}`} className="pill">
                 {t(`cat_${c}`)}
@@ -236,40 +221,28 @@ export function HomeClient({
           </m.div>
 
           {/* Grid */}
-          {courses.length === 0 && coursesUnavailable ? (
-            <div className="card mx-auto mt-10 max-w-lg py-12 text-center">
-              <p className="text-lg font-medium text-foreground">{t('courses_loading')}</p>
-              <p className="mt-3 text-sm">
-                <Link className="font-semibold text-brand-600 hover:underline" href="/courses">
-                  {t('browse_catalog')} →
-                </Link>
-              </p>
+          {courses.length === 0 ? (
+            <div className="card mx-auto mt-10 max-w-lg">
+              <EmptyRows
+                icon={SearchX}
+                label={coursesUnavailable ? t('courses_loading') : t('no_courses')}
+                action={
+                  coursesUnavailable ? (
+                    <Link className="btn-secondary" href="/courses">
+                      {t('browse_catalog')} <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  ) : (
+                    <Link className="btn-secondary" href="/signup?role=educator">
+                      {t('become_educator')} <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  )
+                }
+              />
             </div>
-          ) : courses.length === 0 ? (
-            <m.div
-              className="card mx-auto mt-10 max-w-lg py-12 text-center"
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
-              <SearchX className="mx-auto h-10 w-10 text-gray-500" aria-hidden="true" />
-              <p className="mt-3 text-lg font-medium text-foreground">{t('no_courses')}</p>
-              <p className="mt-2 text-sm text-gray-500">
-                <Link className="font-semibold text-brand-600 hover:underline" href="/signup?role=educator">
-                  {t('become_educator')} →
-                </Link>
-              </p>
-            </m.div>
           ) : (
-            <m.div
-              className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-              variants={stagger}
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, margin: '-60px' }}
-            >
+            <m.div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3" variants={listStagger} {...reveal}>
               {courses.map((c) => (
-                <m.div key={c.id} variants={fadeUp}>
+                <m.div key={c.id} variants={rise}>
                   <CourseCard course={c} />
                 </m.div>
               ))}
@@ -277,13 +250,7 @@ export function HomeClient({
           )}
 
           {courses.length > 0 && (
-            <m.div
-              className="mt-12 text-center"
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5 }}
-            >
+            <m.div className="mt-12 text-center" variants={rise} {...reveal}>
               <Link href="/courses" className="btn inline-flex !rounded-2xl !px-8 !py-4 !text-base">
                 {t('view_all_courses')} <ArrowRight className="h-5 w-5" />
               </Link>
@@ -295,32 +262,26 @@ export function HomeClient({
       {/* ================= WHY (template WhyDelibix / Services grid) ================= */}
       <section className="relative py-24">
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-          <m.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
-            <m.span variants={fadeUp} className="section-badge">
+          <m.div className="text-center" variants={listStagger} {...reveal}>
+            <m.span variants={rise} className="section-badge">
               <Zap className="h-4 w-4 text-brand-500" />
               {t('why_badge')}
             </m.span>
-            <m.h2 variants={fadeUp} className="mt-6 text-balance text-3xl font-bold leading-tight text-foreground md:text-5xl">
+            <m.h2 variants={rise} className="mt-6 text-balance text-3xl font-bold leading-tight text-foreground md:text-5xl">
               {t('why_title_1')} <span className="gradient-text-blue">{t('why_title_2')}</span>
             </m.h2>
           </m.div>
 
-          <m.div
-            className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
-            variants={stagger}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: '-60px' }}
-          >
+          <m.div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3" variants={rise} {...reveal}>
             {features.map((f) => (
-              <m.div key={f.title} variants={fadeUp} className="card card-hover group relative overflow-hidden !rounded-3xl !p-8">
+              <div key={f.title} className="card card-hover group relative overflow-hidden !rounded-3xl !p-8">
                 <span className="absolute right-4 top-4 h-2 w-2 rounded-full bg-brand-400/60 opacity-60" />
-                <span className="glass-secondary mb-5 flex h-14 w-14 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-110">
+                <span className="glass-secondary mb-5 flex h-14 w-14 items-center justify-center rounded-2xl">
                   <f.icon className="h-7 w-7 text-brand-600" />
                 </span>
                 <h3 className="text-lg font-bold text-foreground">{f.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-gray-500">{f.desc}</p>
-              </m.div>
+              </div>
             ))}
           </m.div>
         </div>
@@ -330,30 +291,24 @@ export function HomeClient({
       <section className="relative py-24">
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-brand-50/50 to-transparent" />
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-          <m.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
-            <m.span variants={fadeUp} className="section-badge">
+          <m.div className="text-center" variants={listStagger} {...reveal}>
+            <m.span variants={rise} className="section-badge">
               <Rocket className="h-4 w-4 text-brand-500" />
               {t('how_badge')}
             </m.span>
-            <m.h2 variants={fadeUp} className="mt-6 text-balance text-3xl font-bold leading-tight text-foreground md:text-5xl">
+            <m.h2 variants={rise} className="mt-6 text-balance text-3xl font-bold leading-tight text-foreground md:text-5xl">
               {t('how_title_1')} <span className="gradient-text-blue">{t('how_title_2')}</span>
             </m.h2>
           </m.div>
 
-          <m.div
-            className="mt-16 grid gap-8 lg:grid-cols-3"
-            variants={stagger}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: '-60px' }}
-          >
+          <m.div className="mt-16 grid gap-8 lg:grid-cols-3" variants={listStagger} {...reveal}>
             {steps.map((step, i) => (
-              <m.div key={step.title} variants={fadeUp} className="group relative">
+              <m.div key={step.title} variants={rise} className="group relative">
                 <div className="card card-hover relative h-full overflow-visible !rounded-3xl !p-8 text-center">
                   <span className="glass absolute -right-4 -top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-brand-600">
                     {i + 1}
                   </span>
-                  <span className="glass-secondary mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105">
+                  <span className="glass-secondary mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl">
                     <step.icon className="h-9 w-9 text-brand-600" />
                   </span>
                   <h3 className="text-xl font-bold text-foreground">{step.title}</h3>
@@ -375,10 +330,8 @@ export function HomeClient({
       <section className="py-24">
         <div className="mx-auto w-full max-w-5xl px-4 sm:px-6">
           <m.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-80px' }}
-            transition={{ duration: 0.7 }}
+            variants={rise}
+            {...reveal}
             className="glass-heavy relative overflow-hidden rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/80 to-brand-100/60 p-10 md:p-14"
           >
             <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-brand-400/15 blur-2xl" />
@@ -398,23 +351,16 @@ export function HomeClient({
                   {t('become_educator')} <ArrowRight className="h-5 w-5" />
                 </Link>
               </div>
-              <div className="space-y-4">
+              <m.div className="space-y-4" variants={listStagger} {...reveal}>
                 {[t('teach_benefit_1'), t('teach_benefit_2'), t('teach_benefit_3')].map((b, i) => (
-                  <m.div
-                    key={b}
-                    className="glass flex items-center gap-3 rounded-2xl px-5 py-4"
-                    initial={{ opacity: 0, x: 30 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.5, delay: 0.15 * i }}
-                  >
+                  <m.div key={b} className="glass flex items-center gap-3 rounded-2xl px-5 py-4" variants={rise}>
                     <span className="gradient-bg-blue flex h-9 w-9 shrink-0 items-center justify-center rounded-xl">
                       {i === 0 ? <HandCoins className="h-4 w-4 text-white" /> : i === 1 ? <Zap className="h-4 w-4 text-white" /> : <BookOpen className="h-4 w-4 text-white" />}
                     </span>
                     <span className="font-semibold text-foreground">{b}</span>
                   </m.div>
                 ))}
-              </div>
+              </m.div>
             </div>
           </m.div>
         </div>
@@ -423,14 +369,14 @@ export function HomeClient({
       {/* ================= FINAL CTA ================= */}
       <section className="pb-10 pt-4">
         <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
-          <m.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-60px' }}>
-            <m.h2 variants={fadeUp} className="text-balance text-3xl font-bold text-foreground md:text-4xl">
+          <m.div variants={listStagger} {...reveal}>
+            <m.h2 variants={rise} className="text-balance text-3xl font-bold text-foreground md:text-4xl">
               {t('final_cta_title')}
             </m.h2>
-            <m.p variants={fadeUp} className="mt-3 text-gray-500">
+            <m.p variants={rise} className="mt-3 text-gray-500">
               {t('final_cta_sub')}
             </m.p>
-            <m.div variants={fadeUp} className="mt-7 flex flex-wrap items-center justify-center gap-4">
+            <m.div variants={rise} className="mt-7 flex flex-wrap items-center justify-center gap-4">
               <Link href="/signup" className="btn !rounded-2xl !px-8 !py-4 !text-base">
                 {t('get_started')} <ArrowRight className="h-5 w-5" />
               </Link>

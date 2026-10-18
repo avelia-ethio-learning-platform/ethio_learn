@@ -33,7 +33,7 @@ export function CourseCard({ course }: { course: CourseSummary }) {
             height={160}
             decoding="async"
             loading="lazy"
-            className="h-40 w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            className="h-40 w-full object-cover transition-transform duration-slow ease-out-quart group-hover:scale-[1.03]"
           />
         ) : (
           <CourseCover title={course.title} category={course.category} size="card" decorative />
@@ -56,12 +56,12 @@ export function CourseCard({ course }: { course: CourseSummary }) {
             </span>
           )}
         </p>
-        <h3 className="mt-1.5 line-clamp-2 font-semibold leading-snug text-foreground transition-colors group-hover:text-brand-600">
+        <h3 className="mt-1.5 line-clamp-2 font-semibold leading-snug text-foreground transition-colors duration-fast group-hover:text-brand-600">
           {course.title}
         </h3>
         <p className="mt-1.5 line-clamp-2 text-sm text-gray-500">{course.description}</p>
         <p className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600">
-          <span className="transition-transform duration-300 group-hover:translate-x-1">→</span>
+          <span className="transition-transform duration-fast group-hover:translate-x-0.5">→</span>
         </p>
       </div>
     </Link>
