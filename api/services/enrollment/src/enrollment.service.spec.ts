@@ -627,9 +627,10 @@ describe('EnrollmentService: CourseCompleted commits with the completion (Phase 
     const updates = trackTx(t.enrollments.update, t.inTransaction);
     const lookups = trackTx(t.internal.get, t.inTransaction);
     await t.service.completeLesson(ctx, 'l1');
-    expect(updates).toEqual([true]);
+    // The activity touch (outside), then the conditional completion (inside).
+    expect(updates).toEqual([false, true]);
     expect(lookups).not.toContain(true);
-    const [, patch] = t.enrollments.update.mock.calls[0];
+    const [, patch] = t.enrollments.update.mock.calls[1];
     expect(t.committed).toEqual([
       {
         type: 'CourseCompleted',
@@ -666,8 +667,8 @@ describe('EnrollmentService: CourseCompleted commits with the completion (Phase 
     const updates = trackTx(t.enrollments.update, t.inTransaction);
     t.failNextCommit(new Error('outbox insert failed'));
     await expect(t.service.completeLesson(ctx, 'l1')).rejects.toThrow('outbox insert failed');
-    // The conditional write ran inside the transaction that failed, so it rolled back with it.
-    expect(updates).toEqual([true]);
+    // The conditional write ran inside the transaction that failed, so it rolled back with it (the touch runs before, outside).
+    expect(updates).toEqual([false, true]);
     expect(t.committed).toEqual([]);
 
     await t.service.completeLesson(ctx, 'l1');
@@ -910,5 +911,102 @@ describe('EnrollmentService: CourseRevisionClosed', () => {
     await t.closed({ removed_lesson_ids: ['l3'] });
     const completed = t.committed.filter((e) => e.type === 'CourseCompleted').map((e) => e.payload.enrollment_id);
     expect(completed).toEqual(['e2']);
+  });
+});
+
+describe('EnrollmentService: heartbeat cost (Phase 9e)', () => {
+  const lessonIdCalls = (t: ReturnType<typeof setup>) => t.internal.get.mock.calls.filter(([path]) => String(path).includes('/lesson-ids'));
+  const enrollmentWrites = (t: ReturnType<typeof setup>) => t.enrollments.save.mock.calls.length + t.enrollments.update.mock.calls.length;
+  /** A row past 90%, started long enough ago: every beat meets the watch rule. */
+  const watched = () => ({ enrollment_id: 'e1', lesson_id: 'l1', position_seconds: 110, duration_seconds: 120, percent_watched: 95, started_at: ago(600) });
+  const enrollment = (patch: Record<string, unknown> = {}) => ({
+    id: 'e1',
+    learner_id: 'u1',
+    course_id: 'c1',
+    entitlement_status: EntitlementStatus.ACTIVE,
+    completed_at: null,
+    nudge_level: 1,
+    milestones_sent: [],
+    ...patch,
+  });
+  const resetCounts = (t: ReturnType<typeof setup>) => {
+    for (const mock of [t.internal.get, t.enrollments.update, t.enrollments.save, t.progress.count, t.progress.save]) mock.mockClear();
+  };
+
+  it('a beat on a completed lesson of a completed course: no internal call, one enrollment write, nudge_level reset', async () => {
+    const t = setup({ hasVideo: true, videoDuration: 120, existingVideoRow: watched() });
+    t.enrollments.findOne.mockResolvedValue(enrollment({ completed_at: new Date('2026-01-01') }));
+    t.progress.findOne.mockResolvedValue({ id: 'p1' });
+    await t.service.saveVideoProgress(ctx, 'l1', 112, 120); // the first beat looks the lesson up
+    resetCounts(t);
+
+    const result = await t.service.saveVideoProgress(ctx, 'l1', 115, 120);
+    expect(result.completed).toBe(true);
+    expect(t.internal.get).not.toHaveBeenCalled();
+    expect(enrollmentWrites(t)).toBe(1);
+    expect(t.enrollments.update).toHaveBeenCalledWith({ id: 'e1' }, { last_activity_at: expect.any(Function), nudge_level: 0 });
+    expect(t.progress.count).not.toHaveBeenCalled();
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('the same beat while the course is not complete: no internal call, one count query, no milestone', async () => {
+    const t = setup({ hasVideo: true, videoDuration: 120, existingVideoRow: watched(), lessonIds: ['l1', 'l2'], completedCount: 1 });
+    t.enrollments.findOne.mockResolvedValue(enrollment());
+    t.progress.findOne.mockResolvedValue({ id: 'p1' });
+    await t.service.saveVideoProgress(ctx, 'l1', 112, 120); // looks up the lesson and the course's lesson ids
+    resetCounts(t);
+
+    await t.service.saveVideoProgress(ctx, 'l1', 115, 120);
+    expect(t.internal.get).not.toHaveBeenCalled();
+    expect(t.progress.count).toHaveBeenCalledTimes(1);
+    expect(enrollmentWrites(t)).toBe(1);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('heals a failed completion check: the next beat completes the course with one lesson-ids call', async () => {
+    const t = setup({ hasVideo: true, videoDuration: 120, existingVideoRow: watched(), lessonIds: ['l1'], completedCount: 1 });
+    t.enrollments.findOne.mockResolvedValue(enrollment());
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementationOnce(get); // the lesson lookup
+    t.internal.get.mockImplementationOnce(async () => {
+      throw new Error('course asleep'); // lesson-ids as the last lesson completes
+    });
+    await expect(t.service.saveVideoProgress(ctx, 'l1', 112, 120)).rejects.toThrow('course asleep');
+    expect(t.progress.save).toHaveBeenCalledTimes(1); // the lesson is recorded; the course isn't
+    expect(t.committed).toEqual([]);
+
+    t.progress.findOne.mockResolvedValue({ id: 'p1' });
+    resetCounts(t);
+    await t.service.saveVideoProgress(ctx, 'l1', 115, 120);
+    expect(lessonIdCalls(t)).toHaveLength(1); // the failed lookup wasn't cached
+    expect(t.internal.get.mock.calls.filter(([path]) => String(path).includes('/internal/lessons/'))).toHaveLength(0);
+    expect(t.committed).toEqual([{ type: 'CourseCompleted', payload: expect.objectContaining({ enrollment_id: 'e1' }) }]);
+  });
+
+  it('CourseRevisionClosed (applied) clears the course entries, so the next beat looks the lesson up again', async () => {
+    const t = setup({ hasVideo: true, videoDuration: 120 });
+    t.service.onModuleInit();
+    const closed = t.bus.subscribe.mock.calls.find(([type]) => type === 'CourseRevisionClosed')![1];
+    await t.service.saveVideoProgress(ctx, 'l1', 10, 120);
+    await t.service.saveVideoProgress(ctx, 'l1', 20, 120);
+    const lessonLookups = () => t.internal.get.mock.calls.filter(([path]) => String(path).includes('/internal/lessons/')).length;
+    expect(lessonLookups()).toBe(1);
+
+    await closed({ revision_id: 'r1', course_id: 'c1', outcome: 'rejected' });
+    await t.service.saveVideoProgress(ctx, 'l1', 30, 120);
+    expect(lessonLookups()).toBe(1);
+
+    await closed({ revision_id: 'r2', course_id: 'c1', outcome: 'applied' });
+    await t.service.saveVideoProgress(ctx, 'l1', 40, 120);
+    expect(lessonLookups()).toBe(2);
+  });
+
+  it('a beat that newly completes a lesson makes one lesson-ids call for both the milestone and the completion check', async () => {
+    const t = setup({ hasVideo: true, videoDuration: 120, existingVideoRow: watched(), lessonIds: ['l1', 'l2'], completedCount: 1 });
+    t.enrollments.findOne.mockResolvedValue(enrollment());
+    await t.service.saveVideoProgress(ctx, 'l1', 112, 120);
+    expect(lessonIdCalls(t)).toHaveLength(1);
+    expect(t.bus.publish).toHaveBeenCalledWith('CourseProgressMilestone', expect.objectContaining({ percent: 50 }));
+    expect(t.progress.count).toHaveBeenCalledTimes(2); // the milestone's percent and the completion check
   });
 });
