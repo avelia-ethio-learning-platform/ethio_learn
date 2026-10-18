@@ -192,7 +192,7 @@ function LearnerDashboard() {
                     {p.purpose && p.purpose !== 'course' && <span className="ml-1 text-xs text-gray-500">({keyed(t, 'purpose_', p.purpose, sentenceCase(p.purpose).toLowerCase())})</span>}
                   </span>
                   <span className="shrink-0 font-medium text-foreground">
-                    {formatETB(p.amount_etb, locale)}{p.discount_etb > 0 && <span className="ml-1 text-xs text-emerald-700 dark:text-emerald-400">−{formatETB(p.discount_etb, locale)}</span>}
+                    {formatETB(p.amount_etb, locale)}{p.discount_etb > 0 && <span className="ml-1 text-xs text-success">−{formatETB(p.discount_etb, locale)}</span>}
                   </span>
                   <StatusBadge status={p.status} />
                   {p.status === 'confirmed' && p.purpose === 'course' && p.method === 'chapa' && (
@@ -451,7 +451,7 @@ function RefundButton({
   };
   return (
     <button
-      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-danger hover:underline disabled:opacity-50"
       disabled={disabled}
       onClick={request}
     >

@@ -184,7 +184,7 @@ export function CouponManager() {
             <div className="flex items-center gap-3">
               <span className={c.active ? 'badge-success' : 'badge-neutral'}>{c.active ? 'Active' : 'Inactive'}</span>
               {c.active && (
-                <button type="button" className="text-xs font-medium text-red-600 hover:underline dark:text-red-400" disabled={busy} onClick={() => deactivate(c)}>
+                <button type="button" className="text-xs font-medium text-danger hover:underline" disabled={busy} onClick={() => deactivate(c)}>
                   Deactivate
                 </button>
               )}
