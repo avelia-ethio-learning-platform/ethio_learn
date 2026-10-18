@@ -132,6 +132,14 @@ jobs:
           [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
           docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_resend_verification'
           TEST_DATABASE_URL="${base%/*}/el_ci_resend_verification" pnpm -C api exec jest --ci services/auth/src/auth.resend-verification.db.spec.ts
+      # A role-wide notification one officer reads stays unread for the others
+      # (13a gap 3). On its own fresh database, like the step above.
+      - name: Per-person reads of role notifications (real Postgres)
+        run: |
+          base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
+          [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
+          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_inbox_reads'
+          TEST_DATABASE_URL="${base%/*}/el_ci_inbox_reads" pnpm -C api exec jest --ci services/notification/src/inbox-reads.db.spec.ts
       # Two parallel wallet buys of one course charge once (9c B1), and one
       # job lease admits one run (9c step 5). Each on its own fresh database.
       - name: Wallet purchase race and job leases (real Postgres)

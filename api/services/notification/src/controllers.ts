@@ -1,11 +1,11 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Post, Put, UseGuards } from '@nestjs/common';
 import { IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, In, Repository } from 'typeorm';
 import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { COURSE_CATEGORIES, Role } from '@ethiopialearn/contracts';
 import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
-import { InboxNotification, NotificationLog, NotificationPreference } from './entities';
+import { InboxNotification, InboxNotificationRead, NotificationLog, NotificationPreference } from './entities';
 
 const CATEGORY_VALUES = COURSE_CATEGORIES as string[];
 
@@ -93,50 +93,78 @@ export class NotificationController {
     @InjectRepository(NotificationPreference) private readonly prefs: Repository<NotificationPreference>,
     @InjectRepository(NotificationLog) private readonly log: Repository<NotificationLog>,
     @InjectRepository(InboxNotification) private readonly inbox: Repository<InboxNotification>,
+    @InjectRepository(InboxNotificationRead) private readonly reads: Repository<InboxNotificationRead>,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
   ) {}
 
   // ---- In-app inbox (any authenticated user) ----
 
-  /** Notifications addressed to me directly OR to my role (e.g. QO queue). */
+  /**
+   * Notifications addressed to me directly OR to my role (e.g. QO queue). A user
+   * row is read when its read_at is set; a role row is shared, so it is read per
+   * person through inbox_notification_reads (or read_at, set before that table).
+   */
   @Get('notifications')
   @Roles()
   async list(@CurrentUser() ctx: UserContext) {
     const rows = await this.myQuery(ctx).orderBy('n.created_at', 'DESC').limit(50).getMany();
-    return rows.map((n) => ({ id: n.id, type: n.type, title: n.title, body: n.body, link: n.link, read: !!n.read_at, created_at: n.created_at }));
+    const roleIds = rows.filter((n) => !n.read_at && !n.user_id).map((n) => n.id);
+    const readIds = new Set(
+      roleIds.length ? (await this.reads.find({ where: { user_id: ctx.id, notification_id: In(roleIds) } })).map((r) => r.notification_id) : [],
+    );
+    return rows.map((n) => ({
+      id: n.id,
+      type: n.type,
+      title: n.title,
+      body: n.body,
+      link: n.link,
+      read: !!n.read_at || readIds.has(n.id),
+      created_at: n.created_at,
+    }));
   }
 
   @Get('notifications/unread-count')
   @Roles()
   async unreadCount(@CurrentUser() ctx: UserContext) {
-    const count = await this.myQuery(ctx).andWhere('n.read_at IS NULL').getCount();
+    const count = await this.myQuery(ctx)
+      .andWhere('n.read_at IS NULL')
+      .andWhere('NOT EXISTS (SELECT 1 FROM notification.inbox_notification_reads r WHERE r.notification_id = n.id AND r.user_id = :uid)')
+      .getCount();
     return { count };
   }
 
   @Post('notifications/:id/read')
   @Roles()
   async markRead(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
-    await this.inbox
-      .createQueryBuilder()
-      .update(InboxNotification)
-      .set({ read_at: () => 'now()' })
-      .where('id = :id', { id })
-      .andWhere(new Brackets((w) => w.where('user_id = :uid', { uid: ctx.id }).orWhere('target_role = :role', { role: ctx.role })))
-      .execute();
+    await this.markMine(ctx, id);
     return { ok: true };
   }
 
   @Post('notifications/read-all')
   @Roles()
   async markAllRead(@CurrentUser() ctx: UserContext) {
-    await this.inbox
-      .createQueryBuilder()
-      .update(InboxNotification)
-      .set({ read_at: () => 'now()' })
-      .where('read_at IS NULL')
-      .andWhere(new Brackets((w) => w.where('user_id = :uid', { uid: ctx.id }).orWhere('target_role = :role', { role: ctx.role })))
-      .execute();
+    await this.markMine(ctx);
     return { ok: true };
+  }
+
+  /**
+   * Marks one notification (or every unread one) read for the caller only: a user
+   * row through its read_at, a role row through a row of its own in the reads table.
+   */
+  private async markMine(ctx: UserContext, id?: string) {
+    const ids = id ? [id] : [];
+    await this.inbox.query(
+      `UPDATE notification.inbox_notifications SET read_at = now()
+       WHERE user_id = $1 AND read_at IS NULL${id ? ' AND id = $2' : ''}`,
+      [ctx.id, ...ids],
+    );
+    await this.inbox.query(
+      `INSERT INTO notification.inbox_notification_reads (notification_id, user_id)
+       SELECT id, $1 FROM notification.inbox_notifications
+       WHERE target_role = $2 AND read_at IS NULL${id ? ' AND id = $3' : ''}
+       ON CONFLICT DO NOTHING`,
+      [ctx.id, ctx.role, ...ids],
+    );
   }
 
   private myQuery(ctx: UserContext) {
