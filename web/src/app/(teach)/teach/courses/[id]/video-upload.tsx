@@ -343,7 +343,7 @@ export function ResumeHints({ lessonId, disabled }: { lessonId: string; disabled
   return (
     <div className="mt-1 space-y-1">
       {list.map((hint) => (
-        <p key={hint.storageKey} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
+        <p key={hint.storageKey} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-warning-soft px-2 py-1 text-xs text-warning">
           <span className="min-w-0 break-all">
             Unfinished upload: <b>{hint.fileName}</b>
             {hint.percent != null ? ` · ${hint.percent}%` : ''}
@@ -372,12 +372,12 @@ export function ResumeHints({ lessonId, disabled }: { lessonId: string; disabled
               }}
             />
           </label>
-          <button type="button" className="font-semibold text-red-600 dark:text-red-400 hover:underline" onClick={() => void discardHint(hint.storageKey)}>
+          <button type="button" className="font-semibold text-danger hover:underline" onClick={() => void discardHint(hint.storageKey)}>
             Discard
           </button>
         </p>
       ))}
-      {error && <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-xs font-medium text-danger">{error}</p>}
     </div>
   );
 }
@@ -387,7 +387,7 @@ export function OrphanUploadHints() {
   const { orphanHints, discardHint } = useUploads();
   if (!orphanHints.length) return null;
   return (
-    <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-700 dark:text-amber-300">
+    <div className="rounded-2xl border border-warning-line bg-warning-soft px-4 py-3 text-xs text-warning">
       <p className="font-semibold">Unfinished uploads for lessons that no longer exist</p>
       <ul className="mt-1 space-y-1">
         {orphanHints.map((hint) => (
@@ -396,7 +396,7 @@ export function OrphanUploadHints() {
               {hint.fileName}
               {hint.percent != null ? ` · ${hint.percent}%` : ''}
             </span>
-            <button type="button" className="font-semibold text-red-600 dark:text-red-400 hover:underline" onClick={() => void discardHint(hint.storageKey)}>
+            <button type="button" className="font-semibold text-danger hover:underline" onClick={() => void discardHint(hint.storageKey)}>
               Discard
             </button>
           </li>
@@ -415,10 +415,11 @@ export function UploadVideoButton({ lessonId, hasVideo, disabled }: { lessonId: 
   if (busy) return null;
   return (
     <span className="inline-flex flex-col items-end">
+      {/* Full-opacity text: at 70–90% opacity the link fell under 4.5:1 (axe). "replace" is quieter through its colour, not opacity. */}
       <label
-        className={`rounded-lg px-2 py-0.5 text-xs font-medium text-brand-600 transition-all focus-within:ring-2 focus-within:ring-brand-500 ${
-          disabled ? 'cursor-not-allowed opacity-40' : `cursor-pointer hover:bg-brand-500/10 hover:opacity-100 ${hasVideo ? 'opacity-70' : 'opacity-90'}`
-        }`}
+        className={`rounded-lg px-2 py-0.5 text-xs font-medium transition-all focus-within:ring-2 focus-within:ring-brand-500 ${
+          hasVideo ? 'text-muted-foreground hover:text-brand-600' : 'text-brand-600'
+        } ${disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-brand-500/10'}`}
       >
         <span className="inline-flex items-center gap-1">
           <Upload className="h-3 w-3" /> {hasVideo ? 'replace' : 'upload video'}
@@ -436,7 +437,7 @@ export function UploadVideoButton({ lessonId, hasVideo, disabled }: { lessonId: 
           }}
         />
       </label>
-      {error && <span className="max-w-[16rem] text-right text-xs font-medium text-red-600 dark:text-red-400">{error}</span>}
+      {error && <span className="max-w-[16rem] text-right text-xs font-medium text-danger">{error}</span>}
     </span>
   );
 }
@@ -522,7 +523,7 @@ export function ThumbnailUploader({
           />
         </div>
       )}
-      {error && progress?.state.phase !== 'failed' && <p className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
+      {error && progress?.state.phase !== 'failed' && <p className="text-xs font-medium text-danger">{error}</p>}
     </div>
   );
 }

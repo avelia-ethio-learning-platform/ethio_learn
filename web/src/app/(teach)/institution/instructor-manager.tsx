@@ -118,17 +118,17 @@ export function InstructorManager({ institutionId }: { institutionId: string }) 
                 </button>
               )}
               {m.status === 'active' && (
-                <button className={`${linkButton} text-amber-700 dark:text-amber-400`} aria-disabled={busy} onClick={() => setStatus(m, 'suspended')}>
+                <button className={`${linkButton} text-warning`} aria-disabled={busy} onClick={() => setStatus(m, 'suspended')}>
                   Suspend
                 </button>
               )}
               {m.status === 'suspended' && (
-                <button className={`${linkButton} text-emerald-700 dark:text-emerald-400`} aria-disabled={busy} onClick={() => setStatus(m, 'active')}>
+                <button className={`${linkButton} text-success`} aria-disabled={busy} onClick={() => setStatus(m, 'active')}>
                   Reactivate
                 </button>
               )}
               {(m.status === 'active' || m.status === 'suspended') && (
-                <button className={`${linkButton} text-red-600 dark:text-red-400`} aria-disabled={busy} onClick={() => setStatus(m, 'removed')}>
+                <button className={`${linkButton} text-danger`} aria-disabled={busy} onClick={() => setStatus(m, 'removed')}>
                   Remove
                 </button>
               )}

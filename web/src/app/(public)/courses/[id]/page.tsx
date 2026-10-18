@@ -223,7 +223,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
                   <div key={r.id} className="card">
                     <p className="flex items-center gap-0.5">
                       {[1, 2, 3, 4, 5].map((n) => (
-                        <Star key={n} className={`h-4 w-4 ${n <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-gray-500'}`} />
+                        <Star key={n} className={`h-4 w-4 ${n <= r.rating ? 'fill-rating text-rating' : 'text-gray-500'}`} />
                       ))}
                     </p>
                     {r.comment && <p className="mt-2 text-sm leading-relaxed text-gray-600">{r.comment}</p>}

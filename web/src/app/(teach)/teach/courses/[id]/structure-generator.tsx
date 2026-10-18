@@ -253,7 +253,7 @@ export function StructureGenerator({
   const lessonTotal = draft?.reduce((n, s) => n + s.lessons.length, 0) ?? 0;
 
   return (
-    <div ref={cardRef} className="card !rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/60 to-transparent dark:from-blue-950/30">
+    <div ref={cardRef} className="card !rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/60 to-transparent">
       <div className="flex items-center justify-between gap-2">
         <h2 className="flex min-w-0 items-center gap-2 font-bold text-foreground">
           <span className="glass-secondary flex h-9 w-9 shrink-0 items-center justify-center rounded-xl">
@@ -307,7 +307,7 @@ export function StructureGenerator({
             {sourceText && !reading && (
               <button
                 type="button"
-                className="text-xs text-red-600 dark:text-red-400"
+                className="text-xs text-danger"
                 onClick={() => {
                   setSourceText('');
                   forgetDocument();
@@ -318,7 +318,7 @@ export function StructureGenerator({
               </button>
             )}
           </div>
-          {docWarning && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{docWarning}</p>}
+          {docWarning && <p className="text-xs font-medium text-warning">{docWarning}</p>}
           <textarea
             className="input"
             rows={5}
@@ -334,12 +334,12 @@ export function StructureGenerator({
           />
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
             <span className="min-w-0 break-words">{docInfo}</span>
-            <span className={`tabular-nums ${overBudget ? 'font-semibold text-amber-700 dark:text-amber-400' : ''}`}>
+            <span className={`tabular-nums ${overBudget ? 'font-semibold text-warning' : ''}`}>
               {sourceText.length.toLocaleString('en-US')} / {DIGEST_BUDGET_CHARS.toLocaleString('en-US')}
             </span>
           </div>
           {overBudget && (
-            <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+            <p className="text-xs font-medium text-warning">
               Too long to send as it is — {OVER_BUDGET_REASON}. It is condensed to a digest when you click Generate; trim it yourself to choose what the AI reads.
             </p>
           )}
@@ -353,7 +353,7 @@ export function StructureGenerator({
               >
                 <BookOpenCheck className="h-3.5 w-3.5" /> Also add the full text to the course tutor
               </button>
-              {tutor && <span className={`font-medium ${tutor.state === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-brand-600'}`}>{tutor.message}</span>}
+              {tutor && <span className={`font-medium ${tutor.state === 'failed' ? 'text-danger' : 'text-brand-600'}`}>{tutor.message}</span>}
             </div>
           )}
           <div className="grid gap-2 sm:grid-cols-2">
@@ -389,12 +389,12 @@ export function StructureGenerator({
               {generating ? 'Working…' : 'Generate'}
             </button>
           </div>
-          {note && <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{note}</p>}
+          {note && <p className="text-xs font-medium text-warning">{note}</p>}
           {result && <p className="badge-success w-fit !whitespace-normal !rounded-xl !px-3 !py-1.5 !text-xs">{result}</p>}
           {draft && (
             <div className="mt-2 space-y-2 border-t pt-2">
               {offlineBanner && (
-                <p className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+                <p className="rounded-xl border border-warning-line bg-warning-soft px-3 py-2 text-xs font-medium text-warning">
                   {offlineBanner}
                 </p>
               )}
@@ -414,7 +414,7 @@ export function StructureGenerator({
                     <label className="flex shrink-0 items-center gap-1 text-xs">
                       <input type="checkbox" checked={s.is_free_preview} onChange={(e) => updateSection(si, { is_free_preview: e.target.checked })} /> free
                     </label>
-                    <button className="shrink-0 text-xs text-red-600 dark:text-red-400" aria-label={`Remove section ${si + 1}`} onClick={() => setDraft((d) => d!.filter((_, i) => i !== si))}>
+                    <button className="shrink-0 text-xs text-danger" aria-label={`Remove section ${si + 1}`} onClick={() => setDraft((d) => d!.filter((_, i) => i !== si))}>
                       ✕
                     </button>
                   </div>
@@ -430,7 +430,7 @@ export function StructureGenerator({
                             onChange={(e) => updateLesson(si, li, { title: e.target.value })}
                           />
                           <button
-                            className="shrink-0 text-xs text-red-600 dark:text-red-400"
+                            className="shrink-0 text-xs text-danger"
                             aria-label={`Remove lesson ${li + 1}`}
                             onClick={() => setDraft((d) => d!.map((x, i) => (i === si ? { ...x, lessons: x.lessons.filter((_, j) => j !== li) } : x)))}
                           >

@@ -119,7 +119,7 @@ export function Footer() {
             © {new Date().getFullYear()} EthiopiaLearn · {t('footer_rights')}
             {/* The heart is a decorative icon, so its red-500 is exempt from the text-red sweep. */}
             <span className="hidden items-center gap-1 sm:inline-flex">
-              · {t('footer_made_with')} <Heart className="h-3 w-3 fill-red-500 text-red-500" aria-hidden="true" /> {t('footer_for_ethiopia')} 🇪🇹
+              · {t('footer_made_with')} <Heart className="h-3 w-3 fill-danger-solid text-danger-solid" aria-hidden="true" /> {t('footer_for_ethiopia')} 🇪🇹
             </span>
           </p>
           <div className="flex items-center gap-3">

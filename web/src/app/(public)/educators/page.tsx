@@ -29,7 +29,7 @@ export default async function EducatorsPage() {
     <div className="page-shell max-w-3xl">
       <BackButton fallback="/" label="Browse courses" />
       <h1 className="flex items-center gap-2 text-3xl font-bold">
-        <Trophy className="h-7 w-7 text-amber-600" aria-hidden="true" /> Top educators
+        <Trophy className="h-7 w-7 text-warning" aria-hidden="true" /> Top educators
       </h1>
       <p className="mt-2 text-gray-600">
         Ranked by total rating points — every star a learner gives any of their courses counts, so consistent quality
@@ -45,7 +45,7 @@ export default async function EducatorsPage() {
             >
               <span
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-bold ${
-                  i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-200 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-gray-50 text-gray-500'
+                  i === 0 ? 'bg-warning-soft text-warning' : i === 1 ? 'bg-gray-200 text-gray-600' : i === 2 ? 'bg-gray-100 text-gray-600' : 'bg-gray-50 text-gray-500'
                 }`}
               >
                 {i + 1}
@@ -63,7 +63,7 @@ export default async function EducatorsPage() {
               <div className="shrink-0 text-right">
                 {e.average_rating != null ? (
                   <>
-                    <p className="flex items-center justify-end gap-1 font-semibold text-amber-700 dark:text-amber-400">
+                    <p className="flex items-center justify-end gap-1 font-semibold text-warning">
                       <Star className="h-4 w-4 fill-current" aria-hidden="true" /> {e.average_rating}
                     </p>
                     <p className="text-xs text-gray-500">{e.total_rating_points} pts · {e.rating_count} rating{e.rating_count !== 1 ? 's' : ''}</p>

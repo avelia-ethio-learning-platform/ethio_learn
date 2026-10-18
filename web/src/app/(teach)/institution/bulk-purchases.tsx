@@ -116,7 +116,7 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
         {quote && (
           <div className="glass-secondary flex flex-wrap items-center justify-between gap-3 rounded-xl p-3 text-sm">
             <span>
-              <b>{quote.seats} seats</b> × {formatETB(quote.unit_price_etb, locale)}{quote.discount_percent > 0 && <span className="text-emerald-700 dark:text-emerald-400"> − {quote.discount_percent}% volume discount</span>} ={' '}
+              <b>{quote.seats} seats</b> × {formatETB(quote.unit_price_etb, locale)}{quote.discount_percent > 0 && <span className="text-success"> − {quote.discount_percent}% volume discount</span>} ={' '}
               <b className="text-brand-600">{formatETB(quote.total_etb, locale)}</b>
               {quote.discount_percent > 0 && <span className="text-xs text-gray-500"> (list {formatETB(quote.list_total_etb, locale)})</span>}
             </span>

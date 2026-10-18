@@ -97,7 +97,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               {options.title}
             </h2>
             {options.body && (
-              <p id={bodyId} className="text-sm text-gray-600 dark:text-gray-400">
+              <p id={bodyId} className="text-sm text-gray-600">
                 {options.body}
               </p>
             )}
