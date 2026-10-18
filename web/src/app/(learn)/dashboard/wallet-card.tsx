@@ -38,7 +38,7 @@ export function WalletCard() {
           </p>
           <p className="gradient-text-blue mt-1 text-3xl font-extrabold">{formatETB(wallet?.balance_etb ?? 0, locale)}</p>
           {wallet?.pending_etb > 0 && (
-            <p className="mt-1 text-sm font-semibold text-amber-700 dark:text-amber-400">{t('amount_pending', { amount: formatETB(wallet.pending_etb, locale) })}</p>
+            <p className="mt-1 text-sm font-semibold text-warning">{t('amount_pending', { amount: formatETB(wallet.pending_etb, locale) })}</p>
           )}
           <p className="mt-1 text-xs text-gray-500">
             {t('cashback_info', { n: wallet?.cashback_percent ?? 5 })}
@@ -69,14 +69,14 @@ export function WalletCard() {
                     tx.state === 'void'
                       ? 'text-gray-500 line-through'
                       : tx.amount_etb >= 0
-                        ? 'font-semibold text-emerald-700 dark:text-emerald-400'
+                        ? 'font-semibold text-success'
                         : 'font-semibold text-gray-700'
                   }
                 >
                   {tx.amount_etb >= 0 ? '+' : ''}
                   {formatETB(tx.amount_etb, locale)}
                 </span>
-                {tx.state === 'pending' && tx.available_at && <span className="block text-amber-700 dark:text-amber-400">{t('available_on', { date: formatDate(tx.available_at, locale) })}</span>}
+                {tx.state === 'pending' && tx.available_at && <span className="block text-warning">{t('available_on', { date: formatDate(tx.available_at, locale) })}</span>}
                 {tx.state === 'void' && <span className="block">{t('status_refunded')}</span>}
               </span>
             </li>

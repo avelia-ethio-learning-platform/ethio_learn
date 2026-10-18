@@ -48,9 +48,9 @@ export function HomeClient({
   const { t } = useT();
 
   const stats = [
-    { value: '18+', label: t('stat_payments'), icon: Wallet, gradient: 'from-blue-500 to-blue-600' },
-    { value: '100%', label: t('stat_verifiable'), icon: BadgeCheck, gradient: 'from-blue-600 to-blue-700' },
-    { value: '80%', label: t('stat_share'), icon: HandCoins, gradient: 'from-blue-400 to-blue-500' },
+    { value: '18+', label: t('stat_payments'), icon: Wallet },
+    { value: '100%', label: t('stat_verifiable'), icon: BadgeCheck },
+    { value: '80%', label: t('stat_share'), icon: HandCoins },
   ];
 
   const features = [
@@ -74,17 +74,16 @@ export function HomeClient({
       <section className="relative px-3 pb-16 sm:px-6">
         {/* Soft section backdrop behind the panel */}
         <div className="absolute inset-0 -z-10">
-          <div className="absolute inset-0 bg-gradient-to-b from-brand-50/60 via-background to-background transition-colors duration-300 dark:from-blue-950/30" />
-          <div className="absolute -left-32 -top-24 h-72 w-72 rounded-full bg-blue-400/15 blur-3xl dark:bg-blue-500/10" />
-          <div className="absolute -right-24 top-40 h-64 w-64 rounded-full bg-blue-600/10 blur-3xl dark:bg-blue-700/10" />
+          <div className="absolute inset-0 bg-gradient-to-b from-brand-50/60 via-background to-background transition-colors duration-300" />
+          <div className="absolute -left-32 -top-24 h-72 w-72 rounded-full bg-brand-400/15 blur-3xl" />
+          <div className="absolute -right-24 top-40 h-64 w-64 rounded-full bg-brand-600/10 blur-3xl" />
         </div>
         <div className="mx-auto w-full max-w-6xl">
           {/* White focus rings: the global blue ring vanishes against this blue panel. */}
-          <div className="animate-in relative overflow-hidden rounded-[2rem] shadow-floating sm:rounded-[2.5rem] [&_:focus-visible]:outline-white">
-            {/* Smooth gradient backdrop */}
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 dark:from-blue-950 dark:via-blue-900 dark:to-indigo-950" />
+          {/* .brand-panel sits on the container, not a backdrop div, so its brand-700/brand-50 pin reaches the white controls. */}
+          <div className="brand-panel animate-in relative overflow-hidden rounded-[2rem] shadow-floating sm:rounded-[2.5rem] [&_:focus-visible]:outline-white">
             <div className="absolute -left-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
-            <div className="absolute -bottom-32 left-1/3 h-96 w-96 rounded-full bg-sky-400/20 blur-3xl" />
+            <div className="absolute -bottom-32 left-1/3 h-96 w-96 rounded-full bg-brand-400/20 blur-3xl" />
             <div
               className="absolute inset-0 opacity-[0.05]"
               style={{
@@ -105,12 +104,12 @@ export function HomeClient({
 
                 <h1 className="mt-6 text-balance text-4xl font-extrabold leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-6xl">
                   {t('hero_title_1')}{' '}
-                  <span className="block bg-gradient-to-r from-sky-200 via-blue-100 to-white bg-clip-text text-transparent">
+                  <span className="block bg-gradient-to-r from-white/90 to-white bg-clip-text text-transparent">
                     {t('hero_title_2')}
                   </span>
                 </h1>
 
-                <p className="mx-auto mt-5 max-w-xl text-balance text-sm font-normal leading-relaxed text-blue-100 sm:text-base lg:mx-0">
+                <p className="mx-auto mt-5 max-w-xl text-balance text-sm font-normal leading-relaxed text-white/85 sm:text-base lg:mx-0">
                   {t('hero_sub')}
                 </p>
 
@@ -119,14 +118,14 @@ export function HomeClient({
                   action="/courses"
                   className="mx-auto mt-7 flex w-full max-w-md items-center gap-2 rounded-2xl border border-white/20 bg-white/10 p-2 backdrop-blur-md focus-within:ring-2 focus-within:ring-white lg:mx-0"
                 >
-                  <Search className="ml-2 h-5 w-5 shrink-0 text-blue-100" />
+                  <Search className="ml-2 h-5 w-5 shrink-0 text-white/85" />
                   <input
                     name="q"
                     aria-label={t('search_placeholder')}
                     placeholder={t('search_placeholder')}
-                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-blue-200/80"
+                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/90"
                   />
-                  <button className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-blue-700 transition-colors hover:bg-blue-50">
+                  <button className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-brand-700 transition-colors hover:bg-brand-50">
                     {t('search')}
                   </button>
                 </form>
@@ -135,7 +134,7 @@ export function HomeClient({
                 <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
                   <Link
                     href="/courses"
-                    className="inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-3.5 text-base font-bold text-blue-700 shadow-floating transition hover:scale-[1.02] active:scale-[.98] hover:bg-blue-50"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-3.5 text-base font-bold text-brand-700 shadow-floating transition hover:scale-[1.02] active:scale-[.98] hover:bg-brand-50"
                   >
                     {t('explore_courses')}
                     <ArrowRight className="h-5 w-5" />
@@ -162,11 +161,11 @@ export function HomeClient({
                     fetchPriority="high"
                     className="h-72 w-full object-cover sm:h-96 lg:h-[440px]"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-blue-950/40 via-transparent to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
                 </div>
 
                 <div className="absolute -left-2 top-6 sm:-left-4">
-                  <span className="flex items-center gap-2 rounded-2xl bg-white/95 px-4 py-2.5 text-xs font-bold text-slate-900 shadow-floating backdrop-blur sm:text-sm">
+                  <span className="flex items-center gap-2 rounded-2xl bg-white/95 px-4 py-2.5 text-xs font-bold text-brand-700 shadow-floating backdrop-blur sm:text-sm">
                     <span className="gradient-bg-blue flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
                       <BadgeCheck className="h-4 w-4 text-white" />
                     </span>
@@ -174,7 +173,7 @@ export function HomeClient({
                   </span>
                 </div>
                 <div className="absolute -right-2 bottom-6 sm:-right-4">
-                  <span className="flex items-center gap-2 rounded-2xl bg-white/95 px-4 py-2.5 text-xs font-bold text-slate-900 shadow-floating backdrop-blur sm:text-sm">
+                  <span className="flex items-center gap-2 rounded-2xl bg-white/95 px-4 py-2.5 text-xs font-bold text-brand-700 shadow-floating backdrop-blur sm:text-sm">
                     <span className="gradient-bg-blue flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
                       <Wallet className="h-4 w-4 text-white" />
                     </span>
@@ -193,7 +192,7 @@ export function HomeClient({
                 className="glass-heavy rounded-2xl p-6 text-center"
                 whileHover={{ y: -5 }}
               >
-                <span className={`mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-r ${stat.gradient}`}>
+                <span className="brand-fill mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl">
                   <stat.icon className="h-5 w-5 text-white" />
                 </span>
                 <p className="gradient-text-blue text-3xl font-extrabold md:text-4xl">{stat.value}</p>
@@ -206,7 +205,7 @@ export function HomeClient({
 
       {/* ================= COURSES (functional catalog) ================= */}
       <section id="courses" className="relative scroll-mt-24 py-20">
-        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-brand-50/40 to-transparent dark:via-blue-950/20" />
+        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-brand-50/40 to-transparent" />
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
           <m.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
             <m.span variants={fadeUp} className="section-badge">
@@ -329,7 +328,7 @@ export function HomeClient({
 
       {/* ================= PROCESS (template ProcessSection) ================= */}
       <section className="relative py-24">
-        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-brand-50/50 to-transparent dark:via-blue-950/20" />
+        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-brand-50/50 to-transparent" />
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
           <m.div className="text-center" variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-80px' }}>
             <m.span variants={fadeUp} className="section-badge">
@@ -380,10 +379,10 @@ export function HomeClient({
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.7 }}
-            className="glass-heavy relative overflow-hidden rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/80 to-brand-100/60 p-10 dark:from-blue-950/40 dark:to-blue-900/20 md:p-14"
+            className="glass-heavy relative overflow-hidden rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/80 to-brand-100/60 p-10 md:p-14"
           >
-            <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-blue-400/15 blur-2xl" />
-            <div className="absolute -bottom-14 -left-10 h-52 w-52 rounded-full bg-blue-500/10 blur-3xl" />
+            <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-brand-400/15 blur-2xl" />
+            <div className="absolute -bottom-14 -left-10 h-52 w-52 rounded-full bg-brand-500/10 blur-3xl" />
 
             <div className="relative z-10 grid items-center gap-10 md:grid-cols-[1.3fr_1fr]">
               <div>

@@ -60,7 +60,7 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
   };
 
   return (
-    <div className="card mt-8 !rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/70 to-brand-100/40 dark:from-blue-950/30 dark:to-blue-900/15">
+    <div className="card mt-8 !rounded-3xl border-2 !border-brand-200/60 bg-gradient-to-br from-brand-50/70 to-brand-100/40">
       <h2 className="flex items-center gap-2 font-bold text-foreground">
         <span className="glass-secondary flex h-9 w-9 items-center justify-center rounded-xl">
           <Clapperboard className="h-5 w-5 text-brand-600" />
@@ -72,7 +72,7 @@ export function CoursePreviewPlayer({ sections }: { sections: Section[] }) {
         <video ref={videoRef} controls className="aspect-video w-full" />
       </div>
       {playing && <p className="mt-3 text-sm font-semibold text-foreground">{t('now_playing', { title: playing })}</p>}
-      {error && <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{error}</p>}
+      {error && <p className="mt-2 text-sm font-medium text-warning">{error}</p>}
       <ul className="mt-4 space-y-1">
         {previewLessons.map((l) => (
           <li key={l.id}>

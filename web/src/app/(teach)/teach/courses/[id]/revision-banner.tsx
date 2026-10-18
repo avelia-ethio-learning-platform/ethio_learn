@@ -76,7 +76,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
       </p>
 
       {notes && (
-        <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+        <div className="rounded-2xl border border-warning-line bg-warning-soft px-4 py-3 text-sm text-warning">
           <p className="flex items-center gap-1.5 font-semibold">
             <FilePenLine className="h-4 w-4 shrink-0" aria-hidden /> Changes requested on your update
           </p>
@@ -85,9 +85,9 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
       )}
 
       {inReview && revision ? (
-        <div className="card !border-amber-400/40">
+        <div className="card !border-warning-line">
           <h2 className="flex flex-wrap items-center gap-2 font-semibold">
-            <Lock className="h-4 w-4 text-amber-500" />
+            <Lock className="h-4 w-4 text-warning" />
             {revision.status === 'institution_review' ? "Your changes are with your institution's reviewers" : 'Your changes are in review'}
             {revision.submitted_at && <span className="text-xs font-normal text-gray-500">In review since {formatDate(revision.submitted_at, locale, 'datetime')}</span>}
           </h2>
@@ -141,7 +141,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
             </button>
             <button
               type="button"
-              className="btn-ghost !text-red-600 dark:!text-red-400"
+              className="btn-ghost !text-danger"
               aria-disabled={busy}
               onClick={async () => {
                 if (busy) return; // aria-disabled, not disabled: the clicked button keeps the focus the dialog gives back
@@ -158,7 +158,7 @@ export function RevisionPanel({ course, onChanged }: { course: WorkingCourse; on
             </button>
             {revision && <PreviewLink courseId={course.id} revisionId={revision.id} />}
           </div>
-          {uploading && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{WAIT_FOR_UPLOAD}</p>}
+          {uploading && <p className="mt-2 text-sm text-warning">{WAIT_FOR_UPLOAD}</p>}
           <FormStatus status={status} />
         </form>
       ) : null}

@@ -44,7 +44,7 @@ export function UploadProgress({
   // Once the server has been asked to finish (finalizing, or paused after that), it may already have
   // attached the file; a Cancel there would say "cancelled" while the lesson has the new video.
   const canCancel = onCancel && !state.committed && state.phase !== 'finalizing' && state.phase !== 'done' && state.phase !== 'failed';
-  const tone = state.phase === 'failed' ? 'text-red-600 dark:text-red-400' : state.phase === 'done' ? 'text-green-700 dark:text-green-400' : 'text-gray-500';
+  const tone = state.phase === 'failed' ? 'text-danger' : state.phase === 'done' ? 'text-success' : 'text-gray-500';
 
   return (
     <div className="glass-secondary mt-2 rounded-xl px-3.5 py-3 text-sm">
@@ -62,7 +62,7 @@ export function UploadProgress({
         aria-valuemax={100}
         aria-valuenow={percent}
       >
-        <div className={`progress-fill ${state.phase === 'failed' ? '!bg-red-500' : ''}`} style={{ width: `${percent}%` }} />
+        <div className={`progress-fill ${state.phase === 'failed' ? '!bg-danger-solid' : ''}`} style={{ width: `${percent}%` }} />
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
         <span className={`font-medium ${tone}`} aria-live="polite">

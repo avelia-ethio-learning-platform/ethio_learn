@@ -1,10 +1,10 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext, type Page } from './test';
-import { apiGet, authFile, BASE_URL, firstCourseId, learnerCertificateUid, ownCourseId, seedPassword, settle } from './support';
+import { apiGet, authFile, BASE_URL, draftWithLesson, firstCourseId, learnerCertificateUid, seededExamPath, seedPassword, settle } from './support';
 
 // Decision 12: zero serious or critical axe violations (WCAG 2.0/2.1 A and AA)
-// on the public, learner and account pages, in light and dark, at 1440 px.
-// The learner pages reuse the stored learner login; nothing here logs in.
+// on the public, learner, account and role pages, in light and dark, at 1440 px.
+// The signed-in pages reuse the stored role logins; nothing here logs in.
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -192,8 +192,12 @@ for (const theme of THEMES) {
         }
       });
 
-      test('the editor of a draft', async ({ page, request }) => {
-        await scanVisit(page, `/teach/courses/${await ownCourseId(request)}`, theme);
+      test('the editor of a draft with a lesson', async ({ page, request }) => {
+        // A lesson row renders controls the empty draft never shows (UploadVideoButton).
+        const path = `/teach/courses/${await draftWithLesson(request)}`;
+        await page.goto(path);
+        await expect(page.getByText('upload video').first()).toBeVisible();
+        await scan(page, `${path} (${theme})`);
       });
     });
 
@@ -241,6 +245,14 @@ for (const theme of THEMES) {
         await expect(page.getByRole('button', { name: /^(Start lesson 1|Resume: )/ })).toBeVisible();
         await expect(page.locator('video')).toHaveCount(0);
         await scan(page, `${path} empty state (${theme})`);
+      });
+
+      test('the exam intro, before Start', async ({ page, request }) => {
+        // Start would begin the camera checks and spend an attempt; the intro is the state axe can see.
+        const path = await seededExamPath(request);
+        await page.goto(path);
+        await expect(page.getByRole('button', { name: 'Start exam' })).toBeVisible();
+        await scan(page, `${path} intro (${theme})`);
       });
     });
   });
