@@ -81,44 +81,24 @@ const config: Config = {
         floating: 'var(--shadow-floating)',
         hover: 'var(--shadow-hover)',
       },
+      // The motion tokens in globals.css (`duration-fast`, `ease-out-quart` and so on).
+      transitionDuration: {
+        fast: 'var(--dur-fast)',
+        base: 'var(--dur-base)',
+        slow: 'var(--dur-slow)',
+      },
       transitionTimingFunction: {
-        'out-quart': 'cubic-bezier(0.25, 1, 0.5, 1)',
-        'out-expo': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        'out-quart': 'var(--ease-out-quart)',
+        'out-expo': 'var(--ease-out-expo)',
       },
       keyframes: {
-        float: {
-          '0%, 100%': { transform: 'translateY(0px)' },
-          '50%': { transform: 'translateY(-8px)' },
-        },
+        // Only a `from`: the resting style is the end state (see globals.css).
         'fade-in-up': {
-          from: { opacity: '0', transform: 'translateY(14px)' },
-          to: { opacity: '1', transform: 'translateY(0)' },
-        },
-        'fade-in': {
-          from: { opacity: '0' },
-          to: { opacity: '1' },
-        },
-        shimmer: {
-          '0%': { backgroundPosition: '-400px 0' },
-          '100%': { backgroundPosition: '400px 0' },
-        },
-        'spin-slow': {
-          from: { transform: 'rotate(0deg)' },
-          to: { transform: 'rotate(360deg)' },
-        },
-        'pulse-soft': {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.85' },
+          from: { opacity: '0', transform: 'translateY(var(--rise))' },
         },
       },
       animation: {
-        float: 'float 10s ease-in-out infinite',
-        'float-delayed': 'float 10s ease-in-out -4s infinite',
-        'fade-in-up': 'fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both',
-        'fade-in': 'fade-in 0.5s ease-out both',
-        shimmer: 'shimmer 1.6s linear infinite',
-        'spin-slow': 'spin-slow 22s linear infinite',
-        'pulse-soft': 'pulse-soft 5s ease-in-out infinite',
+        'fade-in-up': 'fade-in-up var(--dur-base) var(--ease-out-expo) backwards',
       },
     },
   },

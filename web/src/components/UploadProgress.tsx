@@ -62,7 +62,7 @@ export function UploadProgress({
         aria-valuemax={100}
         aria-valuenow={percent}
       >
-        <div className={`progress-fill ${state.phase === 'failed' ? '!bg-danger-solid' : ''}`} style={{ width: `${percent}%` }} />
+        <div className={`progress-fill ${state.phase === 'failed' ? '!bg-danger-solid' : ''}`} style={{ transform: `scaleX(${percent / 100})` }} />
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
         <span className={`font-medium ${tone}`} aria-live="polite">

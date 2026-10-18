@@ -433,7 +433,7 @@ function Player({ courseId }: { courseId: string }) {
                 <span className="font-semibold text-brand-600">{progress.progress_percent}%</span>
               </div>
               <div className="progress-track mt-2">
-                <div className="progress-fill" style={{ width: `${progress.progress_percent}%` }} />
+                <div className="progress-fill" style={{ transform: `scaleX(${progress.progress_percent / 100})` }} />
               </div>
             </div>
           )}

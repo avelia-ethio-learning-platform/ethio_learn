@@ -107,7 +107,7 @@ export function LessonList({
                             {done && <span className="sr-only">Completed</span>}
                             {!done && watched > 0 && (
                               <span className="progress-track mt-1 block h-1 w-24">
-                                <span className="progress-fill block" style={{ width: `${watched}%` }} />
+                                <span className="progress-fill block" style={{ transform: `scaleX(${watched / 100})` }} />
                               </span>
                             )}
                           </span>

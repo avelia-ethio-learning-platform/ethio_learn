@@ -215,7 +215,7 @@ function BulkOrder({ order: o }: { order: any }) {
                 {a.progress ? (
                   <span className="flex items-center gap-2">
                     <span className="progress-track w-24">
-                      <span className="progress-fill block" style={{ width: `${a.progress.progress_percent}%` }} />
+                      <span className="progress-fill block" style={{ transform: `scaleX(${a.progress.progress_percent / 100})` }} />
                     </span>
                     {a.progress.progress_percent}%{a.progress.lessons_complete ? ' ✓' : ''}
                   </span>

@@ -80,8 +80,16 @@
   --shadow-floating: 0 4px 20px rgba(59, 130, 246, 0.09);
   --shadow-hover: 0 8px 32px rgba(59, 130, 246, 0.12);
 
-  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
-  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Motion tokens (Phase 12): every duration and easing comes from here; lib/motion.ts mirrors the numbers for framer.
+     fast: press, hover, focus, small popovers. base: enters, exits, crossfades, the dialog. slow: the few page-level reveals. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1); /* UI feedback */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); /* enters */
+  --stagger: 40ms;
+  --rise: 8px; /* the only enter distance */
+  --shimmer-period: 1.4s; /* a loading loop, not a transition */
 }
 
 .dark {
@@ -168,7 +176,7 @@
     overflow-x: clip;
     /* The course page's mobile buy bar sets --buy-bar-h while it is showing, so it never covers the footer. */
     padding-bottom: var(--buy-bar-h, 0px);
-    transition: background-color 0.3s ease, color 0.3s ease;
+    transition: background-color var(--dur-base) ease, color var(--dur-base) ease;
   }
 
   /* Keyboard focus ring for everything; .input keeps its own ring (below). */
@@ -244,14 +252,13 @@
     box-shadow: var(--shadow-glass);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    transition: box-shadow 0.2s var(--ease-out-quart), transform 0.2s var(--ease-out-quart), border-color 0.2s ease;
+    transition: box-shadow var(--dur-base) var(--ease-out-quart), transform var(--dur-base) var(--ease-out-quart),
+      border-color var(--dur-base) var(--ease-out-quart);
   }
 
-  .card-hover {
-    will-change: transform, box-shadow;
-  }
+  /* Hover is a shadow and border change with a 2 px lift at most. */
   .card-hover:hover {
-    transform: translateY(-4px);
+    transform: translateY(-2px);
     box-shadow: var(--shadow-hover);
     border-color: rgba(59, 130, 246, 0.3);
   }
@@ -261,15 +268,13 @@
     /* blue-700 to blue-600: white text stays above 4.5:1 across the whole gradient. */
     background: linear-gradient(135deg, #1d4ed8, #2563eb);
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
-    transition: transform 0.15s var(--ease-out-expo), box-shadow 0.15s var(--ease-out-expo), filter 0.15s ease;
+    transition: transform var(--dur-fast) var(--ease-out-quart), box-shadow var(--dur-fast) var(--ease-out-quart),
+      filter var(--dur-fast) var(--ease-out-quart);
   }
   .btn:hover:not(:disabled) {
     transform: translateY(-1px);
     box-shadow: 0 8px 24px rgba(37, 99, 235, 0.45);
     filter: brightness(1.05);
-  }
-  .btn:active:not(:disabled) {
-    transform: translateY(0);
   }
 
   .btn-secondary {
@@ -279,7 +284,8 @@
     border: 1px solid var(--border);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    transition: transform 0.15s var(--ease-out-expo), box-shadow 0.15s var(--ease-out-expo), background 0.15s ease, border-color 0.15s ease;
+    transition: transform var(--dur-fast) var(--ease-out-quart), box-shadow var(--dur-fast) var(--ease-out-quart),
+      background var(--dur-fast) var(--ease-out-quart), border-color var(--dur-fast) var(--ease-out-quart);
   }
   .btn-secondary:hover:not(:disabled) {
     transform: translateY(-1px);
@@ -289,7 +295,7 @@
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:text-brand-700;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-gray-600 transition duration-fast hover:text-brand-700;
   }
   .btn-ghost:hover {
     background: rgba(59, 130, 246, 0.08);
@@ -299,10 +305,31 @@
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50;
     /* red-700: white text is 6.5:1, in both themes. */
     background: #b91c1c;
-    transition: transform 0.15s var(--ease-out-expo), background 0.15s ease;
+    transition: transform var(--dur-fast) var(--ease-out-quart), background var(--dur-fast) var(--ease-out-quart);
   }
   .btn-danger:hover:not(:disabled) {
     background: #991b1b;
+  }
+
+  /* One press for every button and pill: a 2% press over --dur-fast. */
+  .btn:active:not(:disabled),
+  .btn-secondary:active:not(:disabled),
+  .btn-danger:active:not(:disabled),
+  .btn-ghost:active:not(:disabled),
+  .pill:active:not(:disabled),
+  .pill-active:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  /* A busy button turns its leading icon into a spinner of the same size, so the label never moves. */
+  :is(.btn, .btn-secondary, .btn-danger)[aria-busy='true'] > svg:first-child {
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 9999px;
+    animation: el-spin calc(var(--shimmer-period) / 2) linear infinite;
+  }
+  :is(.btn, .btn-secondary, .btn-danger)[aria-busy='true'] > svg:first-child > * {
+    visibility: hidden;
   }
 
   /* Count bubbles (the bell's unread count, a thread's unread count) and the exam camera's
@@ -342,7 +369,7 @@
     @apply block w-full rounded-xl px-3.5 py-2.5 text-sm text-foreground placeholder:text-gray-500;
     background: var(--input-background);
     border: 1px solid var(--input-border);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, background var(--dur-fast) ease;
   }
   .input:focus,
   .input:focus-visible {
@@ -363,7 +390,7 @@
 
   /* -------- Pills / filter chips -------- */
   .pill {
-    @apply inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium text-gray-600 transition-all duration-200;
+    @apply inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium text-gray-600 transition duration-fast;
     background: var(--glass-secondary);
     border: 1px solid var(--border);
     backdrop-filter: blur(8px);
@@ -372,10 +399,9 @@
   .pill:hover {
     border-color: rgba(59, 130, 246, 0.45);
     color: rgb(var(--brand-600));
-    transform: translateY(-1px);
   }
   .pill-active {
-    @apply inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold text-white transition-all duration-200;
+    @apply inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold text-white transition duration-fast;
     /* Same stops as .btn, for the same reason. */
     background: linear-gradient(135deg, #1d4ed8, #2563eb);
     border: 1px solid transparent;
@@ -409,11 +435,14 @@
     @apply h-2 w-full overflow-hidden rounded-full;
     background: rgba(59, 130, 246, 0.12);
   }
+  /* The fill is full width and scaled from the left (style={{ transform: `scaleX(p / 100)` }}), so a change
+     never relays out; the track clips it and holds the rounded ends, so low progress isn't squashed. */
   .progress-fill {
-    @apply h-full rounded-full;
+    @apply h-full w-full;
     /* Solid brand-600: 3:1 on the track in both themes (a gradient's light end was 2.2:1). */
     background: rgb(var(--brand-600));
-    transition: width 0.5s var(--ease-out-quart);
+    transform-origin: left;
+    transition: transform var(--dur-slow) var(--ease-out-quart);
   }
 
   /* -------- Section chrome (landing sections) -------- */
@@ -493,19 +522,64 @@
 
 /* ---- Motion & polish (net-new; safe to keep or fold into a design system) ---- */
 
+/* Every enter keyframe has only a `from`: the element's resting style is its end state, so when an
+   animation doesn't run (reduced motion) nothing is left faded or offset. */
 @keyframes el-fade-in-up {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(var(--rise)); }
+}
+
+/* 0.01, not 0, keeps the element an LCP candidate in Chromium. */
+@keyframes el-fade-in {
+  from { opacity: 0.01; }
 }
 
 @keyframes el-shimmer {
   100% { transform: translateX(100%); }
 }
 
+@keyframes el-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes el-indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
 /* Entrance animation for content and, with --el-i set, a stagger for grids. */
 .animate-in {
-  animation: el-fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(var(--el-i, 0) * 60ms);
+  animation: el-fade-in-up var(--dur-slow) var(--ease-out-expo) backwards;
+  animation-delay: calc(var(--el-i, 0) * var(--stagger));
+}
+
+/* Content that replaces a skeleton or a previous result: a crossfade, no movement. */
+.fade-in {
+  animation: el-fade-in var(--dur-base) var(--ease-out-quart) backwards;
+}
+
+/* The page under a route group's template.tsx. */
+.route-enter {
+  animation: el-fade-in var(--dur-base) var(--ease-out-quart) backwards;
+}
+
+/* The ConfirmProvider dialog opens with a fade and a short rise; it closes at once (focus return relies on it). */
+.dialog-enter[open] {
+  animation: el-fade-in-up var(--dur-base) var(--ease-out-expo) backwards;
+}
+.dialog-enter[open]::backdrop {
+  animation: el-fade-in var(--dur-base) var(--ease-out-quart) backwards;
+}
+
+/* A thin bar that says "loading" without hiding or locking what's under it. */
+.loading-bar {
+  @apply pointer-events-none absolute inset-x-0 -top-3 h-0.5 overflow-hidden rounded-full;
+  background: rgba(59, 130, 246, 0.12);
+}
+.loading-bar::after {
+  content: '';
+  @apply absolute inset-y-0 left-0 w-2/5 rounded-full;
+  background: rgb(var(--brand-600));
+  animation: el-indeterminate var(--shimmer-period) var(--ease-out-quart) infinite;
 }
 
 /* Shimmering skeleton placeholder for loading states. */
@@ -517,11 +591,23 @@
   @apply absolute inset-0;
   transform: translateX(-100%);
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
-  animation: el-shimmer 1.4s infinite;
+  animation: el-shimmer var(--shimmer-period) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-in { animation: none; }
-  .skeleton::after { animation: none; }
+  .animate-in,
+  .fade-in,
+  .route-enter,
+  .dialog-enter[open],
+  .dialog-enter[open]::backdrop,
+  .skeleton::after,
+  .loading-bar::after {
+    animation: none;
+  }
   .btn, .btn-secondary, .btn-danger { transition: none; }
+  /* Nothing moves: hover lifts and presses keep only their colour and shadow. */
+  .card-hover:hover,
+  :is(.btn, .btn-secondary, .btn-danger, .btn-ghost, .pill, .pill-active):is(:hover, :active) {
+    transform: none;
+  }
 }

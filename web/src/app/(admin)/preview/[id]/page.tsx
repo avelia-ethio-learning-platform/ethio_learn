@@ -732,7 +732,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
                   aria-valuemax={progress.total}
                   aria-valuenow={progress.opened}
                 >
-                  <div className="progress-fill" style={{ width: `${(progress.opened / progress.total) * 100}%` }} />
+                  <div className="progress-fill" style={{ transform: `scaleX(${progress.opened / progress.total})` }} />
                 </div>
                 <p className="mt-2 text-xs text-gray-500">
                   {progress.complete

@@ -106,7 +106,7 @@ function LearnerDashboard() {
                     <StatusBadge status={e.entitlement_status} />
                   </div>
                   <div className="progress-track mt-4">
-                    <div className="progress-fill" style={{ width: `${e.progress_percent}%` }} />
+                    <div className="progress-fill" style={{ transform: `scaleX(${e.progress_percent / 100})` }} />
                   </div>
                   <p className="mt-2 text-xs text-gray-500">
                     {e.progress_percent}% {t('progress')}
@@ -177,7 +177,7 @@ function LearnerDashboard() {
         </section>
 
         <section className="grid gap-6 md:grid-cols-2">
-          <div className="animate-fade-in-up" style={{ animationDelay: '0.18s' }}>
+          <div className="animate-fade-in-up">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
               <ReceiptText className="h-5 w-5 text-brand-500" /> {t('payment_history')}
             </h2>
@@ -212,7 +212,7 @@ function LearnerDashboard() {
               ))}
             </div>
           </div>
-          <div className="animate-fade-in-up" style={{ animationDelay: '0.26s' }}>
+          <div className="animate-fade-in-up">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
               <Undo2 className="h-5 w-5 text-brand-500" /> {t('refund_requests')}
             </h2>
@@ -331,7 +331,7 @@ function SponsorshipsSection() {
                   {s.progress && (
                     <>
                       <div className="progress-track mt-2">
-                        <div className="progress-fill" style={{ width: `${s.progress.progress_percent}%` }} />
+                        <div className="progress-fill" style={{ transform: `scaleX(${s.progress.progress_percent / 100})` }} />
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
                         {t('n_complete', { n: s.progress.progress_percent })}
