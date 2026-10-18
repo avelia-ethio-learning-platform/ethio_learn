@@ -82,7 +82,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           e.preventDefault();
           finish(false);
         }}
-        className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl p-0 text-foreground backdrop:bg-black/50"
+        className="dialog-enter m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl p-0 text-foreground backdrop:bg-black/50"
         style={{ background: 'var(--popover)', border: '1px solid var(--card-border)' }}
       >
         {options && (
