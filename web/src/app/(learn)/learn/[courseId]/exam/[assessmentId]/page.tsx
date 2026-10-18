@@ -321,8 +321,8 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
                     'Not passed yet'
                   )}</h1>
                 <p className="mt-1 text-3xl font-bold">{result.score}%</p>
-                {result.flagged && <p className="mt-1 text-sm text-warning">
-                    <AlertTriangle className="mr-1 inline h-4 w-4" aria-hidden="true" />
+                {result.flagged && <p className="mt-1 text-sm text-foreground">
+                    <AlertTriangle className="mr-1 inline h-4 w-4 text-warning" aria-hidden="true" />
                     This attempt has proctoring flags — see the report below.</p>}
               </>
             )}
@@ -480,8 +480,8 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
         <div className="fixed bottom-4 right-4 z-30 overflow-hidden rounded-xl border-2 border-white shadow-lg">
           <video ref={setVideoEl} muted playsInline className="h-24 w-32 bg-gray-900 object-cover" />
           {/* Fixed colours over the video: white on black/75 while recording or OK, .badge-count (fixed red) for a problem. */}
-          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-xs font-semibold ${proctorStatus.faceModel !== 'ready' || proctorStatus.faces === 1 ? 'bg-black/75 text-white' : 'badge-count'}`}>
-            {proctorStatus.faceModel !== 'ready' ? 'REC' : proctorStatus.faces === 1 ? '● OK' : proctorStatus.faces === 0 ? '● NO FACE' : `● ${proctorStatus.faces} FACES`}
+          <div className={`absolute bottom-1 left-1 rounded px-1.5 text-xs font-semibold ${proctorStatus.faceModel !== 'ready' || proctorStatus.faces === null || proctorStatus.faces === 1 ? 'bg-black/75 text-white' : 'badge-count'}`}>
+            {proctorStatus.faceModel !== 'ready' || proctorStatus.faces === null ? 'REC' : proctorStatus.faces === 1 ? '● OK' : proctorStatus.faces === 0 ? '● NO FACE' : `● ${proctorStatus.faces} FACES`}
           </div>
         </div>
       )}
