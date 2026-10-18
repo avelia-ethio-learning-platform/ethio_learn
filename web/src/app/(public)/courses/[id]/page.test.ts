@@ -24,7 +24,7 @@ describe('course page share metadata', () => {
 
   it.each([null, 'https://cdn.example/t.png'])('sets no images entry (thumbnail %s)', async (thumb) => {
     serverApi.mockResolvedValue({ ok: true, data: course(thumb) });
-    const meta = await generateMetadata({ params: { id: 'c1' } });
+    const meta = await generateMetadata({ params: Promise.resolve({ id: 'c1' }) });
     expect(meta.openGraph?.images).toBeUndefined();
     expect(meta.twitter?.images).toBeUndefined();
     expect(meta.openGraph?.title).toBe('Python for Data Analysis');
