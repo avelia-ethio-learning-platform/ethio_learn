@@ -1,8 +1,11 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
-import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
+import { CurrentUser, InternalGuard, pageQuery, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { FraudSubjectType, QaDecisionAction, Role, TrustTier } from '@ethiopialearn/contracts';
 import { QualityService } from './quality.service';
+
+/** `?page=` of a course's reviews; the page size is fixed at 20. */
+class ReviewsPage extends pageQuery({ defaultLimit: 20, maxLimit: 20 }) {}
 
 class QaDecisionDto {
   @IsEnum(QaDecisionAction)
@@ -111,8 +114,8 @@ export class QualityController {
 
   /** [PUBLIC] */
   @Get('courses/:id/reviews')
-  listReviews(@UuidParam('id') courseId: string) {
-    return this.service.listReviews(courseId);
+  listReviews(@UuidParam('id') courseId: string, @Query() paging: ReviewsPage) {
+    return this.service.listReviews(courseId, paging.page);
   }
 
   /** [PUBLIC] trust badge shown on catalog/detail pages */

@@ -126,6 +126,9 @@ export function isClaimActive(item: Pick<QaReviewItem, 'status' | 'claimed_by' |
   );
 }
 
+/** Reviews per page on a course (Phase 9e). */
+const REVIEWS_PAGE = 20;
+
 @Injectable()
 export class QualityService implements OnModuleInit {
   private readonly logger = new Logger(QualityService.name);
@@ -670,13 +673,12 @@ export class QualityService implements OnModuleInit {
     const review = await this.outbox.transaction(async (m, emit) => {
       const reviews = m.getRepository(CourseReview);
       const saved = await reviews.save(reviews.create({ course_id: courseId, learner_id: ctx.id, rating, comment: comment ?? null }));
-      const all = await reviews.find({ where: { course_id: courseId } });
-      const totalPoints = all.reduce((s, r) => s + r.rating, 0);
+      const { count, points } = await this.reviewTotals(reviews, courseId);
       emit<CourseRatedPayload>('CourseRated', {
         course_id: courseId,
-        average_rating: Number((totalPoints / all.length).toFixed(2)),
-        rating_count: all.length,
-        total_points: totalPoints,
+        average_rating: Number((points / count).toFixed(2)),
+        rating_count: count,
+        total_points: points,
       });
       return saved;
     });
@@ -687,15 +689,33 @@ export class QualityService implements OnModuleInit {
     return review;
   }
 
-  async listReviews(courseId: string) {
-    const reviews = await this.courseReviews.find({ where: { course_id: courseId }, order: { created_at: 'DESC' } });
-    const average = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : null;
+  /** A course's rating from all its reviews, and one page of the newest 20 (Phase 9e: `has_more` for "Show more"). */
+  async listReviews(courseId: string, page = 1) {
+    const { count, points } = await this.reviewTotals(this.courseReviews, courseId);
+    const reviews = await this.courseReviews.find({
+      where: { course_id: courseId },
+      order: { created_at: 'DESC', id: 'DESC' },
+      take: REVIEWS_PAGE,
+      skip: (page - 1) * REVIEWS_PAGE,
+    });
     return {
       course_id: courseId,
-      average_rating: average ? Number(average.toFixed(2)) : null,
-      review_count: reviews.length,
+      average_rating: count ? Number((points / count).toFixed(2)) : null,
+      review_count: count,
       reviews: reviews.map((r) => ({ id: r.id, rating: r.rating, comment: r.comment, created_at: r.created_at })),
+      has_more: page * REVIEWS_PAGE < count,
     };
+  }
+
+  /** Review count and rating points of a course, in SQL. */
+  private async reviewTotals(reviews: Repository<CourseReview>, courseId: string): Promise<{ count: number; points: number }> {
+    const row = await reviews
+      .createQueryBuilder('r')
+      .select('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(r.rating), 0)', 'points')
+      .where('r.course_id = :courseId', { courseId })
+      .getRawOne<{ count: string; points: string }>();
+    return { count: Number(row?.count ?? 0), points: Number(row?.points ?? 0) };
   }
 
   // ---- Trust tiers (spec §10.5) ----

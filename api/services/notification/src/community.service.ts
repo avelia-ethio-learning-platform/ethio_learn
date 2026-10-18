@@ -14,6 +14,12 @@ import { CourseComment, DmMessage, DmThread, InboxNotification } from './entitie
 const COMMENT_MAX = 4000;
 const MESSAGE_MAX = 4000;
 const PREVIEW_LEN = 80;
+/** A course page shows the newest 50 discussions, with every reply below them up to 1,000 rows (Phase 9e). */
+const COMMENT_THREADS = 50;
+const COMMENT_REPLIES_MAX = 1000;
+/** A conversation opens on its newest 100 messages; "Load earlier" pages back. */
+export const MESSAGES_PAGE = 100;
+const THREADS_MAX = 50;
 
 /**
  * Community: threaded course comments + 1:1 direct messages.
@@ -34,10 +40,46 @@ export class CommunityService {
 
   // ============================ Course comments ============================
 
-  /** Public read: flat list ordered oldest→newest; the client builds the tree. */
-  async listComments(courseId: string) {
-    const rows = await this.comments.find({ where: { course_id: courseId }, order: { created_at: 'ASC' } });
-    return rows.map((c) => ({
+  /**
+   * Public read: the newest 50 top-level comments (older than `before`, a
+   * top-level comment id, when given) and every reply below them at any depth,
+   * flat and oldest first; the client builds the tree. Replies are capped at
+   * 1,000 rows, oldest first: a reply is newer than its parent, so the cut
+   * never leaves one without its parent.
+   */
+  async listComments(courseId: string, before?: string) {
+    const table = this.comments.metadata.tablePath;
+    const qb = this.comments
+      .createQueryBuilder('c')
+      .where('c.course_id = :courseId', { courseId })
+      .andWhere('c.parent_id IS NULL');
+    if (before) {
+      qb.andWhere(`(c.created_at, c.id) < (SELECT b.created_at, b.id FROM ${table} b WHERE b.id = :before AND b.course_id = :courseId)`, { before });
+    }
+    const tops = await qb.orderBy('c.created_at', 'DESC').addOrderBy('c.id', 'DESC').take(COMMENT_THREADS + 1).getMany();
+    const has_more = tops.length > COMMENT_THREADS;
+    const threads = tops.slice(0, COMMENT_THREADS);
+    const replies: CourseComment[] = threads.length
+      ? await this.comments.query(
+          `WITH RECURSIVE tree AS (
+             SELECT * FROM ${table} WHERE course_id = $2 AND parent_id = ANY($1::uuid[])
+             UNION ALL
+             SELECT c.* FROM ${table} c JOIN tree t ON c.parent_id = t.id WHERE c.course_id = $2
+           )
+           SELECT * FROM tree ORDER BY created_at, id LIMIT ${COMMENT_REPLIES_MAX + 1}`,
+          [threads.map((t) => t.id), courseId],
+        )
+      : [];
+    if (replies.length > COMMENT_REPLIES_MAX) {
+      this.logger.warn(`course ${courseId}: comment replies capped at ${COMMENT_REPLIES_MAX}`);
+      replies.length = COMMENT_REPLIES_MAX;
+    }
+    const rows = [...threads, ...replies].sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at) || (a.id < b.id ? -1 : 1));
+    return { items: rows.map((c) => this.commentView(c)), has_more };
+  }
+
+  private commentView(c: CourseComment) {
+    return {
       id: c.id,
       parent_id: c.parent_id,
       author_id: c.author_id,
@@ -46,7 +88,7 @@ export class CommunityService {
       body: c.deleted ? '' : c.body,
       deleted: c.deleted,
       created_at: c.created_at,
-    }));
+    };
   }
 
   async addComment(ctx: UserContext, courseId: string, body: string, parentId?: string) {
@@ -139,6 +181,7 @@ export class CommunityService {
       .createQueryBuilder('t')
       .where('t.a_id = :id OR t.b_id = :id', { id: ctx.id })
       .orderBy('t.last_message_at', 'DESC', 'NULLS LAST')
+      .take(THREADS_MAX)
       .getMany();
     return rows.map((t) => this.threadView(t, ctx.id));
   }
@@ -171,10 +214,24 @@ export class CommunityService {
     return this.threadView(thread, ctx.id);
   }
 
-  /** Messages in a thread (marks my side read). */
-  async threadMessages(ctx: UserContext, threadId: string) {
+  /**
+   * A thread's newest `limit` messages (older than `before`, a message id, when
+   * given), oldest first, with `has_more` for "Load earlier". The cursor is the
+   * row's own (created_at, id), so a tie at a page edge is neither lost nor
+   * repeated. Marks my side read.
+   */
+  async threadMessages(ctx: UserContext, threadId: string, before?: string, limit = MESSAGES_PAGE) {
     const thread = await this.threadOrThrow(threadId, ctx.id);
-    const rows = await this.messages.find({ where: { thread_id: thread.id }, order: { created_at: 'ASC' }, take: 500 });
+    const qb = this.messages.createQueryBuilder('m').where('m.thread_id = :threadId', { threadId: thread.id });
+    if (before) {
+      qb.andWhere(
+        `(m.created_at, m.id) < (SELECT b.created_at, b.id FROM ${this.messages.metadata.tablePath} b WHERE b.id = :before AND b.thread_id = :threadId)`,
+        { before },
+      );
+    }
+    const newest = await qb.orderBy('m.created_at', 'DESC').addOrderBy('m.id', 'DESC').take(limit + 1).getMany();
+    const has_more = newest.length > limit;
+    const rows = newest.slice(0, limit).reverse();
     // Opening the conversation clears my unread counter.
     if (thread.a_id === ctx.id && thread.a_unread > 0) {
       thread.a_unread = 0;
@@ -186,6 +243,7 @@ export class CommunityService {
     return {
       thread: this.threadView(thread, ctx.id),
       messages: rows.map((m) => ({ id: m.id, sender_id: m.sender_id, mine: m.sender_id === ctx.id, body: m.body, created_at: m.created_at })),
+      has_more,
     };
   }
 

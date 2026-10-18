@@ -11,7 +11,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { randomInt, randomUUID } from 'crypto';
-import { EventBusService, InternalHttpClient, internalPath, OutboxService, UserContext } from '@ethiopialearn/common';
+import { EventBusService, InternalHttpClient, internalPath, OutboxService, UserContext, UserSummary, userSummaries } from '@ethiopialearn/common';
 import { aiFallbackNote, AiAssessor, MockAiAssessor, createAiAssessor } from '@ethiopialearn/ai';
 import {
   AssessmentResultPayload,
@@ -766,7 +766,7 @@ export class AssessmentService implements OnModuleInit {
   }
 
   /** Educator: all submitted attempts across a course's assessments (exam results view). */
-  async courseAttempts(ctx: UserContext, courseId: string) {
+  async courseAttempts(ctx: UserContext, courseId: string, page = 1, limit = 50) {
     if (ctx.role !== Role.QUALITY_OFFICER && !(await this.canManageCourse(ctx, await this.courseRef(courseId)))) {
       throw new ForbiddenException('Not your course');
     }
@@ -779,17 +779,18 @@ export class AssessmentService implements OnModuleInit {
       .where('a.assessment_id IN (:...ids)', { ids: courseAssessments.map((a) => a.id) })
       .andWhere('(a.submitted_at IS NOT NULL OR a.flagged = true)')
       .orderBy('a.created_at', 'DESC')
+      .addOrderBy('a.id', 'DESC')
+      .take(limit)
+      .skip((page - 1) * limit)
       .getMany();
 
-    // Resolve learner names once per learner (event-carried names aren't stored on attempts).
-    const names = new Map<string, { name: string; email: string }>();
-    for (const learnerId of new Set(rows.map((r) => r.learner_id))) {
-      try {
-        const u = await this.internal.get<{ name: string; email: string }>(internalPath`/api/v1/internal/users/${learnerId}`);
-        names.set(learnerId, { name: u.name, email: u.email });
-      } catch {
-        names.set(learnerId, { name: 'Unknown learner', email: '' });
-      }
+    // Learner names from one users batch call for the page (event-carried names aren't stored on attempts).
+    // Display only: while auth can't answer, the names read "Unknown learner".
+    let names = new Map<string, UserSummary>();
+    try {
+      names = await userSummaries(this.internal, rows.map((r) => r.learner_id), { email: true });
+    } catch (err) {
+      this.logger.warn(`course attempts: learner names unavailable (${(err as Error).message})`);
     }
 
     return rows.map((r) => {
@@ -800,7 +801,7 @@ export class AssessmentService implements OnModuleInit {
         assessment_type: a?.type,
         proctored: a?.type === AssessmentType.QUIZ ? !!a?.config?.proctored : false,
         learner_id: r.learner_id,
-        learner_name: names.get(r.learner_id)?.name ?? 'Unknown',
+        learner_name: names.get(r.learner_id)?.name ?? 'Unknown learner',
         learner_email: names.get(r.learner_id)?.email ?? '',
         score: r.score,
         passed: r.passed,
@@ -854,12 +855,23 @@ export class AssessmentService implements OnModuleInit {
     return out;
   }
 
+  /** The learner's newest 200 attempts (on one course when asked), in two queries. */
   async myAttempts(ctx: UserContext, courseId?: string) {
-    const rows = await this.attempts.find({ where: { learner_id: ctx.id }, order: { created_at: 'DESC' } });
+    const courseAssessments = courseId ? await this.assessments.find({ where: { course_id: courseId } }) : null;
+    if (courseAssessments && !courseAssessments.length) return [];
+    const rows = await this.attempts.find({
+      where: { learner_id: ctx.id, ...(courseAssessments ? { assessment_id: In(courseAssessments.map((a) => a.id)) } : {}) },
+      order: { created_at: 'DESC' },
+      take: 200,
+    });
+    const assessments = new Map(
+      (courseAssessments ?? (rows.length ? await this.assessments.find({ where: { id: In([...new Set(rows.map((r) => r.assessment_id))]) } }) : [])).map(
+        (a) => [a.id, a],
+      ),
+    );
     const out = [];
     for (const attempt of rows) {
-      const assessment = await this.assessments.findOne({ where: { id: attempt.assessment_id } });
-      if (courseId && assessment?.course_id !== courseId) continue;
+      const assessment = assessments.get(attempt.assessment_id);
       out.push({
         attempt_id: attempt.id,
         assessment_id: attempt.assessment_id,

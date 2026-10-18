@@ -1,10 +1,12 @@
 import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
-import { CertificateUidPipe, CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
+import { CertificateUidPipe, CurrentUser, pageQuery, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { AssessmentType, Role } from '@ethiopialearn/contracts';
 import { AssessmentService } from './assessment.service';
 import { CertificateService } from './certificate.service';
+
+class CourseAttemptsPage extends pageQuery({ defaultLimit: 50, maxLimit: 200 }) {}
 
 class CreateAssessmentDto {
   @IsUUID()
@@ -185,8 +187,8 @@ export class OutcomesController {
   @Get('courses/:id/attempts')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN, Role.QUALITY_OFFICER)
-  courseAttempts(@CurrentUser() ctx: UserContext, @UuidParam('id') courseId: string) {
-    return this.assessmentService.courseAttempts(ctx, courseId);
+  courseAttempts(@CurrentUser() ctx: UserContext, @UuidParam('id') courseId: string, @Query() paging: CourseAttemptsPage) {
+    return this.assessmentService.courseAttempts(ctx, courseId, paging.page, paging.limit);
   }
 
   @Get('courses/:id/pending-projects')

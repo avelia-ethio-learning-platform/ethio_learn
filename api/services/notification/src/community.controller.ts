@@ -1,7 +1,7 @@
-import { Body, Controller, Delete, Get, Post, UseGuards } from '@nestjs/common';
-import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
-import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
-import { CommunityService } from './community.service';
+import { Body, Controller, Delete, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { CurrentUser, limitQuery, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
+import { CommunityService, MESSAGES_PAGE } from './community.service';
 
 class AddCommentDto {
   @IsString()
@@ -11,6 +11,25 @@ class AddCommentDto {
   @IsOptional()
   @IsUUID()
   parent_id?: string;
+}
+
+/** `paged=1` or `before` opts into `{ items, has_more }`; without either the rows stay a bare array for older clients. */
+class CommentsQuery {
+  @IsOptional()
+  @IsIn(['1'])
+  paged?: string;
+
+  /** The oldest top-level comment id the client holds. */
+  @IsOptional()
+  @IsUUID()
+  before?: string;
+}
+
+class MessagesQuery extends limitQuery({ defaultLimit: MESSAGES_PAGE, maxLimit: MESSAGES_PAGE }) {
+  /** The oldest message id the client holds. */
+  @IsOptional()
+  @IsUUID()
+  before?: string;
 }
 
 class OpenThreadDto {
@@ -32,8 +51,9 @@ export class CommunityController {
 
   /** [PUBLIC] read the discussion under a course. */
   @Get('courses/:id/comments')
-  list(@UuidParam('id') courseId: string) {
-    return this.service.listComments(courseId);
+  async list(@UuidParam('id') courseId: string, @Query() query: CommentsQuery) {
+    const page = await this.service.listComments(courseId, query.before);
+    return query.paged || query.before ? page : page.items;
   }
 
   @Post('courses/:id/comments')
@@ -76,8 +96,8 @@ export class CommunityController {
   @Get('messages/threads/:id')
   @UseGuards(RolesGuard)
   @Roles()
-  messages(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string) {
-    return this.service.threadMessages(ctx, id);
+  messages(@CurrentUser() ctx: UserContext, @UuidParam('id') id: string, @Query() query: MessagesQuery) {
+    return this.service.threadMessages(ctx, id, query.before, query.limit);
   }
 
   @Post('messages/threads/:id')
