@@ -1,12 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart3, BookOpen, HandCoins, LayoutDashboard, Plus, Ticket, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
+import { Field } from '@/components/form/Field';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { categoryLabel, holdReasonLabel, pricingLabel } from '@/lib/labels';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 
@@ -39,7 +43,7 @@ function TeachDashboard() {
         title="Educator dashboard"
         subtitle="Create courses, track earnings and get paid nightly."
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
             <Link href="/teach/analytics" className="btn-secondary">
               <BarChart3 className="h-4 w-4" /> Analytics
             </Link>
@@ -94,11 +98,11 @@ function TeachDashboard() {
                   <div className="min-w-0">
                     <p className="font-semibold text-foreground">{c.title}</p>
                     <p className="mt-0.5 text-xs text-gray-500">
-                      {c.category} · {c.pricing_type}
+                      {categoryLabel(c.category)} · {pricingLabel(c.pricing_type)}
                       {c.price_etb ? ` · ${formatETB(c.price_etb, locale)}` : ''}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <StatusBadge status={c.status} />
                     <Link href={`/teach/courses/${c.id}`} className="btn-secondary !px-3 !py-1.5 !text-xs">
                       Manage
@@ -124,7 +128,7 @@ function TeachDashboard() {
                 <span className="font-medium text-foreground">
                   net {formatETB(p.net_amount_etb, locale)} <span className="font-normal text-gray-500">(gross {formatETB(p.gross_amount_etb, locale)})</span>
                 </span>
-                <StatusBadge status={p.status} suffix={p.hold_reason || undefined} />
+                <StatusBadge status={p.status} suffix={p.hold_reason ? holdReasonLabel(p.hold_reason) : undefined} />
               </div>
             ))}
           </div>
@@ -135,21 +139,40 @@ function TeachDashboard() {
 }
 
 function EducatorSetup() {
+  const queryClient = useQueryClient();
+  const [status, setOk, setError, clear] = useFormStatus();
+  const [busy, setBusy] = useState(false);
   return (
     <div className="card animate-fade-in-up !border-amber-400/40 bg-gradient-to-br from-amber-500/10 to-transparent">
       <p className="text-sm font-bold text-foreground">Finish your educator profile</p>
       <form
-        className="mt-3 grid gap-2 sm:grid-cols-2"
+        className="mt-3 grid gap-3 sm:grid-cols-2"
         onSubmit={async (e) => {
           e.preventDefault();
           const form = new FormData(e.currentTarget);
-          await api('/profiles/educator', { method: 'POST', body: { bio: form.get('bio'), expertise_area: form.get('expertise') } });
-          location.reload();
+          setBusy(true);
+          clear();
+          try {
+            await api('/profiles/educator', { method: 'POST', body: { bio: form.get('bio'), expertise_area: form.get('expertise') } });
+            await queryClient.invalidateQueries({ queryKey: ['profile'] });
+            setOk('Profile saved.');
+          } catch (err) {
+            setError((err as Error).message);
+          } finally {
+            setBusy(false);
+          }
         }}
       >
-        <input name="expertise" required placeholder="Expertise area (e.g. Web Development)" className="input" />
-        <textarea name="bio" required placeholder="Short bio" className="input" />
-        <button className="btn sm:col-span-2">Save profile</button>
+        <Field label="Expertise area">
+          {(ids) => <input {...ids} name="expertise" required placeholder="e.g. Web Development" className="input" />}
+        </Field>
+        <Field label="Short bio">{(ids) => <textarea {...ids} name="bio" required className="input" />}</Field>
+        <button className="btn sm:col-span-2" disabled={busy}>
+          {busy ? 'Saving…' : 'Save profile'}
+        </button>
+        <div className="sm:col-span-2">
+          <FormStatus status={status} />
+        </div>
       </form>
     </div>
   );

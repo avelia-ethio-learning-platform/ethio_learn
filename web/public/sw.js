@@ -11,7 +11,8 @@
  *  - Video and signed R2 URLs are NEVER cached: they are 15-minute signed
  *    links and caching them would both break and leak content.
  */
-const VERSION = 'el-sw-v1';
+// v2: Phase 10's security headers; a new version drops pages cached with the old ones.
+const VERSION = 'el-sw-v2';
 const SHELL = `${VERSION}-shell`;
 const API = `${VERSION}-api`;
 const STATIC = `${VERSION}-static`;

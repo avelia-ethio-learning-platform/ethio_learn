@@ -65,8 +65,18 @@ function harness(config: Record<string, unknown>, priorAttempts: Record<string, 
   const assessments = { findOne: jest.fn(async () => assessment), find: jest.fn(async () => [assessment]), save: jest.fn(), create: jest.fn() };
   const bus = { publish: jest.fn() };
   const internal = { get: jest.fn(async () => ({ entitlement_status: 'active', enrollment_id: 'en1', title: 'Course' })) };
-  const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, storage as never);
-  return { svc, attempts, saved, bus, updates };
+  // outbox.transaction (9b): emitted events "commit" only when the transaction body resolves.
+  const committed: Array<{ type: string; payload: unknown }> = [];
+  const outbox = {
+    transaction: jest.fn(async (fn: (m: unknown, emit: (type: string, payload: unknown) => void) => Promise<unknown>) => {
+      const queued: Array<{ type: string; payload: unknown }> = [];
+      const result = await fn({ getRepository: () => attempts }, (type, payload) => queued.push({ type, payload }));
+      committed.push(...queued);
+      return result;
+    }),
+  };
+  const svc = new AssessmentService(assessments as never, attempts as never, bus as never, internal as never, storage as never, outbox as never);
+  return { svc, attempts, saved, bus, updates, committed };
 }
 
 describe('quiz anti-cheat: per-attempt paper', () => {
@@ -162,21 +172,22 @@ describe('submitting an attempt', () => {
   const right = { responses: [{ index: 0, selected_index: 0 }, { index: 1, selected_index: 1 }] };
 
   it('two concurrent submits of one attempt record and publish once, the loser gets 409', async () => {
-    const { svc, bus, saved } = harness({ questions: bankOf(2), shuffle: false }, [open()]);
+    const { svc, bus, saved, committed } = harness({ questions: bankOf(2), shuffle: false }, [open()]);
     const results = await Promise.allSettled([svc.submitAttempt(learner, 'open-1', right), svc.submitAttempt(learner, 'open-1', right)]);
     const lost = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(lost).toHaveLength(1);
     expect(lost[0].reason).toBeInstanceOf(ConflictException);
     expect(lost[0].reason.message).toBe('Attempt already submitted.');
-    expect(bus.publish).toHaveBeenCalledTimes(1);
+    expect(committed).toHaveLength(1);
+    expect(bus.publish).not.toHaveBeenCalled();
     expect(saved).toHaveLength(0); // recorded by the claim, not by a blind save
   });
 
   it('an attempt that is already submitted is a 409 and publishes nothing', async () => {
-    const { svc, bus } = harness({ questions: bankOf(2) }, [open({ submitted_at: new Date(), passed: true, score: 100 })]);
+    const { svc, committed } = harness({ questions: bankOf(2) }, [open({ submitted_at: new Date(), passed: true, score: 100 })]);
     await expect(svc.submitAttempt(learner, 'open-1', right)).rejects.toThrow(new ConflictException('Attempt already submitted.'));
-    expect(bus.publish).not.toHaveBeenCalled();
+    expect(committed).toEqual([]);
   });
 
   it('the claim writes everything grading changed, with the time it reports', async () => {

@@ -1,18 +1,21 @@
-import { BadRequestException, ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
+import { OutboxService } from '@ethiopialearn/common';
 import {
   CourseAppealSubmittedPayload,
   CourseRevisionSubmittedPayload,
   CourseSubmittedPayload,
   EventEnvelope,
   EventType,
+  FraudSignalStatus,
+  FraudSubjectType,
   OwnerType,
   PricingType,
   QaDecisionAction,
   QaReviewStatus,
   RevisionDiffSummary,
 } from '@ethiopialearn/contracts';
-import { QaReviewItem, QualityCourseCache, RefundLog } from './entities';
+import { EducatorTrustTier, QaReviewItem, QualityCourseCache, RefundLog } from './entities';
 import { CLAIM_TTL_MS, isLowRiskRevision, QualityService } from './quality.service';
 import { envelopeFor, fakeDataSource } from './testing/fake-data-source';
 
@@ -162,26 +165,35 @@ function setup(opts: SetupOptions = {}) {
     subscribe: jest.fn((type: EventType, h: (p: unknown, e: EventEnvelope<unknown>) => Promise<void>) => {
       handlers[type] = (p, e = envelopeFor(type, p)) => h(p, e);
     }),
+    // The outbox's: the broker is down unless a test brings it up and runs the relay.
+    isConnected: jest.fn(() => false),
+    publishConfirmed: jest.fn().mockResolvedValue(undefined),
   };
   const refundLog = repo();
+  const trustTiers = repo();
   const db = fakeDataSource(
     new Map<unknown, unknown>([
       [QaReviewItem, reviewItems],
       [QualityCourseCache, courseCache],
       [RefundLog, refundLog],
+      [EducatorTrustTier, trustTiers],
     ]),
   );
+  // The real outbox over the fake data source: like runOnce, it refuses to nest, so these
+  // specs fail if an emit ever moves inside a runOnce body (9b drift D2).
+  const outbox = new OutboxService(db.dataSource, bus as never);
   const service = new QualityService(
     reviewItems as never,
     repo() as never, // courseReviews
-    repo() as never, // fraudSignals
-    repo() as never, // trustTiers
+    db.fraudSignals as never,
+    trustTiers as never,
     courseCache as never,
     repo() as never, // stats
     refundLog as never,
     bus as never,
     { get: jest.fn() } as never,
     db.dataSource,
+    outbox,
   );
   const plagiarismCheck = jest.fn(async () => {
     if (opts.plagiarism instanceof Error) throw opts.plagiarism;
@@ -189,8 +201,9 @@ function setup(opts: SetupOptions = {}) {
   });
   (service as unknown as { ai: unknown }).ai = { plagiarismCheck };
   service.onModuleInit();
-  const published = (type: string) => bus.publish.mock.calls.filter((c) => c[0] === type).map((c) => c[1]);
-  return { service, reviewItems, cacheRows, courseCache, bus, handlers, plagiarismCheck, published, db, refundLog };
+  /** Events committed to the outbox (quality publishes nothing directly any more). */
+  const published = (type: string) => db.outbox.filter((r) => r.event_type === type).map((r) => r.payload);
+  return { service, reviewItems, cacheRows, courseCache, bus, handlers, plagiarismCheck, published, db, refundLog, outbox };
 }
 
 function diffSummary(over: Partial<RevisionDiffSummary> = {}): RevisionDiffSummary {
@@ -745,7 +758,7 @@ describe('QualityService.decideItem — revision items', () => {
     await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.COACH, '  ')).rejects.toThrow(BadRequestException);
     await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.REJECT)).rejects.toThrow(BadRequestException);
     expect(t.reviewItems.rows[0].status).toBe(QaReviewStatus.PENDING);
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.db.outbox).toEqual([]);
   });
 
   it('a resubmission of the same revision id supersedes the old item; each decision carries its own content hash', async () => {
@@ -777,7 +790,7 @@ describe('QualityService.decideItem — revision items', () => {
     );
     await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.REJECT, 'nope')).rejects.toThrow(ConflictException);
     expect(t.reviewItems.rows[0].status).toBe(QaReviewStatus.PENDING);
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.db.outbox).toEqual([]);
   });
 
   it('an empty content hash on the event is stored as none (not as a matchable empty string)', async () => {
@@ -842,7 +855,7 @@ describe('QualityService.decideItem — locking and state', () => {
   it('409s while another officer holds a fresh claim; allowed once it lapses', async () => {
     const fresh = setup({ items: [{ id: 'i1', course_id: 'c1', status: QaReviewStatus.IN_REVIEW, claimed_by: 'qo-2', claimed_at: minutesAgo(3) }] });
     await expect(fresh.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).rejects.toThrow(ConflictException);
-    expect(fresh.bus.publish).not.toHaveBeenCalled();
+    expect(fresh.db.outbox).toEqual([]);
 
     const lapsed = setup({ items: [{ id: 'i1', course_id: 'c1', status: QaReviewStatus.IN_REVIEW, claimed_by: 'qo-2', claimed_at: minutesAgo(31) }] });
     await lapsed.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE);
@@ -859,7 +872,7 @@ describe('QualityService.decideItem — locking and state', () => {
     const t = setup({ items: [{ id: 'i1', course_id: 'c1' }] });
     await t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE);
     await expect(t.service.decideItem(QO2, 'i1', QaDecisionAction.FLAG)).rejects.toThrow(ConflictException);
-    expect(t.bus.publish).toHaveBeenCalledTimes(1);
+    expect(t.db.outbox).toHaveLength(1);
 
     // Race: the other officer's decision lands between our read and our write.
     const race = setup({ items: [{ id: 'i1', course_id: 'c1' }] });
@@ -868,14 +881,47 @@ describe('QualityService.decideItem — locking and state', () => {
       return { affected: 0 };
     });
     await expect(race.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).rejects.toThrow(ConflictException);
-    expect(race.bus.publish).not.toHaveBeenCalled();
+    expect(race.db.outbox).toEqual([]);
   });
 
-  it('reopens the item when the decision event cannot be published', async () => {
+  it('a decision commits when the broker is down, and nothing reverts (9b drift D1)', async () => {
     const t = setup({ items: [{ id: 'i1', course_id: 'c1', kind: 'revision', revision_id: 'rev-1', content_hash: 'hash-A' }] });
-    t.bus.publish.mockRejectedValueOnce(new Error('Channel closed'));
-    await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).rejects.toThrow(ServiceUnavailableException);
+    t.bus.publish.mockRejectedValue(new Error('Channel closed'));
+    t.bus.publishConfirmed.mockRejectedValue(new Error('Channel closed'));
+
+    await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).resolves.toMatchObject({ status: QaReviewStatus.APPROVED });
+    expect(t.reviewItems.rows[0]).toMatchObject({ status: QaReviewStatus.APPROVED, qo_id: 'qo-1', reviewed_at: expect.any(Date) });
+    expect(openIds(t.reviewItems.rows)).toEqual([]);
+    const [row] = t.db.outbox;
+    expect(t.db.outbox).toEqual([expect.objectContaining({ event_type: 'CourseRevisionReviewed', published_at: null })]);
+
+    // The broker comes back: the relay sends the committed decision, and the item stays decided.
+    t.bus.isConnected.mockReturnValue(true);
+    t.bus.publishConfirmed.mockResolvedValue(undefined);
+    await t.outbox.relay();
+    expect(t.bus.publishConfirmed).toHaveBeenCalledWith(
+      'CourseRevisionReviewed',
+      expect.objectContaining({ review_item_id: 'i1', action: 'approve', content_hash: 'hash-A' }),
+      { eventId: row.id, correlationId: undefined },
+    );
+    expect(row.published_at).toBeInstanceOf(Date);
+    expect(t.reviewItems.rows[0].status).toBe(QaReviewStatus.APPROVED);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['revision', { kind: 'revision', revision_id: 'rev-1', content_hash: 'hash-A' }, 'CourseRevisionReviewed'],
+    ['new course', { kind: 'new_course' }, 'CourseReviewed'],
+  ])('%s: the decision and its event commit together; an error before commit leaves the item open and no event', async (_label, item, event) => {
+    const t = setup({ items: [{ id: 'i1', course_id: 'c1', ...item }] });
+    t.db.opts.failNextOutboxInsert = true;
+    await expect(t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE)).rejects.toThrow('outbox insert failed');
     expect(t.reviewItems.rows[0]).toMatchObject({ status: QaReviewStatus.PENDING, qo_id: null, reviewed_at: null });
+    expect(t.db.outbox).toEqual([]);
+
+    await t.service.decideItem(QO, 'i1', QaDecisionAction.APPROVE);
+    expect(t.reviewItems.rows[0]).toMatchObject({ status: QaReviewStatus.APPROVED, qo_id: 'qo-1' });
+    expect(t.db.outbox.map((r) => r.event_type)).toEqual([event]);
   });
 });
 
@@ -893,7 +939,7 @@ describe('QualityService.decide (back-compat, by course)', () => {
       ],
     });
     await expect(t.service.decide(QO, 'c1', QaDecisionAction.APPROVE)).rejects.toThrow('Multiple reviews open — decide by item');
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.db.outbox).toEqual([]);
   });
 
   it('delegates to the item decision when exactly one is open, with the per-kind rules', async () => {
@@ -1044,5 +1090,96 @@ describe('QualityService: a redelivered event (P1-16)', () => {
       expect(t.refundLog.save).toHaveBeenCalledTimes(1);
       expect(t.db.stats.get('owner-1')).toEqual({ payments: 0, refunds: 1, completions: 0 });
     });
+  });
+});
+
+// ---- Fraud signals (Phase 9b): one open signal per subject and type, each committed with its event ----
+
+describe('QualityService fraud signals: one open signal per subject and type, with its event (9b outbox)', () => {
+  const plagiarism = { subject_type: FraudSubjectType.COURSE, subject_id: 'c1', signal_type: 'plagiarism_suspected', detail: 'copied', payee_id: 'owner-1' };
+  const refund = (id: string) => ({ refund_request_id: id, payment_id: `p-${id}`, learner_id: 'learner-1', course_id: 'c9', course_title: 'T', amount_etb: 500, reason: 'auto' });
+  const openSignals = (t: ReturnType<typeof setup>) => t.db.fraudSignals.rows.filter((r) => r.status === FraudSignalStatus.OPEN);
+  /** A learner with 4 approved refunds in 30 days, so every RefundApproved for them raises refund_abuse. */
+  const abuseSetup = () => {
+    const t = setup();
+    const count: Record<string, jest.Mock> = {};
+    Object.assign(count, { where: jest.fn(() => count), andWhere: jest.fn(() => count), getCount: jest.fn().mockResolvedValue(4) });
+    Object.assign(t.refundLog, { createQueryBuilder: jest.fn(() => count) });
+    return t;
+  };
+
+  it('two refund approvals that trigger the same check open one signal and commit one FraudFlagRaised', async () => {
+    const t = abuseSetup();
+    // Delivered together: both count 4 refunds and raise, after their runOnce returns; the open-signal index lets one in.
+    await Promise.all([t.handlers.RefundApproved(refund('r1')), t.handlers.RefundApproved(refund('r2'))]);
+    expect(openSignals(t)).toEqual([
+      expect.objectContaining({ subject_type: FraudSubjectType.USER, subject_id: 'learner-1', signal_type: 'refund_abuse', detail: '4 approved refunds in 30 days' }),
+    ]);
+    expect(t.published('FraudFlagRaised')).toEqual([expect.objectContaining({ flag_id: openSignals(t)[0].id, subject_id: 'learner-1', payee_id: null })]);
+  });
+
+  it('a redelivery after the insert committed adds no row, and the original outbox row still publishes', async () => {
+    const t = abuseSetup();
+    const event = envelopeFor('RefundApproved', refund('r1'));
+    await t.handlers.RefundApproved(refund('r1'), event);
+    const [signal] = t.db.fraudSignals.rows;
+    const [row] = t.db.outbox;
+
+    // The broker delivers it again (its ack was lost, say).
+    await t.handlers.RefundApproved(refund('r1'), event);
+    expect(t.db.fraudSignals.rows).toHaveLength(1);
+    expect(t.db.outbox).toEqual([row]);
+
+    t.bus.isConnected.mockReturnValue(true);
+    await t.outbox.relay();
+    expect(t.bus.publishConfirmed.mock.calls).toEqual([
+      ['FraudFlagRaised', expect.objectContaining({ flag_id: signal.id, signal_type: 'refund_abuse' }), { eventId: row.id, correlationId: undefined }],
+    ]);
+    expect(row.published_at).toBeInstanceOf(Date);
+  });
+
+  it('a raise and its FraudFlagRaised commit together; an error before commit leaves neither', async () => {
+    const t = setup();
+    t.db.opts.failNextOutboxInsert = true;
+    await expect(t.service.raiseFraudSignal(plagiarism)).rejects.toThrow('outbox insert failed');
+    expect(t.db.fraudSignals.rows).toEqual([]);
+    expect(t.db.outbox).toEqual([]);
+
+    const signal = await t.service.raiseFraudSignal(plagiarism);
+    expect(t.db.fraudSignals.rows).toEqual([expect.objectContaining({ id: signal.id, status: FraudSignalStatus.OPEN })]);
+    expect(t.published('FraudFlagRaised')).toEqual([
+      { flag_id: signal.id, subject_type: 'course', subject_id: 'c1', signal_type: 'plagiarism_suspected', payee_id: 'owner-1', detail: 'copied' },
+    ]);
+  });
+
+  it('raising a signal that is already open returns the open one and emits nothing; another subject or type opens its own', async () => {
+    const t = setup();
+    const first = await t.service.raiseFraudSignal(plagiarism);
+    await expect(t.service.raiseFraudSignal({ ...plagiarism, detail: 'again' })).resolves.toMatchObject({ id: first.id, detail: 'copied' });
+    expect(t.published('FraudFlagRaised')).toHaveLength(1);
+
+    await t.service.raiseFraudSignal({ ...plagiarism, subject_id: 'c2' });
+    await t.service.raiseFraudSignal({ ...plagiarism, signal_type: 'refund_abuse' });
+    expect(openSignals(t)).toHaveLength(3);
+    expect(t.published('FraudFlagRaised')).toHaveLength(3);
+  });
+
+  it('a resolution and its FraudFlagResolved commit together; an error before commit leaves the signal open', async () => {
+    const t = setup();
+    const signal = await t.service.raiseFraudSignal(plagiarism);
+    t.db.opts.failNextOutboxInsert = true;
+    await expect(t.service.resolveFlag('admin-1', signal.id)).rejects.toThrow('outbox insert failed');
+    expect(t.db.fraudSignals.rows[0]).toMatchObject({ status: FraudSignalStatus.OPEN, resolved_by: null });
+    expect(t.published('FraudFlagResolved')).toEqual([]);
+
+    await t.service.resolveFlag('admin-1', signal.id);
+    expect(t.db.fraudSignals.rows[0]).toMatchObject({ status: FraudSignalStatus.RESOLVED, resolved_by: 'admin-1', resolved_at: expect.any(Date) });
+    // The raise's payload shape, which the FraudSignalDedupe migration also builds.
+    expect(t.published('FraudFlagResolved')).toEqual(t.published('FraudFlagRaised'));
+
+    // Resolved, it no longer blocks a new signal on the same subject.
+    await t.service.raiseFraudSignal(plagiarism);
+    expect(openSignals(t)).toHaveLength(1);
+    expect(t.published('FraudFlagRaised')).toHaveLength(2);
   });
 });

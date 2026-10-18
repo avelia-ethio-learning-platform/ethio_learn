@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { authFile } from './support';
 
 // P1-49 / P1-50 / P1-51: the shell works without a mouse.

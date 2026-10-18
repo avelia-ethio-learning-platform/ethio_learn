@@ -1,7 +1,9 @@
 import * as amqp from 'amqplib';
+import { AsyncLocalStorage } from 'async_hooks';
 import { EventEmitter } from 'events';
 import { BrokerPublishError, EVENTS_EXCHANGE, EventBusService } from './event-bus.service';
 import { currentEvent, EventContext } from './event-context';
+import { inTransactionScope, OutboxService } from './outbox';
 
 jest.mock('amqplib', () => ({ connect: jest.fn() }));
 
@@ -57,8 +59,12 @@ class FakeChannel extends EventEmitter {
   }
 }
 
-/** An amqplib ChannelModel. `drop()` closes its channels first, then itself, in one tick, as amqplib does. */
+/**
+ * An amqplib ChannelModel. `drop()` closes its channels first, then itself, in one tick, as amqplib does.
+ * Its deliveries run in the async context it was opened in, as a real socket's callbacks do.
+ */
 class FakeConnection extends EventEmitter {
+  readonly openedIn = AsyncLocalStorage.snapshot();
   readonly mainChannels: FakeChannel[] = [];
   readonly confirmChannels: FakeChannel[] = [];
   readonly createChannel = jest.fn(async () => {
@@ -119,7 +125,8 @@ class FakeBroker {
       fields: { deliveryTag: 1 },
       properties: { headers, contentType: 'application/json' },
     } as unknown as amqp.ConsumeMessage;
-    this.channel.consumers.get(queue)!(msg);
+    const consume = this.channel.consumers.get(queue)!;
+    this.connection.openedIn(() => consume(msg));
     return msg;
   }
 
@@ -275,6 +282,23 @@ describe('EventBusService connection supervisor (P1-15)', () => {
 
     broker.deliver('quality.events', envelope());
     await until(() => handler.mock.calls.length === 1, 'the handler');
+  });
+
+  it('a reconnect kicked inside a transaction body leaves later deliveries outside it (9b review S2)', async () => {
+    const broker = new FakeBroker();
+    const outbox = new OutboxService({ transaction: (fn: (m: unknown) => unknown) => fn({}) } as never, bus);
+    const results: string[] = [];
+    bus.subscribe('CourseCompleted', async () => {
+      results.push(await outbox.transaction(async () => 'ran').catch((err: Error) => err.message));
+    });
+    await started();
+
+    await inTransactionScope(async () => broker.connection.drop());
+    await until(() => bus.isConnected(), 'the reconnect');
+    broker.deliver('quality.events', envelope());
+
+    await until(() => results.length === 1, 'the handler');
+    expect(results).toEqual(['ran']);
   });
 
   it('reopens a channel the broker closed on its own, on the same connection', async () => {

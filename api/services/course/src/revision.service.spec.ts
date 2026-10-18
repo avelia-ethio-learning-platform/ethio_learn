@@ -102,7 +102,38 @@ function setup(opts: { institution?: boolean; status?: string; pendingAssessment
   const dataSource = {
     manager,
     getRepository: manager.getRepository,
-    transaction: jest.fn(async (cb: (m: typeof manager) => unknown) => cb(manager)),
+    // A throw restores every table, like a Postgres rollback.
+    transaction: jest.fn(async (cb: (m: typeof manager) => unknown) => {
+      const snapshot = [...repos.values()].map((repo) => repo.rows.map(clone));
+      try {
+        return await cb(manager);
+      } catch (err) {
+        [...repos.values()].forEach((repo, i) => (repo.rows = snapshot[i]));
+        throw err;
+      }
+    }),
+  };
+
+  // outbox.transaction on that transaction: emitted events "commit" only when it does.
+  // failInserts(n) makes the next n outbox inserts throw after the writes, so those transactions roll back.
+  const committed: Array<{ type: string; payload: any }> = [];
+  let insertFailures = 0;
+  const outbox = {
+    transaction: jest.fn((fn: (m: typeof manager, emit: (type: string, payload: unknown) => void) => Promise<unknown>) =>
+      dataSource.transaction(async (m) => {
+        const queued: Array<{ type: string; payload: any }> = [];
+        const result = await fn(m, (type, payload) => queued.push({ type, payload }));
+        if (insertFailures > 0 && queued.length) {
+          insertFailures--;
+          throw new Error('outbox insert failed');
+        }
+        committed.push(...queued);
+        return result;
+      }),
+    ),
+  };
+  const failInserts = (n = 1) => {
+    insertFailures = n;
   };
 
   courses.rows.push({
@@ -173,7 +204,15 @@ function setup(opts: { institution?: boolean; status?: string; pendingAssessment
   };
   const extras = { reindexCourse: jest.fn(async () => ({ chunks: 0 })) };
 
-  const svc = new RevisionService(revisions as never, dataSource as never, courseService as never, extras as never, bus as never, internal as never);
+  const svc = new RevisionService(
+    revisions as never,
+    dataSource as never,
+    courseService as never,
+    extras as never,
+    bus as never,
+    internal as never,
+    outbox as never,
+  );
   svc.retryDelaysMs = [0, 0];
   svc.onModuleInit();
 
@@ -191,6 +230,13 @@ function setup(opts: { institution?: boolean; status?: string; pendingAssessment
   }
 
   const published = (type: string) => bus.publish.mock.calls.filter((c: any[]) => c[0] === type).map((c: any[]) => c[1]);
+  /** Payloads of the events of this type committed through the outbox. */
+  const emitted = (type: string) => committed.filter((e) => e.type === type).map((e) => e.payload);
+  /** Forgets what was published and committed so far (e.g. the submit before a decision). */
+  const clearEvents = () => {
+    bus.publish.mockClear();
+    committed.length = 0;
+  };
   /** A QO decision as quality publishes it: by default on the submission currently frozen on the revision. */
   const decision = (action: 'approve' | 'coach' | 'reject', notes: string | null = null, extra: Row = {}) => ({
     course_id: 'c1',
@@ -221,8 +267,13 @@ function setup(opts: { institution?: boolean; status?: string; pendingAssessment
     courseService,
     extras,
     dataSource,
+    outbox,
+    committed,
+    failInserts,
     stageChanges,
     published,
+    emitted,
+    clearEvents,
     decision,
     deliver,
     review,
@@ -265,7 +316,7 @@ describe('RevisionService.submit', () => {
     const rev = t.revisions.get('rev1')!;
     expect(rev.diff.pending_assessments).toEqual([{ id: 'a1', type: 'quiz' }]);
     expect(rev.content_hash).not.toBe(hashWithout);
-    const [payload] = t.published('CourseRevisionSubmitted');
+    const [payload] = t.emitted('CourseRevisionSubmitted');
     expect(payload).toMatchObject({ assessment_ids: ['a1'], content_hash: rev.content_hash });
     expect(payload.diff_summary.assessments_added).toBe(1);
   });
@@ -287,7 +338,7 @@ describe('RevisionService.submit', () => {
     await expect(t.svc.submit(OWNER, 'c1', {})).resolves.toEqual({ revision_id: 'rev1', status: 'submitted' });
     expect(t.revisions.get('rev-flagged')!.status).toBe('withdrawn');
     expect(t.revisions.get('rev1')).toMatchObject({ status: 'submitted', content_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
-    expect(t.published('CourseRevisionSubmitted')).toEqual([expect.objectContaining({ revision_id: 'rev1', assessment_ids: [] })]);
+    expect(t.emitted('CourseRevisionSubmitted')).toEqual([expect.objectContaining({ revision_id: 'rev1', assessment_ids: [] })]);
   });
 
   it('validates the merged course with the first-submission rules', async () => {
@@ -320,7 +371,7 @@ describe('RevisionService.submit', () => {
     expect(rev.submitted_at).toBeInstanceOf(Date);
     expect(rev.diff.diff_summary).toMatchObject({ lessons_added: 2, lessons_removed: 1, videos_replaced: 1, price_from: 500, price_to: 600 });
 
-    const [payload] = t.published('CourseRevisionSubmitted');
+    const [payload] = t.emitted('CourseRevisionSubmitted');
     expect(payload).toMatchObject({
       course_id: 'c1',
       revision_id: 'rev1',
@@ -348,7 +399,7 @@ describe('RevisionService.submit', () => {
     expect(t.published('CourseSubmittedToInstitution')).toEqual([
       { course_id: 'c1', course_title: 'Approved title', institution_admin_user_id: 'inst-admin-1', instructor_name: 'Edu', revision_id: 'rev1' },
     ]);
-    expect(t.published('CourseRevisionSubmitted')).toHaveLength(0);
+    expect(t.emitted('CourseRevisionSubmitted')).toHaveLength(0);
     // The owner of the course's institution, even though the instructor has left it.
     expect(t.courseService.institutionAdminId).toHaveBeenCalledWith('inst1');
   });
@@ -358,7 +409,7 @@ describe('RevisionService.submit', () => {
     const res = await t.svc.submit(OWNER, 'c1', {});
     expect(res.status).toBe('submitted');
     expect(t.revisions.rows).toHaveLength(1);
-    expect(t.published('CourseRevisionSubmitted')[0]).toMatchObject({ assessment_ids: ['a1'], diff_summary: { assessments_added: 1 } });
+    expect(t.emitted('CourseRevisionSubmitted')[0]).toMatchObject({ assessment_ids: ['a1'], diff_summary: { assessments_added: 1 } });
   });
 
   it('refuses to resubmit while already in review', async () => {
@@ -374,7 +425,8 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     const t = setup(opts);
     t.stageChanges();
     await t.svc.submit(OWNER, 'c1', dto);
-    t.bus.publish.mockClear();
+    t.clearEvents();
+    t.dataSource.transaction.mockClear();
     return t;
   }
 
@@ -401,7 +453,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     expect(t.changelog.rows[0]).toMatchObject({ kind: 'minor', created_by: 'edu1' });
     expect(t.changelog.rows[0].summary).toMatch(/^Course updated: /);
 
-    const [closed] = t.published('CourseRevisionClosed');
+    const [closed] = t.emitted('CourseRevisionClosed');
     expect(closed).toMatchObject({
       outcome: 'applied',
       course_id: 'c1',
@@ -416,9 +468,9 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     });
     expect(closed.added_lesson_ids.sort()).toEqual(['l3', 'l4']);
     expect(closed.submitted_at).toEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/));
-    const types = t.bus.publish.mock.calls.map((c: any[]) => c[0]);
-    expect(types).not.toContain('CoursePublished');
-    expect(types).not.toContain('CourseUpdated'); // minor
+    // Minor: no CourseUpdated, and never a CoursePublished.
+    expect(t.committed.map((e) => e.type)).toEqual(['CourseRevisionClosed']);
+    expect(t.bus.publish).not.toHaveBeenCalled();
   });
 
   it('keeps an UNLISTED course unlisted', async () => {
@@ -432,7 +484,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     await t.review('approve');
     expect(t.changelog.rows).toEqual([expect.objectContaining({ kind: 'major', summary: 'New bonus section' })]);
     expect(t.courses.get('c1')!.last_major_update_at).toBeInstanceOf(Date);
-    expect(t.published('CourseUpdated')).toEqual([
+    expect(t.emitted('CourseUpdated')).toEqual([
       { course_id: 'c1', course_title: 'New title', owner_user_id: 'edu1', summary: 'New bonus section', changelog_id: t.changelog.rows[0].id },
     ]);
   });
@@ -442,7 +494,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     await t.review('approve');
     await t.review('approve');
     expect(t.changelog.rows).toHaveLength(1);
-    expect(t.published('CourseRevisionClosed')).toHaveLength(1);
+    expect(t.emitted('CourseRevisionClosed')).toHaveLength(1);
   });
 
   it('ignores a stale approve after the educator withdrew', async () => {
@@ -451,7 +503,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     await t.review('approve');
     expect(t.courses.get('c1')!.title).toBe('Approved title');
     expect(t.revisions.get('rev1')!.status).toBe('draft');
-    expect(t.published('CourseRevisionClosed')).toHaveLength(0);
+    expect(t.emitted('CourseRevisionClosed')).toHaveLength(0);
   });
 
   it('returns the revision to draft, applies nothing and tells the educator when the staged content changed after submit', async () => {
@@ -466,7 +518,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     expect(t.lessons.get('l2')).toBeDefined();
     expect(t.changelog.rows).toHaveLength(0);
     // Never "applied": the educator hears the update was sent back, not that it is live.
-    expect(t.published('CourseRevisionClosed')).toHaveLength(0);
+    expect(t.emitted('CourseRevisionClosed')).toHaveLength(0);
     expect(t.bus.publish).toHaveBeenCalledTimes(1);
     expect(t.published('CourseRevisionReviewed')).toEqual([
       { ...approval, action: 'coach', notes: HASH_MISMATCH_NOTE, review_item_id: 'qi1', qo_id: 'qo1', content_hash: approval.content_hash },
@@ -500,7 +552,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     await t.svc.submit(OWNER, 'c1', {});
     const resubmitted = t.revisions.get('rev1')!;
     expect(resubmitted.content_hash).not.toBe(staleApproval.content_hash);
-    t.bus.publish.mockClear();
+    t.clearEvents();
 
     await t.deliver(staleApproval);
 
@@ -509,6 +561,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     expect(t.courses.get('c1')!.title).toBe('Approved title');
     expect(t.changelog.rows).toHaveLength(0);
     expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toEqual([]);
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/approve ignored — the decision is for an earlier submission/));
     warn.mockRestore();
 
@@ -524,6 +577,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     expect(t.revisions.get('rev1')!.status).toBe('submitted');
     expect(t.courses.get('c1')!.title).toBe('Approved title');
     expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toEqual([]);
   });
 
   it('closes with exactly the assessments frozen at submit — one created later is not part of the approval', async () => {
@@ -531,17 +585,17 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     t.setAssessments([{ id: 'a1', type: 'quiz' }, { id: 'a2', type: 'quiz' }]);
     await t.review('approve');
     expect(t.revisions.get('rev1')!.status).toBe('applied');
-    expect(t.published('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'applied', assessment_ids: ['a1'] })]);
+    expect(t.emitted('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'applied', assessment_ids: ['a1'] })]);
     expect(t.changelog.rows[0].summary).toMatch(/1 new assessment/);
   });
 
-  it('still publishes CourseRevisionClosed when the learner announcement cannot be published', async () => {
+  it('a major apply commits CourseUpdated, then CourseRevisionClosed, with it: a broker outage loses neither', async () => {
     const t = await submitted({}, { summary: 'Big update', major: true });
-    t.bus.publish.mockImplementation(async (type: string) => {
-      if (type === 'CourseUpdated') throw new Error('broker down');
-    });
+    t.bus.publish.mockRejectedValue(new Error('broker down'));
     await t.review('approve');
-    expect(t.published('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'applied' })]);
+    expect(t.revisions.get('rev1')!.status).toBe('applied');
+    expect(t.committed.map((e) => e.type)).toEqual(['CourseUpdated', 'CourseRevisionClosed']);
+    expect(t.bus.publish).not.toHaveBeenCalled();
   });
 
   it('retries a transient failure locally (the bus acks even when a handler throws)', async () => {
@@ -554,6 +608,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     await t.review('approve');
     expect(t.dataSource.transaction).toHaveBeenCalledTimes(2);
     expect(t.revisions.get('rev1')!.status).toBe('applied');
+    expect(t.emitted('CourseRevisionClosed')).toHaveLength(1);
   });
 
   it('after 3 failed attempts returns the revision to draft and tells the educator to resubmit', async () => {
@@ -568,7 +623,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     // Not left 'submitted' with no open QA item (the editor would stay locked "In review").
     expect(t.revisions.get('rev1')).toMatchObject({ status: 'draft', submitted_at: null, decision_notes: APPLY_FAILED_NOTE, decided_by: 'qo1' });
     expect(t.courses.get('c1')!.title).toBe('Approved title');
-    expect(t.published('CourseRevisionClosed')).toHaveLength(0);
+    expect(t.emitted('CourseRevisionClosed')).toHaveLength(0);
     expect(t.published('CourseRevisionReviewed')).toEqual([{ ...approval, action: 'coach', notes: APPLY_FAILED_NOTE }]);
 
     // Its own coach handler sees a draft and does nothing.
@@ -593,7 +648,7 @@ describe('RevisionService apply (CourseRevisionReviewed approve)', () => {
     expect(t.revisions.get('rev1')!.status).toBe('submitted');
     const [returned] = t.published('CourseRevisionReviewed');
     expect(returned).toMatchObject({ action: 'coach', notes: APPLY_FAILED_NOTE, content_hash: approval.content_hash });
-    expect(t.published('CourseRevisionClosed')).toHaveLength(0);
+    expect(t.emitted('CourseRevisionClosed')).toHaveLength(0);
 
     // The database is back when the event comes round.
     t.dataSource.transaction.mockImplementation(real);
@@ -620,7 +675,7 @@ describe('RevisionService coach / reject', () => {
     const t = setup();
     t.stageChanges();
     await t.svc.submit(OWNER, 'c1', {});
-    t.bus.publish.mockClear();
+    t.clearEvents();
     await t.review('coach', 'Fix the audio in lesson 1');
 
     expect(t.revisions.get('rev1')).toMatchObject({ status: 'draft', decision_notes: 'Fix the audio in lesson 1', decided_by: 'qo1', submitted_at: null });
@@ -628,6 +683,7 @@ describe('RevisionService coach / reject', () => {
     expect(t.lessons.get('l3')).toMatchObject({ pending_state: 'added' });
     expect(t.lessons.get('l2')).toMatchObject({ pending_state: 'removed' });
     expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toEqual([]);
     // The educator can fix and resubmit.
     await expect(t.svc.submit(OWNER, 'c1', {})).resolves.toMatchObject({ status: 'submitted' });
     expect(t.revisions.get('rev1')!.decision_notes).toBeNull();
@@ -637,7 +693,7 @@ describe('RevisionService coach / reject', () => {
     const t = setup();
     t.stageChanges();
     await t.svc.submit(OWNER, 'c1', {});
-    t.bus.publish.mockClear();
+    t.clearEvents();
     await t.review('reject', 'Misleading new title');
 
     expect(t.revisions.get('rev1')).toMatchObject({ status: 'rejected', decision_notes: 'Misleading new title' });
@@ -648,7 +704,7 @@ describe('RevisionService coach / reject', () => {
     expect(t.lessons.get('l1')).toMatchObject({ pending: null, video_s3_key: 'videos/edu1/OLD.mp4' });
     expect(t.lessons.get('l2')).toMatchObject({ pending_state: null });
     expect(t.knowledge.rows.map((k) => k.id)).toEqual(['k-live']);
-    expect(t.published('CourseRevisionClosed')).toEqual([
+    expect(t.emitted('CourseRevisionClosed')).toEqual([
       expect.objectContaining({
         outcome: 'rejected',
         revision_id: 'rev1',
@@ -667,7 +723,7 @@ describe('RevisionService coach / reject', () => {
     await t.svc.submit(OWNER, 'c1', {});
     t.setAssessments([{ id: 'a1' }, { id: 'a-later' }]);
     await t.review('reject', 'No');
-    expect(t.published('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'rejected', assessment_ids: ['a1'] })]);
+    expect(t.emitted('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'rejected', assessment_ids: ['a1'] })]);
   });
 
   it.each(['coach', 'reject'] as const)('a %s on an earlier submission of the same revision id is ignored', async (action) => {
@@ -678,7 +734,7 @@ describe('RevisionService coach / reject', () => {
     await t.svc.withdraw(OWNER, 'c1');
     t.courses.get('c1')!.pending = { title: 'Another title' };
     await t.svc.submit(OWNER, 'c1', {});
-    t.bus.publish.mockClear();
+    t.clearEvents();
 
     await t.deliver(stale);
 
@@ -688,6 +744,7 @@ describe('RevisionService coach / reject', () => {
     expect(t.courses.get('c1')!.last_review_action).toBeUndefined();
     expect(t.sections.get('s2')).toBeDefined();
     expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toEqual([]);
   });
 });
 
@@ -698,7 +755,7 @@ describe('RevisionService withdraw / discard', () => {
     await t.svc.submit(OWNER, 'c1', {});
     await expect(t.svc.withdraw(OWNER, 'c1')).resolves.toEqual({ status: 'draft' });
     expect(t.revisions.get('rev1')).toMatchObject({ status: 'draft', submitted_at: null });
-    expect(t.published('CourseReviewWithdrawn')).toEqual([{ course_id: 'c1', revision_id: 'rev1' }]);
+    expect(t.emitted('CourseReviewWithdrawn')).toEqual([{ course_id: 'c1', revision_id: 'rev1' }]);
   });
 
   it('withdraw without a submitted revision is a 400', async () => {
@@ -718,7 +775,7 @@ describe('RevisionService withdraw / discard', () => {
     expect(t.lessons.rows.every((l) => l.pending === null && l.pending_state === null)).toBe(true);
     expect(t.courses.get('c1')!.pending).toBeNull();
     expect(t.knowledge.rows.map((k) => k.id)).toEqual(['k-live']);
-    expect(t.published('CourseRevisionClosed')).toEqual([
+    expect(t.emitted('CourseRevisionClosed')).toEqual([
       expect.objectContaining({
         outcome: 'discarded',
         submitted_at: null,
@@ -745,7 +802,7 @@ describe('RevisionService withdraw / discard', () => {
     expect(t.sections.rows.map((s) => s.id)).toEqual(['s1']);
     expect(t.lessons.rows.every((l) => l.pending === null && l.pending_state === null)).toBe(true);
     expect(t.knowledge.rows.map((k) => k.id)).toEqual(['k-live']);
-    expect(t.published('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'discarded', revision_id: 'rev1', assessment_ids: [] })]);
+    expect(t.emitted('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'discarded', revision_id: 'rev1', assessment_ids: [] })]);
     // Staged rows were enough; outcomes was not needed.
     expect(t.internal.get).not.toHaveBeenCalledWith(expect.stringContaining('pending-assessments'));
   });
@@ -753,7 +810,7 @@ describe('RevisionService withdraw / discard', () => {
   it('discards pending assessments when nothing else is staged', async () => {
     const t = setup({ pendingAssessments: [{ id: 'a1' }] });
     await expect(t.svc.discard(OWNER, 'c1')).resolves.toEqual({ discarded: true });
-    expect(t.published('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'discarded', assessment_ids: [] })]);
+    expect(t.emitted('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'discarded', assessment_ids: [] })]);
   });
 
   it('404s when nothing is staged anywhere, and asks to retry when outcomes cannot be asked', async () => {
@@ -858,7 +915,7 @@ describe('RevisionService institution review', () => {
     t.bus.publish.mockClear();
 
     await expect(t.svc.institutionDecideRevision(ADMIN, 'c1', 'approve')).resolves.toEqual({ revision_id: 'rev1', status: 'submitted' });
-    expect(t.published('CourseRevisionSubmitted')[0]).toMatchObject({
+    expect(t.emitted('CourseRevisionSubmitted')[0]).toMatchObject({
       revision_id: 'rev1',
       changelog_summary: 'Bonus',
       diff_summary: { lessons_added: 2 },
@@ -887,5 +944,133 @@ describe('RevisionService institution review', () => {
     await t.svc.submit(OWNER, 'c1', {});
     t.courseService.myInstitutionId.mockResolvedValueOnce('inst-other');
     await expect(t.svc.institutionDecideRevision(ADMIN, 'c1', 'approve')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('Outbox (9b): a revision change and its event commit together, or neither does', () => {
+  const INST_ADMIN = { id: 'inst-admin-1', role: 'institution_admin', email: 'a@x.et' } as never;
+  /** A live course with staged changes, submitted for review (by its institution's instructor when `institution`). */
+  async function submitted(opts: Parameters<typeof setup>[0] = {}) {
+    const t = setup(opts);
+    t.stageChanges();
+    await t.svc.submit(OWNER, 'c1', { major: true });
+    t.clearEvents();
+    t.outbox.transaction.mockClear();
+    return t;
+  }
+  /** What the staged changes look like before anything applied or discarded them. */
+  const expectStagedIntact = (t: ReturnType<typeof setup>) => {
+    expect(t.courses.get('c1')).toMatchObject({ title: 'Approved title', pending: { title: 'New title', price_etb: '600.00' } });
+    expect(t.lessons.get('l1')).toMatchObject({ video_s3_key: 'videos/edu1/OLD.mp4', pending: { video_s3_key: 'videos/edu1/NEW.mp4', summary: 'new' } });
+    expect(t.lessons.get('l2')).toMatchObject({ pending_state: 'removed' });
+    expect(t.sections.get('s2')).toMatchObject({ pending_state: 'added' });
+    expect(t.changelog.rows).toEqual([]);
+  };
+
+  it('submit: in review with CourseRevisionSubmitted; a failed insert leaves it a draft', async () => {
+    const t = setup();
+    t.stageChanges();
+    await t.svc.submit(OWNER, 'c1', {});
+    expect(t.revisions.get('rev1')).toMatchObject({ status: 'submitted' });
+    expect(t.committed).toEqual([{ type: 'CourseRevisionSubmitted', payload: expect.objectContaining({ revision_id: 'rev1', owner_email: 'e@x.et', owner_name: 'Edu' }) }]);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+
+    const failed = setup();
+    failed.stageChanges();
+    failed.failInserts();
+    await expect(failed.svc.submit(OWNER, 'c1', {})).rejects.toThrow('outbox insert failed');
+    expect(failed.revisions.get('rev1')).toMatchObject({ status: 'draft', content_hash: null, submitted_at: null });
+    expect(failed.committed).toEqual([]);
+  });
+
+  it('institution approve: to the QO queue with CourseRevisionSubmitted; a failed insert leaves it in institution review, unannounced', async () => {
+    const t = await submitted({ institution: true });
+    await t.svc.institutionDecideRevision(INST_ADMIN, 'c1', 'approve');
+    expect(t.revisions.get('rev1')).toMatchObject({ status: 'submitted' });
+    expect(t.committed.map((e) => e.type)).toEqual(['CourseRevisionSubmitted']);
+    expect(t.published('CourseInstitutionReviewed')).toHaveLength(1);
+
+    const failed = await submitted({ institution: true });
+    failed.failInserts();
+    await expect(failed.svc.institutionDecideRevision(INST_ADMIN, 'c1', 'approve')).rejects.toThrow('outbox insert failed');
+    expect(failed.revisions.get('rev1')).toMatchObject({ status: 'institution_review' });
+    expect(failed.committed).toEqual([]);
+    expect(failed.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('withdraw: back to draft with CourseReviewWithdrawn; a failed insert leaves it in review', async () => {
+    const t = await submitted();
+    await t.svc.withdraw(OWNER, 'c1');
+    expect(t.revisions.get('rev1')).toMatchObject({ status: 'draft', submitted_at: null });
+    expect(t.committed).toEqual([{ type: 'CourseReviewWithdrawn', payload: { course_id: 'c1', revision_id: 'rev1' } }]);
+
+    const failed = await submitted();
+    failed.failInserts();
+    await expect(failed.svc.withdraw(OWNER, 'c1')).rejects.toThrow('outbox insert failed');
+    expect(failed.revisions.get('rev1')).toMatchObject({ status: 'submitted' });
+    expect(failed.committed).toEqual([]);
+  });
+
+  it('discard: staged rows gone with CourseRevisionClosed; a failed insert leaves the revision and its staged rows', async () => {
+    const t = setup();
+    t.stageChanges();
+    await t.svc.discard(OWNER, 'c1');
+    expect(t.revisions.get('rev1')).toMatchObject({ status: 'discarded' });
+    expect(t.sections.get('s2')).toBeUndefined();
+    expect(t.committed).toEqual([{ type: 'CourseRevisionClosed', payload: expect.objectContaining({ outcome: 'discarded', owner_email: 'e@x.et' }) }]);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+
+    const failed = setup();
+    failed.stageChanges();
+    failed.failInserts();
+    await expect(failed.svc.discard(OWNER, 'c1')).rejects.toThrow('outbox insert failed');
+    expect(failed.revisions.get('rev1')).toMatchObject({ status: 'draft', decided_at: null });
+    expectStagedIntact(failed);
+    expect(failed.committed).toEqual([]);
+  });
+
+  it('apply: a failed insert rolls the attempt back with its events, and the retry announces once', async () => {
+    const t = await submitted();
+    t.failInserts(1);
+    await t.review('approve');
+    expect(t.outbox.transaction).toHaveBeenCalledTimes(2);
+    expect(t.revisions.get('rev1')).toMatchObject({ status: 'applied' });
+    expect(t.changelog.rows).toHaveLength(1);
+    expect(t.committed.map((e) => e.type)).toEqual(['CourseUpdated', 'CourseRevisionClosed']);
+  });
+
+  it('apply: when every attempt fails, nothing goes live, nothing is announced, and the educator is asked to resubmit', async () => {
+    const t = await submitted();
+    t.failInserts(3);
+    await t.review('approve');
+    expectStagedIntact(t);
+    expect(t.revisions.get('rev1')).toMatchObject({ status: 'draft', decision_notes: APPLY_FAILED_NOTE });
+    expect(t.committed).toEqual([]);
+    expect(t.published('CourseRevisionReviewed')).toEqual([expect.objectContaining({ action: 'coach', notes: APPLY_FAILED_NOTE })]);
+  });
+
+  it('apply: the owner is looked up before the transaction, and a blank lookup falls back to the email quality sent', async () => {
+    const t = await submitted();
+    t.courseService.ownerContact.mockResolvedValueOnce({ email: '', name: '' });
+    await t.review('approve', null, { owner_email: 'from-quality@x.et' });
+    expect(t.emitted('CourseRevisionClosed')).toEqual([expect.objectContaining({ outcome: 'applied', owner_email: 'from-quality@x.et' })]);
+    const lookup = t.courseService.ownerContact.mock.invocationCallOrder.at(-1)!;
+    expect(lookup).toBeLessThan(t.outbox.transaction.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it('reject: staged rows gone with CourseRevisionClosed; when every attempt fails it stays in review with its staged rows', async () => {
+    const t = await submitted();
+    await t.review('reject', 'No');
+    expect(t.revisions.get('rev1')).toMatchObject({ status: 'rejected' });
+    expect(t.sections.get('s2')).toBeUndefined();
+    expect(t.committed).toEqual([{ type: 'CourseRevisionClosed', payload: expect.objectContaining({ outcome: 'rejected', notes: 'No' }) }]);
+
+    const failed = await submitted();
+    failed.failInserts(3);
+    await expect(failed.review('reject', 'No')).rejects.toThrow('outbox insert failed');
+    expect(failed.revisions.get('rev1')).toMatchObject({ status: 'submitted', decision_notes: null });
+    expectStagedIntact(failed);
+    expect(failed.courses.get('c1')!.last_review_action).toBeUndefined();
+    expect(failed.committed).toEqual([]);
   });
 });

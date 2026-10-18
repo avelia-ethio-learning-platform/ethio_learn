@@ -46,7 +46,7 @@ function LoginForm() {
     <AuthShell
       icon={<LogIn className="h-6 w-6" />}
       title={t('login')}
-      subtitle="Welcome back — pick up right where you left off."
+      subtitle={t('login_subtitle')}
       footer={
         <>
           <Link href="/reset-password" className="font-medium text-brand-600 hover:underline">
@@ -67,9 +67,9 @@ function LoginForm() {
           {(ids) => <input {...ids} name="password" type="password" required autoComplete="current-password" className="input" placeholder="••••••••" />}
         </Field>
         <FormStatus status={status} />
-        {unverified && <ResendVerification email={email} label="Resend verification email" />}
+        {unverified && <ResendVerification email={email} label={t('resend_verification_email')} />}
         <button className="btn w-full !py-3" disabled={busy}>
-          {busy ? 'Logging in…' : t('login')}
+          {busy ? t('logging_in') : t('login')}
         </button>
         <GoogleSignInButton next={params.get('next')} />
       </form>

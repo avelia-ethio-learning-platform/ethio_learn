@@ -3,7 +3,7 @@ import { EntitlementStatus, OwnerType, PaymentMethod, PaymentPurpose, PaymentSta
 import { Payment, Payout, PayoutHold, RefundRequest } from './entities';
 import { PayoutService } from './payout.service';
 import { RefundService } from './refund.service';
-import { fakeDb, Row } from './testing/fake-db';
+import { fakeDb, fakeOutbox, Row } from './testing/fake-db';
 
 const DAY = 86_400_000;
 
@@ -153,7 +153,7 @@ describe('PayoutService.runPayouts (spec §10.3 / 80-20 split)', () => {
         ),
       } as never,
       {} as never, // growth: only an approval reaches it, and this request goes to manual review
-      t.db.dataSource as never,
+      fakeOutbox(t.db.dataSource).outbox as never,
     );
     await expect(refundService.request({ id: 'u1', role: 'learner', email: 'l@e.et' } as never, p.id, 'please')).rejects.toThrow(
       new BadRequestException('This payment has already been paid out to the educator. Contact support from Help to request a refund.'),

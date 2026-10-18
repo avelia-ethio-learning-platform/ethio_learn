@@ -3,7 +3,7 @@
 import { useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { Bell, CheckCheck, Inbox } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
@@ -63,26 +63,26 @@ export function NotificationBell() {
         ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
         className="glass-secondary relative flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
-        aria-label={count > 0 ? `Notifications, ${count} ${t('unread')}` : 'Notifications'}
+        aria-label={count > 0 ? `${t('notifications')}, ${count} ${t('unread')}` : t('notifications')}
         aria-expanded={open}
         aria-controls={panelId}
       >
         <Bell className="h-4 w-4" />
         {count > 0 && (
           // Exempt from the 12px floor: a numeric count badge, not readable prose.
-          <motion.span
+          <m.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow"
+            className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white shadow"
           >
             {count > 9 ? '9+' : count}
-          </motion.span>
+          </m.span>
         )}
       </button>
 
       <AnimatePresence>
         {open && (
-          <motion.div
+          <m.div
             id={panelId}
             initial={{ opacity: 0, scale: 0.95, y: -8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -92,7 +92,7 @@ export function NotificationBell() {
             style={{ background: 'var(--popover)', border: '1px solid var(--card-border)', backdropFilter: 'blur(16px)' }}
           >
             <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-              <span className="text-sm font-semibold text-foreground">Notifications</span>
+              <span className="text-sm font-semibold text-foreground">{t('notifications')}</span>
               {count > 0 && (
                 <button
                   className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
@@ -102,7 +102,7 @@ export function NotificationBell() {
                     queryClient.invalidateQueries({ queryKey: ['notifications'] });
                   }}
                 >
-                  <CheckCheck className="h-3.5 w-3.5" /> Mark all read
+                  <CheckCheck className="h-3.5 w-3.5" /> {t('mark_all_read')}
                 </button>
               )}
             </div>
@@ -110,7 +110,7 @@ export function NotificationBell() {
               {!list?.length && (
                 <div className="flex flex-col items-center gap-2 px-3 py-8 text-center text-sm text-gray-500">
                   <Inbox className="h-6 w-6" />
-                  No notifications yet.
+                  {t('no_notifications')}
                 </div>
               )}
               {list?.map((n) => (
@@ -129,7 +129,7 @@ export function NotificationBell() {
                 </button>
               ))}
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

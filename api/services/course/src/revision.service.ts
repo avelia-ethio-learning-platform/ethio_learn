@@ -11,7 +11,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { Emit, EventBusService, InternalHttpClient, internalPath, OutboxService, UserContext } from '@ethiopialearn/common';
 import {
   CourseInstitutionReviewedPayload,
   CourseReviewWithdrawnPayload,
@@ -39,7 +39,7 @@ import {
   RevisionDiffBody,
   validateMerged,
 } from './revision-diff';
-import { AppliedLessonIds, applyStagedState, discardStagedState, hasStagedState, loadStagedState } from './staging';
+import { applyStagedState, discardStagedState, hasStagedState, loadStagedState } from './staging';
 
 /** An approval arrived, but the staged content no longer matches what the officer reviewed. */
 export const HASH_MISMATCH_NOTE = 'Your update was approved but the course changed during review — please check and resubmit.';
@@ -51,16 +51,10 @@ const IN_REVIEW: CourseRevisionStatus[] = ['submitted', 'institution_review'];
 type ApplyResult =
   | { outcome: 'stale'; reason: string }
   | { outcome: 'hash_mismatch' }
-  | {
-      outcome: 'applied';
-      course: Course;
-      revision: CourseRevision;
-      lessonIds: AppliedLessonIds;
-      assessmentIds: string[];
-      title: string;
-      changelog: CourseChangeLog;
-      closedAt: Date;
-    };
+  | { outcome: 'applied'; course: Course; revision: CourseRevision };
+
+/** The course owner's contact; blank when it could not be looked up. */
+type OwnerContact = { email: string; name: string };
 
 /** First characters of a content hash, enough to tell submissions apart in a log line. */
 function short(hash: string | null | undefined): string {
@@ -97,6 +91,7 @@ export class RevisionService implements OnModuleInit {
     private readonly extras: CourseExtrasService,
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
+    private readonly outbox: OutboxService,
   ) {}
 
   onModuleInit() {
@@ -189,41 +184,46 @@ export class RevisionService implements OnModuleInit {
     // The hash names this submission (the revision id is reused after a
     // withdraw or coach), so a decision can only apply what the officer saw.
     const hash = contentHash(state, pendingAssessmentIds(diff.pending_assessments));
-    const res = await this.revisions.update(
-      { id: revision.id, status: 'draft' },
-      {
-        status,
-        diff: diff as unknown as QueryDeepPartialEntity<Record<string, unknown>>,
-        content_hash: hash,
-        changelog_summary: summary,
-        changelog_major: major,
-        submitted_at: new Date(),
-        // A resubmission after coaching starts a fresh decision.
-        decided_at: null,
-        decided_by: null,
-        decision_notes: null,
-      },
-    );
-    if (!res.affected) throw new ConflictException('Your changes changed state while submitting. Reload the page and try again.');
+    const revisionId = revision.id;
+    // Looked up first: CourseRevisionSubmitted commits with the submit, and no network call runs inside the transaction.
+    const owner = await this.courseService.ownerContact(course);
+    const submitted = await this.outbox.transaction(async (m, emit) => {
+      const res = await m.getRepository(CourseRevision).update(
+        { id: revisionId, status: 'draft' },
+        {
+          status,
+          diff: diff as unknown as QueryDeepPartialEntity<Record<string, unknown>>,
+          content_hash: hash,
+          changelog_summary: summary,
+          changelog_major: major,
+          submitted_at: new Date(),
+          // A resubmission after coaching starts a fresh decision.
+          decided_at: null,
+          decided_by: null,
+          decision_notes: null,
+        },
+      );
+      if (!res.affected) return false;
+      if (status === 'submitted') this.emitSubmitted(emit, course, owner, revisionId, diff, summary, major, hash);
+      return true;
+    });
+    if (!submitted) throw new ConflictException('Your changes changed state while submitting. Reload the page and try again.');
 
     if (status === 'institution_review') {
       const adminId = await this.courseService.institutionAdminId(course.institution_id!);
-      const owner = await this.courseService.ownerContact(course);
       if (adminId) {
         await this.bus.publish<CourseSubmittedToInstitutionPayload>('CourseSubmittedToInstitution', {
           course_id: course.id,
           course_title: course.title,
           institution_admin_user_id: adminId,
           instructor_name: owner.name,
-          revision_id: revision.id,
+          revision_id: revisionId,
         });
       } else {
-        this.logger.warn(`revision ${revision.id}: no owner found for institution ${course.institution_id}; it waits in the institution queue unannounced`);
+        this.logger.warn(`revision ${revisionId}: no owner found for institution ${course.institution_id}; it waits in the institution queue unannounced`);
       }
-    } else {
-      await this.publishSubmitted(course, revision.id, diff, summary, major, hash);
     }
-    return { revision_id: revision.id, status };
+    return { revision_id: revisionId, status };
   }
 
   async withdraw(ctx: UserContext, courseId: string) {
@@ -232,9 +232,14 @@ export class RevisionService implements OnModuleInit {
     if (!revision || !IN_REVIEW.includes(revision.status)) {
       throw new BadRequestException('There is no submitted update to withdraw.');
     }
-    const res = await this.revisions.update({ id: revision.id, status: In(IN_REVIEW) }, { status: 'draft', submitted_at: null });
-    if (!res.affected) throw new ConflictException('This update was decided a moment ago. Reload the page to see the result.');
-    await this.bus.publish<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', { course_id: courseId, revision_id: revision.id });
+    // CourseReviewWithdrawn closes the QA item; it commits with the move back to draft (outbox).
+    const withdrawn = await this.outbox.transaction(async (m, emit) => {
+      const res = await m.getRepository(CourseRevision).update({ id: revision.id, status: In(IN_REVIEW) }, { status: 'draft', submitted_at: null });
+      if (!res.affected) return false;
+      emit<CourseReviewWithdrawnPayload>('CourseReviewWithdrawn', { course_id: courseId, revision_id: revision.id });
+      return true;
+    });
+    if (!withdrawn) throw new ConflictException('This update was decided a moment ago. Reload the page to see the result.');
     return { status: 'draft' as const };
   }
 
@@ -258,25 +263,25 @@ export class RevisionService implements OnModuleInit {
     const open = revision;
 
     const closedAt = new Date();
-    const discarded = await this.dataSource.transaction(async (m) => {
+    // Looked up first: CourseRevisionClosed commits with the discard, and no network call runs inside the transaction.
+    const owner = await this.courseService.ownerContact(course);
+    const discarded = await this.outbox.transaction(async (m, emit) => {
       const res = await m
         .getRepository(CourseRevision)
         .update({ id: open.id, status: 'draft' }, { status: 'discarded', decided_at: closedAt, decided_by: ctx.id });
       if (!res.affected) return false;
       const locked = await this.lockCourse(m, courseId);
       if (locked) await discardStagedState(m, await loadStagedState(m, locked));
+      emit<CourseRevisionClosedPayload>('CourseRevisionClosed', {
+        // No ids: outcomes deletes every pending assessment created up to closed_at.
+        ...this.closedBase(course, open, owner.email, [], closedAt),
+        outcome: 'discarded',
+        submitted_at: null,
+        notes: null,
+      });
       return true;
     });
     if (!discarded) throw new ConflictException('Your changes were submitted or discarded a moment ago. Reload the page and try again.');
-
-    const owner = await this.courseService.ownerContact(course);
-    await this.bus.publish<CourseRevisionClosedPayload>('CourseRevisionClosed', {
-      // No ids: outcomes deletes every pending assessment created up to closed_at.
-      ...this.closedBase(course, open, owner.email, [], closedAt),
-      outcome: 'discarded',
-      submitted_at: null,
-      notes: null,
-    });
     return { discarded: true };
   }
 
@@ -294,12 +299,18 @@ export class RevisionService implements OnModuleInit {
    * failed) puts the revision back in the educator's hands with a coach
    * decision of its own: the officer's QA item is already closed, so otherwise
    * the educator would never learn that nothing went live.
+   *
+   * CourseUpdated (major) and CourseRevisionClosed commit with the apply
+   * (outbox). A failed attempt rolls back its events with its writes, so a
+   * retry never announces twice.
    */
   async apply(payload: CourseRevisionReviewedPayload): Promise<void> {
+    // Looked up first: no network call runs inside the transaction.
+    const owner = await this.ownerContactFor(payload.course_id);
     let result: ApplyResult;
     try {
       result = await this.withRetry(`apply revision ${payload.revision_id}`, () =>
-        this.dataSource.transaction((m) => this.applyInTransaction(m, payload)),
+        this.outbox.transaction((m, emit) => this.applyInTransaction(m, emit, payload, owner.email || payload.owner_email)),
       );
     } catch (err) {
       this.logger.error(`revision ${payload.revision_id}: every attempt to apply the approval failed (${(err as Error).message})`);
@@ -316,47 +327,17 @@ export class RevisionService implements OnModuleInit {
       return;
     }
 
-    const { course, revision, lessonIds, assessmentIds, title, changelog, closedAt } = result;
+    const { course, revision } = result;
     this.courseService.clearSearchCache();
     try {
       await this.extras.reindexCourse(course.id);
     } catch (err) {
       this.logger.warn(`tutor reindex after applying revision ${revision.id} failed: ${(err as Error).message}`);
     }
-    const owner = await this.courseService.ownerContact(course);
-    if (revision.changelog_major) {
-      try {
-        await this.withRetry('publish CourseUpdated', () =>
-          this.bus.publish<CourseUpdatedPayload>('CourseUpdated', {
-            course_id: course.id,
-            course_title: title,
-            owner_user_id: course.created_by,
-            summary: changelog.summary,
-            changelog_id: changelog.id,
-          }),
-        );
-      } catch (err) {
-        // Learners miss one announcement; CourseRevisionClosed below still has
-        // to go out (it makes the reviewed assessments live and tells the educator).
-        this.logger.error(`CourseUpdated for revision ${revision.id} could not be published: ${(err as Error).message}`);
-      }
-    }
-    await this.withRetry('publish CourseRevisionClosed', () =>
-      this.bus.publish<CourseRevisionClosedPayload>('CourseRevisionClosed', {
-        ...this.closedBase(course, revision, owner.email || payload.owner_email, assessmentIds, closedAt),
-        added_lesson_ids: lessonIds.addedLessonIds,
-        removed_lesson_ids: lessonIds.removedLessonIds,
-        replaced_video_lesson_ids: lessonIds.replacedVideoLessonIds,
-        outcome: 'applied',
-        submitted_at: iso(revision.submitted_at),
-        course_title: title,
-        notes: payload.notes ?? null,
-      }),
-    );
     this.logger.log(`revision ${revision.id} applied to course ${course.id}`);
   }
 
-  private async applyInTransaction(m: EntityManager, payload: CourseRevisionReviewedPayload): Promise<ApplyResult> {
+  private async applyInTransaction(m: EntityManager, emit: Emit, payload: CourseRevisionReviewedPayload, ownerEmail: string): Promise<ApplyResult> {
     const revisionRepo = m.getRepository(CourseRevision);
     const now = new Date();
     const claimed = await revisionRepo.update(
@@ -397,7 +378,26 @@ export class RevisionService implements OnModuleInit {
         ...(revision.changelog_major ? { last_major_update_at: now } : {}),
       },
     );
-    return { outcome: 'applied', course, revision, lessonIds, assessmentIds, title, changelog, closedAt: now };
+    if (revision.changelog_major) {
+      emit<CourseUpdatedPayload>('CourseUpdated', {
+        course_id: course.id,
+        course_title: title,
+        owner_user_id: course.created_by,
+        summary: changelog.summary,
+        changelog_id: changelog.id,
+      });
+    }
+    emit<CourseRevisionClosedPayload>('CourseRevisionClosed', {
+      ...this.closedBase(course, revision, ownerEmail, assessmentIds, now),
+      added_lesson_ids: lessonIds.addedLessonIds,
+      removed_lesson_ids: lessonIds.removedLessonIds,
+      replaced_video_lesson_ids: lessonIds.replacedVideoLessonIds,
+      outcome: 'applied',
+      submitted_at: iso(revision.submitted_at),
+      course_title: title,
+      notes: payload.notes ?? null,
+    });
+    return { outcome: 'applied', course, revision };
   }
 
   /**
@@ -475,10 +475,15 @@ export class RevisionService implements OnModuleInit {
     if (stale) this.logger.log(`revision ${payload.revision_id}: coach ignored — ${stale}`);
   }
 
-  /** Reject: the staged data is discarded exactly like an owner discard; the live course is untouched. */
+  /**
+   * Reject: the staged data is discarded exactly like an owner discard; the live course is untouched.
+   * CourseRevisionClosed commits with it (outbox).
+   */
   async reject(payload: CourseRevisionReviewedPayload): Promise<void> {
-    const result = await this.withRetry(`reject revision ${payload.revision_id}`, () =>
-      this.dataSource.transaction(async (m) => {
+    // Looked up first: no network call runs inside the transaction.
+    const owner = await this.ownerContactFor(payload.course_id);
+    const stale = await this.withRetry(`reject revision ${payload.revision_id}`, () =>
+      this.outbox.transaction(async (m, emit) => {
         const now = new Date();
         const revisionRepo = m.getRepository(CourseRevision);
         const res = await revisionRepo.update(this.decidable(payload), {
@@ -487,33 +492,25 @@ export class RevisionService implements OnModuleInit {
           decided_by: payload.qo_id,
           decision_notes: payload.notes ?? null,
         });
-        if (!res.affected) return { stale: await this.staleReason(revisionRepo, payload) };
+        if (!res.affected) return this.staleReason(revisionRepo, payload);
         const course = await this.lockCourse(m, payload.course_id);
         const revision = await revisionRepo.findOne({ where: { id: payload.revision_id } });
-        if (!course || !revision) return { stale: 'the course no longer exists' };
+        if (!course || !revision) return 'the course no longer exists';
         await discardStagedState(m, await loadStagedState(m, course));
         await m
           .getRepository(Course)
           .update({ id: course.id }, { last_review_action: 'reject', last_review_notes: payload.notes ?? null, last_reviewed_at: now });
-        return { course, revision, closedAt: now };
+        emit<CourseRevisionClosedPayload>('CourseRevisionClosed', {
+          // The reviewed assessments are rejected with the rest; a later one stays for the next revision.
+          ...this.closedBase(course, revision, owner.email || payload.owner_email, this.frozenAssessmentIds(revision), now),
+          outcome: 'rejected',
+          submitted_at: iso(revision.submitted_at),
+          notes: payload.notes ?? null,
+        });
+        return null;
       }),
     );
-    if ('stale' in result) {
-      this.logger.warn(`revision ${payload.revision_id}: reject ignored — ${result.stale}`);
-      return;
-    }
-    const { course, revision, closedAt } = result;
-    const owner = await this.courseService.ownerContact(course);
-    // The reviewed assessments are rejected with the rest; a later one stays for the next revision.
-    const assessmentIds = this.frozenAssessmentIds(revision);
-    await this.withRetry('publish CourseRevisionClosed', () =>
-      this.bus.publish<CourseRevisionClosedPayload>('CourseRevisionClosed', {
-        ...this.closedBase(course, revision, owner.email || payload.owner_email, assessmentIds, closedAt),
-        outcome: 'rejected',
-        submitted_at: iso(revision.submitted_at),
-        notes: payload.notes ?? null,
-      }),
-    );
+    if (stale) this.logger.warn(`revision ${payload.revision_id}: reject ignored — ${stale}`);
   }
 
   /**
@@ -583,26 +580,30 @@ export class RevisionService implements OnModuleInit {
 
     const now = new Date();
     const next: CourseRevisionStatus = action === 'approve' ? 'submitted' : 'draft';
-    const res = await this.revisions.update(
-      { id: revision.id, status: 'institution_review' },
-      action === 'approve'
-        ? { status: next }
-        : { status: next, submitted_at: null, decided_at: now, decided_by: ctx.id, decision_notes: notes ?? null },
-    );
-    if (!res.affected) throw new ConflictException('This update was withdrawn or decided a moment ago. Reload the queue.');
-
-    if (action === 'approve') {
-      const frozen = revision.diff as unknown as RevisionDiffBody | null;
-      if (frozen && revision.content_hash) {
-        await this.publishSubmitted(course, revision.id, frozen, revision.changelog_summary, revision.changelog_major, revision.content_hash);
+    const frozen = revision.diff as unknown as RevisionDiffBody | null;
+    const hash = revision.content_hash;
+    // Looked up first: CourseRevisionSubmitted commits with the move to the QO queue, and no network call runs inside the transaction.
+    const owner = action === 'approve' && frozen && hash ? await this.courseService.ownerContact(course) : null;
+    const moved = await this.outbox.transaction(async (m, emit) => {
+      const res = await m.getRepository(CourseRevision).update(
+        { id: revision.id, status: 'institution_review' },
+        action === 'approve'
+          ? { status: next }
+          : { status: next, submitted_at: null, decided_at: now, decided_by: ctx.id, decision_notes: notes ?? null },
+      );
+      if (!res.affected) return false;
+      if (action === 'reject') {
+        await m
+          .getRepository(Course)
+          .update({ id: course.id }, { last_review_action: 'institution_reject', last_review_notes: notes ?? null, last_reviewed_at: now });
+      } else if (owner && frozen && hash) {
+        this.emitSubmitted(emit, course, owner, revision.id, frozen, revision.changelog_summary, revision.changelog_major, hash);
       } else {
         this.logger.error(`revision ${revision.id} reached institution approval without a frozen diff or content hash; QO queue not notified`);
       }
-    } else {
-      await this.dataSource
-        .getRepository(Course)
-        .update({ id: course.id }, { last_review_action: 'institution_reject', last_review_notes: notes ?? null, last_reviewed_at: now });
-    }
+      return true;
+    });
+    if (!moved) throw new ConflictException('This update was withdrawn or decided a moment ago. Reload the queue.');
     await this.bus.publish<CourseInstitutionReviewedPayload>('CourseInstitutionReviewed', {
       course_id: course.id,
       course_title: course.title,
@@ -652,10 +653,21 @@ export class RevisionService implements OnModuleInit {
     return pendingAssessmentIds((revision.diff as unknown as RevisionDiffBody | null)?.pending_assessments);
   }
 
-  /** `diff` and `hash` are the ones frozen on the revision at submit. */
-  private async publishSubmitted(course: Course, revisionId: string, diff: RevisionDiffBody, summary: string | null, major: boolean, hash: string) {
-    const owner = await this.courseService.ownerContact(course);
-    await this.bus.publish<CourseRevisionSubmittedPayload>('CourseRevisionSubmitted', {
+  /**
+   * Queues CourseRevisionSubmitted in the transaction that moves the revision to the QO queue.
+   * `diff` and `hash` are the ones frozen on the revision at submit.
+   */
+  private emitSubmitted(
+    emit: Emit,
+    course: Course,
+    owner: OwnerContact,
+    revisionId: string,
+    diff: RevisionDiffBody,
+    summary: string | null,
+    major: boolean,
+    hash: string,
+  ) {
+    emit<CourseRevisionSubmittedPayload>('CourseRevisionSubmitted', {
       course_id: course.id,
       revision_id: revisionId,
       course_title: course.title,
@@ -671,6 +683,21 @@ export class RevisionService implements OnModuleInit {
       content_hash: hash,
       assessment_ids: pendingAssessmentIds(diff.pending_assessments),
     });
+  }
+
+  /**
+   * The owner's contact for a QO decision's CourseRevisionClosed, looked up before the
+   * decision's transaction. Blank when it can't be found: the payload then falls back
+   * to the owner email quality sent with the decision.
+   */
+  private async ownerContactFor(courseId: string): Promise<OwnerContact> {
+    try {
+      const course = await this.dataSource.getRepository(Course).findOne({ where: { id: courseId } });
+      if (course) return await this.courseService.ownerContact(course);
+    } catch (err) {
+      this.logger.warn(`could not load course ${courseId} for its owner contact: ${(err as Error).message}`);
+    }
+    return { email: '', name: '' };
   }
 
   private closedBase(course: Course, revision: CourseRevision, ownerEmail: string, assessmentIds: string[], closedAt: Date) {

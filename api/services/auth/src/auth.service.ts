@@ -5,7 +5,7 @@ import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { randomBytes, randomUUID } from 'crypto';
 import Redis from 'ioredis';
-import { env, EventBusService } from '@ethiopialearn/common';
+import { env, EventBusService, OutboxService } from '@ethiopialearn/common';
 import { PasswordResetRequestedPayload, Role, UserRegisteredPayload, UserStatus, VerificationEmailRequestedPayload } from '@ethiopialearn/contracts';
 import { EmailVerification, InstitutionInstructor, PasswordReset, User } from './entities';
 import { ChangePasswordDto, LoginDto, SignupDto } from './dto';
@@ -57,6 +57,7 @@ export class AuthService {
     @InjectRepository(InstitutionInstructor) private readonly memberships: Repository<InstitutionInstructor>,
     private readonly bus: EventBusService,
     private readonly dataSource: DataSource,
+    private readonly outbox: OutboxService,
   ) {}
 
   /** For /ready: refresh tokens live in Redis, so auth can't log anyone in without it. */
@@ -64,34 +65,44 @@ export class AuthService {
     return this.redis.ping();
   }
 
+  /**
+   * The account, its first verification link and UserRegistered commit in one
+   * outbox transaction (Phase 9b), so the verification email and any gifted seat
+   * follow even when the broker is down at signup. The email check and the hash
+   * run before it, so no connection is held while bcrypt works.
+   */
   async signup(dto: SignupDto): Promise<{ user_id: string }> {
     const email = dto.email.toLowerCase().trim();
     const existing = await this.users.findOne({ where: { email } });
     if (existing) throw new ConflictException('Email already in use');
+    const passwordHash = await bcrypt.hash(dto.password, 10);
 
-    const user = await this.users.save(
-      this.users.create({
-        email,
-        name: dto.name.trim(),
-        role: dto.role,
-        password_hash: await bcrypt.hash(dto.password, 10),
-        email_verified_at: null,
-        phone: null, // optional profile field only — never required (spec §0.3)
-      }),
-    );
+    return this.outbox.transaction(async (m, emit) => {
+      const users = m.getRepository(User);
+      const user = await users.save(
+        users.create({
+          email,
+          name: dto.name.trim(),
+          role: dto.role,
+          password_hash: passwordHash,
+          email_verified_at: null,
+          phone: null, // optional profile field only — never required (spec §0.3)
+        }),
+      );
 
-    const verification = this.newVerification(user.id);
-    await this.verifications.save(this.verifications.create(verification));
+      const verifications = m.getRepository(EmailVerification);
+      const verification = this.newVerification(user.id);
+      await verifications.save(verifications.create(verification));
 
-    await this.bus.publish<UserRegisteredPayload>('UserRegistered', {
-      user_id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      verification_url: this.verificationUrl(verification.token),
+      emit<UserRegisteredPayload>('UserRegistered', {
+        user_id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        verification_url: this.verificationUrl(verification.token),
+      });
+      return { user_id: user.id };
     });
-
-    return { user_id: user.id };
   }
 
   /**

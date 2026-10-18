@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Providers } from '@/components/Providers';
+import { LocaleNotice } from '@/components/LocaleNotice';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { THEME_COLOR_DARK, THEME_COLOR_LIGHT, THEME_INIT_SCRIPT } from '@/lib/theme-script';
 import { SITE_URL } from '@/lib/server-api';
+import { inter, notoEthiopic } from './fonts';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -34,7 +36,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} ${notoEthiopic.variable}`} suppressHydrationWarning>
       <head>
         {/* Apply saved theme before paint to avoid a flash of the wrong mode */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
@@ -43,7 +45,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <Header />
           {/* pt-28 clears the fixed header on every page */}
-          <main id="main" tabIndex={-1} className="min-h-screen pt-28 focus:outline-none">{children}</main>
+          <main id="main" tabIndex={-1} className="min-h-screen pt-28 focus:outline-none">
+            <LocaleNotice />
+            {children}
+          </main>
           <Footer />
         </Providers>
       </body>

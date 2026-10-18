@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, MoreThan, Not, Repository } from 'typeorm';
-import { dailyCapExceeded, env, envInt, EventBusService, InternalHttpClient, internalPath, recipientCapExceeded, UserContext } from '@ethiopialearn/common';
+import { EntityManager, In, IsNull, MoreThan, Not, Repository } from 'typeorm';
+import { dailyCapExceeded, Emit, env, envInt, EventBusService, InternalHttpClient, internalPath, OutboxService, recipientCapExceeded, stableEventId, UserContext } from '@ethiopialearn/common';
 import {
   BulkPurchaseActivatedPayload,
   PayRequestCreatedPayload,
@@ -44,6 +44,7 @@ export class SponsorshipService implements OnModuleInit {
     private readonly payments: PaymentService,
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
+    private readonly outbox: OutboxService,
   ) {}
 
   onModuleInit() {
@@ -344,37 +345,42 @@ export class SponsorshipService implements OnModuleInit {
     const buyer = await this.user(ctx.id);
     const results: { email: string; status: string }[] = [];
     for (const email of clean) {
+      // Looked up before the transaction, so no internal call holds it open.
       const recipient = await this.userByEmail(email);
-      const s = await this.sponsorships.save(
-        this.sponsorships.create({
-          source: 'bulk',
-          status: 'pending_claim',
-          sponsor_id: order.buyer_id,
-          sponsor_name: order.organization_name || buyer.name,
-          recipient_user_id: recipient?.id ?? null,
-          recipient_email: email,
-          course_id: order.course_id,
-          course_title: order.course_title,
-          message: `Your organisation ${order.organization_name} has enrolled you in this course.`,
-          bulk_purchase_id: order.id,
-          organization_name: order.organization_name,
-          token: randomCode(24),
-        }),
-      );
-      if (recipient) {
-        if (await this.entitled(recipient.id, order.course_id)) {
+      const enrolled = recipient ? await this.entitled(recipient.id, order.course_id) : false;
+      // The seat commits with its SponsorshipGranted or SponsorshipInvited (the outbox).
+      const status = await this.outbox.transaction(async (m, emit) => {
+        const seats = m.getRepository(Sponsorship);
+        const s = await seats.save(
+          seats.create({
+            source: 'bulk',
+            status: 'pending_claim',
+            sponsor_id: order.buyer_id,
+            sponsor_name: order.organization_name || buyer.name,
+            recipient_user_id: recipient?.id ?? null,
+            recipient_email: email,
+            course_id: order.course_id,
+            course_title: order.course_title,
+            message: `Your organisation ${order.organization_name} has enrolled you in this course.`,
+            bulk_purchase_id: order.id,
+            organization_name: order.organization_name,
+            token: randomCode(24),
+          }),
+        );
+        if (!recipient) {
+          emit<SponsorshipInvitedPayload>('SponsorshipInvited', this.invitedPayload(s));
+          return 'invited';
+        }
+        if (enrolled) {
           s.status = 'granted';
           s.granted_at = new Date();
-          await this.sponsorships.save(s);
-          results.push({ email, status: 'already_enrolled' });
-          continue;
+          await seats.save(s);
+          return 'already_enrolled';
         }
-        await this.grant(s);
-        results.push({ email, status: 'granted' });
-      } else {
-        await this.invite(s);
-        results.push({ email, status: 'invited' });
-      }
+        await this.grant(m, emit, s);
+        return 'granted';
+      });
+      results.push({ email, status });
     }
     return { assigned: results.length, results };
   }
@@ -413,6 +419,7 @@ export class SponsorshipService implements OnModuleInit {
    *  - granted → SponsorshipGranted (enrollment grants access);
    *  - pending_claim (the recipient has no account yet) → SponsorshipInvited,
    *    once; the grant at their signup is a separate flow (claimForEmail).
+   * Each event's id is stable per sponsorship, so a re-run's re-publish is the same event to the consumers' dedupe.
    */
   private async onSponsoredPaymentConfirmed(payment: Payment) {
     const id = payment.meta?.sponsorship_id as string | undefined;
@@ -435,13 +442,19 @@ export class SponsorshipService implements OnModuleInit {
     }
 
     if (s.status === 'granted') {
-      await this.bus.publishConfirmed<SponsorshipGrantedPayload>('SponsorshipGranted', this.grantedPayload(s), { correlationId: payment.id });
+      await this.bus.publishConfirmed<SponsorshipGrantedPayload>('SponsorshipGranted', this.grantedPayload(s), {
+        correlationId: payment.id,
+        eventId: stableEventId(`${s.id}:SponsorshipGranted`),
+      });
     } else if (s.status === 'pending_claim') {
-      await this.bus.publishConfirmed<SponsorshipInvitedPayload>('SponsorshipInvited', this.invitedPayload(s), { correlationId: payment.id });
+      await this.bus.publishConfirmed<SponsorshipInvitedPayload>('SponsorshipInvited', this.invitedPayload(s), {
+        correlationId: payment.id,
+        eventId: stableEventId(`${s.id}:SponsorshipInvited`),
+      });
     }
   }
 
-  /** A confirmed bulk order: activated once, then BulkPurchaseActivated until the broker acknowledges it. */
+  /** A confirmed bulk order: activated once, then BulkPurchaseActivated, with one id per payment, until the broker acknowledges it. */
   private async onBulkPaid(payment: Payment) {
     const id = payment.meta?.bulk_purchase_id as string | undefined;
     if (!id) return this.logger.warn(`payment ${payment.id}: no bulk_purchase_id, nothing to activate`);
@@ -461,33 +474,43 @@ export class SponsorshipService implements OnModuleInit {
         seats: order.seats,
         total_etb: Number(order.total_etb),
       },
-      { correlationId: payment.id },
+      { correlationId: payment.id, eventId: stableEventId(`${payment.id}:BulkPurchaseActivated`) },
     );
   }
 
+  /**
+   * Grants the seats waiting for this email to the account, with their
+   * SponsorshipGranted, in one outbox transaction. Safe to repeat: a seat
+   * already granted is no longer waiting (a redelivered UserRegistered, or the
+   * dashboard's claim racing it).
+   */
   private async claimForEmail(userId: string, email: string): Promise<number> {
-    const waiting = await this.sponsorships.find({ where: { recipient_email: email.toLowerCase(), status: 'pending_claim' } });
-    let n = 0;
-    for (const s of waiting) {
-      s.recipient_user_id = userId;
-      await this.grant(s);
-      n += 1;
-    }
+    const n = await this.outbox.transaction(async (m, emit) => {
+      const waiting = await m.getRepository(Sponsorship).find({ where: { recipient_email: email.toLowerCase(), status: 'pending_claim' } });
+      let granted = 0;
+      for (const s of waiting) {
+        s.recipient_user_id = userId;
+        if (await this.grant(m, emit, s)) granted += 1;
+      }
+      return granted;
+    });
     if (n) this.logger.log(`claimed ${n} sponsored seat(s) for ${email}`);
     return n;
   }
 
-  private async grant(s: Sponsorship) {
-    s.status = 'granted';
-    s.granted_at = new Date();
-    await this.sponsorships.save(s);
-    await this.bus.publish<SponsorshipGrantedPayload>('SponsorshipGranted', this.grantedPayload(s));
-  }
-
-  private async invite(s: Sponsorship) {
-    s.status = 'pending_claim';
-    await this.sponsorships.save(s);
-    await this.bus.publish<SponsorshipInvitedPayload>('SponsorshipInvited', this.invitedPayload(s));
+  /**
+   * Grants a seat waiting for its claim to `s.recipient_user_id`, with its
+   * SponsorshipGranted, in the caller's outbox transaction. Conditional, so
+   * two claims of one seat grant and announce it once. False when the seat
+   * was no longer waiting.
+   */
+  private async grant(m: EntityManager, emit: Emit, s: Sponsorship): Promise<boolean> {
+    const granted = { status: 'granted' as const, granted_at: new Date(), recipient_user_id: s.recipient_user_id };
+    const done = await m.getRepository(Sponsorship).update({ id: s.id, status: 'pending_claim' }, granted);
+    if (done.affected !== 1) return false;
+    Object.assign(s, granted);
+    emit<SponsorshipGrantedPayload>('SponsorshipGranted', this.grantedPayload(s));
+    return true;
   }
 
   private grantedPayload(s: Sponsorship): SponsorshipGrantedPayload {

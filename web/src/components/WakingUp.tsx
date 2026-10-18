@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Hourglass, RefreshCw } from 'lucide-react';
 import { wakeServices } from '@/lib/wake';
+import { useT } from '@/lib/i18n';
 
 /**
  * What a page shows when the API is asleep, down or too slow (`serverApi` →
@@ -14,6 +15,7 @@ import { wakeServices } from '@/lib/wake';
  */
 export function WakingUp({ onRetry }: { onRetry?: () => Promise<unknown> }) {
   const router = useRouter();
+  const { t } = useT();
   const [refreshing, startTransition] = useTransition();
   const [refetching, setRefetching] = useState(false);
   const retrying = refreshing || refetching;
@@ -33,13 +35,13 @@ export function WakingUp({ onRetry }: { onRetry?: () => Promise<unknown> }) {
         <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-600">
           <Hourglass className="h-5 w-5" aria-hidden />
         </span>
-        <h1 className="text-xl font-bold text-foreground">We&apos;re waking up the server</h1>
+        <h1 className="text-xl font-bold text-foreground">{t('waking_title')}</h1>
         <p className="mt-2 text-sm leading-relaxed text-gray-500">
-          This can take up to a minute after a quiet period. Try again in a moment.
+          {t('waking_body')}
         </p>
         <button type="button" onClick={retry} disabled={retrying} className="btn mt-6 inline-flex !px-8">
           <RefreshCw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} aria-hidden />
-          {retrying ? 'Checking…' : 'Retry'}
+          {retrying ? t('checking') : t('retry')}
         </button>
       </div>
     </div>

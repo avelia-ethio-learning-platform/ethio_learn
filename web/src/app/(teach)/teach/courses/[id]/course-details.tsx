@@ -4,7 +4,8 @@ import { FormEvent, useState } from 'react';
 import { Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
 import { COURSE_CATEGORIES } from '@/lib/categories';
-import { categoryLabel } from '@/lib/labels';
+import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { categoryLabel, pricingLabel } from '@/lib/labels';
 import { fieldLabel, type WorkingCourse } from './working';
 import { formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
@@ -26,7 +27,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
   const [editing, setEditing] = useState(false);
   const [pricing, setPricing] = useState(course.pricing_type);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [status, , setError, clearStatus] = useFormStatus();
 
   const save = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -48,7 +49,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
       return;
     }
     setBusy(true);
-    setError('');
+    clearStatus();
     try {
       await api(`/courses/${course.id}`, { method: 'PUT', body });
       setEditing(false);
@@ -69,11 +70,11 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
             disabled={disabled}
             onClick={() => {
               setPricing(course.pricing_type);
-              setError('');
+              clearStatus();
               setEditing(true);
             }}
           >
-            <Pencil className="h-3.5 w-3.5" /> Edit details
+            <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit details
           </button>
         )}
       </div>
@@ -94,8 +95,8 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
           <dt className="flex items-center gap-1.5 text-gray-500">
             Pricing <EditedChip course={course} fields={['pricing_type', 'price_etb']} />
           </dt>
-          <dd className="capitalize">
-            {course.pricing_type}
+          <dd>
+            {pricingLabel(course.pricing_type)}
             {course.pricing_type !== 'free' && course.price_etb ? ` · ${formatETB(course.price_etb, locale)}` : ''}
           </dd>
         </dl>
@@ -154,7 +155,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
               Cancel
             </button>
           </div>
-          {error && <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>}
+          <FormStatus status={status} />
         </form>
       )}
     </div>
