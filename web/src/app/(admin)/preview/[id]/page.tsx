@@ -210,7 +210,7 @@ function TextChange({ before, after, highlight }: { before: string; after: strin
     <div className="grid gap-3 md:grid-cols-2">
       <div>
         <p className="mb-1 text-xs font-semibold text-gray-500">Before (live)</p>
-        <p className={`${block} bg-danger-soft text-gray-600`}>
+        <p className={`${block} border border-danger-line text-gray-600`}>
           {segments
             ? segments
                 .filter((s) => s.op !== 'add')
@@ -228,7 +228,7 @@ function TextChange({ before, after, highlight }: { before: string; after: strin
       </div>
       <div>
         <p className="mb-1 text-xs font-semibold text-gray-500">After (staged)</p>
-        <p className={`${block} bg-success-soft text-foreground`}>
+        <p className={`${block} border border-success-line text-foreground`}>
           {segments
             ? segments
                 .filter((s) => s.op !== 'del')
