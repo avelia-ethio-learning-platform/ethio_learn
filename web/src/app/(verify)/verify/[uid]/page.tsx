@@ -22,7 +22,8 @@ export const metadata: Metadata = {
 };
 
 /** Public, unauthenticated verification page (spec §11.7) — QR codes land here. */
-export default async function VerifyPage({ params }: { params: { uid: string } }) {
+export default async function VerifyPage(props: { params: Promise<{ uid: string }> }) {
+  const params = await props.params;
   const response = await serverApi<Verification>(`/verify/${params.uid}`, 0);
   // An unreachable API must never read as "not a valid certificate".
   if (!response.ok && response.status === 'unavailable') return <WakingUp />;

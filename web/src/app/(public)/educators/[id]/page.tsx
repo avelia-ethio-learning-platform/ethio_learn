@@ -21,7 +21,8 @@ interface EducatorProfile {
   courses: CourseSummary[];
 }
 
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const result = await serverApi<EducatorProfile>(`/educators/${params.id}/profile`, 120);
   if (!result.ok) {
     return result.status === 404 ? { title: 'Educator not found' } : { title: 'Waking up the server', robots: { index: false } };
@@ -36,7 +37,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 
 export const revalidate = 120;
 
-export default async function EducatorProfilePage({ params }: { params: { id: string } }) {
+export default async function EducatorProfilePage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const result = await serverApi<EducatorProfile>(`/educators/${params.id}/profile`, 120);
   if (!result.ok) {
     if (result.status === 404) notFound();
