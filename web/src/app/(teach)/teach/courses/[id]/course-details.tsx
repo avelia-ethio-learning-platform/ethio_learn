@@ -21,9 +21,9 @@ export function EditedChip({ course, fields }: { course: Pick<WorkingCourse, 'pe
   );
 }
 
-/** Title, description, category and pricing. On a live course a save is staged for review. */
+/** Title, description, category, language and pricing. On a live course a save is staged for review. */
 export function CourseDetails({ course, live, disabled, onSaved }: { course: WorkingCourse; live: boolean; disabled: boolean; onSaved: (message: string) => void }) {
-  const { locale } = useT();
+  const { locale, t } = useT();
   const [editing, setEditing] = useState(false);
   const [pricing, setPricing] = useState(course.pricing_type);
   const [busy, setBusy] = useState(false);
@@ -35,12 +35,14 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
     const title = String(form.get('title')).trim();
     const description = String(form.get('description')).trim();
     const category = String(form.get('category'));
+    const language = String(form.get('language'));
     const price = pricing === 'free' ? null : Number(form.get('price_etb'));
     // Only changed fields: on a live course every field sent is staged for review.
     const body: Record<string, unknown> = {};
     if (title !== course.title) body.title = title;
     if (description !== course.description) body.description = description;
     if (category !== course.category) body.category = category;
+    if (language !== course.language) body.language = language;
     if (pricing !== course.pricing_type) body.pricing_type = pricing;
     // A free course carries no price, so the catalog never shows a stale one.
     if (price !== course.price_etb) body.price_etb = price;
@@ -93,6 +95,10 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
           </dt>
           <dd>{categoryLabel(course.category)}</dd>
           <dt className="flex items-center gap-1.5 text-gray-500">
+            Language <EditedChip course={course} fields={['language']} />
+          </dt>
+          <dd>{course.language === 'am' ? t('lang_am') : t('lang_en')}</dd>
+          <dt className="flex items-center gap-1.5 text-gray-500">
             Pricing <EditedChip course={course} fields={['pricing_type', 'price_etb']} />
           </dt>
           <dd>
@@ -125,6 +131,15 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
                     {c.label}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="course-language">
+                Language
+              </label>
+              <select id="course-language" name="language" defaultValue={course.language} className="input">
+                <option value="en">{t('lang_en')}</option>
+                <option value="am">{t('lang_am')}</option>
               </select>
             </div>
             <div>
