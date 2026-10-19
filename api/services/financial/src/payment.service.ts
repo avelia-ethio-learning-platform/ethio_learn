@@ -9,7 +9,6 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Cron } from '@nestjs/schedule';
 import { Between, DataSource, EntityManager, In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import {
@@ -102,6 +101,12 @@ const SILENT_FAIL_REASONS: ReadonlySet<string> = new Set<CheckoutFailReason>(['s
 /** 409 for a checkout whose row a retry of the same purchase superseded before it could be returned. */
 const REPLACED_BY_RETRY = 'A newer checkout for this purchase replaced this one.';
 
+/** A wallet course purchase: guarded against a concurrent one (guardCoursePurchase). */
+const isWalletCoursePurchase = (input: SessionInput) => !!input.useWallet && input.purpose === PaymentPurpose.COURSE && !!input.courseId;
+
+/** How long a pending wallet row counts as a settlement in flight (it settles within its own request). */
+const WALLET_SETTLE_MS = 5 * 60_000;
+
 /** HH:MM in Addis Ababa, for "try again after" in a coupon refusal. */
 const HOLD_ENDS_AT = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Addis_Ababa', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
@@ -139,6 +144,8 @@ export interface WebhookOutcome {
 /** Re-publish confirmed payments whose access events weren't acknowledged, once they are this old. */
 const EFFECTS_RETRY_AFTER_MS = 60_000;
 const EFFECTS_BATCH = 50;
+/** The sweep stops checking a row after this many verifies (it is logged once, at the last). */
+const MAX_VERIFY_ATTEMPTS = 30;
 
 /** Purpose-based volume tiers for bulk purchases (seats → % off). Env-overridable. */
 export function bulkDiscountPercent(seats: number): number {
@@ -156,7 +163,6 @@ export function bulkDiscountPercent(seats: number): number {
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
   private readonly purposeHandlers = new Map<PaymentPurpose, PurposeHandler[]>();
-  private completingEffects = false;
 
   constructor(
     @InjectRepository(Payment) private readonly payments: Repository<Payment>,
@@ -241,7 +247,8 @@ export class PaymentService {
       learner_id: input.payer.id,
       course_id: input.courseId ?? PLATFORM_PAYEE_ID,
       amount_etb: due.toFixed(2),
-      method: PaymentMethod.CHAPA,
+      // A wallet payment is a wallet row from the start, so a concurrent purchase's guard sees it (B1).
+      method: input.useWallet ? PaymentMethod.WALLET : PaymentMethod.CHAPA,
       status: PaymentStatus.PENDING,
       chapa_tx_ref: txRef,
       payee_id: input.payee.id,
@@ -253,7 +260,16 @@ export class PaymentService {
       discount_etb: quote.discount_etb.toFixed(2),
       coupon_code: quote.coupon?.code ?? null,
     });
-    const opened = quote.coupon ? await this.openCouponCheckout(input, quote, draft) : { payment: await this.payments.save(draft) };
+    const opened = quote.coupon
+      ? await this.openCouponCheckout(input, quote, draft)
+      : isWalletCoursePurchase(input)
+        ? {
+            payment: await this.dataSource.transaction(async (m) => {
+              await this.guardCoursePurchase(m, input);
+              return m.getRepository(Payment).save(draft);
+            }),
+          }
+        : { payment: await this.payments.save(draft) };
     if ('reused' in opened) return opened.reused;
     const { payment } = opened;
 
@@ -335,6 +351,7 @@ export class PaymentService {
     const holdMs = couponHoldMs();
     const superseded: Payment[] = [];
     const opened = await this.dataSource.transaction(async (m): Promise<{ payment: Payment } | { reused: SessionResult }> => {
+      if (isWalletCoursePurchase(input)) await this.guardCoursePurchase(m, input);
       const payments = m.getRepository(Payment);
       const coupon = await this.growth.lockCoupon(m, code);
       const unavailable = couponUnavailable(coupon);
@@ -389,6 +406,30 @@ export class PaymentService {
     return opened;
   }
 
+  /**
+   * Two wallet purchases of one course must charge once (P2-03, review B1). In the
+   * transaction that inserts the row (`m`): a transaction-scoped try-lock on
+   * (learner, course), then the checks on financial's own rows, so they don't wait
+   * for enrollment to have granted the first purchase:
+   *  - a confirmed course payment for it → 409 already owned;
+   *  - the lock held by another request, or a pending wallet payment for it from
+   *    the last few minutes (a settlement in flight) → 409 in progress.
+   * The caller then inserts its row as `wallet` on `m`, before the lock is released.
+   */
+  private async guardCoursePurchase(m: EntityManager, input: SessionInput): Promise<void> {
+    const [{ locked }]: { locked: boolean }[] = await m.query(`SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS locked`, [
+      `course-purchase:${input.payer.id}:${input.courseId}`,
+    ]);
+    if (!locked) throw new ConflictException('A payment for this course is in progress.');
+    const mine = { learner_id: input.payer.id, course_id: input.courseId!, purpose: PaymentPurpose.COURSE };
+    // A pending wallet row settles in the request that inserted it; one older than this is a crashed request's.
+    const inFlight = { ...mine, method: PaymentMethod.WALLET, status: PaymentStatus.PENDING, created_at: MoreThan(new Date(Date.now() - WALLET_SETTLE_MS)) };
+    // One statement, so a settlement flipping pending -> confirmed between two reads can't slip past both.
+    const prior = await m.getRepository(Payment).findOne({ where: [{ ...mine, status: PaymentStatus.CONFIRMED }, inFlight] });
+    if (prior?.status === PaymentStatus.CONFIRMED) throw new ConflictException('You already own this course.');
+    if (prior) throw new ConflictException('A payment for this course is in progress.');
+  }
+
   /** 400 naming the payer's own open checkout that holds the coupon, with its link when it has one. */
   private heldByYou(hold: Payment, holdMs: number): BadRequestException {
     const until = HOLD_ENDS_AT.format(new Date(hold.created_at.getTime() + holdMs));
@@ -425,7 +466,7 @@ export class PaymentService {
     const learner = await this.learnerInfo(input.payer.id);
     const [firstName, ...rest] = (learner.name || 'EthiopiaLearn Learner').trim().split(/\s+/);
 
-    // Local-dev URL handling: Chapa's SDK validation rejects `localhost` URLs
+    // Local-dev URL handling: Chapa rejects `localhost` URLs
     // (no TLD), and Chapa's servers can't call a localhost callback anyway.
     const isLocal = (u: string) => /\/\/(localhost|127\.0\.0\.1)([:/]|$)/.test(u);
     const returnPath = input.returnPath ?? `/payment/return?course_id=${input.courseId}&tx_ref=${payment.chapa_tx_ref}&purpose=${input.purpose}`;
@@ -533,8 +574,9 @@ export class PaymentService {
   }
 
   /**
-   * Safety net for missed webhooks and abandoned return pages. Every 2 minutes,
-   * ask Chapa about recent pending payments and apply the standard rules.
+   * Safety net for missed webhooks and abandoned return pages: ask Chapa about
+   * recent pending payments and apply the standard rules. The `sweep` job
+   * (jobs.ts: every 2 min while awake, and the GitHub schedule).
    *
    * Then it re-checks recent failed Chapa payments that had a checkout page,
    * such as one a retry of the same purchase superseded. One Chapa reports
@@ -542,15 +584,21 @@ export class PaymentService {
    * pages is a duplicate purchase, a refund case); one reported unpaid or
    * still pending stays failed. A failed row with no checkout URL is never
    * selected: Chapa never opened its page, so it can't have been paid.
+   *
+   * Turn order (P1-19): the least recently checked rows first (never-checked
+   * ones before all), so a busy day can't starve older rows. Each verify
+   * answer stamps the row; after MAX_VERIFY_ATTEMPTS the row is logged once
+   * and left alone (the learner's reconcile still checks it).
    */
-  @Cron('*/2 * * * *')
-  async sweepPendingPayments(): Promise<void> {
-    if (chapaMode() !== 'live') return;
+  async sweepPendingPayments(): Promise<{ checked: number }> {
+    if (chapaMode() !== 'live') return { checked: 0 };
     const now = Date.now();
     const recent = Between(new Date(now - 24 * 3600_000), new Date(now - 60_000));
+    const turnOrder = { verify_checked_at: { direction: 'ASC', nulls: 'FIRST' }, created_at: 'ASC' } as const;
+    const unexhausted = LessThan(MAX_VERIFY_ATTEMPTS);
     const pending = await this.payments.find({
-      where: { status: PaymentStatus.PENDING, method: PaymentMethod.CHAPA, created_at: recent },
-      order: { created_at: 'DESC' },
+      where: { status: PaymentStatus.PENDING, method: PaymentMethod.CHAPA, created_at: recent, verify_attempts: unexhausted },
+      order: turnOrder,
       take: 25,
     });
     const failed = await this.payments.find({
@@ -560,13 +608,17 @@ export class PaymentService {
         chapa_tx_ref: Not(IsNull()),
         chapa_checkout_url: Not(IsNull()),
         created_at: recent,
+        verify_attempts: unexhausted,
       },
-      order: { created_at: 'DESC' },
+      order: turnOrder,
       take: 10,
     });
+    let checked = 0;
     for (const payment of [...pending, ...failed]) {
       try {
         const verification = await this.chapa.verify(payment.chapa_tx_ref);
+        checked += 1;
+        await this.stampVerified(payment);
         await this.applyVerification(payment, verification, 'sweep');
       } catch (err) {
         if (err instanceof ChapaUnavailableError) {
@@ -575,6 +627,16 @@ export class PaymentService {
         }
         this.logger.warn(`sweep: could not verify ${payment.chapa_tx_ref}: ${(err as Error).message}`);
       }
+    }
+    return { checked };
+  }
+
+  /** The sweep's turn: one more verify of this row, now. Only the sweep job writes these (under its lease). */
+  private async stampVerified(payment: Payment): Promise<void> {
+    const attempts = (payment.verify_attempts ?? 0) + 1;
+    await this.payments.update({ id: payment.id }, { verify_checked_at: new Date(), verify_attempts: attempts });
+    if (attempts === MAX_VERIFY_ATTEMPTS) {
+      this.logger.warn(`payment ${payment.id} (${payment.chapa_tx_ref}) unverifiable after ${MAX_VERIFY_ATTEMPTS} checks; the sweep stops checking it`);
     }
   }
 
@@ -589,9 +651,9 @@ export class PaymentService {
    * claims a row sends its reminder, so each payment gets at most one. The
    * claim comes before the publish: a publish that fails after the claim
    * loses that one reminder, and ends the run, rather than sending two.
+   * The `nudges` job (jobs.ts: hourly while awake, and the GitHub schedule).
    */
-  @Cron('15 * * * *')
-  async nudgeAbandonedCheckouts(): Promise<void> {
+  async nudgeAbandonedCheckouts(): Promise<{ sent: number }> {
     const now = Date.now();
     const rows = await this.payments.find({
       where: {
@@ -624,6 +686,7 @@ export class PaymentService {
       sent += 1;
     }
     if (sent) this.logger.log(`abandoned-checkout nudges sent: ${sent}`);
+    return { sent };
   }
 
   /**
@@ -803,50 +866,39 @@ export class PaymentService {
 
   /**
    * Re-publishes the access events of confirmed payments that aren't marked
-   * done, oldest first (P0-05). Runs in every CHAPA_MODE. Skips a tick while
-   * the previous run is still going (with the broker down a run can outlast
-   * the interval), stops at the first broker failure, and logs and skips a
-   * payment that fails for its own reason so it can't block the rest.
-   * Returns null when the tick was skipped.
+   * done, oldest first (P0-05). Runs in every CHAPA_MODE. The `effects` job
+   * (jobs.ts): its lease keeps runs from overlapping (with the broker down a
+   * run can outlast the interval). Stops at the first broker failure, and
+   * logs and skips a payment that fails for its own reason so it can't block the rest.
    */
-  @Cron('*/2 * * * *')
-  async completePendingEffects(): Promise<{ completed: number; failed: number } | null> {
-    if (this.completingEffects) {
-      this.logger.warn('re-publish run still in progress; skipping this tick');
-      return null;
-    }
-    this.completingEffects = true;
+  async completePendingEffects(): Promise<{ completed: number; failed: number }> {
     let completed = 0;
     let failed = 0;
-    try {
-      const cutoff = new Date(Date.now() - EFFECTS_RETRY_AFTER_MS);
-      const pending = { status: PaymentStatus.CONFIRMED, effects_completed_at: IsNull() };
-      const rows = await this.payments.find({
-        where: [
-          { ...pending, webhook_received_at: LessThan(cutoff) },
-          { ...pending, webhook_received_at: IsNull(), created_at: LessThan(cutoff) },
-        ],
-        order: { webhook_received_at: 'ASC' },
-        take: EFFECTS_BATCH,
-      });
-      for (const payment of rows) {
-        try {
-          await this.completeEffects(payment);
-          completed += 1;
-        } catch (err) {
-          if (err instanceof BrokerPublishError) {
-            this.logger.warn(`re-publish run stopped at payment ${payment.id}: ${err.message}`);
-            break;
-          }
-          failed += 1;
-          this.logger.error(`payment ${payment.id}: could not complete its access events, skipped this run: ${(err as Error).message}`);
+    const cutoff = new Date(Date.now() - EFFECTS_RETRY_AFTER_MS);
+    const pending = { status: PaymentStatus.CONFIRMED, effects_completed_at: IsNull() };
+    // Oldest first by COALESCE(webhook_received_at, created_at) (N2): the two kinds of row, each
+    // read in its own order from the partial index, merged here.
+    const [stamped, unstamped] = await Promise.all([
+      this.payments.find({ where: { ...pending, webhook_received_at: LessThan(cutoff) }, order: { webhook_received_at: 'ASC' }, take: EFFECTS_BATCH }),
+      this.payments.find({ where: { ...pending, webhook_received_at: IsNull(), created_at: LessThan(cutoff) }, order: { created_at: 'ASC' }, take: EFFECTS_BATCH }),
+    ]);
+    const since = (p: Payment) => (p.webhook_received_at ?? p.created_at).getTime();
+    const rows = [...stamped, ...unstamped].sort((a, b) => since(a) - since(b)).slice(0, EFFECTS_BATCH);
+    for (const payment of rows) {
+      try {
+        await this.completeEffects(payment);
+        completed += 1;
+      } catch (err) {
+        if (err instanceof BrokerPublishError) {
+          this.logger.warn(`re-publish run stopped at payment ${payment.id}: ${err.message}`);
+          break;
         }
+        failed += 1;
+        this.logger.error(`payment ${payment.id}: could not complete its access events, skipped this run: ${(err as Error).message}`);
       }
-      if (rows.length) this.logger.log(`re-publish run: ${completed} of ${rows.length} confirmed payment(s) completed, ${failed} failed`);
-      return { completed, failed };
-    } finally {
-      this.completingEffects = false;
     }
+    if (rows.length) this.logger.log(`re-publish run: ${completed} of ${rows.length} confirmed payment(s) completed, ${failed} failed`);
+    return { completed, failed };
   }
 
   /**
@@ -1106,13 +1158,14 @@ export class PaymentService {
 
   // ---- helpers -----------------------------------------------------------
 
+  /**
+   * Whether the learner already has access. Fails closed (P1-18): a failed lookup
+   * throws the client's typed error (503 with Retry-After), never "not owned",
+   * which would open a second checkout for a course the learner has.
+   */
   private async ownsCourse(learnerId: string, courseId: string): Promise<boolean> {
-    try {
-      const e = await this.internal.get<{ entitlement_status: string }>(internalPath`/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`);
-      return e.entitlement_status === 'active';
-    } catch {
-      return false;
-    }
+    const e = await this.internal.get<{ entitlement_status: string }>(internalPath`/api/v1/internal/entitlements?learner_id=${learnerId}&course_id=${courseId}`);
+    return e.entitlement_status === 'active';
   }
 
   publicView(p: Payment) {

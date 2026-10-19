@@ -15,6 +15,13 @@ import { env } from '@ethiopialearn/common';
  *  - verify() is consulted before any PaymentConfirmed is published
  */
 
+/** What Chapa answers (initialize and verify), as far as it is read here. */
+interface ChapaBody {
+  status?: string;
+  message?: unknown;
+  data?: { checkout_url?: string; status?: unknown; amount?: unknown; currency?: unknown } | null;
+}
+
 /** Chapa's initialize request body. */
 export interface ChapaInitializeOptions {
   first_name: string;
@@ -76,7 +83,7 @@ export class LiveChapaProvider implements ChapaProvider {
   }
 
   /** One Chapa call. Network errors and timeouts become ChapaUnavailableError; HTTP statuses are the caller's. */
-  private async call(url: string, init: RequestInit): Promise<{ status: number; body: any }> {
+  private async call(url: string, init: RequestInit): Promise<{ status: number; body: ChapaBody | null }> {
     const timeoutMs = Number(process.env.CHAPA_TIMEOUT_MS ?? 10000);
     let res: Response;
     try {
@@ -89,9 +96,9 @@ export class LiveChapaProvider implements ChapaProvider {
       this.logger.warn(`chapa unreachable: ${(err as Error).name}: ${(err as Error).message}`);
       throw new ChapaUnavailableError();
     }
-    let body: any = null;
+    let body: ChapaBody | null = null;
     try {
-      body = await res.json();
+      body = (await res.json()) as ChapaBody | null;
     } catch (err) {
       // An unparseable body is judged by its status; a timeout or network error mid-body is an outage.
       if (!(err instanceof SyntaxError)) {
@@ -151,8 +158,9 @@ export class LiveChapaProvider implements ChapaProvider {
       raw === 'success' ? 'success' : /fail|cancel|declin|reject|error/.test(raw) ? 'failed' : 'pending';
     return {
       status,
-      amount: data.amount != null ? Number(data.amount) : null,
-      currency: data.currency ?? null,
+      // A non-numeric amount is "not verified" (null), never NaN, which would slip past the amount check.
+      amount: data.amount != null && Number.isFinite(Number(data.amount)) ? Number(data.amount) : null,
+      currency: typeof data.currency === 'string' ? data.currency : null,
     };
   }
 }

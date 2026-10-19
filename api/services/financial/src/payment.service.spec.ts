@@ -7,7 +7,7 @@ import { ChapaUnavailableError, MockChapaProvider } from './chapa.provider';
 import { Coupon, Payment, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
-import { fakeDb, Row, uniqueViolation } from './testing/fake-db';
+import { fakeDb, Row, uniqueViolation, fakeOutbox } from './testing/fake-db';
 
 const SECRET = 'test-webhook-secret-0123456789';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -47,6 +47,7 @@ function setup(opts: { chapa?: unknown } = {}) {
     db.dataSource as never,
     bus as never,
     internal as never,
+    fakeOutbox(db.dataSource).outbox as never,
   );
   const service = new PaymentService(db.repo(Payment) as never, chapa as never, bus as never, internal as never, growth, db.dataSource as never);
   const payments = db.repo(Payment);
@@ -68,6 +69,8 @@ function setup(opts: { chapa?: unknown } = {}) {
       coupon_code: null,
       webhook_received_at: null,
       effects_completed_at: null,
+      verify_checked_at: null,
+      verify_attempts: 0,
       created_at: new Date(Date.now() - 10 * 60_000),
       ...over,
     };
@@ -774,20 +777,6 @@ describe('PaymentService: no lost access (P0-05)', () => {
     expect(await t.service.completePendingEffects()).toEqual({ completed: 1, failed: 0 });
   });
 
-  it('skips a tick while the previous run is still going', async () => {
-    const t = setup();
-    t.seed({ status: PaymentStatus.CONFIRMED, webhook_received_at: new Date(Date.now() - 5 * 60_000) });
-    let release!: () => void;
-    t.bus.publishConfirmed.mockImplementationOnce(() => new Promise<void>((resolve) => (release = resolve)));
-
-    const first = t.service.completePendingEffects();
-    await new Promise((r) => setImmediate(r));
-    expect(await t.service.completePendingEffects()).toBeNull();
-    release();
-    expect(await first).toEqual({ completed: 1, failed: 0 });
-    expect(t.bus.publishConfirmed).toHaveBeenCalledTimes(1);
-  });
-
   it('stops the run at the first broker failure, oldest first', async () => {
     const t = setup();
     t.seed({ id: 'older', chapa_tx_ref: 'TX-1', status: PaymentStatus.CONFIRMED, webhook_received_at: new Date(Date.now() - 10 * 60_000) });
@@ -936,6 +925,66 @@ describe('PaymentService.sweepPendingPayments', () => {
   });
 });
 
+describe('PaymentService.sweepPendingPayments: turn order and the attempt cap (P1-19)', () => {
+  it('with 30 pending rows, two sweeps of 25 cover all 30, never-checked first, then oldest', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    for (let i = 0; i < 30; i++) {
+      t.seed({ id: `p${i}`, chapa_tx_ref: `TX-${i}`, created_at: new Date(Date.now() - (60 - i) * 60_000) });
+    }
+    t.chapa.verify.mockResolvedValue({ status: 'pending', amount: null, currency: null });
+
+    expect(await t.service.sweepPendingPayments()).toEqual({ checked: 25 });
+    expect(t.chapa.verify.mock.calls.map(([ref]: [string]) => ref)).toEqual(Array.from({ length: 25 }, (_, i) => `TX-${i}`));
+    t.chapa.verify.mockClear();
+
+    await t.service.sweepPendingPayments();
+    const second = t.chapa.verify.mock.calls.map(([ref]: [string]) => ref);
+    // The 5 never checked go first, then the least recently checked.
+    expect(second.slice(0, 5)).toEqual(['TX-25', 'TX-26', 'TX-27', 'TX-28', 'TX-29']);
+    expect(second.slice(5, 7)).toEqual(['TX-0', 'TX-1']);
+    expect(t.row('p29')).toMatchObject({ verify_attempts: 1, verify_checked_at: expect.any(Date) });
+    expect(t.row('p0').verify_attempts).toBe(2);
+  });
+
+  it('logs a row once when it reaches 30 checks, and never selects it again', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.seed({ verify_attempts: 29, verify_checked_at: new Date(Date.now() - 5 * 60_000) });
+    t.chapa.verify.mockResolvedValue({ status: 'pending', amount: null, currency: null });
+    const warn = jest.spyOn((t.service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn');
+
+    await t.service.sweepPendingPayments();
+    await t.service.sweepPendingPayments();
+
+    expect(t.chapa.verify).toHaveBeenCalledTimes(1);
+    expect(t.row().verify_attempts).toBe(30);
+    expect(warn.mock.calls.filter(([m]) => /unverifiable after 30 checks/.test(m))).toHaveLength(1);
+  });
+
+  it('an unreachable Chapa stamps nothing', async () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.seed();
+    t.chapa.verify.mockRejectedValue(new ChapaUnavailableError());
+    await t.service.sweepPendingPayments();
+    expect(t.row()).toMatchObject({ verify_attempts: 0, verify_checked_at: null });
+  });
+});
+
+describe('PaymentService.completePendingEffects: order (N2)', () => {
+  it('orders by COALESCE(webhook_received_at, created_at): a row with no webhook time sorts by its creation', async () => {
+    const t = setup();
+    const ago = (min: number) => new Date(Date.now() - min * 60_000);
+    t.seed({ id: 'hooked-new', chapa_tx_ref: 'TX-1', status: PaymentStatus.CONFIRMED, webhook_received_at: ago(5), created_at: ago(30) });
+    t.seed({ id: 'unhooked-mid', chapa_tx_ref: 'TX-2', status: PaymentStatus.CONFIRMED, webhook_received_at: null, created_at: ago(10) });
+    t.seed({ id: 'hooked-old', chapa_tx_ref: 'TX-3', status: PaymentStatus.CONFIRMED, webhook_received_at: ago(20), created_at: ago(25) });
+
+    expect(await t.service.completePendingEffects()).toEqual({ completed: 3, failed: 0 });
+    expect(t.published('PaymentConfirmed').map(([, p]) => (p as { payment_id: string }).payment_id)).toEqual(['hooked-old', 'unhooked-mid', 'hooked-new']);
+  });
+});
+
 describe('PaymentService.nudgeAbandonedCheckouts: one reminder, and it never writes the status', () => {
   /** A course checkout opened 2 h ago and never paid. */
   const abandoned = (t: ReturnType<typeof setup>) => t.seed({ created_at: new Date(Date.now() - 2 * 3600_000) });
@@ -1053,5 +1102,122 @@ describe('PaymentService.mockComplete', () => {
     process.env.CHAPA_MODE = 'live';
     const t = setup();
     await expect(t.service.mockComplete('TX-TEST', 'success')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe('PaymentService: lookups fail closed (P1-18)', () => {
+  const learner = { id: 'u1', role: 'learner', email: 'u1@x.et' } as never;
+  const entitlementsDown = (t: ReturnType<typeof setup>) => {
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.includes('/entitlements')) throw new PeerUnavailableError();
+      return get(path);
+    });
+  };
+
+  it('checkout with the enrollment peer down is a 503 and writes no payment row', async () => {
+    const t = setup();
+    entitlementsDown(t);
+    await expect(t.service.initiate(learner, 'c1')).rejects.toBeInstanceOf(PeerUnavailableError);
+    expect(t.payments.rows).toHaveLength(0);
+  });
+
+  it('the abandoned-checkout nudge stops before claiming a row when ownership cannot be checked', async () => {
+    const t = setup();
+    t.seed({ created_at: new Date(Date.now() - 2 * 3600_000) });
+    entitlementsDown(t);
+    await expect(t.service.nudgeAbandonedCheckouts()).rejects.toBeInstanceOf(PeerUnavailableError);
+    expect(t.row().nudged_at ?? null).toBeNull();
+    expect(t.published('PaymentAbandoned')).toHaveLength(0);
+  });
+
+  it('with auth down, PaymentConfirmed (access) is still published, with a blank email for notification to look up', async () => {
+    const t = setup();
+    t.seed();
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.includes('/internal/users/')) throw new PeerUnavailableError();
+      return get(path);
+    });
+    expect(await t.service.handleWebhook(successBody, signed(successBody))).toEqual({ processed: true, reason: 'confirmed' });
+    expect(t.published('PaymentConfirmed')[0][1]).toMatchObject({ payment_id: 'pay-1', learner_email: '' });
+    expect(t.row().effects_completed_at).toBeInstanceOf(Date);
+  });
+});
+
+describe('PaymentService: two wallet purchases of one course charge once (P2-03, review B1)', () => {
+  const learner = { id: 'u1', role: 'learner', email: 'u1@x.et' } as never;
+  const refs = (t: ReturnType<typeof setup>) => {
+    let n = 0;
+    t.chapa.generateTxRef.mockImplementation(async () => `TX-W${++n}`);
+  };
+  const ten = (t: ReturnType<typeof setup>) =>
+    t.db.repo(Coupon).rows.push({ id: 'cp-1', code: 'TEN', kind: 'percent', value: '10', active: true, uses: 0, max_uses: null, expires_at: null, course_id: null });
+
+  it.each([
+    ['without a coupon', undefined],
+    ['with a coupon', 'ten'],
+  ])('%s: of two parallel wallet buys, one confirms and one is a 409, with one debit', async (_, coupon) => {
+    const t = setup();
+    refs(t);
+    if (coupon) ten(t);
+    await t.growth.credit('u1', 2000, 'topup', 'pay-0', 'Wallet top-up');
+
+    const results = await Promise.allSettled([
+      t.service.initiate(learner, 'c1', { use_wallet: true, coupon_code: coupon }),
+      t.service.initiate(learner, 'c1', { use_wallet: true, coupon_code: coupon }),
+    ]);
+
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(refused.reason.getStatus()).toBe(409);
+    expect(t.walletRows('purchase')).toHaveLength(1);
+    expect(t.payments.rows.filter((p) => p.status === PaymentStatus.CONFIRMED)).toHaveLength(1);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('a wallet buy of a course already paid for is a 409, read from the ledger (not enrollment)', async () => {
+    const t = setup();
+    refs(t);
+    t.seed({ status: PaymentStatus.CONFIRMED, method: PaymentMethod.CHAPA });
+    await t.growth.credit('u1', 2000, 'topup', 'pay-0', 'Wallet top-up');
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).rejects.toThrow('You already own this course.');
+    expect(t.walletRows('purchase')).toHaveLength(0);
+  });
+
+  it('a wallet buy while another holds the lock is a 409 in progress, and the row is inserted as wallet inside the transaction', async () => {
+    const t = setup();
+    refs(t);
+    await t.growth.credit('u1', 2000, 'topup', 'pay-0', 'Wallet top-up');
+    t.db.heldLocks.add('course-purchase:u1:c1');
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).rejects.toThrow('A payment for this course is in progress.');
+    expect(t.payments.rows).toHaveLength(0);
+    t.db.heldLocks.clear();
+
+    const result = await t.service.initiate(learner, 'c1', { use_wallet: true });
+    expect(t.row(result.payment_id)).toMatchObject({ method: PaymentMethod.WALLET, status: PaymentStatus.CONFIRMED });
+  });
+
+  it.each([
+    ['1 min old: a settlement in flight → 409', 1, false],
+    ['6 min old: a crashed request, past WALLET_SETTLE_MS → the buy goes through', 6, true],
+  ])("another request's committed pending wallet row, %s", async (_, minutesAgo, goesThrough) => {
+    const t = setup();
+    refs(t);
+    await t.growth.credit('u1', 2000, 'topup', 'pay-0', 'Wallet top-up');
+    t.seed({ id: 'pay-inflight', method: PaymentMethod.WALLET, status: PaymentStatus.PENDING, created_at: new Date(Date.now() - minutesAgo * 60_000) });
+    const buy = t.service.initiate(learner, 'c1', { use_wallet: true });
+    if (goesThrough) await expect(buy).resolves.toMatchObject({ confirmed: true });
+    else await expect(buy).rejects.toThrow('A payment for this course is in progress.');
+    expect(t.walletRows('purchase')).toHaveLength(goesThrough ? 1 : 0);
+  });
+
+  it('a failed wallet attempt (balance too low) does not block the next one', async () => {
+    const t = setup();
+    refs(t);
+    await t.growth.credit('u1', 100, 'topup', 'pay-0', 'Wallet top-up');
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).rejects.toThrow('is not enough');
+    await t.growth.credit('u1', 500, 'topup', 'pay-1', 'Wallet top-up');
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).resolves.toMatchObject({ confirmed: true });
   });
 });

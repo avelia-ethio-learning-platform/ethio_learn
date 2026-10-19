@@ -104,7 +104,7 @@ describe('PayoutService admin listing (Phase 9e)', () => {
     const rows = [payout(1, OwnerType.EDUCATOR), payout(2, OwnerType.INSTITUTION), payout(3, OwnerType.EDUCATOR)];
     const payouts = { find: jest.fn(async () => rows) };
     const internal = batchClient(opts);
-    const service = new PayoutService({} as never, payouts as never, {} as never, {} as never, internal as never, {} as never);
+    const service = new PayoutService({} as never, payouts as never, {} as never, {} as never, internal as never, {} as never, {} as never);
     return { service, internal };
   }
 

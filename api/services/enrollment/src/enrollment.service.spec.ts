@@ -98,6 +98,19 @@ function setup(opts: Options = {}) {
     create: jest.fn((p: object) => p),
     find: jest.fn().mockResolvedValue([]),
     count: jest.fn().mockResolvedValue(opts.completedCount ?? 0),
+    // The grouped count of the list reads (percentsFor): completedCount done per enrollment asked for.
+    createQueryBuilder: jest.fn(() => {
+      let ids: string[] = [];
+      const qb = {
+        select: () => qb,
+        addSelect: () => qb,
+        where: (_sql: string, params: { enrollmentIds: string[] }) => ((ids = params.enrollmentIds), qb),
+        andWhere: () => qb,
+        groupBy: () => qb,
+        getRawMany: async () => ids.map((enrollment_id) => ({ enrollment_id, done: String(opts.completedCount ?? 0) })),
+      };
+      return qb;
+    }),
   };
   const videoRows: Record<string, unknown>[] = [];
   const videoProgress = {
@@ -110,10 +123,14 @@ function setup(opts: Options = {}) {
     find: jest.fn().mockResolvedValue([]),
     update: jest.fn().mockResolvedValue({ affected: 0 }),
   };
-  const courseCache = { findOne: jest.fn().mockResolvedValue(null), save: jest.fn(), create: jest.fn() };
+  const courseCache = { findOne: jest.fn().mockResolvedValue(null), find: jest.fn().mockResolvedValue([]), save: jest.fn(), create: jest.fn() };
   const bus = { publish: jest.fn().mockResolvedValue(undefined), subscribe: jest.fn() };
   const internal = {
     get: jest.fn(async (path: string) => {
+      if (path.includes('/courses/lesson-ids?ids=')) {
+        const ids = decodeURIComponent(path.split('ids=')[1]).split(',');
+        return Object.fromEntries(ids.map((id) => [id, opts.lessonIds ?? ['l1', 'l2']]));
+      }
       if (path.includes('/lesson-ids')) return { lesson_ids: opts.lessonIds ?? ['l1', 'l2'] };
       if (path.startsWith('/api/v1/internal/lessons/')) {
         return {
@@ -1008,5 +1025,48 @@ describe('EnrollmentService: heartbeat cost (Phase 9e)', () => {
     expect(lessonIdCalls(t)).toHaveLength(1);
     expect(t.bus.publish).toHaveBeenCalledWith('CourseProgressMilestone', expect.objectContaining({ percent: 50 }));
     expect(t.progress.count).toHaveBeenCalledTimes(2); // the milestone's percent and the completion check
+  });
+});
+
+describe('EnrollmentService: progress is null, not 0%, when the course service is down (9c, P1-18)', () => {
+  const courseDown = (t: ReturnType<typeof setup>) => {
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.includes('/lesson-ids')) throw new Error('down');
+      return get(path);
+    });
+  };
+
+  it('the entitlement and the learner views report progress_percent: null', async () => {
+    const t = setup({ completedCount: 1 });
+    courseDown(t);
+    expect((await t.service.entitlement('u1', 'c1')).progress_percent).toBeNull();
+    expect((await t.service.detail(ctx, 'e1')).progress_percent).toBeNull();
+  });
+
+  it('a known 0% stays 0, and no enrollment reports 0', async () => {
+    const t = setup({ completedCount: 0 });
+    expect((await t.service.entitlement('u1', 'c1')).progress_percent).toBe(0);
+    t.enrollments.findOne.mockResolvedValue(null);
+    expect((await t.service.entitlement('u1', 'c1')).progress_percent).toBe(0);
+  });
+
+  it('the inactivity run stops before claiming a row whose progress is unknown', async () => {
+    const t = setup();
+    courseDown(t);
+    const idle = { id: 'e9', learner_id: 'u1', course_id: 'c1', nudge_level: 0, last_activity_at: ago(30 * 86_400), enrolled_at: ago(60 * 86_400) };
+    t.enrollments.find.mockResolvedValue([idle]);
+    expect(await t.service.nudgeInactiveLearners()).toEqual({ sent: 0 });
+    expect(t.enrollments.save).not.toHaveBeenCalled();
+    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(idle.nudge_level).toBe(0);
+  });
+
+  it('with the course service up, the nudge carries the progress', async () => {
+    const t = setup({ completedCount: 1 });
+    const idle = { id: 'e9', learner_id: 'u1', course_id: 'c1', nudge_level: 0, last_activity_at: ago(30 * 86_400), enrolled_at: ago(60 * 86_400) };
+    t.enrollments.find.mockResolvedValue([idle]);
+    expect(await t.service.nudgeInactiveLearners()).toEqual({ sent: 1 });
+    expect(t.bus.publish).toHaveBeenCalledWith('LearnerInactive', expect.objectContaining({ enrollment_id: 'e9', progress_percent: 50 }));
   });
 });

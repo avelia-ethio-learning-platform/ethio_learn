@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { buildTypeOrmOptions, EventBusModule, HealthController, InternalHttpClient } from '@ethiopialearn/common';
+import { buildTypeOrmOptions, createJobsController, EventBusModule, HealthController, InternalHttpClient, JOB_RUNNER } from '@ethiopialearn/common';
 import { entities, migrations, SCHEMA } from './database';
+import { FinancialJobs } from './jobs';
 import { CHAPA_PROVIDER, chapaMode, LiveChapaProvider, MockChapaProvider } from './chapa.provider';
 import { PaymentService } from './payment.service';
 import { RefundService } from './refund.service';
@@ -20,7 +21,7 @@ import { PayRequestPublicController } from './pay-request-public.controller';
     EventBusModule.forRoot({ serviceName: 'financial', outbox: true }),
     ScheduleModule.forRoot(),
   ],
-  controllers: [FinancialController, GrowthController, PayRequestPublicController, HealthController],
+  controllers: [FinancialController, GrowthController, PayRequestPublicController, HealthController, createJobsController('financial')],
   providers: [
     {
       provide: CHAPA_PROVIDER,
@@ -32,6 +33,8 @@ import { PayRequestPublicController } from './pay-request-public.controller';
     RefundService,
     PayoutService,
     InternalHttpClient,
+    FinancialJobs,
+    { provide: JOB_RUNNER, useFactory: (jobs: FinancialJobs) => jobs.runner, inject: [FinancialJobs] },
   ],
 })
 export class AppModule {}

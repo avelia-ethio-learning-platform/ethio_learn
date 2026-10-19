@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import { ChapaInitializeOptions, ChapaUnavailableError, LiveChapaProvider } from './chapa.provider';
 
 const KEY = 'CHASECK_TEST-fake';
@@ -127,8 +127,13 @@ describe('LiveChapaProvider.verify', () => {
     await expect(p.verify('TX-1')).resolves.toEqual({ status: 'pending', amount: null, currency: null });
   });
 
+  it('a non-numeric amount is not verified (null), never NaN, so the amount check refuses it', async () => {
+    fetchMock.mockResolvedValueOnce(verified('success', { amount: 'five hundred', currency: 'ETB' }));
+    await expect(new LiveChapaProvider().verify('TX-1')).resolves.toEqual({ status: 'success', amount: null, currency: 'ETB' });
+  });
+
   it('treats a 401 or 403 as unavailable and logs the key problem without the key', async () => {
-    const errorLog = jest.spyOn(require('@nestjs/common').Logger.prototype, 'error').mockImplementation(() => undefined);
+    const errorLog = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     for (const code of [401, 403]) {
       fetchMock.mockResolvedValueOnce(reply(code, { message: 'Invalid API Key' }));
       await expect(new LiveChapaProvider().verify('TX-1')).rejects.toBeInstanceOf(ChapaUnavailableError);

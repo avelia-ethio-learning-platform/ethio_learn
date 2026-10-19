@@ -8,7 +8,6 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Cron } from '@nestjs/schedule';
 import { In, IsNull, LessThan, MoreThan, Repository } from 'typeorm';
 import {
   courseLessonIds,
@@ -398,6 +397,7 @@ export class EnrollmentService implements OnModuleInit {
   private async announceMilestone(enrollment: Enrollment, learnerEmail: string, lessonIds: string[]) {
     if (enrollment.completed_at) return;
     const percent = await this.progressPercent(enrollment, lessonIds);
+    if (percent == null) return; // unknown now; the next lesson completion announces it
     const sent = enrollment.milestones_sent ?? [];
     const due = MILESTONES.filter((m) => percent >= m && !sent.includes(m));
     if (!due.length) return;
@@ -424,10 +424,9 @@ export class EnrollmentService implements OnModuleInit {
    * Inactivity nudges, daily at 06:00 UTC (09:00 Addis). An active, unfinished
    * enrollment with no activity for INACTIVITY_DAYS gets an in-app ping; if it
    * is still idle after INACTIVITY_EMAIL_DAYS it gets one email. Any activity
-   * resets the ladder (see touch()).
+   * resets the ladder (see touch()). The `inactivity` job (jobs.ts).
    */
-  @Cron('0 6 * * *')
-  async nudgeInactiveLearners(): Promise<void> {
+  async nudgeInactiveLearners(): Promise<{ sent: number }> {
     const inAppDays = envInt('INACTIVITY_DAYS', 7);
     const emailDays = envInt('INACTIVITY_EMAIL_DAYS', 14);
     const now = Date.now();
@@ -446,8 +445,8 @@ export class EnrollmentService implements OnModuleInit {
       : new Map<string, string>();
     const percents = await this.percentsOrNull(candidates, 'inactivity nudges');
     // Progress unknown (course asleep): send nothing and claim nothing, so the
-    // next run nudges with the real percentage instead of "0%".
-    if (!percents) return;
+    // next run nudges with the real percentage instead of "0%" (P1-18).
+    if (!percents) return { sent: 0 };
     let sent = 0;
     for (const e of candidates) {
       const since = e.last_activity_at ?? e.enrolled_at;
@@ -467,6 +466,7 @@ export class EnrollmentService implements OnModuleInit {
       sent += 1;
     }
     if (sent) this.logger.log(`inactivity nudges published: ${sent}`);
+    return { sent };
   }
 
   // ---- Analytics ---------------------------------------------------------
@@ -930,18 +930,25 @@ export class EnrollmentService implements OnModuleInit {
     }));
   }
 
-  private async progressPercent(enrollment: Enrollment, lessonIds?: string[]): Promise<number> {
+  /**
+   * Percent of the course's current lessons completed, or null when the course
+   * service can't be reached (P1-18): "unknown", never a made-up 0%.
+   */
+  private async progressPercent(enrollment: Enrollment, known?: string[]): Promise<number | null> {
+    let lessonIds: string[];
     try {
-      const lesson_ids =
-        lessonIds ??
-        (await this.internal.get<{ lesson_ids: string[] }>(internalPath`/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`)).lesson_ids;
-      if (lesson_ids.length === 0) return 0;
-      // Only count lessons that still exist (an educator may have removed some).
-      const done = await this.progress.count({ where: { enrollment_id: enrollment.id, lesson_id: In(lesson_ids) } });
-      return Math.min(100, Math.round((done / lesson_ids.length) * 100));
-    } catch {
-      return 0;
+      lessonIds =
+        known ??
+        (await this.internal.get<{ lesson_ids: string[] }>(internalPath`/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`))
+          .lesson_ids;
+    } catch (err) {
+      this.logger.warn(`progress of enrollment ${enrollment.id} unknown: ${(err as Error).message}`);
+      return null;
     }
+    if (lessonIds.length === 0) return 0;
+    // Only count lessons that still exist (an educator may have removed some).
+    const done = await this.progress.count({ where: { enrollment_id: enrollment.id, lesson_id: In(lessonIds) } });
+    return Math.min(100, Math.round((done / lessonIds.length) * 100));
   }
 
   private async ownerIdsFor(ctx: UserContext): Promise<string[]> {

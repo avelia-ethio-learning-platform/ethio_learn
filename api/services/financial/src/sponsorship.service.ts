@@ -153,35 +153,40 @@ export class SponsorshipService implements OnModuleInit {
     }
     const me = await this.user(ctx.id);
 
-    const s = await this.sponsorships.save(
-      this.sponsorships.create({
-        source: 'pay_request',
-        status: 'requested',
-        sponsor_id: null,
-        sponsor_name: '',
-        recipient_user_id: ctx.id,
-        recipient_email: (ctx.email || me.email).toLowerCase(),
+    // The request commits with its email to the payer (the outbox): the link goes out only
+    // here, and a repeat returns the open request without one, so it must not be lost.
+    return this.outbox.transaction(async (m, emit) => {
+      const rows = m.getRepository(Sponsorship);
+      const s = await rows.save(
+        rows.create({
+          source: 'pay_request',
+          status: 'requested',
+          sponsor_id: null,
+          sponsor_name: '',
+          recipient_user_id: ctx.id,
+          recipient_email: (ctx.email || me.email).toLowerCase(),
+          course_id: course.id,
+          course_title: course.title,
+          message: (dto.message ?? '').slice(0, 500),
+          organization_name: payerEmail, // remembered so the request shows who was asked
+          token: randomCode(24),
+        }),
+      );
+      const payUrl = payUrlFor(s.token);
+      emit<PayRequestCreatedPayload>('PayRequestCreated', {
+        sponsorship_id: s.id,
+        requester_id: ctx.id,
+        requester_name: me.name,
+        requester_email: me.email,
+        payer_email: payerEmail,
         course_id: course.id,
         course_title: course.title,
-        message: (dto.message ?? '').slice(0, 500),
-        organization_name: payerEmail, // remembered so the request shows who was asked
-        token: randomCode(24),
-      }),
-    );
-    const payUrl = payUrlFor(s.token);
-    await this.bus.publish<PayRequestCreatedPayload>('PayRequestCreated', {
-      sponsorship_id: s.id,
-      requester_id: ctx.id,
-      requester_name: me.name,
-      requester_email: me.email,
-      payer_email: payerEmail,
-      course_id: course.id,
-      course_title: course.title,
-      amount_etb: course.price_etb!,
-      message: s.message,
-      pay_url: payUrl,
+        amount_etb: course.price_etb!,
+        message: s.message,
+        pay_url: payUrl,
+      });
+      return { sponsorship_id: s.id, pay_url: payUrl, status: s.status };
     });
-    return { sponsorship_id: s.id, pay_url: payUrl, status: s.status };
   }
 
   /** Public landing data for /pay/:token — no PII beyond first name + course. */
@@ -346,7 +351,14 @@ export class SponsorshipService implements OnModuleInit {
     return out;
   }
 
-  /** Assign seats to employee emails; existing accounts get access now, others on signup. */
+  /**
+   * Assign seats to employee emails; existing accounts get access now, others on signup.
+   * The account lookups run first; then ONE transaction locks the order row (FOR UPDATE),
+   * recounts the seats in use and inserts, so concurrent requests can neither exceed the
+   * order's seats nor give one email two seats (P2-03). An email a concurrent request
+   * assigned first is reported as `already_assigned`. The unique index on
+   * (bulk_purchase_id, recipient_email) over live seats backs this up.
+   */
   async assignSeats(ctx: UserContext, bulkId: string, emails: string[]) {
     const order = await this.bulk.findOne({ where: { id: bulkId } });
     if (!order) throw new NotFoundException('Bulk purchase not found');
@@ -361,14 +373,24 @@ export class SponsorshipService implements OnModuleInit {
     if (clean.length > remaining) throw new BadRequestException(`Only ${remaining} seat(s) left on this purchase`);
 
     const buyer = await this.user(ctx.id);
-    const results: { email: string; status: string }[] = [];
+    // Looked up before the transaction, so no internal call holds the order's lock.
+    const lookups: { email: string; recipient: UserInfo | null; enrolled: boolean }[] = [];
     for (const email of clean) {
-      // Looked up before the transaction, so no internal call holds it open.
       const recipient = await this.userByEmail(email);
-      const enrolled = recipient ? await this.entitled(recipient.id, order.course_id) : false;
-      // The seat commits with its SponsorshipGranted or SponsorshipInvited (the outbox).
-      const status = await this.outbox.transaction(async (m, emit) => {
-        const seats = m.getRepository(Sponsorship);
+      lookups.push({ email, recipient, enrolled: recipient ? await this.entitled(recipient.id, order.course_id) : false });
+    }
+
+    // The seats commit with their SponsorshipGranted or SponsorshipInvited (the outbox).
+    const results = await this.outbox.transaction(async (m, emit) => {
+      await m.getRepository(BulkPurchase).findOne({ where: { id: order.id }, lock: { mode: 'pessimistic_write' } });
+      const seats = m.getRepository(Sponsorship);
+      const taken = new Set((await seats.find({ where: { bulk_purchase_id: order.id, status: Not('cancelled') } })).map((s) => s.recipient_email));
+      const fresh = lookups.filter((l) => !taken.has(l.email));
+      const left = order.seats - taken.size;
+      if (fresh.length > left) throw new BadRequestException(`Only ${left} seat(s) left on this purchase`);
+
+      const out: { email: string; status: string }[] = lookups.filter((l) => taken.has(l.email)).map((l) => ({ email: l.email, status: 'already_assigned' }));
+      for (const { email, recipient, enrolled } of fresh) {
         const s = await seats.save(
           seats.create({
             source: 'bulk',
@@ -387,20 +409,20 @@ export class SponsorshipService implements OnModuleInit {
         );
         if (!recipient) {
           emit<SponsorshipInvitedPayload>('SponsorshipInvited', this.invitedPayload(s));
-          return 'invited';
-        }
-        if (enrolled) {
+          out.push({ email, status: 'invited' });
+        } else if (enrolled) {
           s.status = 'granted';
           s.granted_at = new Date();
           await seats.save(s);
-          return 'already_enrolled';
+          out.push({ email, status: 'already_enrolled' });
+        } else {
+          await this.grant(m, emit, s);
+          out.push({ email, status: 'granted' });
         }
-        await this.grant(m, emit, s);
-        return 'granted';
-      });
-      results.push({ email, status });
-    }
-    return { assigned: results.length, results };
+      }
+      return out;
+    });
+    return { assigned: results.filter((r) => r.status !== 'already_assigned').length, results };
   }
 
   // ---- Views -------------------------------------------------------------

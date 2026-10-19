@@ -12,6 +12,7 @@ import { statusLabel } from '@/lib/labels';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { percentLabel, percentWidth } from '@/lib/progress';
 
 interface Quote {
   course_title: string;
@@ -215,10 +216,9 @@ function BulkOrder({ order: o }: { order: any }) {
                 {a.progress ? (
                   <span className="flex items-center gap-2">
                     <span className="progress-track w-24">
-                      <span className="progress-fill block" style={{ width: `${a.progress.progress_percent ?? 0}%` }} />
+                      <span className="progress-fill block" style={{ width: percentWidth(a.progress.progress_percent) }} />
                     </span>
-                    {a.progress.progress_percent == null ? '—' : `${a.progress.progress_percent}%`}
-                    {a.progress.lessons_complete ? ' ✓' : ''}
+                    {percentLabel(a.progress.progress_percent)}{a.progress.lessons_complete ? ' ✓' : ''}
                   </span>
                 ) : (
                   <span className="text-gray-500">{a.status === 'pending_claim' ? 'invited — not signed up yet' : statusLabel(a.status).label}</span>
