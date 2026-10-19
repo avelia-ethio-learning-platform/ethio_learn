@@ -139,6 +139,7 @@ In numbers (at `main`):
   - an AI plagiarism score.
 - Decisions are approve, request changes, flag or reject, for new courses, revisions, appeals and post-publish reviews.
 - A revision can't be approved until the officer has watched every new video and opened every new assessment. The review uses a word-level diff in `/preview/[id]?revision=`.
+- Officers see only courses in review, live or flagged: not drafts, institution review or archived ones.
 
 ### Platform admin
 - **Admin** `/admin`, with ten tabs (the tab is kept in the URL):
@@ -160,7 +161,9 @@ In numbers (at `main`):
 - **Payments:**
   - Chapa checkout, then a signed webhook, then a server-side re-check of amount and currency, then a confirmation that happens exactly once.
   - Also the wallet, 100% coupons, and admin-recorded bank transfers.
-  - Without Chapa keys, a local mock checkout `/dev/checkout` sends a real signed webhook. Production refuses mock mode.
+  - A repeat Buy of the same course within 60 minutes returns the open checkout instead of a new one.
+  - An unpaid Chapa checkout turns "Failed" after 48 h, with no notice; a late payment still confirms it.
+  - Without Chapa keys, a local mock checkout `/dev/checkout` sends a real signed webhook. Production refuses mock mode, and `/dev/checkout` is a 404 on Vercel production.
 - **Refunds:**
   - within 7 days and under 20% progress: approved automatically;
   - 20–50%: an admin decides;
@@ -275,6 +278,7 @@ The work runs as numbered phases. Each has a plan, a reviewed plan, an implement
 | 12b (#60) | The same polish for the course page, checkout, the learner path, certificates and dashboards. |
 | 13a (#55) | Product gaps: per-user read state for role notifications, institution admins on the teach pages, and a course language. |
 | 13b (#58) | Product gaps: quizzes open in the exam room with results for educators, course comments, admin tools and a Messages link. |
+| P2 wave (#64–#74) | Next.js 16 and Nest 11; checkout reuse and expiry of abandoned checkouts; quality officers limited to reviewable courses; paged comments and polish. |
 
 ### In progress
 | Phase | What it delivers |

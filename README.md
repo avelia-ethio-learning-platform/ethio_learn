@@ -7,7 +7,7 @@ Educator-first online learning marketplace for Ethiopia, live at **https://ethio
 
 **The stack:**
 - 7 NestJS microservices behind one NestJS API gateway;
-- a Next.js 14 frontend with an **English + Amharic** UI;
+- a Next.js 16 frontend with an **English + Amharic** UI;
 - PostgreSQL (a schema per service), RabbitMQ, Redis and S3-compatible storage.
 
 It started as the MVP of the EthiopiaLearn build specification (v3), and is being refined phase by phase (see [Project status](#project-status)).
@@ -229,7 +229,7 @@ api/                  backend pnpm workspace (own lockfile + Dockerfile)
     common/           event bus (RabbitMQ), guards, TypeORM helper, bootstrap
     storage/          S3/MinIO signed-URL provider (VideoStorageProvider)
     ai/               Groq LLM assessor (AI viva, plagiarism, generation) + offline mock
-web/                  standalone Next.js 14 App Router frontend (own lockfile + Dockerfile)
+web/                  standalone Next.js 16 App Router frontend (own lockfile + Dockerfile)
 docker/               postgres schema init (used by docker-compose)
 scripts/              demo-seed.mjs and e2e-*.mjs API flows, lint-check.mjs, start/stop helpers
 docs/                 deployment, API reference, features and roadmap, color system, plans, history
