@@ -11,6 +11,7 @@ import { useT, type TKey } from '@/lib/i18n';
 import { MessageSquare } from 'lucide-react';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { usePollInterval } from '@/lib/use-poll-interval';
 
 interface CommentRow {
   id: string;
@@ -65,10 +66,12 @@ export function CommentsSection({ courseId }: { courseId: string }) {
   const { user, ready } = useAuth();
   const { t } = useT();
   const queryClient = useQueryClient();
+  const pollMs = usePollInterval(15_000);
   const { data: latest } = useQuery({
     queryKey: ['comments', courseId],
     queryFn: async () => normalizeComments(await api<CommentRow[] | CommentsPage>(`/courses/${courseId}/comments?paged=1`, { auth: false })),
-    refetchInterval: 15_000,
+    refetchInterval: pollMs,
+    refetchOnWindowFocus: 'always',
   });
   // Everything shown when "Load earlier" was last used, plus the older page; the
   // newest page keeps refreshing on its own and its copy of a row wins.
