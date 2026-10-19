@@ -144,7 +144,7 @@ async function main() {
 
   // ---- rate limiting (opt-in: pollutes the limiter for ~1 min) ----
   if (process.env.E2E_CHECK_RATE_LIMIT === '1') {
-    // The e2e stack raises the limit for per-test Playwright logins (api/.env.example), so go past it.
+    // The e2e stack raises the limit for per-test Playwright logins (scripts/start-backend.sh, api/.env in CI), so go past it.
     let limited = false;
     const attempts = Number(process.env.RATE_LIMIT_AUTH_STRICT_PER_MIN ?? 10) + 5;
     for (let i = 0; i < attempts; i += 1) {

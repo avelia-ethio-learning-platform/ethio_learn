@@ -20,6 +20,10 @@ test.describe('signed in', () => {
     const stored = await page.evaluate(() => Object.entries(localStorage).map(([k, v]) => `${k}=${v}`));
     expect(stored.some((s) => s.startsWith('el_auth='))).toBe(false);
     expect(stored.filter((s) => /eyJ[\w-]+\.[\w-]+\.[\w-]+/.test(s)), 'no JWT in localStorage').toEqual([]);
+    // The rotated refresh cookie: HttpOnly, Lax, scoped to the auth routes.
+    const cookies = (await page.context().cookies()).filter((c) => c.name === 'el_refresh');
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toMatchObject({ httpOnly: true, sameSite: 'Lax', path: '/api/v1/auth' });
   });
 
   test('two tabs booting at once both stay signed in, with no rejected refresh', async ({ page }) => {

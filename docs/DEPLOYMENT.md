@@ -60,13 +60,13 @@ All configuration is environment variables. `render.yaml` holds the shared group
 | gateway | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CORS_ORIGINS`/`WEB_URL`, one `*_SERVICE_URL` per service, `JOBS_TOKEN`, `WEB_PROXY_SECRET` | The only place service addresses exist. `WEB_PROXY_SECRET`: see Auth transport below. `CORS_ORIGINS` replaces the `WEB_URL` default rather than extending it. The rate limiter (`RATE_LIMIT_*`) is in memory, per instance. `JOBS_TOKEN` (gateway only, a long random value) authenticates `/api/v1/jobs/*`; unset, those routes answer 401. |
 | GitHub Actions | secret `JOBS_TOKEN` (same value), variable `RENDER_SERVICE_URLS` (the eight public `/health` URLs, comma-separated) | Used by the `jobs` workflow (below). Until both are set it stops at its first step. |
 | every service | `DATABASE_URL`, `RABBITMQ_URL`, `JWT_SECRET`, `INTERNAL_API_TOKEN`, `GATEWAY_INTERNAL_URL` | `PORT` is injected by Render. |
-| auth | + `REDIS_URL`, `WEB_URL`, `COOKIE_SAMESITE=lax` | |
+| auth | + `REDIS_URL`, `WEB_URL`, `COOKIE_SAMESITE=lax` | `lax` only once the 11b web is live (Auth transport, below). |
 | course | + `S3_*`, `GROQ_API_KEY` | |
 | outcomes | + `S3_*`, `GROQ_API_KEY`, `CERT_SIGNING_SECRET` | |
 | financial | + `CHAPA_MODE`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `CHAPA_FALLBACK_EMAIL`, `GATEWAY_PUBLIC_URL`, `WEB_URL` | Register `<GATEWAY_PUBLIC_URL>/api/v1/payments/webhook/chapa` in the Chapa dashboard. `CHAPA_WEBHOOK_SECRET` is the dashboard's webhook secret hash, not a `CHAPUBK_…` public key. |
 | quality | + `GROQ_API_KEY` | |
 | notification | + `SMTP_*` (or `BREVO_API_KEY`/`RESEND_API_KEY`), `EMAIL_FROM`, `PLATFORM_ADMIN_EMAIL`, `SUPPORT_EMAIL`, `WEB_URL` | `EMAIL_FROM` must be a Brevo-verified sender. |
-| web (Vercel) | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_WAKE_URLS`, `NEXT_PUBLIC_MEDIA_ORIGINS`, `CSP_ENFORCE`, `WEB_PROXY_SECRET` (server-only), `GATEWAY_INTERNAL_URL` (optional) | The production build fails when `NEXT_PUBLIC_SITE_URL` is unset, not `https://` or a placeholder. The last two set the Content Security Policy (below). |
+| web (Vercel) | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_WAKE_URLS`, `NEXT_PUBLIC_MEDIA_ORIGINS`, `CSP_ENFORCE`, `WEB_PROXY_SECRET` (server-only), `GATEWAY_INTERNAL_URL` (optional) | The production build fails when `NEXT_PUBLIC_SITE_URL` is unset, not `https://` or a placeholder, or when `WEB_PROXY_SECRET` is unset or under 32 characters. The last two set the Content Security Policy (below). |
 
 **Secrets.** `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` are long random values, at least 32 characters. With `NODE_ENV=production`, every service and the gateway refuse to boot when:
 - a secret they need is missing, shorter than 32 characters or a value from the repo;
@@ -88,9 +88,13 @@ The log names each variable, never its value, so a failed boot says what to set.
 
 - **What goes through the web origin:** `/api/v1/auth/*` and `PUT /api/v1/profiles/password`, via Next route handlers (`web/src/lib/gateway-proxy.ts`). They set or read the refresh cookie, which is now `SameSite=Lax` on the web host, so Safari's and Brave's third-party cookie blocking no longer signs anyone out. Every other call goes straight to the gateway with the bearer token and no cookies.
 - **Tokens:** the access token lives in memory only. `localStorage.el_session` holds the public user as a hint; with it, each page load runs one refresh.
-- **`WEB_PROXY_SECRET`:** one long random value, set on **Vercel** (Production, a plain server variable, never `NEXT_PUBLIC_`) and on the **Render gateway** only. With it, the gateway keys the login and `/auth` limits by the browser's IP (`x-web-client-ip`) instead of Vercel's. Never set it for a self-hosted web (`web/Dockerfile`): its proxy doesn't overwrite `x-forwarded-for`. Unset, the gateway keys by the proxy's IP: safe, but coarse.
+- **`WEB_PROXY_SECRET`:** one long random value, set on **Vercel** (Production, a plain server variable, never `NEXT_PUBLIC_`) and on the **Render gateway** only. With it, the gateway keys the login and `/auth` limits by the browser's IP (`x-web-client-ip`) instead of Vercel's. Never set it for a self-hosted web (`web/Dockerfile`): its proxy doesn't overwrite `x-forwarded-for`. Unset, the gateway keys by the proxy's IP: safe, but coarse. Both sides trim it; a mismatch logs `x-web-proxy-secret does not match` on the gateway (at most once a minute). Keep it Production-only, with Vercel Deployment Protection on: previews proxy auth server-to-server, so CORS no longer keeps them off production auth.
 - **Refresh limit:** per refresh token, `RATE_LIMIT_AUTH_REFRESH_PER_MIN` (10). A rotated token still works for 30 s and returns the same successor, so a lost response isn't a sign-out.
-- **Deploying it:** set the secret on both before the merge (Vercel reads env at build time), and merge at a quiet time: until the gateway deploys, `/auth` limits key by Vercel's egress IP. Everyone signs in once more afterwards, because the old cookies live on the API host. Watch for 5xx on `/api/v1/auth/*` after the deploy.
+- **Deploying it, in this order** (the old web calls the API host cross-site, so a Lax cookie there would end every session at the 15-minute expiry):
+  1. Before the merge: set `WEB_PROXY_SECRET` on the Render gateway (old code ignores it) and on Vercel (Production only). Check Vercel's gateway URL is `https://`. Leave `COOKIE_SAMESITE=none`.
+  2. Merge at a quiet time. The web goes live first and works with the old cookie. Until the gateway deploys (up to ~45 min), `/auth` limits key by Vercel's egress IP.
+  3. Once the new web is live, set `COOKIE_SAMESITE=lax` on auth. Check that a login sets `el_refresh` with `SameSite=Lax; HttpOnly; Secure; Path=/api/v1/auth` on the web host and a reload's refresh answers 200. Everyone signs in once more. Watch 5xx and 429 on `/api/v1/auth/*`.
+  4. Rollback: a Vercel instant rollback plus `COOKIE_SAMESITE=none`. The API side is backward compatible.
 
 ## Cold starts and waking
 

@@ -121,6 +121,8 @@ envVarGroups:
         value: "5"
       # /api/v1/auth/* reaches auth through the web's own route handlers, so the
       # refresh cookie is first-party on the web host and Lax is enough (Phase 11b).
+      # Only once the 11b web is live; a rollback of the web needs `none` again
+      # (docs/DEPLOYMENT.md, Auth transport).
       - key: COOKIE_SAMESITE
         value: lax
 

@@ -268,7 +268,8 @@ Line numbers at `62e29a1` (the Phase 5 branch); 6a, 7b and 9c–9e touch some of
 2. **The deploy skew (11a):** the web goes live up to about 45 minutes before the API.
    - New web against the old API works: the old gateway sets the cookie with `SameSite=None; Secure` on the web host, and it's sent same-origin.
    - Until the gateway deploys, though, it doesn't know the secret, so `/auth` rate limits key by Vercel's egress IP and are shared by everyone. That's acceptable before launch. Merge at a quiet time.
-3. **After deploy:** everyone signs in once more, because old refresh cookies live on the API host. Say so in the release note.
+3. **Once the new web is live, set `COOKIE_SAMESITE=lax`** (review B1): before that, the old web's cross-site refresh never sends a Lax cookie. Check the cookie's attributes on the web host and a reload's 200. Everyone signs in once more, because old refresh cookies live on the API host. Say so in the release note.
+   - **Rollback:** a Vercel instant rollback plus `COOKIE_SAMESITE=none`.
 4. **Optional check:** on a real iPhone, sign in, wait 16 minutes, and use the app; you should still be signed in.
 
 ## Risks and open questions
@@ -290,5 +291,6 @@ Implemented 2026-10-18/19 on `fix/auth-transport` (PR #53, draft), built from th
   - `auth.setup.ts` still logs each role in through the form (P0-11) and saves only its access token for API-level calls (`tokenFor`); browser specs use `loggedInAs`;
   - the password-change spec uses the quality officer and restores the seeded password through the API in `finally`;
   - `requireInternalToken()` extracted from `bootstrapService()` to test it;
-  - e2e limits live in `api/.env.example` (300 login / 600 auth per min, local and CI); the smoke loop reads the stack's value; `sleep 60` removed;
+  - e2e limits (300 login / 600 auth / 600 write per min) are set by `start-backend.sh` and CI's `api/.env`, not `.env.example`; the smoke loop reads the stack's value; `sleep 60` removed;
+  - code review (B1, B2, S1, S2, N1–N6): rollout order, the 32-char build guard and mismatch warning, a `Sec-Fetch-Site` check on proxied writes, cookie-attribute tests, a response-header allowlist, logout under the refresh lock, IPv6 /64 expansion, byte-length secret compare, checked MULTI results;
   - 9d's access-log `ip` is left to 9d (A1): it should read `clientIpOf(req)` from `auth-middleware.ts`.
