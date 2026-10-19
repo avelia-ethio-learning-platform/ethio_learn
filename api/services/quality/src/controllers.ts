@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { CurrentUser, InternalGuard, pageQuery, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { FraudSubjectType, QaDecisionAction, Role, TrustTier } from '@ethiopialearn/contracts';
@@ -129,7 +129,12 @@ export class QualityController {
   @Post('fraud/signals')
   @UseGuards(RolesGuard)
   @Roles(Role.PLATFORM_ADMIN, Role.QUALITY_OFFICER)
-  raiseSignal(@Body() dto: FraudSignalDto) {
+  async raiseSignal(@CurrentUser() ctx: UserContext, @Body() dto: FraudSignalDto) {
+    // A payee_id makes financial hold that payee's payouts, and only an admin can
+    // clear it, so only an admin may set it; a QO's signal goes to the admin queue.
+    if (dto.payee_id && ctx.role !== Role.PLATFORM_ADMIN) {
+      throw new ForbiddenException("Only a platform admin can hold a payee's payouts");
+    }
     return this.service.raiseFraudSignal({
       subject_type: dto.subject_type,
       subject_id: dto.subject_id,
