@@ -2,6 +2,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { en, type Dictionary, type TKey } from './i18n-en';
+import { readStoredSetting, useStoredSetting, writeStoredSetting } from './stored-setting';
+
+const LOCALE_KEY = 'el_locale';
 
 /**
  * Lightweight en/am i18n for the UI. Course content itself stays in the
@@ -29,28 +32,21 @@ const I18nContext = createContext<{ locale: Locale; t: (k: TKey, vars?: Vars) =>
 });
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [chosen, setChosen] = useState<Locale>('en');
+  // The saved choice; English in the server HTML (static and ISR pages can't know it).
+  const saved = useStoredSetting('localStorage', LOCALE_KEY);
+  const chosen: Locale = saved === 'am' ? 'am' : 'en';
   const [am, setAm] = useState<Dictionary | null>(amLoaded);
 
   useEffect(() => {
-    const saved = localStorage.getItem('el_locale');
-    if (saved === 'am' || saved === 'en') {
-      setChosen(saved);
-      document.documentElement.lang = saved;
-    }
-  }, []);
+    if (saved === 'am' || saved === 'en') document.documentElement.lang = saved;
+  }, [saved]);
 
   useEffect(() => {
     if (chosen === 'am' && !am) void loadAm().then(setAm, () => undefined);
   }, [chosen, am]);
 
   const toggle = useCallback(() => {
-    setChosen((prev) => {
-      const next = prev === 'en' ? 'am' : 'en';
-      localStorage.setItem('el_locale', next);
-      document.documentElement.lang = next;
-      return next;
-    });
+    writeStoredSetting('localStorage', LOCALE_KEY, readStoredSetting('localStorage', LOCALE_KEY) === 'am' ? 'en' : 'am');
   }, []);
 
   // English until the Amharic strings are in, so text, prices and dates switch together.

@@ -29,9 +29,12 @@ export function TutorPanel({ courseId }: { courseId: string }) {
   const [open, setOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // A new history from the server replaces the list (adjusted while rendering, not in an effect).
+  const [shownHistory, setShownHistory] = useState<Message[] | undefined>(undefined);
+  if (history !== shownHistory) {
+    setShownHistory(history);
     if (history) setMessages(history);
-  }, [history]);
+  }
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'nearest' });
   }, [messages, open]);

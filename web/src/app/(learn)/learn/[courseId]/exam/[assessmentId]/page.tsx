@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Ban, Camera, Check, CircleX, Clock, Eye, Loader2, PartyPopper, Sparkles, X } from 'lucide-react';
@@ -77,7 +77,9 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
   const attemptRef = useRef<StartedAttempt | null>(null);
   const responsesRef = useRef(responses);
   const endedRef = useRef(false);
-  responsesRef.current = responses;
+  useLayoutEffect(() => {
+    responsesRef.current = responses;
+  });
 
   const proctored = !!meta?.proctored;
 
@@ -166,7 +168,9 @@ function ExamRoom({ courseId, assessmentId }: { courseId: string; assessmentId: 
     },
     [endExam],
   );
-  handleViolationRef.current = handleViolation;
+  useLayoutEffect(() => {
+    handleViolationRef.current = handleViolation;
+  });
 
   const start = async () => {
     clearStatus();

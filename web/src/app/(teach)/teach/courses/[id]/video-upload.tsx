@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ImagePlus, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
@@ -241,10 +241,11 @@ export function LessonUploadsProvider({
   children: ReactNode;
 }) {
   const store = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  const [records, setRecords] = useState<ResumableUploadInfo[]>([]);
   const [recordsVersion, setRecordsVersion] = useState(0);
   const onChangedRef = useRef(onChanged);
-  onChangedRef.current = onChanged;
+  useLayoutEffect(() => {
+    onChangedRef.current = onChanged;
+  });
 
   // Refetch when an upload attaches, including one that finished while this page was not mounted.
   useEffect(() => {
@@ -260,9 +261,15 @@ export function LessonUploadsProvider({
   }, [courseId]);
 
   // Resume records live in this browser's localStorage (see upload.ts); ones still uploading in this tab are left out.
-  useEffect(() => {
+  // Re-read while rendering when an upload starts or settles (store.version) or a record is dropped
+  // (recordsVersion); reading also prunes expired records, which is idempotent.
+  const recordsKey = `${userId}|${courseId}|${recordsVersion}|${store.version}`;
+  const [recordsFor, setRecordsFor] = useState<string | null>(null);
+  const [records, setRecords] = useState<ResumableUploadInfo[]>([]);
+  if (recordsFor !== recordsKey) {
+    setRecordsFor(recordsKey);
     setRecords(userId ? listResumableUploads(userId, { courseId }) : []);
-  }, [userId, courseId, recordsVersion, store.version]);
+  }
   const refreshRecords = useCallback(() => setRecordsVersion((v) => v + 1), []);
 
   const uploads = useMemo(() => {

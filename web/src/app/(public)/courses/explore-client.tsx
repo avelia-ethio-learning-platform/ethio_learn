@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronLeft, ChevronRight, Compass, Languages, RotateCcw, Search, SearchX, SlidersHorizontal, Tag, X } from 'lucide-react';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
@@ -86,8 +86,12 @@ export function ExploreClient({
   const [isPending, startTransition] = useTransition();
   const [searchText, setSearchText] = useState(filters.q ?? '');
 
-  // Keep the input in sync when q changes elsewhere (chip removal, back/forward).
-  useEffect(() => setSearchText(filters.q ?? ''), [filters.q]);
+  // Keep the input in sync when q changes elsewhere (chip removal, back/forward); adjusted while rendering.
+  const [syncedQ, setSyncedQ] = useState(filters.q);
+  if (filters.q !== syncedQ) {
+    setSyncedQ(filters.q);
+    setSearchText(filters.q ?? '');
+  }
 
   const activeCategory = CATEGORIES.find((c) => c === filters.category);
   const activePricing = PRICING.find((p) => p === filters.pricing_type);
@@ -100,7 +104,7 @@ export function ExploreClient({
 
   // The grid crossfades only when its results change; the first results paint as they are (no enter on load).
   const resultsKey = `${filters.q ?? ''}|${activeCategory ?? ''}|${activePricing ?? ''}|${activeLanguage ?? ''}|${activeSort}|${page}|${limit}`;
-  const firstResultsKey = useRef(resultsKey);
+  const [firstResultsKey] = useState(resultsKey);
 
   const totalPages = Math.max(Math.ceil(total / limit), 1);
   const from = total === 0 ? 0 : (page - 1) * limit + 1;
@@ -325,7 +329,7 @@ export function ExploreClient({
             <div
               key={resultsKey}
               data-testid="results"
-              className={`${resultsKey === firstResultsKey.current ? '' : 'fade-in '}grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3`}
+              className={`${resultsKey === firstResultsKey ? '' : 'fade-in '}grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3`}
             >
               {courses.map((c) => (
                 <CourseCard key={c.id} course={c} />

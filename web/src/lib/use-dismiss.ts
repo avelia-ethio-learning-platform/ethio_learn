@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, type RefObject } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, type RefObject } from 'react';
 
 export const OVERLAY_OPEN_EVENT = 'el-overlay-open';
 
@@ -24,7 +24,9 @@ interface UseDismissOptions {
 export function useDismiss({ open, onClose, containerRef, triggerRef, closeOnOtherOpen = true }: UseDismissOptions) {
   const id = useId();
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;

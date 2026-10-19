@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buyBullets, findPrimaryAction, hasPlayablePreview, scrollBehavior, sectionHasPreview } from './course-page';
+import { buyBullets, findPrimaryAction, hasPlayablePreview, recentlyUpdated, scrollBehavior, sectionHasPreview } from './course-page';
 
 const section = (is_free_preview: boolean, ...videos: boolean[]) => ({
   is_free_preview,
@@ -73,5 +73,20 @@ describe('scrollBehavior', () => {
     expect(scrollBehavior()).toBe('smooth');
     stub(true);
     expect(scrollBehavior()).toBe('auto');
+  });
+});
+
+describe('recentlyUpdated', () => {
+  const now = Date.parse('2026-10-19T12:00:00Z');
+
+  it('is on for a major update within the last 30 days', () => {
+    expect(recentlyUpdated('2026-10-18T12:00:00Z', now)).toBe(true);
+    expect(recentlyUpdated('2026-09-20T12:00:01Z', now)).toBe(true);
+  });
+
+  it('is off from 30 days on, and without a major update', () => {
+    expect(recentlyUpdated('2026-09-19T12:00:00Z', now)).toBe(false);
+    expect(recentlyUpdated(null, now)).toBe(false);
+    expect(recentlyUpdated(undefined, now)).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type Hls from 'hls.js';
@@ -88,7 +88,9 @@ function Player({ courseId }: { courseId: string }) {
   const [watermark, setWatermark] = useState('');
   const [showChangelog, setShowChangelog] = useState(search.get('changelog') === '1');
   const activeIdRef = useRef<string | null>(null);
-  activeIdRef.current = activeId;
+  useLayoutEffect(() => {
+    activeIdRef.current = activeId;
+  });
 
   // Tear down any HLS instance when leaving the page.
   useEffect(() => () => hlsRef.current?.destroy(), []);

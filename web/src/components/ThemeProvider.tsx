@@ -1,6 +1,7 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from 'react';
+import { useStoredSetting, writeStoredSetting } from '@/lib/stored-setting';
 import { THEME_COLOR_DARK, THEME_COLOR_LIGHT, THEME_STORAGE_KEY as STORAGE_KEY } from '@/lib/theme-script';
 
 /**
@@ -22,8 +23,12 @@ const ThemeContext = createContext<ThemeContextType>({
   isDark: false,
 });
 
-function systemPrefersDark(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+const DARK_QUERY = '(prefers-color-scheme: dark)';
+
+function subscribeSystemDark(onChange: () => void) {
+  const mq = window.matchMedia(DARK_QUERY);
+  mq.addEventListener('change', onChange);
+  return () => mq.removeEventListener('change', onChange);
 }
 
 /**
@@ -38,30 +43,16 @@ export function syncThemeColorMeta(theme: Theme) {
   });
 }
 
-function resolveIsDark(theme: Theme): boolean {
-  return theme === 'dark' || (theme === 'system' && systemPrefersDark());
+function parseTheme(saved: string | null): Theme {
+  return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('system');
-  const [isDark, setIsDark] = useState(false);
-
-  // Initialize from localStorage (the pre-hydration script already set the class).
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
-    const initial: Theme = saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
-    setThemeState(initial);
-    setIsDark(resolveIsDark(initial));
-  }, []);
-
-  // Follow OS preference while in `system` mode.
-  useEffect(() => {
-    if (theme !== 'system') return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = (e: MediaQueryListEvent) => setIsDark(e.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, [theme]);
+  // The saved theme (the pre-hydration script already set the class); `system` in the server HTML.
+  const theme = parseTheme(useStoredSetting('localStorage', STORAGE_KEY));
+  // Follows the OS preference live; only used in `system` mode.
+  const systemDark = useSyncExternalStore(subscribeSystemDark, () => window.matchMedia(DARK_QUERY).matches, () => false);
+  const isDark = theme === 'dark' || (theme === 'system' && systemDark);
 
   // Reflect state onto <html>.
   useEffect(() => {
@@ -80,11 +71,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => observer.disconnect();
   }, [theme]);
 
-  const setTheme = useCallback((next: Theme) => {
-    setThemeState(next);
-    localStorage.setItem(STORAGE_KEY, next);
-    setIsDark(resolveIsDark(next));
-  }, []);
+  const setTheme = useCallback((next: Theme) => writeStoredSetting('localStorage', STORAGE_KEY, next), []);
 
   return <ThemeContext.Provider value={{ theme, setTheme, isDark }}>{children}</ThemeContext.Provider>;
 }

@@ -1,10 +1,14 @@
+import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { ThemeProvider, useTheme, type Theme } from './ThemeProvider';
 
 let setThemeRef: (t: Theme) => void = () => undefined;
 function Probe() {
-  setThemeRef = useTheme().setTheme;
+  const { setTheme } = useTheme();
+  useEffect(() => {
+    setThemeRef = setTheme;
+  }, [setTheme]);
   return null;
 }
 

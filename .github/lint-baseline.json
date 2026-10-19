@@ -9,6 +9,6 @@
   },
   "web": {
     "import/no-anonymous-default-export": 2,
-    "react-hooks/exhaustive-deps": 2
+    "react-hooks/exhaustive-deps": 1
   }
 }

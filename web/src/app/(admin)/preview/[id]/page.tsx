@@ -630,11 +630,14 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
   const recordKey = diff?.revision?.id ?? revisionId;
   const [record, setRecord] = useState<VideosReviewedRecord | null>(null);
 
-  // dataUpdatedAt: a successful retry must clear a stored load failure even when the diff is unchanged.
-  useEffect(() => {
-    if (!diff || assessmentsUnavailable) return;
-    setRecord(syncVideosRecord(readVideosRecord(recordKey), itemId, videos.map((v) => v.lesson_id)));
-  }, [diff, dataUpdatedAt, assessmentsUnavailable, recordKey, itemId, videos]);
+  // Re-synced while rendering whenever one of these changes. dataUpdatedAt: a successful retry must
+  // clear a stored load failure even when the diff is unchanged.
+  const syncInputs = [diff, dataUpdatedAt, assessmentsUnavailable, recordKey, itemId, videos] as const;
+  const [syncedInputs, setSyncedInputs] = useState<readonly unknown[] | null>(null);
+  if (!syncedInputs || syncInputs.some((input, i) => !Object.is(input, syncedInputs[i]))) {
+    setSyncedInputs(syncInputs);
+    if (diff && !assessmentsUnavailable) setRecord(syncVideosRecord(readVideosRecord(recordKey), itemId, videos.map((v) => v.lesson_id)));
+  }
 
   useEffect(() => {
     if (record && !assessmentsUnavailable) writeVideosRecord(recordKey, record);
