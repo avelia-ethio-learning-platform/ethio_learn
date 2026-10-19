@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -36,6 +37,16 @@ export const PROCTOR_WARNING_LIMIT = 3;
 const PROCTOR_EVENT_TYPES = ['no_face', 'multiple_faces', 'tab_switch', 'copy_paste', 'other'] as const;
 /** ~97KB binary — screenshots are captured client-side as small JPEG thumbnails. */
 const SCREENSHOT_BASE64_MAX = 130_000;
+/**
+ * Proctor events kept per attempt, and allowed per attempt per minute. The web
+ * client fires each type at most once per 6 s and ends the exam at the 3rd of
+ * a type, so a real exam logs under 10; the caps only bound what one attempt
+ * can write to storage and to its jsonb log.
+ */
+export const PROCTOR_EVENTS_MAX = 30;
+export const PROCTOR_EVENTS_PER_MINUTE = 12;
+/** Questions in one quiz bank, and so the most entries a submission can carry. */
+export const QUIZ_QUESTIONS_MAX = 200;
 
 /** Statuses of a course that already passed quality review: new assessments on it wait for the next review. */
 const APPROVED_COURSE_STATUSES: string[] = [CourseStatus.PUBLISHED, CourseStatus.UNLISTED];
@@ -164,6 +175,7 @@ export class AssessmentService implements OnModuleInit {
     if (!Array.isArray(raw) || raw.length === 0) {
       throw new BadRequestException('Quiz requires config.questions[] (kind mcq: prompt/options/correct_index · kind written: prompt, optional guidance)');
     }
+    if (raw.length > QUIZ_QUESTIONS_MAX) throw new BadRequestException(`A quiz can have at most ${QUIZ_QUESTIONS_MAX} questions`);
     return raw.map((q: any, i: number) => {
       const prompt = String(q?.prompt ?? '').trim();
       if (!prompt) throw new BadRequestException(`Question ${i + 1}: prompt is required`);
@@ -680,6 +692,15 @@ export class AssessmentService implements OnModuleInit {
     if (attempt.learner_id !== ctx.id) throw new ForbiddenException('Not your attempt');
     if (attempt.submitted_at) throw new BadRequestException('Attempt already submitted');
 
+    const log = attempt.proctor_log ?? [];
+    if (log.length >= PROCTOR_EVENTS_MAX) {
+      throw new HttpException('Too many proctoring events for this attempt', HttpStatus.TOO_MANY_REQUESTS);
+    }
+    const minuteAgo = Date.now() - 60_000;
+    if (log.filter((e) => Date.parse(e.at) > minuteAgo).length >= PROCTOR_EVENTS_PER_MINUTE) {
+      throw new HttpException('Too many proctoring events, slow down', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     const type = (PROCTOR_EVENT_TYPES as readonly string[]).includes(dto.type) ? dto.type : 'other';
 
     let screenshotKey: string | null = null;
@@ -698,7 +719,7 @@ export class AssessmentService implements OnModuleInit {
     }
 
     attempt.proctor_log = [
-      ...(attempt.proctor_log ?? []),
+      ...log,
       { type, description: dto.description.slice(0, 300), at: new Date().toISOString(), screenshot_key: screenshotKey },
     ];
     attempt.flagged = true;

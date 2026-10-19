@@ -1,6 +1,6 @@
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException } from '@nestjs/common';
 import { AssessmentType, Role } from '@ethiopialearn/contracts';
-import { AssessmentService } from './assessment.service';
+import { AssessmentService, PROCTOR_EVENTS_MAX, PROCTOR_EVENTS_PER_MINUTE } from './assessment.service';
 
 /**
  * Anti-cheat behaviour of quizzes: per-attempt paper (subset + shuffle) that
@@ -302,5 +302,44 @@ describe('proctor events on an open attempt', () => {
     expect(Object.keys(updates[0]).sort()).toEqual(['flagged', 'proctor_log', 'terminated']);
     expect(row.proctor_log).toHaveLength(4);
     expect(row).toMatchObject({ flagged: true, terminated: true, submitted_at: null });
+  });
+
+  const olderEvent = (type: string, minutesAgo: number) => ({ ...event(type), at: new Date(Date.now() - minutesAgo * 60_000).toISOString() });
+  const shot = { type: 'tab_switch', description: 'x', screenshot_base64: 'aGVsbG8=' };
+
+  it(`refuses a 429 once the attempt holds ${PROCTOR_EVENTS_MAX} events, storing and writing nothing`, async () => {
+    const row = openRow(Array.from({ length: PROCTOR_EVENTS_MAX }, () => olderEvent('other', 5)));
+    const storage = { putObject: jest.fn(async () => undefined) };
+    const { svc, updates } = harness({ questions: bankOf(2) }, [row], storage);
+    const err = await svc.recordProctorEvent(learner, 'att-1', shot).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HttpException);
+    expect((err as HttpException).getStatus()).toBe(429);
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(updates).toEqual([]);
+    expect(row.proctor_log).toHaveLength(PROCTOR_EVENTS_MAX);
+  });
+
+  it(`refuses a 429 past ${PROCTOR_EVENTS_PER_MINUTE} events in the last minute, and accepts again once they age out`, async () => {
+    const recent = Array.from({ length: PROCTOR_EVENTS_PER_MINUTE }, () => event('other'));
+    const storage = { putObject: jest.fn(async () => undefined) };
+    const busy = harness({ questions: bankOf(2) }, [openRow(recent)], storage);
+    const err = await busy.svc.recordProctorEvent(learner, 'att-1', shot).catch((e: unknown) => e);
+    expect((err as HttpException).getStatus()).toBe(429);
+    expect(storage.putObject).not.toHaveBeenCalled();
+
+    const aged = Array.from({ length: PROCTOR_EVENTS_PER_MINUTE }, () => olderEvent('other', 2));
+    const calm = harness({ questions: bankOf(2) }, [openRow(aged)], storage);
+    await expect(calm.svc.recordProctorEvent(learner, 'att-1', shot)).resolves.toMatchObject({ recorded: true, count: 1 });
+    expect(storage.putObject).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a real exam\'s worst case: two of each type, then the terminating third', async () => {
+    const row = openRow();
+    const { svc } = harness({ questions: bankOf(2) }, [row], { putObject: jest.fn(async () => undefined) });
+    for (const type of ['no_face', 'multiple_faces', 'tab_switch', 'copy_paste', 'no_face', 'multiple_faces', 'tab_switch', 'copy_paste']) {
+      await expect(svc.recordProctorEvent(learner, 'att-1', { type, description: 'x', screenshot_base64: 'aGVsbG8=' })).resolves.toMatchObject({ terminate: false });
+    }
+    await expect(svc.recordProctorEvent(learner, 'att-1', shot)).resolves.toMatchObject({ terminate: true });
+    expect(row.proctor_log).toHaveLength(9);
   });
 });
