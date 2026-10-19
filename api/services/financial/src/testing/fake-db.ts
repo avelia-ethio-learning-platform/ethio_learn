@@ -1,4 +1,5 @@
 /// <reference types="jest" />
+import { AsyncLocalStorage } from 'async_hooks';
 import { FindOperator, QueryFailedError } from 'typeorm';
 import {
   BulkPurchase,
@@ -22,11 +23,14 @@ import {
  * on a throw.
  *
  * Statements are atomic, so a conditional update decides one winner between
- * two interleaved flows, as it does under Postgres row locks. There is no
- * isolation between concurrent transactions: a rollback restores the whole
- * store, so race tests should not make a transaction throw.
+ * two interleaved flows, as it does under Postgres row locks. A rollback undoes
+ * only its own transaction's writes, so a concurrent transaction's survive it.
+ * `find` / `findOne` with `lock` inside a transaction take row locks (FOR UPDATE)
+ * held until the outermost transaction ends. Reads are not isolated: a
+ * transaction sees another's uncommitted writes.
  */
 export type Row = Record<string, any>;
+type OrderValue = 'ASC' | 'DESC' | { direction: 'ASC' | 'DESC'; nulls?: 'FIRST' | 'LAST' };
 
 interface UniqueIndex {
   columns: string[];
@@ -75,6 +79,10 @@ const newId = (prefix: string) => `${prefix}-${++idSeq}`;
 
 export class FakeRepo {
   readonly metadata: { tablePath: string };
+  /** Set by fakeDb: records how to undo a write in the current transaction. */
+  onWrite: (undo: () => void) => void = () => undefined;
+  /** Set by fakeDb: takes FOR UPDATE locks on these rows for the current transaction. */
+  onLock: (keys: string[]) => Promise<void> = async () => undefined;
 
   constructor(
     readonly name: string,
@@ -95,22 +103,38 @@ export class FakeRepo {
     return null;
   }
 
+  /** Call before changing `row` in place, or with null before inserting a row with this id: a rollback puts it back. */
+  track(row: Row | null, id: string = row?.id): void {
+    const prev = row ? { ...row } : null;
+    this.onWrite(() => {
+      const i = this.rows.findIndex((r) => r.id === id);
+      if (prev === null) {
+        if (i !== -1) this.rows.splice(i, 1);
+      } else if (i === -1) this.rows.push(prev);
+      else this.rows[i] = prev;
+    });
+  }
+
   /** The row would break a unique index (for INSERT … ON CONFLICT DO NOTHING). */
   conflicts(candidate: Row): boolean {
     return this.violates(candidate) !== null;
   }
 
-  private select(opts: { where?: Row | Row[]; order?: Record<string, 'ASC' | 'DESC'>; take?: number } = {}): Row[] {
+  private select(opts: { where?: Row | Row[]; order?: Record<string, OrderValue>; take?: number } = {}): Row[] {
     let out = this.rows.filter((r) => matches(r, opts.where));
-    const order = Object.entries(opts.order ?? {});
+    const order = Object.entries(opts.order ?? {}).map(([key, v]) => {
+      const dir = typeof v === 'string' ? v : v.direction;
+      // Postgres: NULLS LAST for ASC, NULLS FIRST for DESC, unless `nulls` says otherwise.
+      const nullsFirst = typeof v === 'string' || !v.nulls ? dir === 'DESC' : v.nulls === 'FIRST';
+      return { key, dir, nullsFirst };
+    });
     if (order.length) {
       out = [...out].sort((a, b) => {
-        for (const [key, dir] of order) {
+        for (const { key, dir, nullsFirst } of order) {
           const [x, y] = [a[key], b[key]];
-          if (x === y) continue;
-          // Postgres: NULLS LAST for ASC, NULLS FIRST for DESC.
-          if (x == null) return dir === 'ASC' ? 1 : -1;
-          if (y == null) return dir === 'ASC' ? -1 : 1;
+          if (x === y || (x == null && y == null)) continue;
+          if (x == null) return nullsFirst ? -1 : 1;
+          if (y == null) return nullsFirst ? 1 : -1;
           return (x < y ? -1 : 1) * (dir === 'DESC' ? -1 : 1);
         }
         return 0;
@@ -120,12 +144,16 @@ export class FakeRepo {
   }
 
   create = jest.fn((x: Row) => ({ ...x }));
-  // `lock` (FOR UPDATE) is accepted and ignored: there is no isolation to model here.
-  find = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, 'ASC' | 'DESC'>; take?: number; lock?: unknown }) =>
-    this.select(opts).map((r) => ({ ...r })),
+  /** With `lock` (FOR UPDATE): waits for the rows' locks, then reads them again, as Postgres does. */
+  private async locked(opts: { where?: Row | Row[]; order?: Record<string, OrderValue>; take?: number; lock?: unknown } = {}): Promise<Row[]> {
+    if (opts.lock) await this.onLock(this.select(opts).map((r) => `${this.name}:${r.id}`));
+    return this.select(opts);
+  }
+  find = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, OrderValue>; take?: number; lock?: unknown }) =>
+    (await this.locked(opts)).map((r) => ({ ...r })),
   );
-  findOne = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, 'ASC' | 'DESC'> }) => {
-    const row = this.select(opts)[0];
+  findOne = jest.fn(async (opts?: { where?: Row | Row[]; order?: Record<string, OrderValue>; lock?: unknown }) => {
+    const row = (await this.locked(opts))[0];
     return row ? { ...row } : null;
   });
   count = jest.fn(async (opts?: { where?: Row | Row[] }) => this.select(opts).length);
@@ -135,6 +163,7 @@ export class FakeRepo {
     const clash = this.violates(stored);
     if (clash) throw uniqueViolation(clash);
     const i = this.rows.findIndex((r) => r.id === stored.id);
+    this.track(i === -1 ? null : this.rows[i], stored.id);
     if (i === -1) this.rows.push(stored);
     else this.rows[i] = { ...this.rows[i], ...stored };
     x.id = stored.id;
@@ -154,17 +183,22 @@ export class FakeRepo {
       const next = { ...r, ...patch };
       const clash = this.violates(next);
       if (clash) throw uniqueViolation(clash);
+      this.track(r);
       Object.assign(r, patch);
     }
     return { affected: hit.length, raw: [], generatedMaps: [] };
   });
   increment = jest.fn(async (where: Row, column: string, by: number) => {
     const hit = this.rows.filter((r) => matches(r, where));
-    hit.forEach((r) => (r[column] = Number(r[column] ?? 0) + by));
+    hit.forEach((r) => {
+      this.track(r);
+      r[column] = Number(r[column] ?? 0) + by;
+    });
     return { affected: hit.length };
   });
   delete = jest.fn(async (where: Row) => {
     const before = this.rows.length;
+    this.rows.filter((r) => matches(r, where)).forEach((r) => this.track(r));
     this.rows = this.rows.filter((r) => !matches(r, where));
     return { affected: before - this.rows.length };
   });
@@ -181,9 +215,15 @@ export function fakeDb() {
     [Coupon, new FakeRepo('coupons', [], [{ columns: ['code'] }])],
     [Wallet, new FakeRepo('wallets')],
     [WalletTransaction, new FakeRepo('wallet_transactions', [], [{ columns: ['kind', 'reference'], where: (r) => UNIQUE_WALLET_KINDS.includes(r.kind) }])],
-    [Referral, new FakeRepo('referrals', [], [{ columns: ['referred_user_id'], where: (r) => r.referred_user_id != null }])],
-    [ReferralCode, new FakeRepo('referral_codes', [], [{ columns: ['code'] }])],
-    [Sponsorship, new FakeRepo('sponsorships')],
+    [
+      Referral,
+      new FakeRepo('referrals', [], [
+        { columns: ['referred_user_id'], where: (r) => r.referred_user_id != null },
+        { columns: ['referrer_id', 'referred_email'], where: (r) => (r.referred_email ?? '') !== '' },
+      ]),
+    ],
+    [ReferralCode, new FakeRepo('referral_codes', [], [{ columns: ['code'] }, { columns: ['user_id'] }])],
+    [Sponsorship, new FakeRepo('sponsorships', [], [{ columns: ['bulk_purchase_id', 'recipient_email'], where: (r) => r.bulk_purchase_id != null && r.status !== 'cancelled' }])],
     [BulkPurchase, new FakeRepo('bulk_purchases')],
   ]);
   const repo = (entity: unknown): FakeRepo => {
@@ -197,7 +237,10 @@ export function fakeDb() {
   /** A raw UPDATE without RETURNING: patches the rows that match and resolves to [[], rowCount], as query() does under pg. */
   const updateWhere = (table: FakeRepo, hit: (row: Row) => boolean, patch: Row): [Row[], number] => {
     const rows = table.rows.filter(hit);
-    rows.forEach((r) => Object.assign(r, patch));
+    rows.forEach((r) => {
+      table.track(r);
+      Object.assign(r, patch);
+    });
     return [[], rows.length];
   };
 
@@ -222,7 +265,10 @@ export function fakeDb() {
       const held = (t: Row) => repo(Payment).rows.some((p) => p.id === t.payment_id && (p.refund_requested_at != null || p.status !== 'confirmed'));
       const matured = (t: Row) => t.available_at != null && new Date(t.available_at).getTime() <= Date.now();
       const released = walletTx.rows.filter((t) => t.user_id === params[0] && t.state === 'pending' && matured(t) && !held(t));
-      released.forEach((t) => (t.state = 'available'));
+      released.forEach((t) => {
+        walletTx.track(t);
+        t.state = 'available';
+      });
       return [released.map((t) => ({ amount_etb: t.amount_etb })), released.length];
     }
     // The owner's pending total (all pending rows, whatever their purchase's refund state).
@@ -247,7 +293,10 @@ export function fakeDb() {
       return updateWhere(repo(Payment), (p) => p.id === params[0], { refund_requested_at: null });
     }
     if (/^INSERT INTO financial\.wallets .* ON CONFLICT \(user_id\) DO NOTHING$/.test(s)) {
-      if (!wallets.rows.some((w) => w.user_id === params[0])) wallets.rows.push({ id: params[0], user_id: params[0], balance_etb: '0.00' });
+      if (!wallets.rows.some((w) => w.user_id === params[0])) {
+        wallets.track(null, params[0]);
+        wallets.rows.push({ id: params[0], user_id: params[0], balance_etb: '0.00' });
+      }
       return [];
     }
     let m = /^UPDATE financial\.wallets SET balance_etb = balance_etb ([+-]) \$2, updated_at = now\(\) WHERE user_id = \$1( AND balance_etb >= \$2)? RETURNING balance_etb$/.exec(s);
@@ -255,6 +304,7 @@ export function fakeDb() {
       const w = wallets.rows.find((r) => r.user_id === params[0]);
       const amount = Number(params[1]);
       if (!w || (m[2] && Number(w.balance_etb) < amount)) return [[], 0];
+      wallets.track(w);
       w.balance_etb = (Number(w.balance_etb) + (m[1] === '+' ? amount : -amount)).toFixed(2);
       return [[{ balance_etb: w.balance_etb }], 1];
     }
@@ -272,6 +322,22 @@ export function fakeDb() {
         .map((p) => p.payee_id as string);
       return [...new Set(payees)].sort().slice(0, Number(m[1])).map((payee_id) => ({ payee_id }));
     }
+    // Referral invites and codes: inserts that leave an existing row alone.
+    if (s === "INSERT INTO financial.referrals (referrer_id, referred_email, status) VALUES ($1, $2, 'invited') ON CONFLICT DO NOTHING RETURNING id") {
+      const table = repo(Referral);
+      const row: Row = { referrer_id: params[0], referred_email: params[1], status: 'invited', referred_user_id: null };
+      if (table.conflicts(row)) return [];
+      await table.insert(row);
+      return [{ id: row.id }];
+    }
+    if (s === 'INSERT INTO financial.referral_codes (user_id, code) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING') {
+      const table = repo(ReferralCode);
+      if (table.rows.some((r) => r.user_id === params[0])) return [];
+      if (table.rows.some((r) => r.code === params[1])) throw uniqueViolation('referral_codes(code)');
+      table.track(null, params[0]);
+      table.rows.push({ id: params[0], user_id: params[0], code: params[1], created_at: new Date() });
+      return [];
+    }
     m = /^SELECT pg_try_advisory_xact_lock\(hashtextextended\(\$1, 0\)\) AS locked$/.exec(s);
     if (m) {
       if (!txLocks) throw new Error('fake db: advisory xact lock outside a transaction');
@@ -283,17 +349,44 @@ export function fakeDb() {
     throw new Error(`fake db: unexpected SQL: ${s}`);
   };
 
-  const snapshot = () => [...repos.values()].map((r) => r.rows.map((row) => ({ ...row })));
-  const restore = (snap: Row[][]) => [...repos.values()].forEach((r, i) => (r.rows = snap[i]));
+  /** The running transaction (or savepoint): its undo log, and its outermost transaction's row locks. */
+  type Tx = { undo: Array<() => void>; rowLocks: string[] };
+  const current = new AsyncLocalStorage<Tx>();
+  const rowLocks = new Map<string, { owner: string[]; released: Promise<void>; release: () => void }>();
+  for (const r of repos.values()) {
+    r.onWrite = (undo) => current.getStore()?.undo.push(undo);
+    r.onLock = async (keys) => {
+      const tx = current.getStore();
+      if (!tx) return; // FOR UPDATE outside a transaction holds nothing
+      for (const key of keys) {
+        for (let held = rowLocks.get(key); held && held.owner !== tx.rowLocks; held = rowLocks.get(key)) await held.released;
+        if (rowLocks.has(key)) continue;
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => (release = resolve));
+        rowLocks.set(key, { owner: tx.rowLocks, released, release });
+        tx.rowLocks.push(key);
+      }
+    };
+  }
 
-  /** Wraps fn like a transaction (or a savepoint when nested): its writes vanish on a throw. */
+  /** Wraps fn like a transaction (or a savepoint when nested): its own writes vanish on a throw. */
   const atomically = async <T>(fn: () => Promise<T>): Promise<T> => {
-    const snap = snapshot();
+    const parent = current.getStore();
+    const tx: Tx = { undo: [], rowLocks: parent?.rowLocks ?? [] };
     try {
-      return await fn();
+      const result = await current.run(tx, fn);
+      parent?.undo.push(...tx.undo); // a released savepoint's writes now belong to its transaction
+      return result;
     } catch (err) {
-      restore(snap);
+      tx.undo.reverse().forEach((undo) => undo());
       throw err;
+    } finally {
+      if (!parent) {
+        for (const key of tx.rowLocks) {
+          rowLocks.get(key)?.release();
+          rowLocks.delete(key);
+        }
+      }
     }
   };
 

@@ -737,3 +737,38 @@ describe('NotificationService: CourseCompleted with blank names (9b)', () => {
     expect(t.emails()).toEqual([expect.objectContaining({ to: 'l@e.et', subject: 'You finished Soil Science!' })]);
   });
 });
+
+describe('NotificationService: the receipt when PaymentConfirmed carries a blank email (9c, P1-18)', () => {
+  const confirmed = (extra: Record<string, unknown> = {}) => ({
+    payment_id: 'p1', tx_ref: 'TX-1', learner_id: 'u1', learner_email: '', learner_name: '', course_id: 'c1', course_title: 'Soil Science',
+    amount_etb: 500, payee_id: 'edu-1', payee_type: 'educator', ...extra,
+  });
+
+  it('looks the learner up and sends the receipt', async () => {
+    const t = setup({ userEmail: 'fetched@e.et' });
+    await t.emit('PaymentConfirmed', confirmed(), 'evt-1');
+    expect(t.internal.get).toHaveBeenCalledWith('/api/v1/internal/users/u1');
+    expect(t.emails()).toEqual([expect.objectContaining({ to: 'fetched@e.et', subject: 'Enrollment confirmed — receipt' })]);
+  });
+
+  it('auth down: throws, so the bus retries, and sends nothing', async () => {
+    const t = setup();
+    t.internal.get.mockRejectedValueOnce(new PeerUnavailableError());
+    await expect(t.emit('PaymentConfirmed', confirmed(), 'evt-1')).rejects.toBeInstanceOf(PeerUnavailableError);
+    expect(t.emails()).toHaveLength(0);
+  });
+
+  it('a deleted learner (404): skipped with no email and no throw', async () => {
+    const t = setup();
+    t.internal.get.mockRejectedValueOnce(new PeerNotFoundError('Not found'));
+    await t.emit('PaymentConfirmed', confirmed(), 'evt-1');
+    expect(t.emails()).toHaveLength(0);
+  });
+
+  it('with the email in the payload, nothing is fetched', async () => {
+    const t = setup();
+    await t.emit('PaymentConfirmed', confirmed({ learner_email: 'l@e.et' }), 'evt-1');
+    expect(t.internal.get).not.toHaveBeenCalled();
+    expect(t.emails()).toEqual([expect.objectContaining({ to: 'l@e.et' })]);
+  });
+});

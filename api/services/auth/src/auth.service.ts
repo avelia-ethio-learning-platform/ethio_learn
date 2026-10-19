@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, MoreThan, Repository } from 'typeorm';
+import { DataSource, EntityManager, MoreThan, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { randomBytes, randomUUID } from 'crypto';
@@ -340,10 +340,12 @@ export class AuthService {
    * invitee opens this link and chooses their own. Reuses the reset-token table
    * with a longer TTL.
    */
-  async createInvite(userId: string): Promise<string> {
+  async createInvite(userId: string, m?: EntityManager): Promise<string> {
     const token = randomBytes(32).toString('hex');
-    await this.resets.save(
-      this.resets.create({
+    // On the caller's transaction (`m`) when given, so the link commits with the email that carries it.
+    const resets = m ? m.getRepository(PasswordReset) : this.resets;
+    await resets.save(
+      resets.create({
         user_id: userId,
         token,
         expires_at: new Date(Date.now() + INVITE_TOKEN_TTL_DAYS * 24 * 3600 * 1000),

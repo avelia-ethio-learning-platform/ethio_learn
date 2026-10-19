@@ -51,6 +51,7 @@ function setup() {
     db.dataSource as never,
     bus as never,
     internal as never,
+    fakeOutbox(db.dataSource).outbox as never,
   );
   const service = new PaymentService(db.repo(Payment) as never, chapa as never, bus as never, internal as never, growth, db.dataSource as never);
   const sponsorships = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, service, bus as never, internal as never, fakeOutbox(db.dataSource).outbox as never);

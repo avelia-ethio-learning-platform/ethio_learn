@@ -230,25 +230,25 @@ export class NotificationService implements OnModuleInit {
 
     this.bus.subscribe<PaymentConfirmedPayload>('PaymentConfirmed', async (p) => {
       await this.inbox({ user_id: p.learner_id, type: 'payment_confirmed', title: 'Enrollment confirmed', body: `You now have access to "${p.course_title}".`, link: `/learn/${p.course_id}` });
-      await this.deliver('PaymentConfirmed', p.learner_id, p.learner_email, 'Enrollment confirmed — receipt',
+      await this.deliver('PaymentConfirmed', p.learner_id, await this.learnerEmail(p), 'Enrollment confirmed — receipt',
         layout('Payment received', html`<p>Hi ${p.learner_name},</p><p>Your payment of <strong>${p.amount_etb} ETB</strong> for "${p.course_title}" is confirmed. Your course is unlocked — happy learning!</p><p>Reference: ${p.tx_ref}</p>`));
     });
 
     this.bus.subscribe<PaymentFailedPayload>('PaymentFailed', async (p) => {
       await this.inbox({ user_id: p.learner_id, type: 'payment_failed', title: 'Payment could not be processed', body: `Your payment for "${p.course_title}" did not go through.`, link: `/courses/${p.course_id}` });
-      await this.deliver('PaymentFailed', p.learner_id, p.learner_email, 'Your payment could not be processed',
+      await this.deliver('PaymentFailed', p.learner_id, await this.learnerEmail(p), 'Your payment could not be processed',
         layout('Payment failed', html`<p>Your payment for "${p.course_title}" (${p.amount_etb} ETB) did not go through. No money was taken for this attempt — you can retry from the course page.</p>`));
     });
 
     this.bus.subscribe<EnrollmentCreatedPayload>('EnrollmentCreated', async (p) => {
       await this.inbox({ user_id: p.learner_id, type: 'enrolled', title: `You're enrolled: ${p.course_title}`, body: `Start learning "${p.course_title}" from your dashboard.`, link: `/learn/${p.course_id}` });
-      await this.deliver('EnrollmentCreated', p.learner_id, p.learner_email, `You're enrolled: ${p.course_title}`,
+      await this.deliver('EnrollmentCreated', p.learner_id, await this.learnerEmail(p), `You're enrolled: ${p.course_title}`,
         layout('Enrollment confirmed', html`<p>Hi ${p.learner_name},</p><p>You're enrolled in "${p.course_title}"${p.educator_name ? html` by ${p.educator_name}` : ''}. Start learning from your dashboard.</p>`));
     });
 
     this.bus.subscribe<CertificateIssuedPayload>('CertificateIssued', async (p) => {
       await this.inbox({ user_id: p.learner_id, type: 'certificate', title: 'Your certificate is ready 🎓', body: `You completed "${p.course_title}".`, link: '/dashboard' });
-      await this.deliver('CertificateIssued', p.learner_id, p.learner_email, 'Your certificate is ready',
+      await this.deliver('CertificateIssued', p.learner_id, await this.learnerEmail(p), 'Your certificate is ready',
         layout('Certificate issued 🎓', html`<p>Congratulations ${p.learner_name}!</p><p>You completed "${p.course_title}". Your certificate is available in your dashboard, and anyone can verify it here:</p><p><a href="${p.verify_url}">${p.verify_url}</a></p>`));
     });
 
@@ -280,7 +280,7 @@ export class NotificationService implements OnModuleInit {
       // Also record it in the admin inbox — many approvals are automatic (spec §10.4)
       // and never crossed an admin's desk, but they still move money.
       await this.inbox({ role: Role.PLATFORM_ADMIN, type: 'refund', title: 'Refund approved', body: `${p.amount_etb} ETB refunded for "${p.course_title}".`, link: '/admin' });
-      await this.deliver('RefundApproved', p.learner_id, p.learner_email, 'Your refund has been processed',
+      await this.deliver('RefundApproved', p.learner_id, await this.learnerEmail(p), 'Your refund has been processed',
         layout('Refund processed', p.access_kept
           ? html`<p>Your refund of ${p.amount_etb} ETB for "${p.course_title}" was approved.</p>`
           : html`<p>Your refund of ${p.amount_etb} ETB for "${p.course_title}" was approved. Access to the course has been revoked.</p>`));
@@ -288,7 +288,7 @@ export class NotificationService implements OnModuleInit {
 
     this.bus.subscribe<RefundDecisionPayload>('RefundDenied', async (p) => {
       await this.inbox({ user_id: p.learner_id, type: 'refund', title: 'Refund request declined', body: `Your refund for "${p.course_title}" was declined (${p.reason}).`, link: '/dashboard' });
-      await this.deliver('RefundDenied', p.learner_id, p.learner_email, 'Refund request decision',
+      await this.deliver('RefundDenied', p.learner_id, await this.learnerEmail(p), 'Refund request decision',
         layout('Refund request declined', html`<p>Your refund request for "${p.course_title}" was declined (${p.reason}). Reply to this email if you believe this is a mistake.</p>`));
     });
 
@@ -304,7 +304,7 @@ export class NotificationService implements OnModuleInit {
 
     this.bus.subscribe<AssessmentResultPayload>('AssessmentFailed', async (p) => {
       await this.inbox({ user_id: p.learner_id, type: 'assessment', title: 'Assessment not passed', body: `Your ${p.assessment_type} for "${p.course_title}" scored ${p.score}.`, link: `/learn/${p.course_id}` });
-      await this.deliver('AssessmentFailed', p.learner_id, p.learner_email, 'Assessment result',
+      await this.deliver('AssessmentFailed', p.learner_id, await this.learnerEmail(p), 'Assessment result',
         layout('Assessment not passed', html`<p>Your ${p.assessment_type} attempt for "${p.course_title}" scored ${p.score}. You can try again from the course page.</p>`));
     });
 
@@ -677,6 +677,16 @@ export class NotificationService implements OnModuleInit {
       if (err instanceof PeerNotFoundError) return { email: '', name: '' };
       throw err;
     }
+  }
+
+  /**
+   * The payload's address, or, when the publisher couldn't look it up (auth was asleep:
+   * P1-18 publishes access events with a blank email rather than hold them), the user's
+   * own. A 404 gives '' and deliver skips with a warn; any other failure throws, so the
+   * bus retries the event and the email goes out once auth is awake.
+   */
+  private async learnerEmail(p: { learner_id: string; learner_email?: string | null }): Promise<string> {
+    return p.learner_email || (await this.userInfo(p.learner_id)).email;
   }
 
   private async userName(userId: string): Promise<string> {

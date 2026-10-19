@@ -20,6 +20,7 @@ function setup(opts: Options = {}) {
       return { email: 'edu@e.et' };
     }),
   };
+  const tx = fakeOutbox(db.dataSource);
   const service = new PayoutService(
     db.repo(Payment) as never,
     db.repo(Payout) as never,
@@ -27,6 +28,7 @@ function setup(opts: Options = {}) {
     bus as never,
     internal as never,
     db.dataSource as never,
+    tx.outbox as never,
   );
   let seq = 0;
   const payment = (over: Row & { settledDaysAgo?: number } = {}) => {
@@ -53,9 +55,10 @@ function setup(opts: Options = {}) {
     return p;
   };
   const payouts = () => db.repo(Payout).rows;
-  const published = (type: string) => bus.publish.mock.calls.filter(([t]) => t === type);
+  /** Payout events committed with PAID (the outbox publishes them after commit). */
+  const published = (type: string) => tx.committed.filter(([t]) => t === type);
   const payoutOf = (paymentId: string) => db.repo(Payment).rows.find((p) => p.id === paymentId)!.payout_id;
-  return { db, bus, internal, service, payment, payouts, published, payoutOf };
+  return { db, bus, internal, service, payment, payouts, published, payoutOf, committed: tx.committed, onEmit: tx.onEmit };
 }
 
 describe('PayoutService.runPayouts (spec §10.3 / 80-20 split)', () => {
@@ -72,8 +75,11 @@ describe('PayoutService.runPayouts (spec §10.3 / 80-20 split)', () => {
       status: PayoutStatus.PAID,
     });
     expect(t.payoutOf(p.id)).toBe(t.payouts()[0].id);
-    expect(t.bus.publish).toHaveBeenCalledWith('PayoutScheduled', expect.objectContaining({ net_amount_etb: 400 }));
-    expect(t.bus.publish).toHaveBeenCalledWith('PayoutCompleted', expect.objectContaining({ platform_fee_etb: 100 }));
+    expect(t.committed).toEqual([
+      ['PayoutScheduled', expect.objectContaining({ net_amount_etb: 400, payee_email: 'edu@e.et' })],
+      ['PayoutCompleted', expect.objectContaining({ platform_fee_etb: 100 })],
+    ]);
+    expect(t.bus.publish).not.toHaveBeenCalled();
   });
 
   it('holds back payments inside the 7-day settlement window', async () => {
@@ -167,7 +173,7 @@ describe('PayoutService.runPayouts (spec §10.3 / 80-20 split)', () => {
     t.payment({ amount_etb: '20000.00' }); // net 16000 > default 10000
     expect(await t.service.runPayouts()).toEqual({ created: 0, held: 1 });
     expect(t.payouts()[0]).toMatchObject({ status: PayoutStatus.HELD, hold_reason: 'kyc_required' });
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toHaveLength(0);
   });
 
   it('holds payouts for payees with open fraud flags', async () => {
@@ -187,16 +193,33 @@ describe('PayoutService.runPayouts (spec §10.3 / 80-20 split)', () => {
   });
 });
 
+describe('PayoutService: a failed disbursement does not stop the run (review S1)', () => {
+  it("one payee's failure leaves that payout scheduled and the run pays the next payee", async () => {
+    const t = setup();
+    t.payment();
+    t.payment({ payee_id: 'edu-2' });
+    t.onEmit.mockImplementationOnce(() => {
+      throw new Error('outbox insert failed');
+    });
+    expect(await t.service.runPayouts()).toEqual({ created: 1, held: 0 });
+    expect(t.payouts().map((p) => p.status).sort()).toEqual([PayoutStatus.PAID, PayoutStatus.SCHEDULED]);
+
+    expect(await t.service.runPayouts()).toEqual({ created: 1, held: 0 });
+    expect(t.payouts().every((p) => p.status === PayoutStatus.PAID)).toBe(true);
+    expect(t.published('PayoutCompleted')).toHaveLength(2);
+  });
+});
+
 describe('PayoutService: one payout per payment (P1-14)', () => {
   it('a second run claims nothing and publishes nothing', async () => {
     const t = setup();
     t.payment();
     await t.service.runPayouts();
-    t.bus.publish.mockClear();
+    t.committed.length = 0;
 
     expect(await t.service.runPayouts()).toEqual({ created: 0, held: 0 });
     expect(t.payouts()).toHaveLength(1);
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toHaveLength(0);
   });
 
   it('two concurrent runs attach each payment to exactly one payout, paid once', async () => {
@@ -347,6 +370,35 @@ describe('PayoutService.release', () => {
     expect(results.filter((r) => r.released)).toHaveLength(1);
     expect(t.payouts()[0].status).toBe(PayoutStatus.PAID);
     expect(t.published('PayoutCompleted')).toHaveLength(1);
+  });
+
+  it('a failed disbursement leaves the payout scheduled: release still answers, and the next run pays it (review S1)', async () => {
+    const t = setup();
+    t.payment({ amount_etb: '20000.00' });
+    await t.service.runPayouts();
+    const held = t.payouts()[0];
+    t.onEmit.mockImplementationOnce(() => {
+      throw new Error('outbox insert failed');
+    });
+
+    await expect(t.service.release(held.id)).resolves.toEqual({ released: true });
+    expect(t.payouts()[0].status).toBe(PayoutStatus.SCHEDULED);
+    expect(t.payouts()[0].paid_at ?? null).toBeNull();
+    expect(t.committed).toHaveLength(0);
+
+    expect(await t.service.runPayouts()).toEqual({ created: 1, held: 0 });
+    expect(t.payouts()[0].status).toBe(PayoutStatus.PAID);
+    expect(t.published('PayoutCompleted')).toHaveLength(1);
+  });
+
+  it('a broker outage cannot fail a release: the events are published after commit', async () => {
+    const t = setup();
+    t.payment({ amount_etb: '20000.00' });
+    await t.service.runPayouts();
+    t.bus.publish.mockRejectedValue(new Error('broker down'));
+    await expect(t.service.release(t.payouts()[0].id)).resolves.toEqual({ released: true });
+    expect(t.payouts()[0].status).toBe(PayoutStatus.PAID);
+    expect(t.published('PayoutScheduled')).toHaveLength(1);
   });
 
   it('does nothing for a payout that is not held', async () => {

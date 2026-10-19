@@ -1,9 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { envInt, EventBusService, InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { envInt, EventBusService, InternalHttpClient, internalPath, OutboxService, UserContext } from '@ethiopialearn/common';
 import {
   FraudFlagPayload,
   OwnerType,
@@ -38,6 +37,7 @@ export class PayoutService implements OnModuleInit {
     private readonly bus: EventBusService,
     private readonly internal: InternalHttpClient,
     private readonly dataSource: DataSource,
+    private readonly outbox: OutboxService,
   ) {}
 
   onModuleInit() {
@@ -67,13 +67,8 @@ export class PayoutService implements OnModuleInit {
     });
   }
 
-  /** Nightly payout run (spec §12.3). */
-  @Cron('0 2 * * *')
-  async nightly() {
-    await this.runPayouts();
-  }
-
   /**
+   * The nightly `payouts` job (jobs.ts, spec §12.3), the admin trigger and the command.
    * One payout per payee per run, never two for one payment (P1-14), even when
    * runs overlap (cron, command and admin trigger) or one crashes:
    * - payees are paged with a keyset cursor;
@@ -89,7 +84,7 @@ export class PayoutService implements OnModuleInit {
     let created = 0;
     let held = 0;
     for (const payout of await this.payouts.find({ where: { status: PayoutStatus.SCHEDULED } })) {
-      if (await this.disburse(payout)) created += 1;
+      if (await this.tryDisburse(payout)) created += 1;
     }
 
     for (let cursor = PLATFORM_PAYEE_ID; ; ) {
@@ -99,7 +94,7 @@ export class PayoutService implements OnModuleInit {
       );
       for (const { payee_id: payeeId } of page) {
         const payout = await this.payPayee(payeeId);
-        if (payout?.status === PayoutStatus.SCHEDULED && (await this.disburse(payout))) created += 1;
+        if (payout?.status === PayoutStatus.SCHEDULED && (await this.tryDisburse(payout))) created += 1;
         else if (payout?.status === PayoutStatus.HELD) held += 1;
       }
       if (page.length < PAYEE_PAGE) break;
@@ -193,7 +188,7 @@ export class PayoutService implements OnModuleInit {
     const released = await this.payouts.update({ id: payoutId, status: PayoutStatus.HELD }, { status: PayoutStatus.SCHEDULED, hold_reason: null });
     if (released.affected !== 1) return { released: false };
     const payout = await this.payouts.findOne({ where: { id: payoutId } });
-    if (payout) await this.disburse(payout);
+    if (payout) await this.tryDisburse(payout);
     return { released: true };
   }
 
@@ -251,17 +246,22 @@ export class PayoutService implements OnModuleInit {
    * the caller that made it publishes. `payout.id` is the idempotency key a
    * real transfer API call will use.
    */
+  /** disburse, but a failure leaves the payout scheduled for the next run instead of failing the run or the admin's release. */
+  private async tryDisburse(payout: Payout): Promise<boolean> {
+    try {
+      return await this.disburse(payout);
+    } catch (err) {
+      this.logger.warn(`payout ${payout.id} stays scheduled, the next run disburses it: ${(err as Error)?.message ?? err}`);
+      return false;
+    }
+  }
+
   private async disburse(payout: Payout): Promise<boolean> {
     // TODO(spec-open-question §14): primary path is the Chapa split-payout API
     // once sub-merchant availability is confirmed; manual bank transfer is the
     // institutional fallback. MVP marks the disbursement completed and emits
     // the events the rest of the system depends on.
-    const paidAt = new Date();
-    const paid = await this.payouts.update({ id: payout.id, status: PayoutStatus.SCHEDULED }, { status: PayoutStatus.PAID, paid_at: paidAt });
-    if (paid.affected !== 1) return false;
-    payout.status = PayoutStatus.PAID;
-    payout.paid_at = paidAt;
-
+    // The payee's email is looked up first, so no internal call holds the transaction open.
     let payeeEmail = '';
     try {
       const path = payout.payee_type === OwnerType.INSTITUTION ? 'institutions' : 'educators';
@@ -279,8 +279,19 @@ export class PayoutService implements OnModuleInit {
       platform_fee_etb: Number(payout.platform_fee_etb),
       net_amount_etb: Number(payout.net_amount_etb),
     };
-    await this.bus.publish('PayoutScheduled', payload);
-    await this.bus.publish('PayoutCompleted', payload);
+    // PAID commits with its events (the outbox, review S1): a broker outage can
+    // neither lose the payee's notice nor fail the admin's release after the flip.
+    const paidAt = new Date();
+    const paid = await this.outbox.transaction(async (m, emit) => {
+      const flipped = await m.getRepository(Payout).update({ id: payout.id, status: PayoutStatus.SCHEDULED }, { status: PayoutStatus.PAID, paid_at: paidAt });
+      if (flipped.affected !== 1) return false;
+      emit<PayoutPayload>('PayoutScheduled', payload);
+      emit<PayoutPayload>('PayoutCompleted', payload);
+      return true;
+    });
+    if (!paid) return false;
+    payout.status = PayoutStatus.PAID;
+    payout.paid_at = paidAt;
     return true;
   }
 }

@@ -57,7 +57,8 @@ All configuration is environment variables. `render.yaml` holds the shared group
 
 | Deployable | Needs | Notes |
 |---|---|---|
-| gateway | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CORS_ORIGINS`/`WEB_URL`, one `*_SERVICE_URL` per service | The only place service addresses exist. `CORS_ORIGINS` replaces the `WEB_URL` default rather than extending it. The rate limiter (`RATE_LIMIT_*`) is in memory, per instance. |
+| gateway | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CORS_ORIGINS`/`WEB_URL`, one `*_SERVICE_URL` per service, `JOBS_TOKEN` | The only place service addresses exist. `CORS_ORIGINS` replaces the `WEB_URL` default rather than extending it. The rate limiter (`RATE_LIMIT_*`) is in memory, per instance. `JOBS_TOKEN` (gateway only, a long random value) authenticates `/api/v1/jobs/*`; unset, those routes answer 401. |
+| GitHub Actions | secret `JOBS_TOKEN` (same value), variable `RENDER_SERVICE_URLS` (the eight public `/health` URLs, comma-separated) | Used by the `jobs` workflow (below). Until both are set it stops at its first step. |
 | every service | `DATABASE_URL`, `RABBITMQ_URL`, `JWT_SECRET`, `INTERNAL_API_TOKEN`, `GATEWAY_INTERNAL_URL` | `PORT` is injected by Render. |
 | auth | + `REDIS_URL`, `WEB_URL`, `COOKIE_SAMESITE=none` | |
 | course | + `S3_*`, `GROQ_API_KEY` | |
@@ -87,12 +88,12 @@ The log names each variable, never its value, so a failed boot says what to set.
 
 - **Sleep:** free Render services sleep after 15 idle minutes, and only outside traffic wakes them. A sleeping service answers the gateway with an immediate `429` (`x-render-routing: hibernate-rate-limited`) and stays asleep.
 - **Waking:** a request to the service's own public `/health` from outside Render wakes it in about 25 s. The web app does this from the browser when it meets a sleeping service. Set `NEXT_PUBLIC_WAKE_URLS` on Vercel (Production) to the eight public `/health` URLs, comma-separated: `https://ethiopialearn-gateway.onrender.com/health`, and the same for `auth`, `course`, `enrollment`, `outcomes`, `financial`, `quality` and `notification`. Up to eight `ERR_BLOCKED_BY_RESPONSE` console errors per wake are expected: Helmet's `Cross-Origin-Resource-Policy` blocks the opaque responses, and the requests still reach Render.
-- **Scheduled work runs only while a service is awake.** The `@Cron` jobs live inside the services:
-  - financial: the pending-payment sweep and the pending-effects re-publish every 2 minutes, the abandoned-checkout nudge hourly, the payout run at 02:00;
-  - enrollment: the inactivity nudges at 06:00.
-
-  A sleeping instance runs none of them. A missed Chapa webhook is still settled by the return page's reconcile, and by the sweep once the financial service is awake. The payout run can also be started by hand with `POST /api/v1/payouts/run` as a platform admin.
-- **Instances:** each free service runs one instance. That's why the crons and the migrations (below) need no lock.
+- **Scheduled jobs** run two ways, through the same job lease (`job_leases`), so two runs of one job never overlap:
+  - **in-process while awake:** financial runs the pending-payment sweep and the pending-effects re-publish every 2 minutes, the abandoned-checkout nudge hourly and the payout run at 02:00; enrollment runs the inactivity nudges at 06:00;
+  - **the GitHub schedule otherwise** (`.github/workflows/jobs.yml`, `scripts/run-jobs.mjs`): twice a day it wakes only the services the jobs call and starts the jobs through the gateway. `daily` (06:15 UTC, 09:15 in Addis) runs all five jobs and wakes gateway, financial, enrollment, auth, course and quality; `frequent` (14:15 UTC) runs the sweep and effects and wakes gateway and financial.
+- **Instance-hour budget:** the 750 free hours a month are shared by every free service, and running out suspends them all until next month. Each wake keeps a service up about 15 minutes, so the schedule costs about 60 h a month (daily ~45 h, frequent ~15 h), less when traffic already keeps them awake. To change the cadence, edit the cron lines and the matching `case` in `jobs.yml`; `run-jobs.mjs` lists which services each job needs.
+- **Watching and manual runs:** `GET /api/v1/jobs/<financial|enrollment>` with `Authorization: Bearer <JOBS_TOKEN>` shows each job's last start, finish, counts and whether it is running. Run any group or single job from the Actions tab (`workflow_dispatch`). The payout run can also be started with `POST /api/v1/payouts/run` as a platform admin. A missed Chapa webhook is also settled by the return page's reconcile.
+- **Instances:** each free service runs one instance. That's why the migrations (below) need no lock.
 
 ## Content Security Policy (web)
 
@@ -148,6 +149,7 @@ Each service runs its pending TypeORM migrations on boot, inside `DataSource.ini
 - **One migrator per service.** There is no migration lock, because each free-plan service runs one instance. Add one (`pg_advisory_xact_lock`; session locks don't survive Neon's pooler) before running a service on more than one instance.
 - **Logs.** Each executed migration prints `Migration <Name> has been executed successfully`.
 - **Drift check.** `pnpm -C api db:check` compares a database with the compiled entities and exits 1 on any difference. It is read-only (no migrations, no `synchronize`, no extension installs), so it's safe against production: `DATABASE_URL='<url>' pnpm -C api db:check`.
+- **Reverting a `CONCURRENTLY` migration** (`transaction = false`, e.g. financial's `UniqueSeatsAndInvites`) needs a non-transactional revert: `migration:revert -t none` (or `undoLastMigration({ transaction: 'none' })`); the default wraps it in a transaction and Postgres refuses.
 
 ### First rollout: from `synchronize` to migrations
 
@@ -387,6 +389,5 @@ Nothing publishes images: Render builds from the repo.
 
 - Services are stateless and can scale horizontally behind the gateway. Before running more than one instance of a service:
   - add a migration lock;
-  - make sure only one instance runs the crons;
   - move the gateway's rate limiter to a shared store.
 - Lesson videos are short-lived signed URLs, so a CDN in front of object storage caches renditions without exposing raw keys.

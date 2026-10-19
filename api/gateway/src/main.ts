@@ -7,13 +7,13 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import * as jwt from 'jsonwebtoken';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { timingSafeEqual } from 'crypto';
 import { Agent, Server } from 'http';
 import { Agent as HttpsAgent } from 'https';
 import { assertProductionConfig, env, envInt, JsonLogger } from '@ethiopialearn/common';
 import { AuthMode, authModeFor, resolveRoute, upstreamOf } from './routes';
 import { accessNotes, requestLog } from './request-log';
 import { matchPath } from './request-path';
+import { matchesSecret, validJobsToken } from './secrets';
 import { classifyRequest, DEFAULT_LIMITS_PER_MIN as DEFAULTS, RatePolicy } from './rate-policy';
 
 // Reuse TCP connections to the upstream services instead of opening a new
@@ -59,9 +59,7 @@ function verifyBearer(req: Request): TokenClaims | null {
 }
 
 function validInternalToken(presented: string | undefined): boolean {
-  const expected = env('INTERNAL_API_TOKEN', '');
-  if (!expected || !presented || presented.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
+  return matchesSecret(presented, env('INTERNAL_API_TOKEN', ''));
 }
 
 async function bootstrap() {
@@ -204,6 +202,19 @@ async function bootstrap() {
     // the client — the client-presented value was already stripped above.
     const ownInternalToken = env('INTERNAL_API_TOKEN', '');
     if (ownInternalToken) req.headers['x-internal-token'] = ownInternalToken;
+
+    // The scheduler (GitHub Actions): its own token, never a JWT, never the mesh-wide
+    // internal token. Stripped before proxying; the service sees the internal token above.
+    if (mode === 'jobs') {
+      const ok = validJobsToken(req.headers.authorization);
+      delete req.headers.authorization;
+      if (!ok) {
+        res.status(401).json({ statusCode: 401, message: 'Jobs endpoint' });
+        return;
+      }
+      proxy(req, res, next);
+      return;
+    }
 
     if (mode === 'internal') {
       if (!validInternalToken(presentedInternal)) {
