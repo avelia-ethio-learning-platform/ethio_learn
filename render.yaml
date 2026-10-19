@@ -119,10 +119,12 @@ envVarGroups:
         value: "50"
       - key: PURCHASE_CASHBACK_PERCENT
         value: "5"
-      # The frontend is on vercel.app and the API on onrender.com — different
-      # sites, so the refresh cookie must be SameSite=None or it is never sent.
+      # /api/v1/auth/* reaches auth through the web's own route handlers, so the
+      # refresh cookie is first-party on the web host and Lax is enough (Phase 11b).
+      # Only once the 11b web is live; a rollback of the web needs `none` again
+      # (docs/DEPLOYMENT.md, Auth transport).
       - key: COOKIE_SAMESITE
-        value: none
+        value: lax
 
       # Matches the code default (DEFAULT_GROQ_MODEL), pinned here so a model
       # change is a dashboard edit rather than a redeploy. If Groq retires the
@@ -184,6 +186,9 @@ services:
       # shared group, so the mesh-wide INTERNAL_API_TOKEN never goes to GitHub.
       # Set in the dashboard and as the JOBS_TOKEN Actions secret.
       - key: JOBS_TOKEN
+        sync: false
+      # The same value as on Vercel: trusts the browser IP the web's route handler forwards.
+      - key: WEB_PROXY_SECRET
         sync: false
 
   # ---- domain services -----------------------------------------------------
