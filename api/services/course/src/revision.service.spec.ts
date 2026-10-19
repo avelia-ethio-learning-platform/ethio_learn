@@ -195,7 +195,13 @@ function setup(opts: { institution?: boolean; status?: string; pendingAssessment
       if (c.created_by !== ctx.id && ctx.role !== 'platform_admin') throw new NotFoundException('Course not found');
       return c;
     }),
-    isStaffFor: jest.fn(async (ctx: any, c: any) => c.created_by === ctx.id || ['quality_officer', 'platform_admin'].includes(ctx.role)),
+    // Mirrors CourseService.isStaffFor: a QO only for courses in the queue, live or flagged.
+    isStaffFor: jest.fn(
+      async (ctx: any, c: any) =>
+        c.created_by === ctx.id ||
+        ctx.role === 'platform_admin' ||
+        (ctx.role === 'quality_officer' && ['submitted', 'under_review', 'published', 'unlisted', 'flagged'].includes(c.status)),
+    ),
     clearSearchCache: jest.fn(),
     ownerContact: jest.fn(async () => ({ email: 'e@x.et', name: 'Edu' })),
     institutionAdminId: jest.fn(async (id: string) => (id === 'inst1' ? 'inst-admin-1' : null)),

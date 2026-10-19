@@ -673,7 +673,7 @@ describe('GET /lessons/:id/stream-url', () => {
   it('opens a free-preview section only while the course is published', async () => {
     const preview: Fixture = { entitlement: 'none', sections: [liveSection({ is_free_preview: true })] };
     await expect(setup(preview).controller.streamUrl(LEARNER, 'l1')).resolves.toMatchObject({ url: 'https://signed/videos/edu1/live.mp4' });
-    for (const status of ['draft', 'flagged', 'archived', 'submitted']) {
+    for (const status of ['draft', 'flagged', 'archived', 'submitted', 'unlisted']) {
       const h = setup({ ...preview, course: { status } });
       await expect(h.controller.streamUrl(LEARNER, 'l1')).rejects.toThrow(new NotFoundException('Lesson not available'));
     }

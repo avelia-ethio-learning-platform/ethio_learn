@@ -18,7 +18,7 @@ import { Type } from 'class-transformer';
 import { CurrentUser, InternalHttpClient, internalPath, limitQuery, pageQuery, Roles, RolesGuard, UserContext, userFromRequest, UuidParam } from '@ethiopialearn/common';
 import { CourseStatus, EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
-import { CourseService, LIVE_COURSE_STATUSES, mergedLesson } from './course.service';
+import { CourseService, mergedLesson } from './course.service';
 import { CourseExtrasService } from './course-extras.service';
 import { RevisionService } from './revision.service';
 import { CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UpdateSectionDto } from './dto';
@@ -404,8 +404,8 @@ export class CourseController {
       }
     }
     if (!allowed) {
-      // A course learners cannot see does not exist for them.
-      if (!LIVE_COURSE_STATUSES.includes(course.status)) throw new NotFoundException('Lesson not available');
+      // A course learners cannot browse (anything but published, unlisted included) does not exist for them.
+      if (course.status !== CourseStatus.PUBLISHED) throw new NotFoundException('Lesson not available');
       throw new ForbiddenException('No active entitlement for this course');
     }
 
