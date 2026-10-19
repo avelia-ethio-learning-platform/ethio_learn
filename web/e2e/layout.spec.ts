@@ -117,6 +117,86 @@ test.describe('no sideways overflow at 375 px', () => {
   });
 });
 
+// The signed-in phone header (logo, Messages, bell, burger at 44 px each) was never measured below 375 px.
+// Signed in at the narrowest phones: no sideways scroll, every header control inside the pill's padding box
+// (not eating its edge padding), room between the logo and the next control, and the open menu's footer row
+// inside its panel. English and Amharic.
+for (const width of [320, 360]) {
+  for (const locale of ['en', 'am'] as const) {
+    test.describe(`signed-in mobile header at ${width} px, ${locale}`, () => {
+      test.use({ viewport: { width, height: 800 }, loggedInAs: 'learner' });
+
+      test('fits without overflow, clipping or crowding', async ({ page }) => {
+        await page.addInitScript((l) => localStorage.setItem('el_locale', l), locale);
+        await page.goto('/courses');
+        const nav = page.locator('nav[aria-label="Main"]');
+        const burger = nav.locator('.lg\\:hidden > button[aria-controls]');
+        await expect(burger).toBeVisible();
+        // The bell (and Messages, when it fits) join the burger once the session refresh resolves.
+        await expect.poll(() => nav.locator('.lg\\:hidden > *').count()).toBeGreaterThanOrEqual(3);
+        await settle(page);
+        expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+
+        const geometry = () =>
+          nav.evaluate((el) => {
+            const bar = el.querySelector(':scope > div')!;
+            const cs = getComputedStyle(bar);
+            const inner = bar.getBoundingClientRect();
+            const left = inner.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
+            const right = inner.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
+            const boxes = [...bar.querySelectorAll('a, button')]
+              .map((c) => ({ c, r: c.getBoundingClientRect() }))
+              .filter(({ r }) => r.width > 0 && r.height > 0)
+              .map(({ c, r }) => ({ name: (c.getAttribute('aria-label') || c.textContent || '').trim().slice(0, 20), left: r.left, right: r.right, height: r.height, width: r.width }))
+              .sort((a, b) => a.left - b.left);
+            return { left, right, boxes, vw: document.documentElement.clientWidth };
+          });
+
+        const check = async (what: string) => {
+          const g = await geometry();
+          expect(g.boxes.length, `${what}: logo, bell and burger at least`).toBeGreaterThanOrEqual(3);
+          for (const b of g.boxes) {
+            expect(b.left, `${what}: ${b.name} starts inside the pill's padding`).toBeGreaterThanOrEqual(g.left - 0.5);
+            expect(b.right, `${what}: ${b.name} ends inside the pill's padding`).toBeLessThanOrEqual(g.right + 0.5);
+            expect(b.right, `${what}: ${b.name} inside the viewport`).toBeLessThanOrEqual(g.vw);
+          }
+          for (let i = 1; i < g.boxes.length; i++) {
+            expect(g.boxes[i].left - g.boxes[i - 1].right, `${what}: ${g.boxes[i - 1].name} and ${g.boxes[i].name} keep a gap`).toBeGreaterThanOrEqual(4);
+          }
+          return g;
+        };
+
+        const closed = await check('closed');
+        // Touch targets stay 44 px (12a), whichever controls fit.
+        for (const b of closed.boxes.slice(1)) {
+          expect(b.width, `${b.name} width`).toBeGreaterThanOrEqual(44);
+          expect(b.height, `${b.name} height`).toBeGreaterThanOrEqual(44);
+        }
+
+        await burger.click();
+        const panel = page.getByTestId('mobile-menu-panel');
+        await expect(panel).toBeVisible();
+        await settle(page);
+        expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+        const bounds = await panel.evaluate((p) => {
+          const pr = p.getBoundingClientRect();
+          const footer = [...p.querySelectorAll(':scope > div:last-child a, :scope > div:last-child button')].map((c) => {
+            const r = c.getBoundingClientRect();
+            return { name: (c.textContent || c.getAttribute('aria-label') || '').trim().slice(0, 20), left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+          });
+          return { left: pr.left, right: pr.right, scroll: p.scrollWidth - p.clientWidth, footer };
+        });
+        expect(bounds.scroll, 'the menu panel does not scroll sideways').toBeLessThanOrEqual(0);
+        expect(bounds.footer.length, 'language, theme and log-out controls').toBeGreaterThanOrEqual(3);
+        for (const f of bounds.footer) {
+          expect(f.left, `${f.name} inside the panel`).toBeGreaterThanOrEqual(bounds.left);
+          expect(f.right, `${f.name} inside the panel`).toBeLessThanOrEqual(bounds.right);
+        }
+      });
+    });
+  }
+}
+
 // P1-58: position: sticky works again (overflow-x: clip, not hidden).
 test.describe('at 1440 px', () => {
   test.use({ viewport: { width: 1440, height: 800 } });

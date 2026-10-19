@@ -128,7 +128,7 @@ export function Header() {
       <nav aria-label="Main" className="fixed left-1/2 top-0 z-50 w-full max-w-6xl -translate-x-1/2 px-3 pt-4 sm:px-6">
         <div
           className={`flex w-full items-center justify-between transition-[background-color,border-color,box-shadow,border-radius] duration-slow ease-out-quart ${
-            isScrolled ? 'glass rounded-2xl px-4 py-2.5 shadow-floating sm:px-6' : 'glass-secondary rounded-full px-4 py-3 shadow-glass sm:px-8'
+            isScrolled ? 'glass rounded-2xl px-3 py-2.5 shadow-floating sm:px-6' : 'glass-secondary rounded-full px-3 py-3 shadow-glass sm:px-8'
           }`}
         >
           {/* Logo */}
@@ -207,9 +207,10 @@ export function Header() {
 
           {/* Mobile: toggles + burger */}
           <div className="flex items-center gap-2 lg:hidden">
-            {/* Below 360 px the row has no room for a third button: the link moves into the menu. */}
+            {/* Below 375 px the row has no room for a third button (logo 163 + 3 x 44 + gaps = 311 px
+                against 310 at 360): the link moves into the menu. */}
             {ready && user && (
-              <div className="hidden min-[360px]:block">
+              <div className="hidden min-[375px]:block">
                 <MessagesLink />
               </div>
             )}
@@ -257,7 +258,7 @@ export function Header() {
                     </Link>
                   ))}
                   {ready && user && (
-                    <Link href="/messages" className="block rounded-xl px-3 py-2.5 text-sm font-medium text-gray-600 transition-colors duration-fast hover:bg-brand-500/5 hover:text-brand-600 min-[360px]:hidden">
+                    <Link href="/messages" className="block rounded-xl px-3 py-2.5 text-sm font-medium text-gray-600 transition-colors duration-fast hover:bg-brand-500/5 hover:text-brand-600 min-[375px]:hidden">
                       {t('messages')}
                     </Link>
                   )}
