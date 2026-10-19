@@ -252,7 +252,7 @@ describe('CourseService.assertEditable', () => {
 
   it('keeps the ownership rule and gives platform admins no staging bypass', async () => {
     const h = setup();
-    await expect(h.service.assertEditable(OTHER_EDU, 'c1')).rejects.toThrow(ForbiddenException);
+    await expect(h.service.assertEditable(OTHER_EDU, 'c1')).rejects.toThrow(NotFoundException);
     await expect(h.service.assertEditable(ADMIN, 'c1')).resolves.toMatchObject({ mode: 'staged' });
   });
 });
@@ -622,8 +622,8 @@ describe('CourseService.working (educator working copy)', () => {
 
   it('is limited to the owner, platform admins and the institution admin', async () => {
     const h = setup({ course: { institution_id: 'inst1' } });
-    await expect(h.service.working(LEARNER, 'c1')).rejects.toThrow(ForbiddenException);
-    await expect(h.service.working(QO, 'c1')).rejects.toThrow(ForbiddenException);
+    await expect(h.service.working(LEARNER, 'c1')).rejects.toThrow(NotFoundException);
+    await expect(h.service.working(QO, 'c1')).rejects.toThrow(NotFoundException);
     await expect(h.service.working(ADMIN, 'c1')).resolves.toMatchObject({ id: 'c1' });
     await expect(h.service.working(INST_ADMIN, 'c1')).resolves.toMatchObject({ id: 'c1' });
   });
@@ -668,6 +668,53 @@ describe('GET /lessons/:id/stream-url', () => {
     for (let i = 0; i < 12; i++) await h.controller.streamUrl(QO, 'l1', 'pending');
     for (let i = 0; i < 8; i++) await h.controller.streamUrl(LEARNER, 'l1');
     await expect(h.controller.streamUrl(LEARNER, 'l1')).rejects.toThrow(/Too many video requests/);
+  });
+
+  it('opens a free-preview section only while the course is published', async () => {
+    const preview: Fixture = { entitlement: 'none', sections: [liveSection({ is_free_preview: true })] };
+    await expect(setup(preview).controller.streamUrl(LEARNER, 'l1')).resolves.toMatchObject({ url: 'https://signed/videos/edu1/live.mp4' });
+    for (const status of ['draft', 'flagged', 'archived', 'submitted']) {
+      const h = setup({ ...preview, course: { status } });
+      await expect(h.controller.streamUrl(LEARNER, 'l1')).rejects.toThrow(new NotFoundException('Lesson not available'));
+    }
+  });
+
+  it('still lets an entitled learner watch an unlisted course', async () => {
+    const h = setup({ entitlement: 'active', course: { status: 'unlisted' } });
+    await expect(h.controller.streamUrl(LEARNER, 'l1')).resolves.toMatchObject({ url: 'https://signed/videos/edu1/live.mp4' });
+  });
+
+  it('signs videos for a QO only on courses in the review queue, live or flagged', async () => {
+    for (const status of ['submitted', 'under_review', 'published', 'unlisted', 'flagged']) {
+      const h = setup({ ...fixture('none'), course: { status } });
+      await expect(h.controller.streamUrl(QO, 'l1', 'pending')).resolves.toMatchObject({ url: 'https://signed/videos/edu1/replacement.mp4' });
+    }
+    for (const status of ['draft', 'institution_review', 'archived']) {
+      const h = setup({ ...fixture('none'), course: { status } });
+      await expect(h.controller.streamUrl(QO, 'l1', 'pending')).rejects.toThrow(new NotFoundException('Lesson not available'));
+    }
+  });
+});
+
+describe('QO visibility (isStaffFor)', () => {
+  it('lets a QO read a course in review or live, but not a draft, an institution-review or an archived course', async () => {
+    for (const status of ['submitted', 'under_review', 'published', 'unlisted', 'flagged']) {
+      await expect(setup({ course: { status } }).service.publicDetail('c1', QO)).resolves.toMatchObject({ id: 'c1', status });
+    }
+    for (const status of ['draft', 'institution_review', 'archived']) {
+      await expect(setup({ course: { status } }).service.publicDetail('c1', QO)).rejects.toThrow(new NotFoundException('Course not found'));
+    }
+  });
+});
+
+describe('ownership errors do not reveal that a course exists', () => {
+  it("answers someone else's course exactly like a missing one", async () => {
+    const h = setup();
+    const missing = await h.service.ownedCourse(OTHER_EDU, 'nope').catch((e: Error) => e);
+    const foreign = await h.service.ownedCourse(OTHER_EDU, 'c1').catch((e: Error) => e);
+    expect(foreign).toBeInstanceOf(NotFoundException);
+    expect(foreign).toEqual(missing);
+    await expect(h.service.working(OTHER_EDU, 'c1')).rejects.toThrow(new NotFoundException('Course not found'));
   });
 });
 
@@ -830,7 +877,7 @@ describe('Tutor notes on a live course', () => {
   it('are refused while the change set is with a reviewer, and for strangers', async () => {
     const h = setup({ revisions: [{ id: 'rev1', course_id: 'c1', status: 'submitted', created_by: 'edu1' }] });
     await expect(h.service.addKnowledge(OWNER, 'c1', 'Notes', 'x'.repeat(40))).rejects.toThrow(ConflictException);
-    await expect(h.service.addKnowledge(LEARNER, 'c1', 'Notes', 'x'.repeat(40))).rejects.toThrow(ForbiddenException);
+    await expect(h.service.addKnowledge(LEARNER, 'c1', 'Notes', 'x'.repeat(40))).rejects.toThrow(NotFoundException);
     expect(h.extras.addKnowledge).not.toHaveBeenCalled();
   });
 });
@@ -964,7 +1011,7 @@ describe('Tutor notes follow the content-write gate', () => {
     await h.service.deleteKnowledge(OWNER, 'c1', 'Syllabus');
     expect(h.extras.deleteKnowledge).toHaveBeenCalledWith('c1', 'Syllabus', false, undefined);
     await h.service.deleteKnowledge(INST_ADMIN, 'c1', 'Syllabus');
-    await expect(h.service.deleteKnowledge(OTHER_EDU, 'c1', 'Syllabus')).rejects.toThrow(ForbiddenException);
+    await expect(h.service.deleteKnowledge(OTHER_EDU, 'c1', 'Syllabus')).rejects.toThrow(NotFoundException);
     expect(h.extras.deleteKnowledge).toHaveBeenCalledTimes(2);
   });
 
@@ -1363,7 +1410,7 @@ describe('Platform admins can use the authoring endpoints the teach page calls',
     await h.service.deleteLesson(ADMIN, lesson.id);
     await h.service.deleteSection(ADMIN, section.id);
     expect(h.course.title).toBe('Admin fix');
-    await expect(h.service.update(OTHER_EDU, 'c1', { title: 'Hijack' })).rejects.toThrow(ForbiddenException);
+    await expect(h.service.update(OTHER_EDU, 'c1', { title: 'Hijack' })).rejects.toThrow(NotFoundException);
   });
 });
 

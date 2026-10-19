@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
@@ -31,6 +31,11 @@ export const LIVE_COURSE_STATUSES: CourseStatus[] = [CourseStatus.PUBLISHED, Cou
 const IN_REVIEW_STATUSES: CourseStatus[] = [CourseStatus.SUBMITTED, CourseStatus.UNDER_REVIEW, CourseStatus.INSTITUTION_REVIEW];
 /** A QO flag only applies to a course in the QO queue or live; anything else is a stale decision. */
 const FLAGGABLE_STATUSES: CourseStatus[] = [CourseStatus.SUBMITTED, CourseStatus.UNDER_REVIEW, CourseStatus.PUBLISHED, CourseStatus.UNLISTED];
+/**
+ * What a QO may read as staff: the QO queue (first review, or a staged revision of a live
+ * course) and courses a QO flagged. Drafts, institution-review and archived courses stay private.
+ */
+const QO_VISIBLE_STATUSES: CourseStatus[] = [...FLAGGABLE_STATUSES, CourseStatus.FLAGGED];
 
 const STATUS_CHANGED = 'This course changed state a moment ago. Reload the page and try again.';
 
@@ -698,7 +703,7 @@ export class CourseService implements OnModuleInit {
   /** Institution admins manage their instructors' tutor notes, so this authorizes with canAuthor rather than ownedCourse. */
   private async knowledgeGate(ctx: UserContext, courseId: string, openRevision: boolean): Promise<EditGate> {
     const course = await this.courseOrThrow(courseId);
-    if (!(await this.canAuthor(ctx, course))) throw new ForbiddenException('Not your course');
+    if (!(await this.canAuthor(ctx, course))) throw new NotFoundException('Course not found');
     return this.editGate(course, ctx.id, { openRevision });
   }
 
@@ -1306,7 +1311,7 @@ export class CourseService implements OnModuleInit {
   /** The educator's working copy (live + staged edits, with change markers). */
   async working(ctx: UserContext, courseId: string) {
     const course = await this.courseOrThrow(courseId);
-    if (!(await this.canAuthor(ctx, course))) throw new ForbiddenException('Not your course');
+    if (!(await this.canAuthor(ctx, course))) throw new NotFoundException('Course not found');
     // A draft never shows staged markers: leftovers from when it was live
     // (e.g. moved back to draft before folding existed) become the draft
     // here, exactly as the next edit or submit would fold them.
@@ -1492,18 +1497,20 @@ export class CourseService implements OnModuleInit {
     };
   }
 
+  /** The caller's course; someone else's answers 404 like a missing one, so ids cannot be probed. */
   async ownedCourse(ctx: UserContext, courseId: string): Promise<Course> {
     const course = await this.courses.findOne({ where: { id: courseId } });
     if (!course) throw new NotFoundException('Course not found');
     if (course.created_by !== ctx.id && ctx.role !== Role.PLATFORM_ADMIN) {
-      throw new ForbiddenException('Not your course');
+      throw new NotFoundException('Course not found');
     }
     return course;
   }
 
-  /** Owner, platform staff (QO / admin) or the admin of the course's institution. */
+  /** Owner, platform admin, the admin of the course's institution, or a QO while the course is in their remit. */
   async isStaffFor(ctx: UserContext, course: Course): Promise<boolean> {
-    return ctx.role === Role.QUALITY_OFFICER || this.canAuthor(ctx, course);
+    if (ctx.role === Role.QUALITY_OFFICER && QO_VISIBLE_STATUSES.includes(course.status)) return true;
+    return this.canAuthor(ctx, course);
   }
 
   /** Owner, platform admin or the admin of the course's institution (who manages its instructors' courses). */
