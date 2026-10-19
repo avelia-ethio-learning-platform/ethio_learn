@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 
 /**
@@ -7,17 +8,41 @@ import { AuthService } from './auth.service';
  * stayed valid for up to 7 days.
  *
  * We drive the real AuthService against an in-memory fake Redis that mimics the
- * ioredis commands the service uses (get/set/del/sadd/srem/smembers/expire).
+ * ioredis commands the service uses (get/set/del/sadd/srem/smembers/expire,
+ * and multi for rotation). `set … EX` expiry follows Date.now(), so jest's
+ * fake timers move it.
  */
 class FakeRedis {
   strings = new Map<string, string>();
+  expiresAt = new Map<string, number>();
   sets = new Map<string, Set<string>>();
   async get(k: string) {
+    const at = this.expiresAt.get(k);
+    if (at !== undefined && Date.now() >= at) {
+      this.strings.delete(k);
+      this.expiresAt.delete(k);
+    }
     return this.strings.get(k) ?? null;
   }
-  async set(k: string, v: string) {
+  async set(k: string, v: string, mode?: 'EX', seconds?: number) {
     this.strings.set(k, v);
+    if (mode === 'EX' && seconds) this.expiresAt.set(k, Date.now() + seconds * 1000);
+    else this.expiresAt.delete(k);
     return 'OK';
+  }
+  /** Queues commands and runs them in order on exec, like ioredis' pipeline. */
+  multi() {
+    const queued: (() => Promise<unknown>)[] = [];
+    const chain = new Proxy({} as Record<string, unknown>, {
+      get: (_t, name: string) => {
+        if (name === 'exec') return async () => Promise.all(queued.map(async (run) => [null, await run()]));
+        return (...args: unknown[]) => {
+          queued.push(() => (this as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name](...args));
+          return chain;
+        };
+      },
+    });
+    return chain;
   }
   async del(...keys: string[]) {
     let n = 0;
@@ -48,9 +73,13 @@ class FakeRedis {
   }
 }
 
-function makeService() {
+type UserRow = { id: string; email: string; name: string; role: string; status?: string; must_change_password: boolean };
+
+function makeService(users: UserRow[] = []) {
   const redis = new FakeRedis();
-  const svc = new AuthService({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+  const repo = { findOne: async ({ where: { id } }: { where: { id: string } }) => users.find((u) => u.id === id) ?? null };
+  process.env.JWT_SECRET = 'test-secret-not-real';
+  const svc = new AuthService(repo as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
   // Replace the real ioredis connection (opened at field init) with the fake,
   // and stop the real one so no socket lingers during the test run.
   const real = (svc as unknown as { redis: { disconnect?: () => void } }).redis;
@@ -100,5 +129,106 @@ describe('AuthService session revocation', () => {
   it('revokeAllSessions on a user with no sessions returns 0', async () => {
     const { svc } = makeService();
     expect(await svc.revokeAllSessions('nobody')).toBe(0);
+  });
+});
+
+describe('AuthService.refresh: rotation and the 30 s grace (Phase 11b, decision 8)', () => {
+  const learner = (over: Partial<UserRow> = {}): UserRow => ({ id: 'user-1', email: 'a@x.et', name: 'A', role: 'learner', must_change_password: false, ...over });
+
+  beforeEach(() => jest.useFakeTimers({ now: new Date('2026-10-18T09:00:00Z') }));
+  afterEach(() => jest.useRealTimers());
+
+  it('rotates: a new token, the old one gone from Redis and from the user set', async () => {
+    const { svc, redis } = makeService([learner()]);
+    const t0 = await issue(svc, 'user-1');
+    const res = await svc.refresh(t0);
+    expect(res.refresh_token).not.toBe(t0);
+    expect(res.access_token).toEqual(expect.any(String));
+    expect(await redis.get(`refresh:${t0}`)).toBeNull();
+    expect(await redis.smembers('refresh:user:user-1')).toEqual([res.refresh_token]);
+    expect(await redis.get(`refresh:${res.refresh_token}`)).toBe('user-1');
+  });
+
+  it('a MULTI that resolves with a command error fails the refresh instead of handing out an unsaved token', async () => {
+    const { svc, redis } = makeService([learner()]);
+    const t0 = await issue(svc, 'user-1');
+    const failing: Record<string, unknown> = new Proxy(
+      {},
+      { get: (_t, name: string) => (name === 'exec' ? async () => [[null, 1], [new Error('OOM command not allowed'), null]] : () => failing) },
+    );
+    jest.spyOn(redis, 'multi').mockReturnValue(failing as never);
+    await expect(svc.refresh(t0)).rejects.toThrow('OOM');
+  });
+
+  it('inside 30 s, the old token returns the same successor and mints no new session', async () => {
+    const { svc, redis } = makeService([learner()]);
+    const t0 = await issue(svc, 'user-1');
+    const t1 = (await svc.refresh(t0)).refresh_token;
+    jest.advanceTimersByTime(29_000);
+    const again = await svc.refresh(t0);
+    expect(again.refresh_token).toBe(t1);
+    expect(again.access_token).toEqual(expect.any(String));
+    expect(await redis.smembers('refresh:user:user-1')).toEqual([t1]);
+  });
+
+  it('after 30 s, the old token is a 401', async () => {
+    const { svc } = makeService([learner()]);
+    const t0 = await issue(svc, 'user-1');
+    await svc.refresh(t0);
+    jest.advanceTimersByTime(30_000);
+    await expect(svc.refresh(t0)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('one hop only: once the successor is rotated, the old token is a 401', async () => {
+    const { svc } = makeService([learner()]);
+    const t0 = await issue(svc, 'user-1');
+    const t1 = (await svc.refresh(t0)).refresh_token;
+    const t2 = (await svc.refresh(t1)).refresh_token;
+    expect(t2).not.toBe(t1);
+    await expect(svc.refresh(t0)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('once the successor is revoked by revokeAllSessions, the old token is a 401', async () => {
+    const { svc } = makeService([learner()]);
+    const t0 = await issue(svc, 'user-1');
+    await svc.refresh(t0);
+    await svc.revokeAllSessions('user-1');
+    await expect(svc.refresh(t0)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('once the successor is logged out, the old token is a 401', async () => {
+    const { svc } = makeService([learner()]);
+    const t0 = await issue(svc, 'user-1');
+    const t1 = (await svc.refresh(t0)).refresh_token;
+    await svc.logout(t1);
+    await expect(svc.refresh(t0)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('logout with the old token inside the grace also revokes its successor', async () => {
+    const { svc, redis } = makeService([learner()]);
+    const t0 = await issue(svc, 'user-1');
+    const t1 = (await svc.refresh(t0)).refresh_token;
+    await svc.logout(t0);
+    expect(await redis.get(`refresh:${t1}`)).toBeNull();
+    expect(await redis.smembers('refresh:user:user-1')).toEqual([]);
+    await expect(svc.refresh(t1)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(svc.refresh(t0)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it.each(['suspended', 'banned'])('a %s user cannot refresh, nor use the grace', async (status) => {
+    const user = learner();
+    const { svc } = makeService([user]);
+    const t0 = await issue(svc, 'user-1');
+    const t1 = await issue(svc, 'user-1');
+    await svc.refresh(t1); // t1 rotated while still active
+    user.status = status;
+    await expect(svc.refresh(t0)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(svc.refresh(t1)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('an unknown or missing token is a 401', async () => {
+    const { svc } = makeService([learner()]);
+    await expect(svc.refresh('nope')).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(svc.refresh(undefined)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

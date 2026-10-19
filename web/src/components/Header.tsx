@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, m } from 'framer-motion';
 import { GraduationCap, LogOut, Menu, User, X } from 'lucide-react';
-import { api, setAuth } from '@/lib/api';
+import { api, signOut } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useDismiss } from '@/lib/use-dismiss';
@@ -98,14 +98,9 @@ export function Header() {
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
 
   const logout = async () => {
-    // Revoke the refresh token server-side (best-effort), then clear local state.
-    // Without the server call the session stayed valid in Redis for up to 7 days.
-    try {
-      await api('/auth/logout', { method: 'POST', auth: false });
-    } catch {
-      /* offline or already expired — still clear local state */
-    }
-    setAuth(null);
+    // Revokes the refresh token server-side too: without that call the session
+    // stayed valid in Redis for up to 7 days.
+    await signOut();
     router.push('/');
   };
 
@@ -131,7 +126,7 @@ export function Header() {
       <nav aria-label="Main" className="fixed left-1/2 top-0 z-50 w-full max-w-6xl -translate-x-1/2 px-3 pt-4 sm:px-6">
         <div
           className={`flex w-full items-center justify-between transition-[background-color,border-color,box-shadow,border-radius] duration-slow ease-out-quart ${
-            isScrolled ? 'glass rounded-2xl px-4 py-2.5 shadow-floating sm:px-6' : 'glass-secondary rounded-full px-5 py-3 shadow-glass sm:px-8'
+            isScrolled ? 'glass rounded-2xl px-4 py-2.5 shadow-floating sm:px-6' : 'glass-secondary rounded-full px-4 py-3 shadow-glass sm:px-8'
           }`}
         >
           {/* Logo */}
@@ -260,7 +255,7 @@ export function Header() {
                     </Link>
                   )}
                 </div>
-                <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
                   <div className="flex items-center gap-2">
                     <LanguageToggle />
                     <ThemeToggle placement="up" />

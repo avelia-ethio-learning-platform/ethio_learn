@@ -16,6 +16,14 @@ start() { # name  path  port
   echo "  started $1 (port $3, pid $!)"
 }
 
+# Playwright logs in once per test and the e2e scripts write back to back, so
+# this launcher (local and CI, never production) raises the login, /auth and
+# write limits, unless the shell or api/.env sets them.
+for kv in RATE_LIMIT_AUTH_STRICT_PER_MIN=300 RATE_LIMIT_AUTH_PER_MIN=600 RATE_LIMIT_WRITE_PER_MIN=600; do
+  name="${kv%%=*}"
+  [ -n "${!name:-}" ] || grep -q "^$name=" api/.env 2>/dev/null || export "$kv"
+done
+
 echo "starting backend services from dist…"
 start auth         api/services/auth         4101
 start course       api/services/course       4102

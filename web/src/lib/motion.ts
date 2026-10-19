@@ -11,12 +11,6 @@ const STAGGER = 0.04;
 /** The only enter distance, in px. */
 export const RISE = 8;
 
-/** Opacity only, for crossfades. */
-export const fadeIn: Variants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { duration: dur.base, ease: ease.quart } },
-};
-
 /** A page-level reveal: opacity plus a short rise. */
 export const rise: Variants = {
   hidden: { opacity: 0, y: RISE },

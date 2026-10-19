@@ -87,14 +87,16 @@ const config: Config = {
         base: 'var(--dur-base)',
         slow: 'var(--dur-slow)',
       },
+      // DEFAULT: a bare `transition` uses the UI-feedback easing, so there is no third easing.
       transitionTimingFunction: {
+        DEFAULT: 'var(--ease-out-quart)',
         'out-quart': 'var(--ease-out-quart)',
         'out-expo': 'var(--ease-out-expo)',
       },
       keyframes: {
         // Only a `from`: the resting style is the end state (see globals.css).
         'fade-in-up': {
-          from: { opacity: '0', transform: 'translateY(var(--rise))' },
+          from: { opacity: '0.01', transform: 'translateY(var(--rise))' },
         },
       },
       animation: {

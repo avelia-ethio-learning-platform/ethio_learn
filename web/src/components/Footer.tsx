@@ -126,7 +126,7 @@ export function Footer() {
             <button
               onClick={scrollTop}
               aria-label={t('back_to_top')}
-              className="glass-secondary flex h-11 w-11 items-center lg:h-9 lg:w-9 justify-center rounded-xl text-brand-600 shadow-glass transition duration-fast hover:text-brand-700 active:scale-[.98]"
+              className="glass-secondary flex h-11 w-11 items-center justify-center lg:h-9 lg:w-9 rounded-xl text-brand-600 shadow-glass transition duration-fast hover:text-brand-700 active:scale-[.98]"
             >
               <ArrowUp className="h-4 w-4" />
             </button>

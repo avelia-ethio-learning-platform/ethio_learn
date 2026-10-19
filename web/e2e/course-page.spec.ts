@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from './test';
-import { apiGet, authFile, BASE_URL, settle } from './support';
+import { apiGet, BASE_URL, settle, signIn } from './support';
 
 interface Summary {
   id: string;
@@ -54,9 +54,10 @@ test.describe('course page at 375 px', { tag: '@flow' }, () => {
     const enrolled = new Set((await apiGet<{ course_id: string }[]>(request, '/enrollments', 'learner')).map((e) => e.course_id));
     const course = (await seededCourses(request)).find((c) => c.pricing_type === 'paid' && !enrolled.has(c.id));
     expect(course, 'a paid course the seeded learner is not enrolled in').toBeTruthy();
-    const context = await browser.newContext({ viewport: { width: 375, height: 667 }, storageState: authFile('learner'), serviceWorkers: 'block' });
+    const context = await browser.newContext({ viewport: { width: 375, height: 667 }, serviceWorkers: 'block' });
     try {
       const page = await context.newPage();
+      await signIn(page, 'learner');
       await page.goto(`/courses/${course!.id}`);
       const button = page.locator('#buy-box [data-primary-action]');
       await expect(button).toBeVisible();
@@ -90,8 +91,9 @@ test.describe('course page at 375 px', { tag: '@flow' }, () => {
     const [course] = await seededCourses(request);
     // The learner's login makes the enroll panel ask for the enrollment status; holding that
     // call back past 4 s is what makes the notice appear (lib/waking.ts), without touching the server.
-    const context = await browser.newContext({ viewport: { width: 375, height: 667 }, storageState: authFile('learner'), serviceWorkers: 'block' });
+    const context = await browser.newContext({ viewport: { width: 375, height: 667 }, serviceWorkers: 'block' });
     const page = await context.newPage();
+    await signIn(page, 'learner');
     try {
       await page.route('**/enrollments/status**', async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 7_000));

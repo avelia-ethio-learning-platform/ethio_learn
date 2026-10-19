@@ -1,9 +1,8 @@
 import { expect, test } from './test';
-import { authFile } from './support';
 
 // P0-11: no role sees a page or form the API will refuse.
 test.describe('institution admin', () => {
-  test.use({ storageState: authFile('institution_admin') });
+  test.use({ loggedInAs: 'institution_admin' });
 
   test('gets no create-course form on /teach/new (the API refuses institutions)', async ({ page }) => {
     await page.goto('/teach/new');
@@ -22,7 +21,7 @@ test.describe('institution admin', () => {
 });
 
 test.describe('educator', () => {
-  test.use({ storageState: authFile('educator') });
+  test.use({ loggedInAs: 'educator' });
 
   test('gets the create-course form on /teach/new', async ({ page }) => {
     await page.goto('/teach/new');

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from './test';
-import { authFile, BASE_URL } from './support';
+import { BASE_URL } from './support';
 
-test.use({ storageState: authFile('platform_admin') });
+test.use({ loggedInAs: 'platform_admin' });
 
 // The Users tab in a real browser. Never suspend a seeded account: that would
 // break the other specs. Anything that confirms is answered by page.route.

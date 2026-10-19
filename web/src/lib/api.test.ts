@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { wakeServices } = vi.hoisted(() => ({ wakeServices: vi.fn() }));
 vi.mock('./wake', () => ({ wakeServices }));
 
-import { api, ApiError, getAuth, refreshSession, setAuth, WakingError } from './api';
+import { api, API_URL, ApiError, getAuth, refreshSession, resetBootForTests, setAuth, WakingError } from './api';
+import { resetAuthForTests } from './auth-store';
 import { SLOW_NOTICE_MS, slowRequestCount } from './waking';
 
 const fetchMock = vi.fn();
@@ -20,11 +21,11 @@ function hibernationResponse(): Response {
 
 const isRefresh = (url: string) => url.endsWith('/auth/refresh');
 
-/** Counts logouts: setAuth(null) fires el-auth-changed with nothing stored. */
+/** Counts logouts: el-auth-changed with nobody signed in. */
 function countLogouts() {
   let n = 0;
   const onChange = () => {
-    if (!localStorage.getItem('el_auth')) n += 1;
+    if (!getAuth()) n += 1;
   };
   window.addEventListener('el-auth-changed', onChange);
   return {
@@ -40,6 +41,8 @@ beforeEach(() => {
   wakeServices.mockReset();
   vi.stubGlobal('fetch', fetchMock);
   localStorage.clear();
+  resetAuthForTests();
+  resetBootForTests();
 });
 
 afterEach(() => {
@@ -59,6 +62,20 @@ describe('api()', () => {
     await api('/enrollments');
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers.Authorization).toBe('Bearer tok-123');
+  });
+
+  it('sends other calls straight to the gateway without cookies, and /auth/* and the password change same-origin', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(200, {})));
+    await api('/enrollments');
+    await api('/auth/login', { method: 'POST', body: {} });
+    await api('/profiles/password', { method: 'PUT', body: {} });
+    await api('/profiles/me');
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init.credentials])).toEqual([
+      [`${API_URL}/api/v1/enrollments`, 'omit'],
+      ['/api/v1/auth/login', 'same-origin'],
+      ['/api/v1/profiles/password', 'same-origin'],
+      [`${API_URL}/api/v1/profiles/me`, 'omit'],
+    ]);
   });
 
   it('throws ApiError with the server message on failure', async () => {

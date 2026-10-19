@@ -152,7 +152,7 @@ function PaymentsTab() {
               />
             </button>
             {openId === p.id && (
-              <dl className="glass-secondary mb-2 grid animate-fade-in gap-x-6 gap-y-1 rounded-xl p-3 text-xs sm:grid-cols-2">
+              <dl className="glass-secondary mb-2 grid fade-in gap-x-6 gap-y-1 rounded-xl p-3 text-xs sm:grid-cols-2">
                 <div><dt className="inline font-medium text-gray-500">Paid by: </dt><dd className="inline">{p.learner_name} ({p.learner_email})</dd></div>
                 <div><dt className="inline font-medium text-gray-500">Method: </dt><dd className="inline">{paymentMethodLabel(p.method)}</dd></div>
                 <div><dt className="inline font-medium text-gray-500">Initiated: </dt><dd className="inline">{formatDate(p.created_at, locale, 'datetime')}</dd></div>

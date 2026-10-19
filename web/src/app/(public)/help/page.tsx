@@ -3,7 +3,7 @@
 import { FormEvent, useId, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { getAuth } from '@/lib/api';
+import { useAuth } from '@/lib/hooks';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
@@ -119,7 +119,7 @@ function FaqItem({ item }: { item: Faq }) {
 }
 
 function ContactForm() {
-  const auth = getAuth();
+  const { user } = useAuth();
   const [status, setOk, setError, clearStatus] = useFormStatus();
   const [sending, setSending] = useState(false);
 
@@ -152,10 +152,10 @@ function ContactForm() {
     <form onSubmit={submit} className="card space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Your name">
-          {(ids) => <input {...ids} name="name" className="input" placeholder="Optional" defaultValue={auth?.user.name ?? ''} />}
+          {(ids) => <input {...ids} key={user?.id ?? 'anon'} name="name" className="input" placeholder="Optional" defaultValue={user?.name ?? ''} />}
         </Field>
         <Field label="Email">
-          {(ids) => <input {...ids} name="email" type="email" required className="input" defaultValue={auth?.user.email ?? ''} placeholder="you@example.com" />}
+          {(ids) => <input {...ids} key={user?.id ?? 'anon'} name="email" type="email" required className="input" defaultValue={user?.email ?? ''} placeholder="you@example.com" />}
         </Field>
       </div>
       <Field label="Subject">

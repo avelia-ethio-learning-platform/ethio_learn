@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronLeft, ChevronRight, Compass, RotateCcw, Search, SearchX, SlidersHorizontal, Tag, X } from 'lucide-react';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
@@ -56,7 +56,7 @@ function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
       <button
         onClick={onRemove}
         aria-label={t('remove_filter', { label })}
-        className="flex h-5 w-5 items-center justify-center rounded-full transition-colors duration-fast hover:bg-brand-500/15"
+        className="flex h-6 w-6 items-center justify-center rounded-full transition-colors duration-fast hover:bg-brand-500/15"
       >
         <X className="h-3 w-3" />
       </button>
@@ -93,6 +93,10 @@ export function ExploreClient({
   const activeCount = [filters.q, activeCategory, activePricing].filter(Boolean).length;
   // Below md the filters sit behind a button; they start open when a filter is already applied.
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
+
+  // The grid crossfades only when its results change; the first results paint as they are (no enter on load).
+  const resultsKey = `${filters.q ?? ''}|${activeCategory ?? ''}|${activePricing ?? ''}|${activeSort}|${page}|${limit}`;
+  const firstResultsKey = useRef(resultsKey);
 
   const totalPages = Math.max(Math.ceil(total / limit), 1);
   const from = total === 0 ? 0 : (page - 1) * limit + 1;
@@ -272,7 +276,7 @@ export function ExploreClient({
 
         {/* Grid */}
         {/* Grid. While the next results load, a thin bar runs above the current ones, which stay
-            readable and clickable; the new results crossfade in (keyed, so .fade-in replays). */}
+            readable and clickable; new results crossfade in (keyed, so .fade-in plays on each change). */}
         <div className="relative mt-6" aria-busy={isPending}>
           {isPending && <div className="loading-bar" data-testid="results-loading" />}
           {courses.length === 0 ? (
@@ -298,9 +302,9 @@ export function ExploreClient({
             </div>
           ) : (
             <div
-              key={`${filters.q ?? ''}|${activeCategory ?? ''}|${activePricing ?? ''}|${activeSort}|${page}|${limit}`}
+              key={resultsKey}
               data-testid="results"
-              className="fade-in grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+              className={`${resultsKey === firstResultsKey.current ? '' : 'fade-in '}grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3`}
             >
               {courses.map((c) => (
                 <CourseCard key={c.id} course={c} />
