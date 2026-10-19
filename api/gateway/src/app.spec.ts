@@ -1,8 +1,10 @@
 import { createServer, IncomingHttpHeaders, Server } from 'http';
 import { AddressInfo } from 'net';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { Logger } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import { createGatewayApp } from './app';
+import { ipBucket } from './auth-middleware';
 
 /**
  * The gateway's request pipeline, run for real on `listen(0)` against a stub
@@ -114,6 +116,40 @@ describe('the web proxy headers', () => {
     expect((await fetch(`${base}/api/v1/auth/invite/abc`, { headers })).status).toBe(200);
     expect(seen[0].headers['x-web-proxy-secret']).toBeUndefined();
     expect(seen[0].headers['x-web-client-ip']).toBeUndefined();
+  });
+});
+
+describe('a web proxy secret that does not match', () => {
+  it('logs one warning a minute, naming the header but never its value', async () => {
+    const warn = jest.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    // Earlier specs sent a wrong secret too: start a minute later.
+    const later = Date.now() + 61_000;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => later);
+    try {
+      const wrong = 'gateway-spec-wrong-secret-value';
+      for (let i = 0; i < 3; i++) await fetch(`${base}/api/v1/auth/invite/abc`, { headers: { 'x-web-proxy-secret': wrong } });
+      await fetch(`${base}/api/v1/auth/invite/abc`, { headers: { 'x-web-proxy-secret': PROXY_SECRET } });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toMatch(/x-web-proxy-secret/);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(wrong);
+    } finally {
+      warn.mockRestore();
+      clock.mockRestore();
+    }
+  });
+});
+
+describe('ipBucket', () => {
+  it.each([
+    ['203.0.113.7', 'ip:203.0.113.7'],
+    ['::ffff:203.0.113.7', 'ip:203.0.113.7'],
+    ['2001:db8::a:b:c:d', 'ip6:2001:db8:0:0'],
+    ['2001:0db8:0000:0000:a:b:c:d', 'ip6:2001:db8:0:0'],
+    ['2001:db8:1:2::1', 'ip6:2001:db8:1:2'],
+    ['2001:DB8:1:2:3:4:5:6', 'ip6:2001:db8:1:2'],
+    ['::1', 'ip6:0:0:0:0'],
+  ])('%s → %s', (ip, bucket) => {
+    expect(ipBucket(ip)).toBe(bucket);
   });
 });
 

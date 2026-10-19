@@ -10,7 +10,7 @@ import { Agent, Server } from 'http';
 import { Agent as HttpsAgent } from 'https';
 import { env, envInt } from '@ethiopialearn/common';
 import { resolveRoute } from './routes';
-import { clientIp, clientIpOf, gatewayAuth, refreshTokenKey } from './auth-middleware';
+import { clientIp, clientIpOf, gatewayAuth, ipBucket, refreshTokenKey } from './auth-middleware';
 import { classifyRequest, DEFAULT_LIMITS_PER_MIN as DEFAULTS, RatePolicy } from './rate-policy';
 
 @Controller('health')
@@ -78,10 +78,7 @@ export async function createGatewayApp(options: { logger?: false } = {}): Promis
   // are bucketed by /64 so one subscriber can't rotate through a prefix.
   // The address is the web proxy's forwarded one when it proves itself (clientIp).
   app.use(clientIp());
-  const ipKey = (req: Request): string => {
-    const ip = clientIpOf(req);
-    return ip.includes(':') ? `ip6:${ip.split(':').slice(0, 4).join(':')}` : `ip:${ip}`;
-  };
+  const ipKey = (req: Request): string => ipBucket(clientIpOf(req));
   const userKey = (req: Request): string => {
     const uid = req.headers['x-user-id'];
     return typeof uid === 'string' && uid ? `u:${uid}` : ipKey(req);

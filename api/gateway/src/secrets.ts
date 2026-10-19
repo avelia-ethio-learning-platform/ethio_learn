@@ -1,10 +1,12 @@
 import { timingSafeEqual } from 'crypto';
 import { env } from '@ethiopialearn/common';
 
-/** Length-checked, timing-safe; an unset secret matches nothing. */
+/** Length-checked (in bytes, so a non-ASCII header can't throw), timing-safe; an unset secret matches nothing. */
 export function matchesSecret(presented: string | undefined, expected: string): boolean {
-  if (!expected || !presented || presented.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
+  if (!expected || !presented) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** The scheduler's token (JOBS_TOKEN, set on the gateway only): `Authorization: Bearer <token>`. */

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { NextFunction, Request, RequestHandler, Response } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { createHash } from 'crypto';
@@ -44,19 +45,44 @@ export function clientIpOf(req: Request): string {
  * headers are removed in every case, so they never reach a service.
  */
 export function clientIp(): RequestHandler {
+  let lastWarned = -Infinity;
   return (req: Request, _res: Response, next: NextFunction) => {
     const presented = req.headers[PROXY_SECRET_HEADER];
     const forwarded = req.headers[CLIENT_IP_HEADER];
     delete req.headers[PROXY_SECRET_HEADER];
     delete req.headers[CLIENT_IP_HEADER];
-    const trusted =
-      typeof presented === 'string' &&
-      typeof forwarded === 'string' &&
-      matchesSecret(presented, env('WEB_PROXY_SECRET', '')) &&
-      isIP(forwarded) !== 0;
-    (req as WithClientIp).clientIp = trusted ? forwarded : (req.ip ?? '');
+    const proven = typeof presented === 'string' && matchesSecret(presented, env('WEB_PROXY_SECRET', '').trim());
+    // A web that sends a secret the gateway doesn't share puts every user in the
+    // web's own IP buckets: say so, at most once a minute, never with the value.
+    if (presented !== undefined && !proven && Date.now() - lastWarned >= 60_000) {
+      lastWarned = Date.now();
+      Logger.warn(`${PROXY_SECRET_HEADER} does not match WEB_PROXY_SECRET: rate limits key by the web's address, not the user's`, 'Gateway');
+    }
+    const trusted = proven && typeof forwarded === 'string' && isIP(forwarded) !== 0;
+    (req as WithClientIp).clientIp = trusted ? (forwarded as string) : (req.ip ?? '');
     next();
   };
+}
+
+/**
+ * The rate-limit bucket for an address: IPv4 as is, IPv6 by its /64 (the
+ * address expanded first, so `2001:db8::a:b:c:d` and `2001:db8:0:0:…` agree).
+ */
+export function ipBucket(ip: string): string {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) return `ip:${mapped[1]}`;
+  if (isIP(ip) !== 6) return `ip:${ip}`;
+  const groups = (part: string) => (part ? part.split(':') : []);
+  const [head, tail] = ip.split('::');
+  const h = groups(head);
+  const full =
+    tail === undefined
+      ? h
+      : [...h, ...Array(8 - h.length - groups(tail).reduce((n, g) => n + (g.includes('.') ? 2 : 1), 0)).fill('0'), ...groups(tail)];
+  return `ip6:${full
+    .slice(0, 4)
+    .map((g) => g.toLowerCase().replace(/^0+(?=.)/, ''))
+    .join(':')}`;
 }
 
 /** `el_refresh` from a raw Cookie header, without logging or storing it. */

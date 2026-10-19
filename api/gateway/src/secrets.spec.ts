@@ -41,4 +41,8 @@ describe('gateway jobs auth (JOBS_TOKEN)', () => {
     expect(matchesSecret('abc', 'abc')).toBe(true);
     expect(timingSafeEqual).toHaveBeenCalled();
   });
+
+  it('refuses a same-length value with a non-ASCII character instead of throwing', () => {
+    expect(matchesSecret('abé', 'abc')).toBe(false);
+  });
 });
