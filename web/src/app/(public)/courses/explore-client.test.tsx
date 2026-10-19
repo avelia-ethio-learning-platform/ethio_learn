@@ -83,6 +83,13 @@ describe('catalog', () => {
     expect(screen.getByText('Intro to Python')).toBeTruthy();
   });
 
+  it('the first results paint without an enter; changed results crossfade in', () => {
+    const { rerender } = render(<ExploreClient courses={courses} total={15} page={1} limit={12} filters={{}} />);
+    expect(screen.getByTestId('results').className).not.toContain('fade-in');
+    rerender(<ExploreClient courses={courses} total={15} page={1} limit={12} filters={{ category: 'tech' }} />);
+    expect(screen.getByTestId('results').className).toContain('fade-in');
+  });
+
   it('with no results and a filter applied, offers Clear filters', () => {
     render(<ExploreClient courses={[]} total={0} page={1} limit={12} filters={{ category: 'tech' }} />);
     expect(screen.getByText('No published courses match yet.')).toBeTruthy();
