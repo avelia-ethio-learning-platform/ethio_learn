@@ -96,7 +96,13 @@ const INSTANT_SOURCES: ReadonlySet<ConfirmSource> = new Set(['wallet', 'coupon']
  * other throw) and the gateway's own reasons do.
  */
 type CheckoutFailReason = 'superseded' | 'wallet_insufficient' | 'checkout_open_failed' | 'error';
-const SILENT_FAIL_REASONS: ReadonlySet<string> = new Set<CheckoutFailReason>(['superseded', 'wallet_insufficient', 'checkout_open_failed']);
+/**
+ * The sweep job's reason for an abandoned checkout Chapa still reports unpaid
+ * (expireAbandonedCheckouts). Silent too: the learner left the page and already
+ * had the abandoned-checkout reminder.
+ */
+const EXPIRED = 'expired';
+const SILENT_FAIL_REASONS: ReadonlySet<string> = new Set<string>(['superseded', 'wallet_insufficient', 'checkout_open_failed', EXPIRED]);
 
 /** 409 for a checkout whose row a retry of the same purchase superseded before it could be returned. */
 const REPLACED_BY_RETRY = 'A newer checkout for this purchase replaced this one.';
@@ -146,6 +152,14 @@ const EFFECTS_RETRY_AFTER_MS = 60_000;
 const EFFECTS_BATCH = 50;
 /** The sweep stops checking a row after this many verifies (it is logged once, at the last). */
 const MAX_VERIFY_ATTEMPTS = 30;
+/**
+ * A pending Chapa checkout this old is abandoned (P2-01): the sweep job asks
+ * Chapa once more and expires it when still unpaid. Past the end of the
+ * abandoned-checkout reminder window (nudgeAbandonedCheckouts: 1-48 h), so
+ * every checkout can get its reminder first.
+ */
+const ABANDONED_CHECKOUT_EXPIRES_MS = 48 * 3600_000;
+const EXPIRE_BATCH = 25;
 
 /** Purpose-based volume tiers for bulk purchases (seats → % off). Env-overridable. */
 export function bulkDiscountPercent(seats: number): number {
@@ -240,6 +254,11 @@ export class PaymentService {
       : { coupon: null, list_price_etb: input.listPriceEtb, discount_etb: 0, amount_due_etb: input.listPriceEtb };
     const due = quote.amount_due_etb;
 
+    if (!quote.coupon && !input.useWallet && input.purpose === PaymentPurpose.COURSE && due > 0) {
+      const open = await this.openCourseCheckout(input, due);
+      if (open) return open;
+    }
+
     // tx_ref is OURS: SDK-style TX-XXXX reference, generated server-side.
     // Clients can never supply one (webhook idempotency hangs off it).
     const txRef = await this.chapa.generateTxRef();
@@ -324,6 +343,36 @@ export class PaymentService {
       await this.failCheckout(payment, reason);
       throw err;
     }
+  }
+
+  /**
+   * P2-01: a learner buying a course for themselves through Chapa, without a
+   * coupon, gets back their latest open checkout for that course instead of a
+   * new pending row, so repeated Buy clicks open one Chapa page. Only one that
+   * is still pending, has its Chapa page, was opened within the coupon-hold
+   * window (COUPON_HOLD_MINUTES, the window in which a coupon checkout is
+   * handed back too, openCouponCheckout), and is for the same amount and payee
+   * (a price change opens a new one). Nothing is written: an older or
+   * different checkout stays as it is, still payable, until the sweep job
+   * expires it (expireAbandonedCheckouts).
+   */
+  private async openCourseCheckout(input: SessionInput, due: number): Promise<SessionResult | null> {
+    const open = await this.payments.findOne({
+      where: {
+        learner_id: input.payer.id,
+        course_id: input.courseId!,
+        purpose: PaymentPurpose.COURSE,
+        method: PaymentMethod.CHAPA,
+        status: PaymentStatus.PENDING,
+        coupon_code: IsNull(),
+        chapa_checkout_url: Not(IsNull()),
+        created_at: MoreThan(new Date(Date.now() - couponHoldMs())),
+      },
+      order: { created_at: 'DESC' },
+    });
+    if (!open || Number(open.amount_etb).toFixed(2) !== due.toFixed(2) || open.payee_id !== input.payee.id) return null;
+    this.logger.log(`payment ${open.id} (${open.chapa_tx_ref}): open checkout returned to a repeat of the same purchase`);
+    return { payment_id: open.id, tx_ref: open.chapa_tx_ref, checkout_url: open.chapa_checkout_url, confirmed: false, amount_etb: due, discount_etb: 0 };
   }
 
   /**
@@ -629,6 +678,51 @@ export class PaymentService {
       }
     }
     return { checked };
+  }
+
+  /**
+   * P2-01: expires abandoned checkouts, so they don't stay pending forever.
+   * A pending Chapa payment older than ABANDONED_CHECKOUT_EXPIRES_MS is
+   * verified with Chapa first, and only an answer of "still pending" (unpaid,
+   * or unknown to Chapa) expires it: it becomes failed, silently. Chapa's
+   * other answers apply as anywhere else (paid confirms it, failed fails it).
+   * An expired row stays payable: a late webhook or the learner's reconcile
+   * still confirms it, as for any failed Chapa checkout (confirmPayment).
+   * Runs with the `sweep` job (jobs.ts), in live mode only (the mock verify
+   * reports unknown payments as paid). Least recently checked first, so a row
+   * Chapa can't settle (paid without an amount) can't block the rest; stops at
+   * the first sign that Chapa is unreachable.
+   */
+  async expireAbandonedCheckouts(): Promise<{ expired: number }> {
+    if (chapaMode() !== 'live') return { expired: 0 };
+    const rows = await this.payments.find({
+      where: { status: PaymentStatus.PENDING, method: PaymentMethod.CHAPA, created_at: LessThan(new Date(Date.now() - ABANDONED_CHECKOUT_EXPIRES_MS)) },
+      order: { verify_checked_at: { direction: 'ASC', nulls: 'FIRST' }, created_at: 'ASC' },
+      take: EXPIRE_BATCH,
+    });
+    let expired = 0;
+    for (const payment of rows) {
+      let verification: ChapaVerification;
+      try {
+        verification = await this.chapa.verify(payment.chapa_tx_ref);
+      } catch (err) {
+        if (err instanceof ChapaUnavailableError) {
+          this.logger.warn('chapa unreachable, expiry stopped');
+          break;
+        }
+        this.logger.warn(`expiry: could not verify ${payment.chapa_tx_ref}: ${(err as Error).message}`);
+        continue;
+      }
+      await this.payments.update({ id: payment.id }, { verify_checked_at: new Date() });
+      if (verification.status !== 'pending') {
+        await this.applyVerification(payment, verification, 'sweep');
+        continue;
+      }
+      // Only a row still pending: one a webhook confirmed since the select keeps its confirmation.
+      if (await this.failPayment(payment, 'sweep', EXPIRED)) expired += 1;
+    }
+    if (expired) this.logger.log(`abandoned checkouts expired: ${expired}`);
+    return { expired };
   }
 
   /** The sweep's turn: one more verify of this row, now. Only the sweep job writes these (under its lease). */

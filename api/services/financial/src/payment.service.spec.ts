@@ -1221,3 +1221,223 @@ describe('PaymentService: two wallet purchases of one course charge once (P2-03,
     await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).resolves.toMatchObject({ confirmed: true });
   });
 });
+
+describe('PaymentService: a repeat Buy returns the open checkout instead of a new pending row (P2-01)', () => {
+  const learner = { id: 'u1', role: 'learner', email: 'u1@x.et' } as never;
+  const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000);
+  const setupBuys = () => {
+    const t = setup();
+    let n = 0;
+    t.chapa.generateTxRef.mockImplementation(async () => `TX-B${++n}`);
+    t.chapa.initialize.mockImplementation(async (o: { tx_ref: string }) => ({ checkout_url: `https://checkout.example/${o.tx_ref}` }));
+    return t;
+  };
+  const buy = (t: ReturnType<typeof setup>) => t.service.initiate(learner, 'c1');
+  /** The learner's open Chapa checkout for c1 at the course price, opened 10 min ago. */
+  const open = (t: ReturnType<typeof setup>, over: Row = {}) => t.seed({ id: 'pay-open', chapa_tx_ref: 'TX-OPEN', chapa_checkout_url: 'https://checkout.example/TX-OPEN', ...over });
+
+  afterEach(() => delete process.env.COUPON_HOLD_MINUTES);
+
+  it('two Buy clicks open one Chapa checkout: the second gets the first one back, with no new row', async () => {
+    const t = setupBuys();
+    const first = await buy(t);
+    const second = await buy(t);
+
+    expect(second).toEqual(first);
+    expect(second).toMatchObject({ tx_ref: 'TX-B1', checkout_url: 'https://checkout.example/TX-B1', confirmed: false, amount_etb: 500, discount_etb: 0 });
+    expect(t.payments.rows).toHaveLength(1);
+    expect(t.chapa.initialize).toHaveBeenCalledTimes(1);
+    expect(t.row(first.payment_id).status).toBe(PaymentStatus.PENDING);
+  });
+
+  it('returns an open checkout from within the coupon-hold window (COUPON_HOLD_MINUTES)', async () => {
+    const t = setupBuys();
+    open(t, { created_at: minutesAgo(59) });
+    await expect(buy(t)).resolves.toMatchObject({ payment_id: 'pay-open', tx_ref: 'TX-OPEN', checkout_url: 'https://checkout.example/TX-OPEN' });
+    expect(t.payments.rows).toHaveLength(1);
+
+    process.env.COUPON_HOLD_MINUTES = '30';
+    const later = await buy(t);
+    expect(later.payment_id).not.toBe('pay-open');
+  });
+
+  it.each<[string, Row]>([
+    ['opened before the window', { created_at: minutesAgo(61) }],
+    ['at another price (the course price changed)', { amount_etb: '450.00' }],
+    ['for another payee', { payee_id: 'edu-2' }],
+    ['with no Chapa page yet', { chapa_checkout_url: null }],
+    ['with a coupon', { coupon_code: 'TEN' }],
+    ['confirmed', { status: PaymentStatus.CONFIRMED }],
+    ['failed', { status: PaymentStatus.FAILED }],
+    ['a wallet payment', { method: PaymentMethod.WALLET }],
+    ['for another course', { course_id: 'c2' }],
+    ["someone else's", { learner_id: 'u2' }],
+    ['a gift', { purpose: PaymentPurpose.GIFT, meta: { sponsorship_id: 's1' } }],
+  ])('opens a new checkout when the open one is %s, and leaves that one as it was', async (_, over) => {
+    const t = setupBuys();
+    const other = { ...open(t, over) };
+
+    const result = await buy(t);
+
+    expect(result).toMatchObject({ tx_ref: 'TX-B1', checkout_url: 'https://checkout.example/TX-B1' });
+    expect(t.payments.rows).toHaveLength(2);
+    expect(t.row('pay-open')).toEqual(other);
+  });
+
+  it('a coupon or wallet buy never gets an open no-coupon checkout back', async () => {
+    const t = setupBuys();
+    open(t);
+    t.db.repo(Coupon).rows.push({ id: 'cp-1', code: 'TEN', kind: 'percent', value: '10', active: true, uses: 0, max_uses: null, expires_at: null, course_id: null });
+    await expect(t.service.initiate(learner, 'c1', { coupon_code: 'TEN' })).resolves.toMatchObject({ amount_etb: 450, tx_ref: 'TX-B1' });
+
+    await t.growth.credit('u1', 2000, 'topup', 'pay-0', 'Wallet top-up');
+    await expect(t.service.initiate(learner, 'c1', { use_wallet: true })).resolves.toMatchObject({ confirmed: true, tx_ref: 'TX-B2' });
+    expect(t.row('pay-open').status).toBe(PaymentStatus.PENDING);
+  });
+
+  it('returns the newest of several open checkouts', async () => {
+    const t = setupBuys();
+    open(t, { id: 'pay-older', chapa_tx_ref: 'TX-OLDER', chapa_checkout_url: 'https://checkout.example/TX-OLDER', created_at: minutesAgo(40) });
+    open(t, { created_at: minutesAgo(5) });
+    await expect(buy(t)).resolves.toMatchObject({ payment_id: 'pay-open' });
+  });
+
+  it('an owned course is still refused before any checkout is returned', async () => {
+    const t = setupBuys();
+    open(t);
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => (path.includes('/entitlements') ? { entitlement_status: 'active' } : get(path)));
+    await expect(buy(t)).rejects.toThrow('You already own this course');
+  });
+});
+
+describe('PaymentService.expireAbandonedCheckouts: an abandoned checkout does not stay pending forever (P2-01)', () => {
+  const hoursAgo = (n: number) => new Date(Date.now() - n * 3600_000);
+  const UNPAID = { status: 'pending', amount: null, currency: null };
+  /** A Chapa checkout opened 49 h ago and never paid. */
+  const abandoned = (t: ReturnType<typeof setup>, over: Row = {}) =>
+    t.seed({ chapa_checkout_url: 'https://checkout.example/TX-TEST', created_at: hoursAgo(49), ...over });
+  const live = () => {
+    process.env.CHAPA_MODE = 'live';
+    const t = setup();
+    t.chapa.verify.mockResolvedValue(UNPAID);
+    return t;
+  };
+
+  it('asks Chapa first, and expires the checkout (failed, no notice) when Chapa still reports it unpaid', async () => {
+    const t = live();
+    abandoned(t);
+
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 1 });
+
+    expect(t.chapa.verify).toHaveBeenCalledWith('TX-TEST');
+    expect(t.row()).toMatchObject({ status: PaymentStatus.FAILED, verify_checked_at: expect.any(Date) });
+    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.bus.publishConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('confirms instead when Chapa reports it paid', async () => {
+    const t = live();
+    abandoned(t);
+    t.chapa.verify.mockResolvedValue({ status: 'success', amount: 500, currency: 'ETB' });
+
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 0 });
+
+    expect(t.row().status).toBe(PaymentStatus.CONFIRMED);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('leaves it pending when Chapa reports it paid without an amount, and checks it last next time', async () => {
+    const t = live();
+    abandoned(t, { id: 'no-amount', chapa_tx_ref: 'TX-NO-AMOUNT', created_at: hoursAgo(60) });
+    abandoned(t, { id: 'unpaid', chapa_tx_ref: 'TX-UNPAID' });
+    t.chapa.verify.mockImplementation(async (ref: string) => (ref === 'TX-NO-AMOUNT' ? { status: 'success', amount: null, currency: null } : UNPAID));
+
+    await t.service.expireAbandonedCheckouts();
+    expect(t.row('no-amount').status).toBe(PaymentStatus.PENDING);
+    expect(t.row('unpaid').status).toBe(PaymentStatus.FAILED);
+
+    abandoned(t, { id: 'newer', chapa_tx_ref: 'TX-NEWER', verify_checked_at: hoursAgo(1) });
+    t.chapa.verify.mockClear();
+    await t.service.expireAbandonedCheckouts();
+    expect(t.chapa.verify.mock.calls).toEqual([['TX-NEWER'], ['TX-NO-AMOUNT']]);
+  });
+
+  it('a payment confirmed while Chapa is asked keeps its confirmation', async () => {
+    const t = live();
+    abandoned(t);
+    t.chapa.verify.mockImplementationOnce(async () => {
+      t.row().status = PaymentStatus.CONFIRMED; // the webhook lands meanwhile
+      return UNPAID;
+    });
+
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 0 });
+    expect(t.row().status).toBe(PaymentStatus.CONFIRMED);
+  });
+
+  it('an expired checkout paid late is still confirmed by its webhook', async () => {
+    const t = live();
+    abandoned(t);
+    await t.service.expireAbandonedCheckouts();
+    expect(t.row().status).toBe(PaymentStatus.FAILED);
+
+    t.chapa.verify.mockResolvedValue({ status: 'success', amount: 500, currency: 'ETB' });
+    expect(await t.service.handleWebhook(successBody, signed(successBody))).toEqual({ processed: true, reason: 'confirmed' });
+    expect(t.row().status).toBe(PaymentStatus.CONFIRMED);
+    expect(t.published('PaymentConfirmed')).toHaveLength(1);
+  });
+
+  it('leaves alone checkouts younger than 48 h (still in the reminder window), wallet rows, and settled rows', async () => {
+    const t = live();
+    abandoned(t, { id: 'young', chapa_tx_ref: 'TX-YOUNG', created_at: hoursAgo(47) });
+    abandoned(t, { id: 'wallet', chapa_tx_ref: 'TX-WALLET', method: PaymentMethod.WALLET });
+    abandoned(t, { id: 'confirmed', chapa_tx_ref: 'TX-CONFIRMED', status: PaymentStatus.CONFIRMED });
+    abandoned(t, { id: 'failed', chapa_tx_ref: 'TX-FAILED', status: PaymentStatus.FAILED });
+
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 0 });
+    expect(t.chapa.verify).not.toHaveBeenCalled();
+    expect(t.row('young').status).toBe(PaymentStatus.PENDING);
+    expect(t.row('wallet').status).toBe(PaymentStatus.PENDING);
+  });
+
+  it('stops at the first ChapaUnavailableError and changes nothing', async () => {
+    const t = live();
+    abandoned(t, { id: 'pay-1', chapa_tx_ref: 'TX-1' });
+    abandoned(t, { id: 'pay-2', chapa_tx_ref: 'TX-2' });
+    t.chapa.verify.mockRejectedValue(new ChapaUnavailableError());
+
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 0 });
+    expect(t.chapa.verify).toHaveBeenCalledTimes(1);
+    expect(t.payments.rows.map((p) => [p.status, p.verify_checked_at])).toEqual([
+      [PaymentStatus.PENDING, null],
+      [PaymentStatus.PENDING, null],
+    ]);
+  });
+
+  it('skips a row whose verify fails for its own reason and goes on', async () => {
+    const t = live();
+    abandoned(t, { id: 'pay-1', chapa_tx_ref: 'TX-1', created_at: hoursAgo(60) });
+    abandoned(t, { id: 'pay-2', chapa_tx_ref: 'TX-2' });
+    t.chapa.verify.mockRejectedValueOnce(new Error('boom'));
+
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 1 });
+    expect(t.row('pay-1').status).toBe(PaymentStatus.PENDING);
+    expect(t.row('pay-2').status).toBe(PaymentStatus.FAILED);
+  });
+
+  it('expires at most 25 per run', async () => {
+    const t = live();
+    for (let i = 0; i < 30; i++) abandoned(t, { id: `p${i}`, chapa_tx_ref: `TX-${i}`, created_at: hoursAgo(100 - i) });
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 25 });
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 5 });
+  });
+
+  it('does nothing in mock mode (the mock verify reports unknown payments as paid)', async () => {
+    process.env.CHAPA_MODE = 'mock';
+    const t = setup();
+    abandoned(t);
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 0 });
+    expect(t.payments.find).not.toHaveBeenCalled();
+    expect(t.row().status).toBe(PaymentStatus.PENDING);
+  });
+});
