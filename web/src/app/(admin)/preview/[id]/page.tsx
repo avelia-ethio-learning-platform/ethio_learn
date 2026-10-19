@@ -260,6 +260,8 @@ function ValueChange({ before, after }: { before: string; after: string }) {
 }
 
 function MetadataChanges({ diff }: { diff: RevisionDiff }) {
+  const { t } = useT();
+  const language = (v: unknown) => (v === 'am' ? t('lang_am') : v === 'en' ? t('lang_en') : 'none');
   return (
     <div className="space-y-5">
       {diff.metadata.map((m) => (
@@ -278,6 +280,8 @@ function MetadataChanges({ diff }: { diff: RevisionDiff }) {
             </div>
           ) : m.field === 'price_etb' ? (
             <ValueChange before={formatPrice(m.before)} after={formatPrice(m.after)} />
+          ) : m.field === 'language' ? (
+            <ValueChange before={language(m.before)} after={language(m.after)} />
           ) : m.field === 'title' || m.field === 'description' ? (
             <TextChange before={String(m.before ?? '')} after={String(m.after ?? '')} highlight />
           ) : (
