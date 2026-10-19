@@ -177,26 +177,27 @@ None.
 - Lighthouse mobile (lighthouse@12, local `next start`, one run): `/` perf 49, CLS 0.000, LCP 5.4 s; course page perf 76, CLS 0.000, LCP 1.8 s.
 - Screenshots and recording: `screenshots/before-phase12/` (git-ignored).
 
-**After (12a tip, on 11c `1a66b08`; 11c's own build of that tip is the size baseline):**
+**After (12a tip on 11c `68596b2`, both built here on Next 15.5.28 / React 19.3; the before numbers above were Next 14):**
 
 | Route | 11c | 12a | Limit +5 kB |
 |---|---|---|---|
-| `/` | 129 kB | 130 kB | ok |
-| `/courses` | 129 kB | 114 kB | ok (framer left Explore) |
-| `/courses/[id]` | 125 kB | 125 kB | ok |
+| `/` | 138 kB | 139 kB | ok |
+| `/courses` | 138 kB | 123 kB | ok (framer left Explore) |
+| `/courses/[id]` | 134 kB | 134 kB | ok |
 
-- Lighthouse mobile, two runs each (machine load ~20, so noisy): `/` 74 and 73 (before 49), CLS 0; course page 71 and 77 (before 76), CLS 0. A first course-page run scored 33 under load and was re-run, as the plan allows.
+- Lighthouse mobile, same install, CLS 0 on every run: `/` 11c 77, 74 (mean 75.5) vs 12a 74, 74, 76, 74, 79 (mean 75.4); course page 11c 82, 80, 80 (mean 80.7) vs 12a 74, 85, 78, 83, 78 (mean 79.6). Means within the 3-point limit; single runs spread ±5.
+- 320 px (signed in and out, en and am): header and mobile menu fit after `px-4` below `sm` and a wrapping menu footer row. 13b's #58 hides the Messages icon below 360 px in `Header.tsx`: whichever merges second re-measures 320 px.
 - Screenshots and recordings: `screenshots/after-phase12/` (light 375/1440, dark Home, `motion-*.webm`).
-- Gate: vitest 749 passed, `tsc --noEmit` clean, `next build` ok, `scripts/lint-check.mjs` no rule above baseline. Local Playwright (chromium + reduced-motion): reduced-motion, layout-shift, keyboard, admin, layout, catalog specs pass. Full suite on CI.
+- Gate: vitest 753 passed, `tsc --noEmit` clean, `next build` ok, `scripts/lint-check.mjs` no rule above baseline. Local Playwright (chromium + reduced-motion): reduced-motion, layout-shift, keyboard, admin, layout, catalog specs pass. Full suite on CI.
 
 **Deviations (12a):**
 - `lib/motion.ts` has a fourth preset, `popover`, so the bell and theme menus share one enter/exit; `RISE` is exported for the menu's downward drop.
 - The Explore grid crossfade is CSS (`.fade-in` on the keyed grid), not framer, so Explore no longer imports framer (-15 kB).
 - Enter animations fill `backwards`, not `both`, so a finished enter leaves no transform or opacity effect behind.
 - Busy spinner is pure CSS on the button's leading icon (no new markup); used by 12b.
-- Templates also cover `/dashboard` and `/messages` page segments, whose keys include search params: a `?…` change there replays the fade. Neither page pushes search params, so it's moot. `(admin)`'s template keys on `admin`, so `?tab=` doesn't remount.
-- `reduced-motion.spec.ts` polls the transform check for 500 ms: framer applies the cut transform on its next frame.
-- `web-design-guidelines` isn't installed here, so the audit was a scripted pass at 375 px (EN and AM): no page overflow, no Amharic overflow; under-44 px targets fixed (burger, bell, theme, back-to-top, both search fields; pills on `pointer: coarse`). Skip link and dense 36–40 px desktop buttons left (≥ 24 px, WCAG 2.5.8).
+- Templates key on the child segment with search params stripped, so `?tab=` and other query changes don't remount.
+- `reduced-motion.spec.ts` records at mount: CSS enters count their own animations, framer surfaces count distinct transforms over 250 ms (framer snaps once under reduce). A no-preference control proves both probes see motion.
+- `web-design-guidelines` isn't installed here, so the audit was a scripted pass at 375 px (EN and AM): no page overflow, no Amharic overflow; under-44 px targets fixed (burger, bell, theme, back-to-top, both search fields; pills and non-`.btn-sm` buttons on `pointer: coarse`; chip remove 24 px). Skip link and dense 36–40 px desktop buttons left (≥ 24 px, WCAG 2.5.8).
 - Literal durations left in touched files: the reduce block's `0.01ms` and the lesson watermark's 90 s drift (anti-piracy, not UI motion).
 - pnpm: the machine has pnpm 12, which ignores `pnpm.overrides` (11c); installs and builds here used `npx pnpm@9.4.0`, as CI does.
 
