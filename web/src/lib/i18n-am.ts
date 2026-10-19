@@ -142,7 +142,7 @@ export const am: Dictionary = {
   unread: 'ያልተነበቡ',
   switch_language: 'ቋንቋ ቀይር',
   lang_name: 'English',
-  cancel: 'ሰርዝ',
+  cancel: 'ይቅር',
   confirm: 'አረጋግጥ',
   retry: 'እንደገና ሞክር',
   checking: 'በማረጋገጥ ላይ…',

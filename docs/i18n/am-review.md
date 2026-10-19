@@ -7,7 +7,7 @@ in by the app and must stay as they are; the parity test (`web/src/lib/i18n.test
 
 Strings that existed before Phase 10 (the header, footer, home page and parts of the catalog) are not listed.
 
-241 strings.
+242 strings.
 
 ## Shell
 
@@ -285,6 +285,7 @@ Strings that existed before Phase 10 (the header, footer, home page and parts of
 | `reply_to` | Reply to {name} | ለ{name} መልስ |
 | `message_user` | Message | መልዕክት |
 | `delete` | Delete | ሰርዝ |
+| `cancel` | Cancel | ይቅር |
 | `role_instructor` | Instructor | አስተማሪ |
 | `role_quality` | Quality | ጥራት |
 
