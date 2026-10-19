@@ -56,3 +56,10 @@ export function findPrimaryAction(box: ParentNode | null): { el: HTMLElement; la
 export function scrollBehavior(): ScrollBehavior {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 }
+
+const RECENT_UPDATE_MS = 30 * 86_400_000;
+
+/** The "recently updated" badge: a major update in the last 30 days, as of this (server) render. */
+export function recentlyUpdated(lastMajorUpdateAt: string | null | undefined, now: number = Date.now()): boolean {
+  return !!lastMajorUpdateAt && now - new Date(lastMajorUpdateAt).getTime() < RECENT_UPDATE_MS;
+}

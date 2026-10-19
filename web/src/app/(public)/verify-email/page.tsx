@@ -14,23 +14,22 @@ import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 function VerifyEmail() {
   const params = useSearchParams();
   const { t } = useT();
-  const [state, setState] = useState<'working' | 'ok' | 'error'>('working');
+  const [result, setResult] = useState<'working' | 'ok' | 'error'>('working');
+  // No token: nothing to verify, so it failed (said below, in the reader's language).
+  const state = params.get('token') ? result : 'error';
   const [email, setEmail] = useState('');
   const [status, setOk, setError] = useFormStatus();
 
   useEffect(() => {
     const token = params.get('token');
-    if (!token) {
-      setState('error');
-      return;
-    }
+    if (!token) return;
     api(`/auth/verify-email?token=${encodeURIComponent(token)}`, { method: 'POST', auth: false })
       .then((res: any) => {
-        setState('ok');
+        setResult('ok');
         setOk(res.message);
       })
       .catch((err: Error) => {
-        setState('error');
+        setResult('error');
         setError(err.message);
       });
   }, [params, setOk, setError]);

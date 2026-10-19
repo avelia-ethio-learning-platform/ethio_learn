@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Languages, X } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { isTranslatedRoute } from '@/lib/i18n-routes';
+import { useStoredSetting, writeStoredSetting } from '@/lib/stored-setting';
 
 const DISMISSED = 'el_locale_notice_dismissed';
 
@@ -12,26 +12,12 @@ const DISMISSED = 'el_locale_notice_dismissed';
 export function LocaleNotice() {
   const { locale, t } = useT();
   const pathname = usePathname() ?? '/';
-  const [dismissed, setDismissed] = useState(false);
-
-  useEffect(() => {
-    try {
-      setDismissed(sessionStorage.getItem(DISMISSED) === '1');
-    } catch {
-      /* storage blocked: keep showing it */
-    }
-  }, []);
+  // With storage blocked, dismissed until the page reloads.
+  const dismissed = useStoredSetting('sessionStorage', DISMISSED) === '1';
 
   if (locale !== 'am' || dismissed || isTranslatedRoute(pathname)) return null;
 
-  const dismiss = () => {
-    setDismissed(true);
-    try {
-      sessionStorage.setItem(DISMISSED, '1');
-    } catch {
-      /* storage blocked: dismissed for this page view only */
-    }
-  };
+  const dismiss = () => writeStoredSetting('sessionStorage', DISMISSED, '1');
 
   return (
     <div className="mx-auto mb-4 w-full max-w-6xl px-4 sm:px-6">

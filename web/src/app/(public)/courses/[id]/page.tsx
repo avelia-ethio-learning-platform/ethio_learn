@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { BadgeCheck, Clock, Globe, Layers, PlayCircle, Star, UserRound, Wallet } from 'lucide-react';
 import { serverApi, SITE_URL } from '@/lib/server-api';
 import { hasRealThumbnail } from '@/lib/categories';
-import { BUY_BULLET_KEY, buyBullets, hasPlayablePreview, sectionHasPreview, type BuyBullet } from '@/lib/course-page';
+import { BUY_BULLET_KEY, buyBullets, hasPlayablePreview, recentlyUpdated, sectionHasPreview, type BuyBullet } from '@/lib/course-page';
 import { CategoryName, PriceLabel } from '@/components/Localized';
 import { CourseCover } from '@/components/CourseCover';
 import { ExpandableSummary } from '@/components/ExpandableSummary';
@@ -136,7 +136,7 @@ export default async function CoursePage(props: { params: Promise<{ id: string }
             <span className="badge-info uppercase tracking-wider">
               <CategoryName value={course.category} />
             </span>
-            {course.last_major_update_at && Date.now() - new Date(course.last_major_update_at).getTime() < 30 * 86_400_000 && (
+            {recentlyUpdated(course.last_major_update_at) && (
               <span className="badge-success">
                 <T k="recently_updated" />
               </span>

@@ -17,20 +17,18 @@ function AcceptInvite() {
   const params = useSearchParams();
   const token = params.get('token') ?? '';
   const [info, setInfo] = useState<{ email: string; name: string; role: string } | null>(null);
-  const [loadError, setLoadError] = useState('');
+  const [fetchError, setFetchError] = useState('');
+  const loadError = token ? fetchError : 'This invite link is missing its token.';
   const [password, setPassword] = useState('');
   const [status, , setError, clearStatus] = useFormStatus();
   const [passwordError, setPasswordError] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!token) {
-      setLoadError('This invite link is missing its token.');
-      return;
-    }
+    if (!token) return;
     api<{ email: string; name: string; role: string }>(`/auth/invite/${token}`, { auth: false })
       .then(setInfo)
-      .catch((err) => setLoadError((err as Error).message));
+      .catch((err) => setFetchError((err as Error).message));
   }, [token]);
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {

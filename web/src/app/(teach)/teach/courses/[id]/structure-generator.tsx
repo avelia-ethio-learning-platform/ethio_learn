@@ -74,10 +74,17 @@ export function StructureGenerator({
   const [tutor, setTutor] = useState<{ state: 'adding' | 'added' | 'failed'; message: string } | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // A file is being read (that, unlike condensing, can be stopped).
+  const [readingFile, setReadingFile] = useState(false);
   // The whole document stays out of React state: binding megabytes to the
   // textarea froze the page. Only the digest is shown and sent. Set while the
-  // box holds a digest; every change to it comes with a setDocInfo re-render.
+  // box holds a digest; render reads hasDocument, never the ref.
   const docRef = useRef<SourceDoc | null>(null);
+  const [hasDocument, setHasDocument] = useState(false);
+  const setDocument = (doc: SourceDoc | null) => {
+    docRef.current = doc;
+    setHasDocument(!!doc?.fullText);
+  };
 
   useEffect(() => {
     if (autoOpen) cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -85,7 +92,7 @@ export function StructureGenerator({
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const forgetDocument = () => {
-    docRef.current = null;
+    setDocument(null);
     setDocInfo('');
     setTutor(null);
   };
@@ -94,6 +101,7 @@ export function StructureGenerator({
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    setReadingFile(true);
     setReading('Reading…');
     setNote('');
     setDocWarning('');
@@ -108,7 +116,7 @@ export function StructureGenerator({
       if (ctrl.signal.aborted) throw new DOMException('Reading the file was cancelled.', 'AbortError');
       const d = buildDigest(r);
       forgetDocument();
-      docRef.current = { name: file.name, kind: 'file', fullText: r.fullText };
+      setDocument({ name: file.name, kind: 'file', fullText: r.fullText });
       setSourceText(d.digest);
       setDocInfo(`${file.name}: ${digestNote(r, d)}`);
       // e.g. only the first 1000 pages were read: the text is usable, but say so.
@@ -119,6 +127,7 @@ export function StructureGenerator({
     } finally {
       if (abortRef.current === ctrl) {
         abortRef.current = null;
+        setReadingFile(false);
         setReading(null);
       }
     }
@@ -145,7 +154,7 @@ export function StructureGenerator({
     const plan = planPaste(sourceText, e.clipboardData.getData('text/plain'), selectionStart, selectionEnd, docRef.current);
     if (plan.condense) e.preventDefault();
     if (plan.doc !== docRef.current) setTutor(null);
-    docRef.current = plan.doc;
+    setDocument(plan.doc);
     if (!plan.condense) {
       // The browser pastes; the note under the box describes what it stands for.
       if (plan.dropped) setDocInfo(droppedDocNote(plan.dropped));
@@ -171,7 +180,7 @@ export function StructureGenerator({
         const original = text;
         const d = await condense(() => condenseSourceText(original));
         // Typed text is the educator's own whole text; an edited digest keeps its document.
-        docRef.current ??= { name: 'Pasted notes', kind: 'pasted', fullText: original };
+        if (!docRef.current) setDocument({ name: 'Pasted notes', kind: 'pasted', fullText: original });
         setSourceText(d.digest);
         setDocInfo(condensedNote(original.length, d));
         text = d.digest;
@@ -299,7 +308,7 @@ export function StructureGenerator({
               />
             </label>
             {/* Only reading a file can be stopped; condensing pasted text is one short step. */}
-            {reading && abortRef.current && (
+            {reading && readingFile && (
               <button type="button" className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:underline" onClick={() => abortRef.current?.abort()}>
                 <X className="h-3 w-3" /> Stop
               </button>
@@ -343,7 +352,7 @@ export function StructureGenerator({
               Too long to send as it is — {OVER_BUDGET_REASON}. It is condensed to a digest when you click Generate; trim it yourself to choose what the AI reads.
             </p>
           )}
-          {docRef.current?.fullText && docInfo && (
+          {hasDocument && docInfo && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <button
                 type="button"

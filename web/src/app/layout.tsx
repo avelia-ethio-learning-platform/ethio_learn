@@ -36,7 +36,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${notoEthiopic.variable}`} suppressHydrationWarning>
+    // data-scroll-behavior: globals.css sets smooth scrolling; Next 16 only turns it off
+    // for route changes (instant jumps) when <html> carries this attribute.
+    <html lang="en" className={`${inter.variable} ${notoEthiopic.variable}`} data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
         {/* Apply saved theme before paint to avoid a flash of the wrong mode */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />

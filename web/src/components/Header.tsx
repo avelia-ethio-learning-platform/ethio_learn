@@ -70,8 +70,12 @@ export function Header() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Close the mobile menu on navigation.
-  useEffect(() => setMenuOpen(false), [pathname]);
+  // Close the mobile menu on navigation (adjusted while rendering, not in an effect).
+  const [menuPath, setMenuPath] = useState(pathname);
+  if (menuPath !== pathname) {
+    setMenuPath(pathname);
+    setMenuOpen(false);
+  }
 
   const roleLinks: Record<string, { href: string; label: string }[]> = {
     learner: [{ href: '/dashboard', label: t('my_learning') }],

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Award, Download, ExternalLink, Trophy } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -26,13 +26,13 @@ const POLL_FOR_MS = 120_000;
  * answered, so a slow or failed request never reads as "no certificate yet".
  */
 export function CompletionCard({ courseId }: { courseId: string }) {
-  const mountedAt = useRef(Date.now());
+  const [mountedAt] = useState(() => Date.now());
   const { data: certificates } = useQuery({
     queryKey: ['certificates'],
     queryFn: () => api<Certificate[]>('/me/certificates'),
     // This card's own clock, not the shared cache's update count; and a failing request stops the poll.
     refetchInterval: (query) =>
-      query.state.data?.some((c) => c.course_id === courseId) || query.state.status === 'error' || Date.now() - mountedAt.current >= POLL_FOR_MS
+      query.state.data?.some((c) => c.course_id === courseId) || query.state.status === 'error' || Date.now() - mountedAt >= POLL_FOR_MS
         ? false
         : POLL_MS,
   });

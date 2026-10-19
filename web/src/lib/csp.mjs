@@ -81,7 +81,7 @@ export function buildCsp(env) {
     ['default-src', ["'self'"]],
     // 'unsafe-inline': static and ISR pages can't carry a nonce, and Next's
     // inline flight scripts change per build. 'wasm-unsafe-eval': mediapipe.
-    // 'unsafe-eval' only under `next dev` (webpack's eval builds, React Refresh).
+    // 'unsafe-eval' only under `next dev` (dev bundler eval, React Refresh).
     [
       'script-src',
       ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", env.NODE_ENV === 'development' && "'unsafe-eval'", google && GOOGLE.script],

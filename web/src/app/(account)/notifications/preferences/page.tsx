@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
@@ -58,15 +58,17 @@ function PreferencesForm() {
   const [saving, setSaving] = useState(false);
   const [status, setOk, , clearStatus] = useFormStatus();
 
-  useEffect(() => {
-    if (!data) return;
+  // Fresh preferences from the server reset the form (adjusted while rendering, not in an effect).
+  const [loaded, setLoaded] = useState<Prefs | undefined>(undefined);
+  if (data && data !== loaded) {
+    setLoaded(data);
     setCats(new Set(data.new_course_categories ?? []));
     setEmail(data.new_course_email ?? true);
     setInApp(data.new_course_in_app ?? true);
     setUpdatesEmail(data.course_updates_email ?? true);
     setProgressEmail(data.progress_emails ?? true);
     setInactivityEmail(data.inactivity_emails ?? true);
-  }, [data]);
+  }
 
   const toggleCat = (value: string) => {
     clearStatus();

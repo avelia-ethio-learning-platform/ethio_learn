@@ -22,22 +22,24 @@ function PaymentReturn() {
   const purpose = params.get('purpose') ?? 'course';
   const { t } = useT();
   const instant = params.get('instant') === '1'; // wallet / 100% coupon — already confirmed server-side
-  const [state, setState] = useState<State>(!courseId && !txRef ? 'none' : 'polling');
+  const [polled, setState] = useState<State>('polling');
+  // Wallet / 100% coupon: confirmed before the redirect, so there is nothing to poll.
+  const instantActive = instant && !!(courseId || txRef);
+  const state: State = !courseId && !txRef ? 'none' : instantActive ? 'active' : polled;
   const done = useRef(false);
   const startRef = useRef<HTMLAnchorElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  /** One reconcile + entitlement check. Returns true once a terminal state is reached. */
-  const check = useCallback(async (): Promise<boolean> => {
-    if (done.current) return true;
-    if (instant) { done.current = true; setState('active'); return true; }
+  /** One reconcile + entitlement check: the terminal state once there is one, else null. */
+  const check = useCallback(async (): Promise<State | null> => {
+    if (done.current) return null;
     // Server verifies directly with Chapa and returns the real status — the
     // browser's word grants nothing.
     if (txRef) {
       try {
         const p = await api<{ status: string }>('/payments/reconcile', { method: 'POST', body: { tx_ref: txRef } });
-        if (p.status === 'confirmed') { done.current = true; setState('active'); return true; }
-        if (p.status === 'failed' || p.status === 'refunded') { done.current = true; setState('failed'); return true; }
+        if (p.status === 'confirmed') return 'active';
+        if (p.status === 'failed' || p.status === 'refunded') return 'failed';
       } catch {
         /* keep trying */
       }
@@ -46,13 +48,19 @@ function PaymentReturn() {
     if (courseId) {
       try {
         const res = await api<{ entitlement_status: string }>(`/enrollments/status?course_id=${courseId}`);
-        if (res.entitlement_status === 'active') { done.current = true; setState('active'); return true; }
+        if (res.entitlement_status === 'active') return 'active';
       } catch {
         /* keep trying */
       }
     }
-    return false;
-  }, [courseId, txRef, instant]);
+    return null;
+  }, [courseId, txRef]);
+
+  /** A terminal state from check(): stop polling and show it. */
+  const finish = useCallback((next: State) => {
+    done.current = true;
+    setState(next);
+  }, []);
 
   useEffect(() => {
     // Local dev: Chapa redirects to the 127.0.0.1 form (its validator rejects
@@ -62,19 +70,21 @@ function PaymentReturn() {
       window.location.replace(window.location.href.replace('//127.0.0.1', '//localhost'));
       return;
     }
-    if (!courseId && !txRef) return;
+    if ((!courseId && !txRef) || instantActive) return;
     let attempts = 0;
-    void check();
+    void check().then((next) => next && finish(next));
     const timer = setInterval(async () => {
+      if (done.current) { clearInterval(timer); return; }
       attempts += 1;
-      if (await check()) { clearInterval(timer); return; }
+      const next = await check();
+      if (next) { finish(next); clearInterval(timer); return; }
       if (attempts >= 12) { // ~30s of checking
         setState((s) => (s === 'polling' ? 'timeout' : s));
         clearInterval(timer);
       }
     }, 2500);
     return () => clearInterval(timer);
-  }, [courseId, txRef, check]);
+  }, [courseId, txRef, instantActive, check, finish]);
 
   // Once access is granted, the way forward is where focus goes.
   // Only when nothing else holds it: focus is on the page, or on a control inside the state that was just replaced.
@@ -160,7 +170,9 @@ function PaymentReturn() {
                 onClick={async () => {
                   setState('polling');
                   done.current = false;
-                  if (!(await check())) setState('timeout');
+                  const next = await check();
+                  if (next) finish(next);
+                  else setState('timeout');
                 }}
               >
                 <RefreshCcw className="h-4 w-4" /> {t('check_again')}
