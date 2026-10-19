@@ -143,9 +143,9 @@ The log names each variable, never its value, so a failed boot says what to set.
 ## Dependencies
 
 **Versions (Phase 11c):**
-- **Web:** Next 15.5 (npm's `backport` line, still patched) with React 19. Next 16 is follow-up P2-44: it removes the synchronous request APIs (15 only deprecates them) and makes `opengraph-image`'s `params` a Promise.
+- **Web:** Next 15.5 (npm's `backport` line, still patched) with React 19. In production the App Router runs Next's vendored React (`19.2.0-canary-0bdb9206`, `next/dist/compiled/react`); the installed 19.3.1 serves only vitest and the types, so don't rely on a 19.3-only API. Next 16 is follow-up P2-44: it removes the synchronous request APIs (15 only deprecates them) and makes `opengraph-image`'s `params` a Promise.
 - **API:** Nest stays on 10.x (P2-45: a Nest major brings Express 5). Transitive fixes are forced inside their majors with `pnpm.overrides` in `api/package.json` (body-parser, brace-expansion, multer, nanoid, proxy-addr, qs); web overrides Next's bundled postcss.
-- **Gate:** `pnpm audit --prod --audit-level high` is clean for both workspaces.
+- **Gate:** `pnpm audit --prod --audit-level high` is clean for both workspaces once 9c has removed `chapa-nestjs` (and with it axios).
 
 **Advisories:** Dependabot security-update PRs are off. Advisories arrive as Dependabot alerts and in CI's `audit` job summary; re-enable the PRs once the alerts can be fixed by one. Dependabot proposes no npm majors (planned work).
 
