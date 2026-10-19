@@ -261,6 +261,8 @@ export const am: Dictionary = {
   pay_timeout_info: 'እስካሁን ማረጋገጫ አላየንም። ክፍያውን በቻፓ ካጠናቀቁ እንደገና ለማረጋገጥ ከታች ይጫኑ።',
   check_again: 'እንደገና አረጋግጥ',
   go_to_dashboard: 'ወደ ዳሽቦርድ ሂድ',
+  pay_nothing_to_confirm: 'የሚረጋገጥ ክፍያ የለም',
+  pay_nothing_info: 'ይህ ገጽ ከቻፓ ሲመለሱ ክፍያዎን ያረጋግጣል፤ ይህ ሊንክ ግን ምንም ክፍያ አይጠቅስም። ግዢዎችዎ እና የክፍያ ታሪክዎ በዳሽቦርድዎ ላይ ናቸው።',
   status_draft: 'ረቂቅ',
   status_institution_review: 'የተቋም ግምገማ',
   status_submitted: 'ገብቷል',

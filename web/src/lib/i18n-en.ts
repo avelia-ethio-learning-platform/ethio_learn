@@ -260,6 +260,8 @@ export const en = {
   pay_timeout_info: "We haven't seen a confirmation yet. If you completed the payment on Chapa, click below to check again.",
   check_again: 'Check again',
   go_to_dashboard: 'Go to dashboard',
+  pay_nothing_to_confirm: 'Nothing to confirm',
+  pay_nothing_info: "This page confirms a payment when you come back from Chapa, but this link doesn't name one. Your purchases and payment history are on your dashboard.",
   status_draft: 'Draft',
   status_institution_review: 'Institution review',
   status_submitted: 'Submitted',
