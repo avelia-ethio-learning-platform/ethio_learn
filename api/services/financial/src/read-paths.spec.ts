@@ -1,4 +1,5 @@
-import { Logger } from '@nestjs/common';
+import { BadRequestException, Logger, ParseUUIDPipe } from '@nestjs/common';
+import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { PeerAsleepError } from '@ethiopialearn/common';
 import { OwnerType, Role } from '@ethiopialearn/contracts';
 import { FinancialController } from './controllers';
@@ -148,4 +149,28 @@ describe('FinancialController own lists (Phase 9e review S3)', () => {
     expect(await adminController.payouts(admin, { page: 3, limit: 10 }, 'payee9')).toEqual(named);
     expect(listForPayee).toHaveBeenLastCalledWith('payee9', 3, 10);
   });
+});
+
+describe('FinancialController payouts ?payee_id=', () => {
+  const pipe = (() => {
+    const args = Reflect.getMetadata(ROUTE_ARGS_METADATA, FinancialController, 'payouts');
+    const arg = Object.values<{ data?: string; pipes: unknown[] }>(args).find((a) => a.data === 'payee_id');
+    return arg?.pipes[0] as ParseUUIDPipe;
+  })();
+  const meta = { type: 'query' as const, data: 'payee_id' };
+
+  it('carries a ParseUUIDPipe', () => expect(pipe).toBeInstanceOf(ParseUUIDPipe));
+
+  it('passes a uuid or no value', async () => {
+    const id = '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b1c3d';
+    await expect(pipe.transform(id, meta)).resolves.toBe(id);
+    await expect(pipe.transform(undefined as never, meta)).resolves.toBeUndefined();
+  });
+
+  it.each([['a non-uuid', 'payee9'], ['a repeated key', ['3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b1c3d', '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b1c3e']]])(
+    'answers %s with a 400',
+    async (_label, value) => {
+      await expect(pipe.transform(value as never, meta)).rejects.toBeInstanceOf(BadRequestException);
+    },
+  );
 });

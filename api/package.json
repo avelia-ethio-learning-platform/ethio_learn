@@ -29,8 +29,7 @@
   },
   "pnpm": {
     "overrides": {
-      "brace-expansion@2": "^2.1.7",
-      "nanoid@3": "^3.3.18"
+      "brace-expansion@2": "^2.1.7"
     },
     "auditConfig": {
       "ignoreCves": [
