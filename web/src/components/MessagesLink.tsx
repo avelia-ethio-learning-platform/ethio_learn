@@ -25,7 +25,7 @@ export function MessagesLink() {
   return (
     <Link
       href="/messages"
-      className="glass-secondary relative flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
+      className="glass-secondary relative flex h-11 w-11 items-center justify-center lg:h-10 lg:w-10 rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
       aria-label={count > 0 ? `${t('messages')}, ${count} ${t('unread')}` : t('messages')}
     >
       <MessageSquare className="h-4 w-4" />
