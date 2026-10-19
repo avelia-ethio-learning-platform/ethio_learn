@@ -1,24 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { AuthUser, getAuth } from './api';
+import { useSyncExternalStore } from 'react';
+import { AuthSnapshot, authSnapshot, serverAuthSnapshot, subscribeAuth } from './auth-store';
 
-/** Reactive auth state (updates on login/logout across the app). */
-export function useAuth(): { user: AuthUser | null; ready: boolean } {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    const sync = () => setUser(getAuth()?.user ?? null);
-    sync();
-    setReady(true);
-    window.addEventListener('el-auth-changed', sync);
-    window.addEventListener('storage', sync);
-    return () => {
-      window.removeEventListener('el-auth-changed', sync);
-      window.removeEventListener('storage', sync);
-    };
-  }, []);
-
-  return { user, ready };
+/**
+ * Reactive auth state, across the app and across tabs. `user` comes from the
+ * session hint at once; `ready` turns true once the boot refresh settles
+ * (Providers runs it), or at once for an anonymous visitor.
+ */
+export function useAuth(): AuthSnapshot {
+  return useSyncExternalStore(subscribeAuth, authSnapshot, serverAuthSnapshot);
 }

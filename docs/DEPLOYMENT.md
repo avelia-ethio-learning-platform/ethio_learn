@@ -57,16 +57,16 @@ All configuration is environment variables. `render.yaml` holds the shared group
 
 | Deployable | Needs | Notes |
 |---|---|---|
-| gateway | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CORS_ORIGINS`/`WEB_URL`, one `*_SERVICE_URL` per service, `JOBS_TOKEN` | The only place service addresses exist. `CORS_ORIGINS` replaces the `WEB_URL` default rather than extending it. The rate limiter (`RATE_LIMIT_*`) is in memory, per instance. `JOBS_TOKEN` (gateway only, a long random value) authenticates `/api/v1/jobs/*`; unset, those routes answer 401. |
+| gateway | `JWT_SECRET`, `INTERNAL_API_TOKEN`, `CORS_ORIGINS`/`WEB_URL`, one `*_SERVICE_URL` per service, `JOBS_TOKEN`, `WEB_PROXY_SECRET` | The only place service addresses exist. `WEB_PROXY_SECRET`: see Auth transport below. `CORS_ORIGINS` replaces the `WEB_URL` default rather than extending it. The rate limiter (`RATE_LIMIT_*`) is in memory, per instance. `JOBS_TOKEN` (gateway only, a long random value) authenticates `/api/v1/jobs/*`; unset, those routes answer 401. |
 | GitHub Actions | secret `JOBS_TOKEN` (same value), variable `RENDER_SERVICE_URLS` (the eight public `/health` URLs, comma-separated) | Used by the `jobs` workflow (below). Until both are set it stops at its first step. |
 | every service | `DATABASE_URL`, `RABBITMQ_URL`, `JWT_SECRET`, `INTERNAL_API_TOKEN`, `GATEWAY_INTERNAL_URL` | `PORT` is injected by Render. |
-| auth | + `REDIS_URL`, `WEB_URL`, `COOKIE_SAMESITE=none` | |
+| auth | + `REDIS_URL`, `WEB_URL`, `COOKIE_SAMESITE=lax` | `lax` only once the 11b web is live (Auth transport, below). |
 | course | + `S3_*`, `GROQ_API_KEY` | |
 | outcomes | + `S3_*`, `GROQ_API_KEY`, `CERT_SIGNING_SECRET` | |
 | financial | + `CHAPA_MODE`, `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `CHAPA_FALLBACK_EMAIL`, `GATEWAY_PUBLIC_URL`, `WEB_URL` | Register `<GATEWAY_PUBLIC_URL>/api/v1/payments/webhook/chapa` in the Chapa dashboard. `CHAPA_WEBHOOK_SECRET` is the dashboard's webhook secret hash, not a `CHAPUBK_…` public key. |
 | quality | + `GROQ_API_KEY` | |
 | notification | + `SMTP_*` (or `BREVO_API_KEY`/`RESEND_API_KEY`), `EMAIL_FROM`, `PLATFORM_ADMIN_EMAIL`, `SUPPORT_EMAIL`, `WEB_URL` | `EMAIL_FROM` must be a Brevo-verified sender. |
-| web (Vercel) | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_WAKE_URLS`, `NEXT_PUBLIC_MEDIA_ORIGINS`, `CSP_ENFORCE` | The production build fails when `NEXT_PUBLIC_SITE_URL` is unset, not `https://` or a placeholder. The last two set the Content Security Policy (below). |
+| web (Vercel) | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_S3_PUBLIC_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_WAKE_URLS`, `NEXT_PUBLIC_MEDIA_ORIGINS`, `CSP_ENFORCE`, `WEB_PROXY_SECRET` (server-only), `GATEWAY_INTERNAL_URL` (optional) | The production build fails when `NEXT_PUBLIC_SITE_URL` is unset, not `https://` or a placeholder, or when `WEB_PROXY_SECRET` is unset or under 32 characters. The last two set the Content Security Policy (below). |
 
 **Secrets.** `JWT_SECRET`, `CERT_SIGNING_SECRET`, `INTERNAL_API_TOKEN` and `CHAPA_WEBHOOK_SECRET` are long random values, at least 32 characters. With `NODE_ENV=production`, every service and the gateway refuse to boot when:
 - a secret they need is missing, shorter than 32 characters or a value from the repo;
@@ -77,12 +77,24 @@ The log names each variable, never its value, so a failed boot says what to set.
 
 ## Render and Vercel: what's easy to miss
 
-- **The refresh cookie is cross-site.** `*.vercel.app` and `*.onrender.com` are different registrable domains, so a `SameSite=Lax` cookie is never sent on the refresh call. Every session would then die at the 15-minute access-token expiry. `COOKIE_SAMESITE=none` (set in `render.yaml`) forces `Secure` on.
+- **The refresh cookie is first-party on the web host** (Auth transport, below). `*.vercel.app` and `*.onrender.com` are different sites, which is why auth goes through the web's own route handlers.
 - **CORS is an explicit allowlist,** and the localhost escape hatch is off in production. Vercel preview deployments get random hostnames, so they're blocked unless added to `CORS_ORIGINS`.
 - **Neon needs TLS and small pools.** `buildTypeOrmOptions` turns SSL on when the connection string carries `sslmode=require`; `DB_SSL` overrides that either way. Use the pooled (`…-pooler.…`) host. `render.yaml` sets `DB_POOL_MAX=3` and `DB_POOL_MIN=0`, because eight pools add up against Neon's connection cap.
 - **Outbound SMTP:** Render's free instances block ports 25, 465 and 587. `render.yaml` uses Brevo on port 2525 (plain connect, then STARTTLS); `BREVO_API_KEY` (HTTPS) is the alternative.
 - **R2:** signed URLs are signed against the S3 API endpoint (`S3_ENDPOINT`), not the public `r2.dev` host. Keep `videos/` private; `thumbnails/` is public-read.
 - **Before the first boot** of a new database, run `docker/postgres-init.sql` once to create the seven schemas and `pgcrypto`. Migrations create the tables, never the schemas.
+
+## Auth transport (Phase 11b)
+
+- **What goes through the web origin:** `/api/v1/auth/*` and `PUT /api/v1/profiles/password`, via Next route handlers (`web/src/lib/gateway-proxy.ts`). They set or read the refresh cookie, which is now `SameSite=Lax` on the web host, so Safari's and Brave's third-party cookie blocking no longer signs anyone out. Every other call goes straight to the gateway with the bearer token and no cookies.
+- **Tokens:** the access token lives in memory only. `localStorage.el_session` holds the public user as a hint; with it, each page load runs one refresh.
+- **`WEB_PROXY_SECRET`:** one long random value, set on **Vercel** (Production, a plain server variable, never `NEXT_PUBLIC_`) and on the **Render gateway** only. With it, the gateway keys the login and `/auth` limits by the browser's IP (`x-web-client-ip`) instead of Vercel's. Never set it for a self-hosted web (`web/Dockerfile`): its proxy doesn't overwrite `x-forwarded-for`. Unset, the gateway keys by the proxy's IP: safe, but coarse. Both sides trim it; a mismatch logs `x-web-proxy-secret does not match` on the gateway (at most once a minute). Keep it Production-only, with Vercel Deployment Protection on: previews proxy auth server-to-server, so CORS no longer keeps them off production auth.
+- **Refresh limit:** per refresh token, `RATE_LIMIT_AUTH_REFRESH_PER_MIN` (10). A rotated token still works for 30 s and returns the same successor, so a lost response isn't a sign-out.
+- **Deploying it, in this order** (the old web calls the API host cross-site, so a Lax cookie there would end every session at the 15-minute expiry):
+  1. Before the merge: set `WEB_PROXY_SECRET` on the Render gateway (old code ignores it) and on Vercel (Production only). Check Vercel's gateway URL is `https://`. Leave `COOKIE_SAMESITE=none`.
+  2. Merge at a quiet time. The web goes live first and works with the old cookie. Until the gateway deploys (up to ~45 min), `/auth` limits key by Vercel's egress IP.
+  3. Once the new web is live, set `COOKIE_SAMESITE=lax` on auth. Check that a login sets `el_refresh` with `SameSite=Lax; HttpOnly; Secure; Path=/api/v1/auth` on the web host and a reload's refresh answers 200. Everyone signs in once more. Watch 5xx and 429 on `/api/v1/auth/*`.
+  4. Rollback: a Vercel instant rollback plus `COOKIE_SAMESITE=none`. The API side is backward compatible.
 
 ## Cold starts and waking
 
@@ -90,7 +102,7 @@ The log names each variable, never its value, so a failed boot says what to set.
 - **Waking:** a request to the service's own public `/health` from outside Render wakes it in about 25 s. The web app does this from the browser when it meets a sleeping service. Set `NEXT_PUBLIC_WAKE_URLS` on Vercel (Production) to the eight public `/health` URLs, comma-separated: `https://ethiopialearn-gateway.onrender.com/health`, and the same for `auth`, `course`, `enrollment`, `outcomes`, `financial`, `quality` and `notification`. Up to eight `ERR_BLOCKED_BY_RESPONSE` console errors per wake are expected: Helmet's `Cross-Origin-Resource-Policy` blocks the opaque responses, and the requests still reach Render.
 - **Scheduled jobs** run two ways, through the same job lease (`job_leases`), so two runs of one job never overlap:
   - **in-process while awake:** financial runs the pending-payment sweep and the pending-effects re-publish every 2 minutes, the abandoned-checkout nudge hourly and the payout run at 02:00; enrollment runs the inactivity nudges at 06:00;
-  - **the GitHub schedule otherwise** (`.github/workflows/jobs.yml`, `scripts/run-jobs.mjs`): twice a day it wakes only the services the jobs call and starts the jobs through the gateway. `daily` (02:15 UTC) runs all five jobs and wakes gateway, financial, enrollment, auth, course and quality; `frequent` (14:15 UTC) runs the sweep and effects and wakes gateway and financial.
+  - **the GitHub schedule otherwise** (`.github/workflows/jobs.yml`, `scripts/run-jobs.mjs`): twice a day it wakes only the services the jobs call and starts the jobs through the gateway. `daily` (06:15 UTC, 09:15 in Addis) runs all five jobs and wakes gateway, financial, enrollment, auth, course and quality; `frequent` (14:15 UTC) runs the sweep and effects and wakes gateway and financial.
 - **Instance-hour budget:** the 750 free hours a month are shared by every free service, and running out suspends them all until next month. Each wake keeps a service up about 15 minutes, so the schedule costs about 60 h a month (daily ~45 h, frequent ~15 h), less when traffic already keeps them awake. To change the cadence, edit the cron lines and the matching `case` in `jobs.yml`; `run-jobs.mjs` lists which services each job needs.
 - **Watching and manual runs:** `GET /api/v1/jobs/<financial|enrollment>` with `Authorization: Bearer <JOBS_TOKEN>` shows each job's last start, finish, counts and whether it is running. Run any group or single job from the Actions tab (`workflow_dispatch`). The payout run can also be started with `POST /api/v1/payouts/run` as a platform admin. A missed Chapa webhook is also settled by the return page's reconcile.
 - **Instances:** each free service runs one instance. That's why the migrations (below) need no lock.
@@ -149,6 +161,7 @@ Each service runs its pending TypeORM migrations on boot, inside `DataSource.ini
 - **One migrator per service.** There is no migration lock, because each free-plan service runs one instance. Add one (`pg_advisory_xact_lock`; session locks don't survive Neon's pooler) before running a service on more than one instance.
 - **Logs.** Each executed migration prints `Migration <Name> has been executed successfully`.
 - **Drift check.** `pnpm -C api db:check` compares a database with the compiled entities and exits 1 on any difference. It is read-only (no migrations, no `synchronize`, no extension installs), so it's safe against production: `DATABASE_URL='<url>' pnpm -C api db:check`.
+- **Reverting a `CONCURRENTLY` migration** (`transaction = false`, e.g. financial's `UniqueSeatsAndInvites`) needs a non-transactional revert: `migration:revert -t none` (or `undoLastMigration({ transaction: 'none' })`); the default wraps it in a transaction and Postgres refuses.
 
 ### First rollout: from `synchronize` to migrations
 

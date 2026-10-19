@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './test';
-import { apiGet, authFile, firstCourseId, headerBottom, horizontalOverflow, ownCourseId, settle } from './support';
+import { apiGet, firstCourseId, headerBottom, horizontalOverflow, ownCourseId, settle } from './support';
 
 const WIDTHS = [375, 1440];
 
@@ -27,7 +27,7 @@ test.describe('nothing under the fixed header', () => {
       });
 
       test.describe('learner pages', () => {
-        test.use({ storageState: authFile('learner') });
+        test.use({ loggedInAs: 'learner' });
 
         test('messages, notification preferences and the exam', async ({ page, request }) => {
           const courseId = await firstCourseId(request);
@@ -55,7 +55,7 @@ test.describe('no sideways overflow at 375 px', () => {
   });
 
   test.describe('educator', () => {
-    test.use({ storageState: authFile('educator') });
+    test.use({ loggedInAs: 'educator' });
 
     test('teaching dashboard', async ({ page }) => {
       await page.goto('/teach');
@@ -81,7 +81,7 @@ test.describe('no sideways overflow at 375 px', () => {
   });
 
   test.describe('institution admin', () => {
-    test.use({ storageState: authFile('institution_admin') });
+    test.use({ loggedInAs: 'institution_admin' });
 
     test('/institution', async ({ page }) => {
       await page.goto('/institution');
@@ -92,7 +92,7 @@ test.describe('no sideways overflow at 375 px', () => {
   });
 
   test.describe('platform admin', () => {
-    test.use({ storageState: authFile('platform_admin') });
+    test.use({ loggedInAs: 'platform_admin' });
 
     test('/admin', async ({ page }) => {
       await page.goto('/admin');
@@ -103,7 +103,7 @@ test.describe('no sideways overflow at 375 px', () => {
   });
 
   test.describe('learner', () => {
-    test.use({ storageState: authFile('learner') });
+    test.use({ loggedInAs: 'learner' });
 
     test('lesson page', async ({ page, request }) => {
       const enrollments = await apiGet<{ course_id: string }[]>(request, '/enrollments', 'learner');

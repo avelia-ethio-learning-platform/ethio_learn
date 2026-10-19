@@ -242,7 +242,7 @@ At `2cdccf9`, plus 6a (`internalPath` brand on all ~75 internal call sites), 6c 
 ## Steps
 - [x] 1. Branch `fix/calls-and-jobs` from `fix/outbox`.
 - [x] 2. Internal client errors and retry (decision 1), plus the web `service_waking` → `WakingError` mapping. · Specs: 404 → `PeerNotFoundError`; hibernation 429 (with header, and a plain-text 429 without it) → `PeerAsleepError`; 5xx and timeout → `PeerUnavailableError`; a fast network error (refused or reset) is retried once after 500 ms, and a timeout is not retried; the thrown message has no path; the web vitest.
-- [ ] 3. Fail-closed lookups (decisions 2, 3): `ownsCourse`; the referral-invite lookup (decision 2, 6a S3); the bank-transfer learner check switches to `PeerNotFoundError` (decision 2, 6c R2); the receipt lookup, which moved to notification's `PaymentConfirmed` handler (decision 2); `progressPercent` null plus the dashboard "—"; the review of the remaining sites, logged in Progress.
+- [x] 3. Fail-closed lookups (decisions 2, 3): `ownsCourse`; the referral-invite lookup (decision 2, 6a S3); the bank-transfer learner check switches to `PeerNotFoundError` (decision 2, 6c R2); the receipt lookup, which moved to notification's `PaymentConfirmed` handler (decision 2); `progressPercent` null plus the dashboard "—"; the review of the remaining sites, logged in Progress.
   - Specs:
     - checkout with the enrollment peer down → 503 and no payment row;
     - `completeEffects` with auth down → `PaymentConfirmed` is still published (access granted) with a blank email;
@@ -251,17 +251,17 @@ At `2cdccf9`, plus 6a (`internalPath` brand on all ~75 internal call sites), 6c 
   - **Drift D1:** at 9a, `userInfo` (`notification.service.ts:640`) degrades every error to blank and has eight callers whose fallback is intended (`userName`, the follower fan-out, `CourseUpdated`, PayRequest, wallet and staff notices). Leave it as it is. Add a separate `requireUserEmail(id)`: it rethrows `PeerAsleepError`/`PeerUnavailableError` and returns `null` on `PeerNotFoundError`. Use it only where the payload email is blank (the receipt and the other `deliver(…, p.learner_email, …)` handlers). The specs above name it.
 - [x] 4. Chapa over `fetch` (decision 4). Fixture specs for initialize and verify request shapes; a Chapa email-validation 4xx on initialize triggers the fallback-email retry; a verify 401 → `ChapaUnavailableError`. Timeout → `ChapaUnavailableError`. The sweep stops its batch, the webhook still answers 200, reconcile flags `provider_unreachable`. Remove `chapa-nestjs`, then `pnpm install` and confirm `axios@1.2.1` is gone from `api/pnpm-lock.yaml`.
   - The mock-mode e2e (`e2e-payments.mjs`) stays green.
-- [ ] 5. Leases and job endpoints (decisions 5, 6): `job_leases` migrations; `runJob`; the crons through `runJob`; `JobsController`s; the gateway `jobs` auth mode and routes; `JOBS_TOKEN` in config and `.env.example`.
+- [x] 5. Leases and job endpoints (decisions 5, 6): `job_leases` migrations; `runJob`; the crons through `runJob`; `JobsController`s; the gateway `jobs` auth mode and routes; `JOBS_TOKEN` in config and `.env.example`.
   - Specs:
     - two concurrent `runJob` → one runs;
     - an expired lease is taken over, and the late original run doesn't clear the new holder's lease;
     - the endpoint returns 202 before the job finishes;
     - the gateway refuses without the token, refuses the wrong token, and the timing-safe compare is used;
     - the result rows hold no personal data.
-- [ ] 6. Sweep fairness, N1, N2 (decision 8): migration, query, attempt cap, reconcile accepting `failed`, the re-publish order. · Specs: with 30 pending rows, two sweeps cover all 30, oldest-unchecked first; reconcile on a failed row verifies; the re-publish order puts NULL `webhook_received_at` rows by `created_at`.
+- [x] 6. Sweep fairness, N1, N2 (decision 8): migration, query, attempt cap, reconcile accepting `failed`, the re-publish order. · Specs: with 30 pending rows, two sweeps cover all 30, oldest-unchecked first; reconcile on a failed row verifies; the re-publish order puts NULL `webhook_received_at` rows by `created_at`.
 - [x] 7. Status codes (decision 9): `PageQuery` on the four endpoints; the `DbErrorFilter` mappings. · Specs: `limit=-5` → 400; `limit=1000` → 400; a 23505 → 409 with no detail in the body.
 - [x] 8. Graceful shutdown (decision 10). · Check: start the gateway, open a slow request, send SIGTERM, and see the request complete and the process exit within the grace period. Record it.
-- [ ] 9. Races (decision 11): migrations and code.
+- [x] 9. Races (decision 11): migrations and code.
   - Specs:
     - concurrent `assignSeats` (two transactions, sequenced with the fake or the local DB) never exceed the seats;
     - duplicate invite → one row;
@@ -271,10 +271,10 @@ At `2cdccf9`, plus 6a (`internalPath` brand on all ~75 internal call sites), 6c 
 - [x] 10. Scheduler (decision 7): `.github/workflows/jobs.yml`.
   - Dry run with `workflow_dispatch` against the local stack is impossible from GitHub, so test the script part locally: a `scripts/run-jobs.mjs` that the workflow calls, run against the local gateway with a local `JOBS_TOKEN`.
   - The workflow itself is checked by `actionlint` if available, or by review.
-- [ ] 11. Docs:
+- [x] 11. Docs:
   - replace the self-healing and single-replica claims (`docs/DEPLOYMENT.md:57`, `DEPLOYMENT.md:149`, `README.md:41,160`) with how jobs actually run: in-process while awake, the GitHub schedule otherwise, the budget table, how to change the cadence;
   - document `JOBS_TOKEN`, `RENDER_SERVICE_URLS` and `GET /api/v1/jobs/<service>`.
-- [ ] 12. Full gate:
+- [x] 12. Full gate:
   - `pnpm -C api build && pnpm -C api test && pnpm -C api typecheck && pnpm -C api db:check`;
   - the web gates for the two web edits;
   - the CI e2e scripts and Playwright locally;
@@ -298,8 +298,8 @@ At `2cdccf9`, plus 6a (`internalPath` brand on all ~75 internal call sites), 6c 
 ## Rollout and ops
 - **Before merge (the user; read-only on production):**
   - duplicate checks that must return no rows, or the unique index builds fail:
-    - `SELECT bulk_purchase_id, lower(recipient_email), count(*) FROM financial.sponsorships WHERE bulk_purchase_id IS NOT NULL GROUP BY 1, 2 HAVING count(*) > 1`;
-    - `SELECT referrer_id, lower(referred_email), count(*) FROM financial.referrals GROUP BY 1, 2 HAVING count(*) > 1`.
+    - `SELECT bulk_purchase_id, recipient_email, count(*) FROM financial.sponsorships WHERE bulk_purchase_id IS NOT NULL AND status <> 'cancelled' GROUP BY 1, 2 HAVING count(*) > 1`;
+    - `SELECT referrer_id, referred_email, count(*) FROM financial.referrals WHERE referred_email <> '' GROUP BY 1, 2 HAVING count(*) > 1`.
   - Confirm which Render services are awake-on-demand; nothing to change.
 - **Secrets and variables (the user):**
   1. Generate a long random `JOBS_TOKEN`. Set it on the gateway service only (Render dashboard; `render.yaml` declares it with `sync: false`), not in `ethiopialearn-shared`, and as a GitHub Actions secret.
@@ -359,3 +359,35 @@ Branch `fix/calls-and-jobs` from `fix/outbox` 99204b7, plan commit 01ca4ce; `fix
   - web vitest passes 647/647.
 
 **In flight / next:** steps 3, 5, 6 and 9, after 9b's step 4 (site conversions) is merged in.
+
+### Batch 2 (steps 3, 5, 6, 9, 11, 12 + review B1, S1, S2, N2, N3), 2026-10-19, ethio-impl
+Commits 7b173cc, 56ecda6, 5be54ce, be61ed5, a1b181a, f825f31, 04c9af3, d094ff4; origin/main e4b4cde merged in.
+
+- **Step 3** (7b173cc). Decision 3 site review: the remaining defaults stay, each logged where it applies; only these changed:
+  - `ownsCourse` fails closed (initiate 503 with no row; nudges stop before the claim); the invite lookup rethrows all but `PeerNotFoundError`; `progressPercent` → null (refund throws `PeerUnavailableError`, milestones and inactivity skip); the receipt email is looked up in notification.
+  - **Deviation:** the teach analytics page also shows "—" for a null average (not in the brief's list). `quality.service.ts:662` kept: null refuses the review, which is safe.
+- **Step 5** (56ecda6). **Deviations:** one `createJobsController(service)` factory in common instead of a controller per service; the JobsAndSweep payment columns ship in this commit's migration.
+- **Step 6** (5be54ce). **Deviations:** `find` with `{ nulls: 'FIRST' }` instead of a query builder, so no NULLS FIRST index; the effects re-publish merges two finds in memory. The 30-attempt cap logs once.
+- **Step 9 + B1** (be61ed5, d094ff4): the wallet guard (try-lock, one read of confirmed or in-flight rows, insert, one transaction) on both paths; `assignSeats` locks the order row; invites ON CONFLICT and emit only on insert; `codeFor` upserts; the unique indexes in `1791100000001-UniqueSeatsAndInvites`. The Rollout duplicate checks above now match the index predicates.
+  - The e2e race found a hole the specs missed: two separate reads let a settlement slip between them (fixed in d094ff4).
+  - fake-db: a rollback undoes only its own transaction; `lock` takes row locks.
+- **S1, S2** (a1b181a): payout disburse, createStaff, institution invites and pay requests commit with their events. A failed disbursement stays scheduled; the run and the admin release go on.
+- **Scheduler change (the user):** two runs a day, each waking only what its jobs call (`run-jobs.mjs` `NEEDS`):
+
+  | Run | Jobs | Wakes | Est. instance-hours/month |
+  |---|---|---|---|
+  | `daily` 06:15 UTC (09:15 Addis, as the old inactivity cron) | all five | gateway, financial, enrollment, auth, course, quality | ~45 |
+  | `frequent` 14:15 UTC | sweep, effects | gateway, financial | ~15 |
+
+  ~60 h/month (was ~136), at ~15 min per woken service; less when traffic keeps them awake. Nudges moved to `daily` because they need enrollment.
+- **Lint** (04c9af3): the earlier 9c commits had put three rules over the baseline; fixed.
+- **Gate (2026-10-19, after the merge):**
+  - api: build, typecheck, jest 1511 passed / 5 skipped, lint-check under baseline, `db:check` clean on the dev DB.
+  - Fresh DB: all migrations apply; financial (2) and enrollment (1) revert and re-apply; `db:check` clean. Revert needs `transaction: 'none'` for the CONCURRENTLY migration.
+  - Real Postgres on fresh DBs: resend 1/1, wallet race 2/2 (7 runs), job lease 2/2.
+  - web: typecheck, vitest 746/746, build.
+  - e2e (local, `CHAPA_MODE=mock`): revisions, institution, learning, security, smoke all green; payments green except "each of our payments is in a paid payout": the dev DB's demo educator has open fraud holds from earlier runs (environment, not code; CI uses a fresh DB). Playwright on :3002: 119 passed, 2 skipped.
+  - Jobs dry run (local gateway, throwaway token, nothing called on Render): `frequent` and `daily` start every job; GET lists counts; no token or a wrong token → 401; three parallel POSTs → one `started:false, reason: running`.
+  - `node --test scripts/run-jobs.test.mjs`: 7/7.
+
+- **Final review fixes** (`9c-code-review-final`): `run-jobs.mjs` waits for this run's results and exits 1 on a failed job; one service that never wakes skips only its jobs (wake timeout 180 s); the in-flight guard branch has its own unit cases (1 min → 409, 6 min → goes through); a non-numeric Chapa amount is `null` (not verified); token checks compare byte lengths; `daily` moved to 06:15 UTC; DEPLOYMENT.md notes `migration:revert -t none`. Skipped: sweep check spacing (N3).

@@ -55,16 +55,19 @@ export class CommunityService {
     if (text.length > COMMENT_MAX) throw new BadRequestException(`Comment too long (max ${COMMENT_MAX} chars)`);
 
     // Course must exist (also fetches metadata for the notification link).
-    let course: { title: string; owner_id: string; created_by: string };
+    let course: { title: string; owner_id: string; created_by: string; institution_id?: string | null };
     try {
       course = await this.internal.get(internalPath`/api/v1/internal/courses/${courseId}`);
     } catch {
       throw new NotFoundException('Course not found');
     }
 
-    // Posting rights: learners need an active enrollment; educators/staff may
-    // always post (the course educator answering their learners is the point).
-    if (ctx.role === Role.LEARNER) {
+    // Posting rights: learners need an active enrollment; educators and
+    // institution admins only on courses they own, teach or whose institution
+    // they run (outcomes' canManageCourse); platform staff anywhere.
+    if (ctx.role === Role.EDUCATOR || ctx.role === Role.INSTITUTION_ADMIN) {
+      if (!(await this.teachesCourse(ctx, course))) throw new ForbiddenException('Only the course’s own educators can post here');
+    } else if (ctx.role === Role.LEARNER) {
       const ent = await this.internal.get<{ entitlement_status: string }>(
         internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${courseId}`,
       );
@@ -118,6 +121,18 @@ export class CommunityService {
     }
 
     return comment;
+  }
+
+  /** The course's owner or instructor, or the admin of the institution that owns or runs it. */
+  private async teachesCourse(ctx: UserContext, course: { owner_id: string; created_by: string; institution_id?: string | null }): Promise<boolean> {
+    if (course.owner_id === ctx.id || course.created_by === ctx.id) return true;
+    if (ctx.role !== Role.INSTITUTION_ADMIN) return false;
+    try {
+      const institution = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
+      return institution.id === course.institution_id || institution.id === course.owner_id;
+    } catch {
+      return false; // no institution for this admin
+    }
   }
 
   /** Author removes their own comment; platform staff can moderate any. */

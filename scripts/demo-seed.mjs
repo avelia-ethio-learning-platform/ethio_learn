@@ -371,7 +371,16 @@ async function main() {
       if (done.completed !== true) throw new Error(`watching "${l.title}" through did not complete it: ${JSON.stringify(done)}`);
     }
     for (const l of lessons.filter((x) => !x.has_video)) await call(`/progress/lessons/${l.id}/complete`, { method: 'POST', token: learner });
-    console.log(`→ learner completed "${freeCourse.title}" (${lessonIds.length} lessons) → certificate issued`);
+    // The certificate is issued from the completion event: wait for it, then check it verifies.
+    let cert = null;
+    for (let i = 0; i < 30 && !cert; i++) {
+      cert = (await call('/me/certificates', { token: learner })).find((c) => c.course_id === freeCourse.id) ?? null;
+      if (!cert) await sleep(500);
+    }
+    if (!cert) throw new Error(`completing "${freeCourse.title}" issued no certificate within 15 s`);
+    const verified = await call(`/verify/${cert.certificate_uid}`);
+    if (verified.valid !== true) throw new Error(`certificate ${cert.certificate_uid} does not verify: ${JSON.stringify(verified)}`);
+    console.log(`→ learner completed "${freeCourse.title}" (${lessonIds.length} lessons) → certificate ${cert.certificate_uid} issued and verified`);
   }
 
   console.log(`\n✔ seed complete — ${published.length} new published courses (free/freemium/paid across all 5 categories)`);

@@ -55,3 +55,6 @@ Part of [plan.md](plan.md). Branch `feat/product-gaps-a`. Lines at `origin/main`
 
 ## Rollout
 Migrations run on boot before the service listens (`typeorm.ts:9-12`); the reads table is additive, so API and web deploy in either order. Pre-merge `db:check` against production is the user's step (schema-migrations handoff :35).
+
+## Handoff note (accepted at code review, no code change)
+- New users see every role row written since the migration (broadcasts, QO queue rows) as unread; the bell count has no cap, the list shows 50.
