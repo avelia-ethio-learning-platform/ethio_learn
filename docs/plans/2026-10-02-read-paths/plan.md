@@ -227,7 +227,7 @@ Line numbers at `2cdccf9`. 6a retypes every internal call site, 6b rewrites the 
 - Steps 2–8 done; step 9 not run (needs the local stack); step 10: api build/jest/lint and web vitest/tsc/build local, `db:check` and e2e in CI.
 - Deviations (drift.md A1–A8 applied):
   - Enrollment analytics are strict: course down → 503; a course course no longer knows is skipped. Per-course `courses/:id` reads stay, now parallel.
-  - `courseAttempts` names fall back to "Unknown learner" in both places.
+  - `courseAttempts` names fall back to "Unknown learner" in both places, and it answers `{ items, total }` (13b review S1; 13b's exam-results panel switches after both merge).
   - Admin `listAll` payouts keep `take: 200` and add names; the `payee_id` admin listing is paged.
   - A7: institution payees get `payee_name: null` (P2 follow-up: an institutions batch endpoint).
   - `getMany` is a helper that takes the client, not a client method (mocks with only `get` keep working).
