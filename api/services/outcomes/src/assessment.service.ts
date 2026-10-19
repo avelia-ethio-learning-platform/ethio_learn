@@ -799,9 +799,10 @@ export class AssessmentService implements OnModuleInit {
 
   /** Educator: all submitted attempts across a course's assessments (exam results view). */
   async courseAttempts(ctx: UserContext, courseId: string, page = 1, limit = 50) {
-    if (ctx.role !== Role.QUALITY_OFFICER && !(await this.canManageCourse(ctx, await this.courseRef(courseId)))) {
-      throw new ForbiddenException('Not your course');
-    }
+    const course = await this.courseRef(courseId);
+    const allowed =
+      ctx.role === Role.QUALITY_OFFICER ? QO_VISIBLE_COURSE_STATUSES.includes(course.status as CourseStatus) : await this.canManageCourse(ctx, course);
+    if (!allowed) throw new ForbiddenException('Not your course');
 
     const courseAssessments = await this.assessments.find({ where: { course_id: courseId } });
     if (!courseAssessments.length) return { items: [], total: 0 };

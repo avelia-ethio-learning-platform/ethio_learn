@@ -200,10 +200,20 @@ describe('create()/generateQuiz(): who may manage a course’s assessments', () 
     await expect(svc.generateQuiz(otherInstitutionAdmin, 'c1', 'soil', 3)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('refuses another institution’s admin on the exam-results view; quality officers keep access', async () => {
+  it('refuses another institution’s admin on the exam-results view', async () => {
     const { svc } = harness();
     await expect(svc.courseAttempts(otherInstitutionAdmin, 'c1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it.each(['submitted', 'under_review', 'published', 'unlisted', 'flagged'])('quality officers see the exam-results view of a %s course', async (status) => {
+    const { svc } = harness({ course: { ...INSTITUTION_COURSE, status } });
     await expect(svc.courseAttempts(qualityOfficer, 'c1')).resolves.toEqual({ items: [], total: 0 });
+  });
+
+  it.each(['draft', 'institution_review', 'archived'])('quality officers are refused the exam-results view of a %s course', async (status) => {
+    const { svc, assessments } = harness({ course: { ...INSTITUTION_COURSE, status } });
+    await expect(svc.courseAttempts(qualityOfficer, 'c1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(assessments.find).not.toHaveBeenCalled();
   });
 });
 
