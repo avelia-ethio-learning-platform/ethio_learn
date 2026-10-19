@@ -101,7 +101,7 @@ export class InternalHttpClient {
       return (await res.json()) as T;
     } catch (err) {
       // The timeout also covers reading the body: a peer that stalls mid-body is unavailable, not a 500.
-      this.logger.warn(`internal GET failed reading the body (${(err as Error).name}), path length ${path.length}`);
+      this.logger.warn(`internal GET ${redactPath(path)} failed reading the body (${(err as Error).name})`);
       throw new PeerUnavailableError();
     }
   }

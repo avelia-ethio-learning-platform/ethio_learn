@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Column, DataSource, Entity, PrimaryColumn } from 'typeorm';
+import { requestContext } from '../context';
 
 /**
  * One row per scheduled job (Phase 9c, decision 5): a lease that keeps two runs
@@ -78,7 +79,8 @@ export async function startJob(
   );
   if (won.length === 0) return { started: false };
 
-  const finished = (async (): Promise<JobResult | null> => {
+  // Outside the request that started it (9d): the job's lines and events don't carry the scheduler call's ids.
+  const finished = requestContext.exit(async (): Promise<JobResult | null> => {
     let result: JobResult | null;
     try {
       result = (await fn()) ?? null;
@@ -97,7 +99,7 @@ export async function startJob(
       logger.warn(`job ${name}: could not release its lease, it expires on its own: ${(err as Error)?.message ?? err}`);
     }
     return result;
-  })();
+  });
   return { started: true, finished };
 }
 

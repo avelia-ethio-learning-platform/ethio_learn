@@ -1,3 +1,4 @@
+import { currentContext, requestContext } from '../context';
 import { JobRunner, startJob } from './job-lease';
 import { createJobsController } from './jobs.controller';
 
@@ -42,6 +43,18 @@ describe('startJob', () => {
     });
     expect(await (start as { finished: Promise<unknown> }).finished).toEqual({ failed: true });
     expect(state.released[0][2]).toBe(JSON.stringify({ failed: true }));
+  });
+
+  it('runs the job outside the request that started it', async () => {
+    const { dataSource } = stubDataSource();
+    let seen: unknown = 'unset';
+    const start = await requestContext.run({ request_id: 'r-1', user_id: 'u-1' }, () =>
+      startJob(dataSource as never, 'sweep', 60_000, async () => {
+        seen = currentContext();
+      }),
+    );
+    await (start as { finished: Promise<unknown> }).finished;
+    expect(seen).toBeUndefined();
   });
 
   it('does not start while another run holds the lease', async () => {

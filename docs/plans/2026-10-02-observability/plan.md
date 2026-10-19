@@ -243,10 +243,10 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
 - Gate on the head: api build, `test --maxWorkers=2` (82 suites, 1541 passed), lint-check, the two real-Postgres specs on scratch `el_9d_db`. `db:check` and web: CI.
 - Not rerun locally (needs the stack): the outbox `correlation_id` = request id check and the outage drill (S3).
 
-### Recheck when 9c (`fix/calls-and-jobs`) lands; not merged yet
-- `runJob` (started by `JobsController` without awaiting) runs under `requestContext.exit` or the bus's snapshot, else job lines carry the request's ids.
-- Internal-client warn lines use `redactPath`, not the path length.
-- `upstreamOf` knows the `jobs` routes (`routes.spec.ts` guards it).
-- `PeerErrorFilter` order in `bootstrap.ts` vs `DbErrorFilter`.
-- Its new `logger.*` lines pass `no-pii-in-logs.spec.ts`; identical hunks from old 9c (`2f31a0d`, `04c9af3`) merge clean, rewrites need hand resolution (review "Merge" options a-c).
-- Rollout blocker unchanged: `USER-ACTIONS.md` item 4 (email provider on Render).
+### 9c landed (main `dabba09`, merged 2026-10-19)
+- Conflicts: `ci.yml` (main's wallet-race and job-lease step, keep `safe-typeorm-logger.db.spec.ts`), `chapa.provider.ts` (main's finite amount check).
+- `startJob` runs the job under `requestContext.exit`, spec added: no request or user id on job lines or events.
+- Internal client: the body-read warn logs `redactPath(path)`; only the refused (invalid) path logs its length (deviation 8).
+- Checked, no change: `upstreamOf` knows the `jobs` routes (financial, enrollment; `routes.spec.ts` covers every rule); `DbErrorFilter` and `PeerErrorFilter` catch disjoint types, so their order doesn't matter; 9c's log lines pass the PII guard.
+- Email provider on Render confirmed (`SMTP_HOST` in the shared group): no rollout blocker left.
+- 11b (#53) moves `gateway/src/main.ts` logic: 9d's edits there are one-liners (JsonLogger, `app.use(requestLog())` first, CORS `exposedHeaders`, three `accessNotes` stamps in the proxy and JWT middleware) and move with the code they sit in; `req.ip` in the access line can become `clientIpOf(req)`.
