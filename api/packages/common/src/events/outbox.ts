@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
+import { BeforeApplicationShutdown, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
 import { randomUUID } from 'crypto';
 import { Column, DataSource, Entity, EntityManager, Index, PrimaryColumn } from 'typeorm';
@@ -90,7 +90,7 @@ const FAILURES_BEFORE_ERROR = 20;
  * no defined order, and no consumer relies on one.
  */
 @Injectable()
-export class OutboxService implements OnApplicationBootstrap, OnApplicationShutdown {
+export class OutboxService implements OnApplicationBootstrap, BeforeApplicationShutdown {
   private readonly logger = new Logger(OutboxService.name);
   private readonly pollMs = envInt('OUTBOX_POLL_MS', 5_000);
   private readonly retentionDays = envInt('OUTBOX_RETENTION_DAYS', 7);
@@ -147,7 +147,12 @@ export class OutboxService implements OnApplicationBootstrap, OnApplicationShutd
     this.timer.unref();
   }
 
-  onApplicationShutdown(): void {
+  /**
+   * Before every onApplicationShutdown hook, so the relay has stopped when the bus
+   * closes its channels. Both live in EventBusModule, where Nest (10 and 11) shuts
+   * the bus down first.
+   */
+  beforeApplicationShutdown(): void {
     clearInterval(this.timer);
   }
 

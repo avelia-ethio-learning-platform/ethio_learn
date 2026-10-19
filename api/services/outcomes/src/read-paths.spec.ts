@@ -19,6 +19,7 @@ function setup(opts: { authDown?: boolean } = {}) {
   const attempts = { createQueryBuilder: jest.fn(() => qb), find: jest.fn(async () => rows) };
   const internal = {
     get: jest.fn(async (path: string) => {
+      if (path.startsWith('/api/v1/internal/courses/')) return { title: 'Go', owner_id: 'edu1', status: 'published' };
       if (opts.authDown) throw new PeerUnavailableError();
       return decodeURIComponent(path.split('ids=')[1].split('&')[0])
         .split(',')
@@ -34,7 +35,8 @@ describe('AssessmentService.courseAttempts (Phase 9e)', () => {
     const t = setup();
     const { items: rows, total } = await t.service.courseAttempts(officer, 'c1', 2, 50);
     expect(total).toBe(60);
-    expect(t.internal.get).toHaveBeenCalledTimes(1);
+    // One course lookup (the officer's status check) and one users batch, whatever the page size.
+    expect(t.internal.get).toHaveBeenCalledTimes(2);
     expect(rows[0]).toEqual(expect.objectContaining({ learner_name: 'Name l0', learner_email: 'l0@e.et' }));
     expect(t.qb.take).toHaveBeenCalledWith(50);
     expect(t.qb.skip).toHaveBeenCalledWith(50);

@@ -155,9 +155,10 @@ The log names each variable, never its value, so a failed boot says what to set.
 
 ## Dependencies
 
-**Versions (Phase 11c, Next 16 in P2-44):**
+**Versions (Phase 11c, Next 16 in P2-44, Nest 11 in P2-45):**
 - **Web:** Next 16.4 (P2-44) with React 19. In production the App Router runs Next's vendored React (`19.3.0-canary-278794d7`, `next/dist/compiled/react`); the installed 19.3.1 serves only vitest and the types. `next build` uses Turbopack. Next 16 supports Chrome/Edge/Firefox 111+ and Safari 16.4+. Lint is ESLint 9 with `eslint-config-next`'s flat config, including react-hooks 7's React Compiler rules.
-- **API:** Nest stays on 10.x (P2-45: a Nest major brings Express 5). Transitive fixes are forced inside their majors with `pnpm.overrides` in `api/package.json` (body-parser, brace-expansion, multer, nanoid, proxy-addr, qs); web overrides Next's bundled postcss.
+- **API:** Nest 11.2 on Express 5, CommonJS, Node 22. Nest 12 is ESM-only and its Jest setup needs Node 24, so it waits for a Node 24 move (P2-45 stage 2). `http-proxy-middleware` stays on 3.x for the same reason (4.x is ESM-only). Transitive fixes are forced inside their majors with `pnpm.overrides` in `api/package.json` (brace-expansion, nanoid); web overrides Next's bundled postcss.
+- **Query strings (Express 5):** services parse them with the `simple` parser: `?ids=a,b` stays a string and a repeated key becomes an array, but brackets (`x[]=`, `y[z]=`) build no arrays or objects (`gateway/src/upstream-routing.spec.ts`).
 - **Gate:** `pnpm audit --prod --audit-level high` is clean for both workspaces once 9c has removed `chapa-nestjs` (and with it axios).
 
 **Advisories:** Dependabot security-update PRs are off. Advisories arrive as Dependabot alerts and in CI's `audit` job summary; re-enable the PRs once the alerts can be fixed by one. Dependabot proposes no npm majors (planned work).
@@ -167,8 +168,6 @@ The log names each variable, never its value, so a failed boot says what to set.
 | Package | Advisory | Why it stays |
 |---|---|---|
 | braces 3.0.3 (high, no fix) | GHSA-vfj7-8cjw-p6xm, ignored as `CVE-2026-93687` in `pnpm.auditConfig.ignoreCves` (pnpm 9.4 doesn't read `ignoreGhsas`) | Only path: gateway → http-proxy-middleware → micromatch. The gateway's proxy has a `router` and no `pathFilter`, so HPM matches the default `'/'` by string prefix and never calls micromatch. |
-| @nestjs/core 10.4 (moderate) | GHSA-36xv-jgw5-4q75, fixed only in ≥ 11.1.18 | The concrete reason for P2-45 (Nest major). |
-| file-type 20 (moderate) | GHSA-5v7r-6r5c-r473, GHSA-j47w-4g3g-c36v | Only `@nestjs/common`'s `FileTypeValidator` uses it; no multipart route is mounted (uploads go to storage by signed URL). |
 | uuid 9 (moderate) | GHSA-w5hq-g745-h8pq | Affects v3/v5/v6 called with a `buf`; the api calls `v4()` and `v5(name, ns)` only. The fix is a major. |
 | sprintf-js (web, moderate, no fix) | GHSA-hp3w-g68c-fv3c | Via mammoth in the browser, on the user's own document. |
 
