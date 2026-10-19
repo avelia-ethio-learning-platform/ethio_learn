@@ -231,5 +231,6 @@ Line numbers at `2cdccf9`. 6a retypes every internal call site, 6b rewrites the 
   - Admin `listAll` payouts keep `take: 200` and add names; the `payee_id` admin listing is paged.
   - A7: institution payees get `payee_name: null` (P2 follow-up: an institutions batch endpoint).
   - `getMany` is a helper that takes the client, not a client method (mocks with only `get` keep working).
-  - "Load earlier" / "Show more" reuse the existing `course_by` key on cards; new keys `show_more_reviews`, `loading_more`.
+  - Course cards reuse the existing `course_by` key; new keys are `show_more_reviews` and `loading_more`.
+  - Lint gate: 5 findings above the baseline come from 9c lines (`page-query.spec.ts`, `chapa.provider*.ts`, `db-error.filter.ts`) already fixed on `fix/calls-and-jobs`; they clear when 9c merges.
 
