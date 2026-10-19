@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ChapaModule } from 'chapa-nestjs';
-import { buildTypeOrmOptions, EventBusModule, HealthController, InternalHttpClient } from '@ethiopialearn/common';
+import { buildTypeOrmOptions, createJobsController, EventBusModule, HealthController, InternalHttpClient, JOB_RUNNER } from '@ethiopialearn/common';
 import { entities, migrations, SCHEMA } from './database';
+import { FinancialJobs } from './jobs';
 import { CHAPA_PROVIDER, chapaMode, LiveChapaProvider, MockChapaProvider } from './chapa.provider';
 import { PaymentService } from './payment.service';
 import { RefundService } from './refund.service';
@@ -20,14 +20,8 @@ import { PayRequestPublicController } from './pay-request-public.controller';
     TypeOrmModule.forFeature(entities),
     EventBusModule.forRoot({ serviceName: 'financial', outbox: true }),
     ScheduleModule.forRoot(),
-    // chapa-nestjs SDK. The secret key is env-only (never in code / client).
-    // In mock mode the SDK is registered with a placeholder but never called —
-    // MockChapaProvider is bound instead.
-    ChapaModule.register({
-      secretKey: process.env.CHAPA_SECRET_KEY ?? 'CHASECK_TEST-placeholder',
-    }),
   ],
-  controllers: [FinancialController, GrowthController, PayRequestPublicController, HealthController],
+  controllers: [FinancialController, GrowthController, PayRequestPublicController, HealthController, createJobsController('financial')],
   providers: [
     {
       provide: CHAPA_PROVIDER,
@@ -39,6 +33,8 @@ import { PayRequestPublicController } from './pay-request-public.controller';
     RefundService,
     PayoutService,
     InternalHttpClient,
+    FinancialJobs,
+    { provide: JOB_RUNNER, useFactory: (jobs: FinancialJobs) => jobs.runner, inject: [FinancialJobs] },
   ],
 })
 export class AppModule {}

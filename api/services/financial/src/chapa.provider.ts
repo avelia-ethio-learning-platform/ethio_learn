@@ -1,14 +1,12 @@
-import { BadRequestException, HttpException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
-import { ChapaService } from 'chapa-nestjs';
 import { env } from '@ethiopialearn/common';
 
 /**
- * Chapa integration via the official chapa-nestjs SDK
- * (https://github.com/Chapa-Et/chapa-nestjs). `ChapaModule.register` in
- * app.module supplies the configured ChapaService; the live provider below is
- * a thin port adapter so PaymentService stays gateway-agnostic and the mock
- * provider can stand in for offline development.
+ * Chapa integration over plain `fetch` against Chapa's REST API
+ * (https://developer.chapa.co), with a timeout on every call. The live
+ * provider below is a thin port adapter so PaymentService stays
+ * gateway-agnostic and the mock provider can stand in for offline development.
  *
  * Critical practices enforced at this layer and in PaymentService:
  *  - tx_ref is ALWAYS server-generated (never client-supplied)
@@ -17,7 +15,14 @@ import { env } from '@ethiopialearn/common';
  *  - verify() is consulted before any PaymentConfirmed is published
  */
 
-/** Mirrors chapa-nestjs `InitializeOptions`. */
+/** What Chapa answers (initialize and verify), as far as it is read here. */
+interface ChapaBody {
+  status?: string;
+  message?: unknown;
+  data?: { checkout_url?: string; status?: unknown; amount?: unknown; currency?: unknown } | null;
+}
+
+/** Chapa's initialize request body. */
 export interface ChapaInitializeOptions {
   first_name: string;
   last_name: string;
@@ -39,14 +44,14 @@ export interface ChapaVerification {
 
 export interface ChapaProvider {
   /** SDK-style reference (TX-ALPHANUM). Always generated here, never by clients.
-   *  Async to match chapa-nestjs `generateTransactionReference`. */
+   *  Async so a provider may generate it remotely. */
   generateTxRef(): Promise<string>;
   initialize(options: ChapaInitializeOptions): Promise<{ checkout_url: string }>;
   /** Server-side double-check against Chapa (spec §6 step 5). */
   verify(txRef: string): Promise<ChapaVerification>;
 }
 
-/** chapa-nestjs `generateTransactionReference`: prefix + random alphanumerics. */
+/** Transaction reference: prefix + random alphanumerics. */
 export function generateTransactionReference(options?: { prefix?: string; size?: number }): string {
   const prefix = options?.prefix ?? 'TX';
   const size = options?.size ?? 15;
@@ -57,60 +62,105 @@ export function generateTransactionReference(options?: { prefix?: string; size?:
   return `${prefix}-${out}`;
 }
 
+const CHAPA_BASE = 'https://api.chapa.co/v1/transaction';
+
+/** Thrown when Chapa can't be reached (timeout, network, 5xx, rejected API key). */
+export class ChapaUnavailableError extends ServiceUnavailableException {
+  constructor() {
+    super('The payment provider is not responding. Try again in a minute.');
+  }
+}
+
 /**
- * Real Chapa gateway via the chapa-nestjs SDK's ChapaService (configured in
- * app.module with CHAPA_SECRET_KEY — server-side only, spec §6).
+ * Real Chapa gateway (CHAPA_SECRET_KEY — server-side only, spec §6).
  */
 @Injectable()
 export class LiveChapaProvider implements ChapaProvider {
   private readonly logger = new Logger(LiveChapaProvider.name);
 
-  constructor(private readonly chapaService: ChapaService) {}
+  async generateTxRef(): Promise<string> {
+    return generateTransactionReference();
+  }
 
-  generateTxRef(): Promise<string> {
-    return this.chapaService.generateTransactionReference();
+  /** One Chapa call. Network errors and timeouts become ChapaUnavailableError; HTTP statuses are the caller's. */
+  private async call(url: string, init: RequestInit): Promise<{ status: number; body: ChapaBody | null }> {
+    const timeoutMs = Number(process.env.CHAPA_TIMEOUT_MS ?? 10000);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...init,
+        headers: { Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`, ...init.headers },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      this.logger.warn(`chapa unreachable: ${(err as Error).name}: ${(err as Error).message}`);
+      throw new ChapaUnavailableError();
+    }
+    let body: ChapaBody | null = null;
+    try {
+      body = (await res.json()) as ChapaBody | null;
+    } catch (err) {
+      // An unparseable body is judged by its status; a timeout or network error mid-body is an outage.
+      if (!(err instanceof SyntaxError)) {
+        this.logger.warn(`chapa unreachable while reading the body: ${(err as Error).name}: ${(err as Error).message}`);
+        throw new ChapaUnavailableError();
+      }
+    }
+    return { status: res.status, body };
   }
 
   async initialize(options: ChapaInitializeOptions): Promise<{ checkout_url: string }> {
-    let response;
-    try {
-      response = await this.chapaService.initialize(options);
-    } catch (err) {
-      // The SDK throws HttpException with Chapa's raw validation body — log it
-      // in full, hand the caller something readable.
-      const detail = err instanceof HttpException ? JSON.stringify(err.getResponse()) : (err as Error).message;
+    const { status, body } = await this.call(`${CHAPA_BASE}/initialize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    });
+    if (status >= 500) {
+      this.logger.warn(`chapa initialize answered ${status}`);
+      throw new ChapaUnavailableError();
+    }
+    if (status >= 400) {
+      // Chapa's raw validation body — log it in full, hand the caller something readable.
+      const detail = body == null ? `HTTP ${status}` : (JSON.stringify(body.message ?? body) ?? `HTTP ${status}`);
       this.logger.error(`chapa initialize rejected: ${detail.slice(0, 400)}`);
       throw new BadRequestException(`Payment gateway rejected the request: ${detail.slice(0, 200)}`);
     }
-    if (response.status !== 'success' || !response.data?.checkout_url) {
-      this.logger.error(`chapa initialize failed: ${JSON.stringify(response).slice(0, 400)}`);
+    if (body?.status !== 'success' || !body.data?.checkout_url) {
+      this.logger.error(`chapa initialize failed: ${JSON.stringify(body).slice(0, 400)}`);
       throw new Error('Chapa could not start this checkout. Please try again.');
     }
-    return { checkout_url: response.data.checkout_url };
+    return { checkout_url: body.data.checkout_url };
   }
 
   async verify(txRef: string): Promise<ChapaVerification> {
-    try {
-      const response = await this.chapaService.verify({ tx_ref: txRef });
-      const data = response?.data;
-      if (!data) return { status: 'pending', amount: null, currency: null };
-      // Chapa reports terminal failure in several spellings — most notably
-      // "failed/cancelled" (with a slash) for an abandoned checkout. Match on
-      // substrings so a cancelled attempt is recorded as failed, not left
-      // pending forever.
-      const raw = String(data.status ?? '').toLowerCase();
-      const status: ChapaVerification['status'] =
-        raw === 'success' ? 'success' : /fail|cancel|declin|reject|error/.test(raw) ? 'failed' : 'pending';
-      return {
-        status,
-        amount: data.amount != null ? Number(data.amount) : null,
-        currency: data.currency ?? null,
-      };
-    } catch (err) {
+    const { status: http, body } = await this.call(`${CHAPA_BASE}/verify/${encodeURIComponent(txRef)}`, { method: 'GET' });
+    if (http === 401 || http === 403) {
+      this.logger.error('chapa verify rejected the API key (401/403): check CHAPA_SECRET_KEY');
+      throw new ChapaUnavailableError();
+    }
+    if (http >= 500) {
+      this.logger.warn(`chapa verify answered ${http} for ${txRef}`);
+      throw new ChapaUnavailableError();
+    }
+    if (http >= 400) {
       // Fail safe: a verify error can never confirm a payment.
-      this.logger.warn(`chapa verify error for ${txRef}: ${(err as Error).message}`);
+      this.logger.warn(`chapa verify error for ${txRef}: HTTP ${http}`);
       return { status: 'pending', amount: null, currency: null };
     }
+    const data = body?.data;
+    if (!data) return { status: 'pending', amount: null, currency: null };
+    // Chapa reports terminal failure in several spellings — most notably
+    // "failed/cancelled" (with a slash) for an abandoned checkout. Match on
+    // substrings so a cancelled attempt is recorded as failed, not left
+    // pending forever.
+    const raw = String(data.status ?? '').toLowerCase();
+    const status: ChapaVerification['status'] =
+      raw === 'success' ? 'success' : /fail|cancel|declin|reject|error/.test(raw) ? 'failed' : 'pending';
+    return {
+      status,
+      amount: data.amount != null ? Number(data.amount) : null,
+      currency: typeof data.currency === 'string' ? data.currency : null,
+    };
   }
 }
 

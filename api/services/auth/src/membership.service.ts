@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, MoreThan, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
-import { dailyCapExceeded, env, envInt, EventBusService, isUniqueViolation, UserContext } from '@ethiopialearn/common';
+import { dailyCapExceeded, env, envInt, EventBusService, isUniqueViolation, OutboxService, UserContext } from '@ethiopialearn/common';
 import { InstructorInvitedPayload, InstructorLinkedPayload, Role, StaffInvitedPayload } from '@ethiopialearn/contracts';
 import { AuditLog, appendAudit } from './audit';
 import { AuthService, generateTempPassword } from './auth.service';
@@ -41,6 +41,7 @@ export class MembershipService {
     private readonly dataSource: DataSource,
     private readonly bus: EventBusService,
     private readonly auth: AuthService,
+    private readonly outbox: OutboxService,
   ) {}
 
   /**
@@ -112,23 +113,31 @@ export class MembershipService {
       // Same response as anyone else, but no email they couldn't act on, and none twice in a day.
     } else if (user.must_change_password) {
       // Never set their own password (a placeholder from an earlier invite):
-      // a fresh setup link, naming the institution.
-      const token = await this.auth.createInvite(user.id);
-      await this.bus.publish<StaffInvitedPayload>('StaffInvited', {
-        user_id: user.id,
-        email: user.email,
-        name: user.name,
-        role: 'instructor',
-        invite_url: `${env('WEB_URL', 'http://localhost:3000')}/accept-invite?token=${token}`,
-        institution_name: institution.name,
+      // a fresh setup link, naming the institution. The link commits with its
+      // email (the outbox, review S2), so neither exists without the other.
+      const invitee = user;
+      await this.outbox.transaction(async (m, emit) => {
+        const token = await this.auth.createInvite(invitee.id, m);
+        emit<StaffInvitedPayload>('StaffInvited', {
+          user_id: invitee.id,
+          email: invitee.email,
+          name: invitee.name,
+          role: 'instructor',
+          invite_url: `${env('WEB_URL', 'http://localhost:3000')}/accept-invite?token=${token}`,
+          institution_name: institution.name,
+        });
       });
     } else {
-      await this.bus.publish<InstructorInvitedPayload>('InstructorInvited', {
-        user_id: user.id,
-        email: user.email,
-        name: user.name,
-        institution_id: institutionId,
-        institution_name: institution.name,
+      // Through the outbox too, so a broker outage delays the email instead of failing the invite.
+      const invitee = user;
+      await this.outbox.transaction(async (_m, emit) => {
+        emit<InstructorInvitedPayload>('InstructorInvited', {
+          user_id: invitee.id,
+          email: invitee.email,
+          name: invitee.name,
+          institution_id: institutionId,
+          institution_name: institution.name,
+        });
       });
     }
     return { membership: { id: membership.id, status: membership.status, email } };

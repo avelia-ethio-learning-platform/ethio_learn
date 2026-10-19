@@ -912,3 +912,46 @@ describe('EnrollmentService: CourseRevisionClosed', () => {
     expect(completed).toEqual(['e2']);
   });
 });
+
+describe('EnrollmentService: progress is null, not 0%, when the course service is down (9c, P1-18)', () => {
+  const courseDown = (t: ReturnType<typeof setup>) => {
+    const get = t.internal.get.getMockImplementation()!;
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.includes('/lesson-ids')) throw new Error('down');
+      return get(path);
+    });
+  };
+
+  it('the entitlement and the learner views report progress_percent: null', async () => {
+    const t = setup({ completedCount: 1 });
+    courseDown(t);
+    expect((await t.service.entitlement('u1', 'c1')).progress_percent).toBeNull();
+    expect((await t.service.detail(ctx, 'e1')).progress_percent).toBeNull();
+  });
+
+  it('a known 0% stays 0, and no enrollment reports 0', async () => {
+    const t = setup({ completedCount: 0 });
+    expect((await t.service.entitlement('u1', 'c1')).progress_percent).toBe(0);
+    t.enrollments.findOne.mockResolvedValue(null);
+    expect((await t.service.entitlement('u1', 'c1')).progress_percent).toBe(0);
+  });
+
+  it('the inactivity run stops before claiming a row whose progress is unknown', async () => {
+    const t = setup();
+    courseDown(t);
+    const idle = { id: 'e9', learner_id: 'u1', course_id: 'c1', nudge_level: 0, last_activity_at: ago(30 * 86_400), enrolled_at: ago(60 * 86_400) };
+    t.enrollments.find.mockResolvedValue([idle]);
+    expect(await t.service.nudgeInactiveLearners()).toEqual({ sent: 0 });
+    expect(t.enrollments.save).not.toHaveBeenCalled();
+    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(idle.nudge_level).toBe(0);
+  });
+
+  it('with the course service up, the nudge carries the progress', async () => {
+    const t = setup({ completedCount: 1 });
+    const idle = { id: 'e9', learner_id: 'u1', course_id: 'c1', nudge_level: 0, last_activity_at: ago(30 * 86_400), enrolled_at: ago(60 * 86_400) };
+    t.enrollments.find.mockResolvedValue([idle]);
+    expect(await t.service.nudgeInactiveLearners()).toEqual({ sent: 1 });
+    expect(t.bus.publish).toHaveBeenCalledWith('LearnerInactive', expect.objectContaining({ enrollment_id: 'e9', progress_percent: 50 }));
+  });
+});

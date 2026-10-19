@@ -1,0 +1,71 @@
+# Scheduled jobs: wakes the sleeping Render free-tier services each job calls, then starts the jobs
+# through the gateway (scripts/run-jobs.mjs, which lists each job's services). Secrets/vars:
+# JOBS_TOKEN (secret), RENDER_SERVICE_URLS (variable). While a service is awake its in-process
+# crons run the same jobs on their own; this schedule is the backstop for when it sleeps.
+#
+# Instance-hour budget (Render free tier: 750 h/month across all free services; exhausting them
+# suspends every free service until next month). Each woken service stays up ~15 min:
+#   daily     02:15 UTC  6 services (gateway, financial, enrollment, auth, course, quality)  -> ~45 h/month
+#   frequent  14:15 UTC  2 services (gateway, financial)                                     -> ~15 h/month
+#   total                                                                                     -> ~60 h of the 750 h
+# Services already awake for real traffic cost nothing extra. To change the cadence, edit the cron
+# lines below and the matching case in "Pick the job group" (the schedule string is the lookup key).
+#
+# GitHub disables scheduled workflows after 60 days without repository activity; re-enable them in the
+# Actions tab (or push any commit) if the jobs stop running.
+name: jobs
+
+on:
+  schedule:
+    - cron: '15 2 * * *'
+    - cron: '15 14 * * *'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Job group or single job to run
+        type: choice
+        required: true
+        default: frequent
+        options:
+          - frequent
+          - daily
+          - financial/sweep
+          - financial/effects
+          - financial/nudges
+          - financial/payouts
+          - enrollment/inactivity
+
+permissions: {}
+
+concurrency:
+  group: jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Pick the job group
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          DISPATCH_JOB: ${{ inputs.job }}
+        run: |
+          case "$SCHEDULE" in
+            '15 2 * * *') group=daily ;;
+            '15 14 * * *') group=frequent ;;
+            *) group="$DISPATCH_JOB" ;;
+          esac
+          if [ -z "$group" ]; then echo "no job group for this trigger" >&2; exit 1; fi
+          echo "GROUP=$group" >> "$GITHUB_ENV"
+      - name: Wake services and run
+        env:
+          JOBS_TOKEN: ${{ secrets.JOBS_TOKEN }}
+          RENDER_SERVICE_URLS: ${{ vars.RENDER_SERVICE_URLS }}
+        run: node scripts/run-jobs.mjs "$GROUP"
