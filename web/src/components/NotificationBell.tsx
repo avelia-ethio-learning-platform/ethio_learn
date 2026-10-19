@@ -11,6 +11,7 @@ import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { useDismiss } from '@/lib/use-dismiss';
 import { dur, ease, popover } from '@/lib/motion';
+import { usePollInterval } from '@/lib/use-poll-interval';
 
 interface Notif {
   id: string;
@@ -32,11 +33,13 @@ export function NotificationBell() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
 
+  const pollMs = usePollInterval(20_000);
   const { data: unread } = useQuery({
     queryKey: ['unread-count'],
     queryFn: () => api<{ count: number }>('/notifications/unread-count'),
     enabled: ready && !!user,
-    refetchInterval: 20_000,
+    refetchInterval: pollMs,
+    refetchOnWindowFocus: 'always',
   });
   const { data: list } = useQuery({
     queryKey: ['notifications'],
