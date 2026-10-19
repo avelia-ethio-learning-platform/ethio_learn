@@ -218,15 +218,18 @@ async function main() {
   );
   check('PaymentConfirmed acknowledged by the broker (effects_completed_at set)', effectsDone === 't');
 
-  // ---- a wallet purchase debits once ----
-  const bigTopup = must(await call('/wallet/topup', { method: 'POST', token: learner.token, body: { amount_etb: Math.ceil(Number(otherCourse.price_etb)) } }), 'second top-up');
+  // ---- two parallel wallet purchases of one course debit once (9c B1) ----
+  // The balance covers two purchases, so only the guard can refuse the second.
+  const bigTopup = must(await call('/wallet/topup', { method: 'POST', token: learner.token, body: { amount_etb: 2 * Math.ceil(Number(otherCourse.price_etb)) } }), 'second top-up');
   await race(2, () => mockComplete(bigTopup.tx_ref));
   const before = must(await call('/wallet', { token: learner.token }), 'wallet').balance_etb;
-  const walletBuy = await call('/payments/initiate', { method: 'POST', token: learner.token, body: { course_id: otherCourse.id, use_wallet: true } });
-  check('a wallet purchase settles instantly', ok(walletBuy) && walletBuy.json.confirmed === true, brief(walletBuy));
+  const walletBuys = await race(2, () => call('/payments/initiate', { method: 'POST', token: learner.token, body: { course_id: otherCourse.id, use_wallet: true } }));
+  const walletBuy = walletBuys.find((r) => ok(r));
+  check('of two parallel wallet purchases, one settles instantly and one is a 409', walletBuy?.json.confirmed === true && walletBuys.filter((r) => r.status === 409).length === 1, walletBuys.map(brief).join(' / '));
   wallet = must(await call('/wallet', { token: learner.token }), 'wallet');
-  const debits = wallet.transactions.filter((t) => t.kind === 'purchase' && t.reference === walletBuy.json?.payment_id);
-  check('one debit, for the course price', debits.length === 1 && Math.abs(wallet.balance_etb - (before - Number(otherCourse.price_etb))) < 0.01, `${debits.length} debits, balance ${wallet.balance_etb}`);
+  const debits = wallet.transactions.filter((t) => t.kind === 'purchase' && t.reference === walletBuy?.json?.payment_id);
+  const allDebits = wallet.transactions.filter((t) => t.kind === 'purchase');
+  check('one debit, for the course price', debits.length === 1 && allDebits.length === 1 && Math.abs(wallet.balance_etb - (before - Number(otherCourse.price_etb))) < 0.01, `${allDebits.length} debits, balance ${wallet.balance_etb}`);
 
   // ---- a failed mock checkout fails the payment ----
   const failing = must(await call('/wallet/topup', { method: 'POST', token: learner.token, body: { amount_etb: 50 } }), 'failing top-up');

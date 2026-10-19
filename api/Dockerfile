@@ -20,10 +20,13 @@ RUN pnpm --filter=${PKG} deploy --prod /out
 
 FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runtime
 ENV NODE_ENV=production
-RUN addgroup -S app && adduser -S app -G app
+# tini as PID 1 forwards SIGTERM to node and reaps zombies, so the graceful
+# shutdown (gateway/src/main.ts) actually runs on a deploy.
+RUN apk add --no-cache tini && addgroup -S app && adduser -S app -G app
 WORKDIR /app
 COPY --from=build --chown=app:app /out/package.json ./
 COPY --from=build --chown=app:app /out/node_modules ./node_modules
 COPY --from=build --chown=app:app /out/dist ./dist
 USER app
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "dist/main.js"]

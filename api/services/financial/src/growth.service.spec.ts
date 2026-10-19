@@ -29,6 +29,7 @@ function service(opts: { coupons?: Record<string, unknown>[]; internal?: Record<
     {} as never,
     bus as never,
     internal as never,
+    {} as never,
   );
   return { svc, coupons, internal, bus };
 }

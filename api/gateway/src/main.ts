@@ -7,12 +7,12 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import * as jwt from 'jsonwebtoken';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { timingSafeEqual } from 'crypto';
-import { Agent } from 'http';
+import { Agent, Server } from 'http';
 import { Agent as HttpsAgent } from 'https';
 import { assertProductionConfig, env, envInt } from '@ethiopialearn/common';
 import { AuthMode, authModeFor, resolveRoute } from './routes';
 import { matchPath } from './request-path';
+import { matchesSecret, validJobsToken } from './secrets';
 import { classifyRequest, DEFAULT_LIMITS_PER_MIN as DEFAULTS, RatePolicy } from './rate-policy';
 
 // Reuse TCP connections to the upstream services instead of opening a new
@@ -58,9 +58,7 @@ function verifyBearer(req: Request): TokenClaims | null {
 }
 
 function validInternalToken(presented: string | undefined): boolean {
-  const expected = env('INTERNAL_API_TOKEN', '');
-  if (!expected || !presented || presented.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
+  return matchesSecret(presented, env('INTERNAL_API_TOKEN', ''));
 }
 
 async function bootstrap() {
@@ -195,6 +193,19 @@ async function bootstrap() {
     const ownInternalToken = env('INTERNAL_API_TOKEN', '');
     if (ownInternalToken) req.headers['x-internal-token'] = ownInternalToken;
 
+    // The scheduler (GitHub Actions): its own token, never a JWT, never the mesh-wide
+    // internal token. Stripped before proxying; the service sees the internal token above.
+    if (mode === 'jobs') {
+      const ok = validJobsToken(req.headers.authorization);
+      delete req.headers.authorization;
+      if (!ok) {
+        res.status(401).json({ statusCode: 401, message: 'Jobs endpoint' });
+        return;
+      }
+      proxy(req, res, next);
+      return;
+    }
+
     if (mode === 'internal') {
       if (!validInternalToken(presentedInternal)) {
         res.status(401).json({ statusCode: 401, message: 'Internal endpoint' });
@@ -226,6 +237,20 @@ async function bootstrap() {
       if (specific) specific(req, res, () => proxy(req, res, next));
       else proxy(req, res, next);
     });
+  });
+
+  // Graceful shutdown (P2-15). On SIGTERM Nest closes the server: it stops
+  // accepting connections, drops idle keep-alive sockets and waits for the
+  // requests in flight. One still running after SHUTDOWN_GRACE_MS is cut so a
+  // deploy isn't held up. Once the server is closed, the upstream sockets go too.
+  app.enableShutdownHooks();
+  const server = app.getHttpServer() as Server;
+  process.once('SIGTERM', () => {
+    setTimeout(() => server.closeAllConnections(), envInt('SHUTDOWN_GRACE_MS', 10_000)).unref();
+  });
+  server.on('close', () => {
+    keepAliveAgent.destroy();
+    keepAliveHttpsAgent.destroy();
   });
 
   const port = envInt('PORT', 4000);
