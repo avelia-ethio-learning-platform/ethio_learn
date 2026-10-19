@@ -3,7 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import { BrokerPublishError, PeerNotFoundError, PeerUnavailableError, stableEventId } from '@ethiopialearn/common';
 import { PaymentMethod, PaymentPurpose, PaymentStatus } from '@ethiopialearn/contracts';
-import { ChapaUnavailableError, MockChapaProvider } from './chapa.provider';
+import { ChapaUnavailableError, LiveChapaProvider, MockChapaProvider } from './chapa.provider';
 import { Coupon, Payment, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
 import { PaymentService } from './payment.service';
@@ -1334,6 +1334,39 @@ describe('PaymentService.expireAbandonedCheckouts: an abandoned checkout does no
     expect(t.row()).toMatchObject({ status: PaymentStatus.FAILED, verify_checked_at: expect.any(Date) });
     expect(t.bus.publish).not.toHaveBeenCalled();
     expect(t.bus.publishConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('expires it silently when Chapa answers failed or cancelled: no PaymentFailed notice', async () => {
+    const t = live();
+    abandoned(t);
+    t.chapa.verify.mockResolvedValue({ status: 'failed', amount: 500, currency: 'ETB' });
+
+    expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 1 });
+
+    expect(t.row().status).toBe(PaymentStatus.FAILED);
+    expect(t.published('PaymentFailed')).toEqual([]);
+    expect(t.bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('a rate-limited Chapa (HTTP 429) expires nothing and stops the run', async () => {
+    process.env.CHAPA_MODE = 'live';
+    process.env.CHAPA_SECRET_KEY = 'test-key-not-real'; // gitleaks:allow
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ message: 'Too many requests' }), { status: 429 }));
+    try {
+      const t = setup({ chapa: new LiveChapaProvider() });
+      abandoned(t, { id: 'pay-1', chapa_tx_ref: 'TX-1' });
+      abandoned(t, { id: 'pay-2', chapa_tx_ref: 'TX-2' });
+
+      expect(await t.service.expireAbandonedCheckouts()).toEqual({ expired: 0 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(t.payments.rows.map((p) => [p.status, p.verify_checked_at])).toEqual([
+        [PaymentStatus.PENDING, null],
+        [PaymentStatus.PENDING, null],
+      ]);
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it('confirms instead when Chapa reports it paid', async () => {

@@ -683,9 +683,10 @@ export class PaymentService {
   /**
    * P2-01: expires abandoned checkouts, so they don't stay pending forever.
    * A pending Chapa payment older than ABANDONED_CHECKOUT_EXPIRES_MS is
-   * verified with Chapa first, and only an answer of "still pending" (unpaid,
-   * or unknown to Chapa) expires it: it becomes failed, silently. Chapa's
-   * other answers apply as anywhere else (paid confirms it, failed fails it).
+   * verified with Chapa first. Paid: it is confirmed as anywhere else. Unpaid
+   * (still pending, unknown to Chapa, or failed/cancelled): it expires, i.e.
+   * becomes failed silently, with no PaymentFailed notice (the learner left the
+   * page days ago). A rate-limited or unreachable Chapa expires nothing.
    * An expired row stays payable: a late webhook or the learner's reconcile
    * still confirms it, as for any failed Chapa checkout (confirmPayment).
    * Runs with the `sweep` job (jobs.ts), in live mode only (the mock verify
@@ -714,7 +715,7 @@ export class PaymentService {
         continue;
       }
       await this.payments.update({ id: payment.id }, { verify_checked_at: new Date() });
-      if (verification.status !== 'pending') {
+      if (verification.status === 'success') {
         await this.applyVerification(payment, verification, 'sweep');
         continue;
       }
