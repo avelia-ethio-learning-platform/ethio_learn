@@ -124,7 +124,8 @@ jobs:
           done
           pnpm -C api db:check
       # 5 parallel resends for one account must send 1 link (a row lock holds
-      # the per-account cap). On a scratch database in the compose Postgres,
+      # the per-account cap). The same database checks that slow and failed
+      # queries are logged without their values (SafeTypeOrmLogger). On a scratch database in the compose Postgres,
       # reached with the services' own DATABASE_URL (api/.env) under another
       # name. The spec calls AuthService directly, never the gateway, whose
       # auth-strict budget the later steps share.
@@ -133,7 +134,15 @@ jobs:
           base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
           [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
           docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_resend_verification'
-          TEST_DATABASE_URL="${base%/*}/el_ci_resend_verification" pnpm -C api exec jest --ci services/auth/src/auth.resend-verification.db.spec.ts
+          TEST_DATABASE_URL="${base%/*}/el_ci_resend_verification" pnpm -C api exec jest --ci services/auth/src/auth.resend-verification.db.spec.ts packages/common/src/typeorm/safe-typeorm-logger.db.spec.ts
+      # A role-wide notification one officer reads stays unread for the others
+      # (13a gap 3). On its own fresh database, like the step above.
+      - name: Per-person reads of role notifications (real Postgres)
+        run: |
+          base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
+          [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
+          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_inbox_reads'
+          TEST_DATABASE_URL="${base%/*}/el_ci_inbox_reads" pnpm -C api exec jest --ci services/notification/src/inbox-reads.db.spec.ts
       # Two parallel wallet buys of one course charge once (9c B1), and one
       # job lease admits one run (9c step 5). Each on its own fresh database.
       - name: Wallet purchase race and job leases (real Postgres)
@@ -143,6 +152,14 @@ jobs:
           docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_wallet_race && createdb -U "$POSTGRES_USER" el_ci_job_lease'
           TEST_DATABASE_URL="${base%/*}/el_ci_wallet_race" pnpm -C api exec jest --ci services/financial/src/payment.wallet-race.db.spec.ts
           TEST_DATABASE_URL="${base%/*}/el_ci_job_lease" pnpm -C api exec jest --ci packages/common/src/jobs/job-lease.db.spec.ts
+      # Phase 9e: the SQL analytics against their in-memory oracle (an Addis-time
+      # connection), and the comment and message pages on Postgres.
+      - name: Read paths on Postgres (analytics oracles, bounded lists)
+        run: |
+          base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
+          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_read_paths'
+          TEST_DATABASE_URL="${base%/*}/el_ci_read_paths" pnpm -C api exec jest --ci \
+            services/financial/src/analytics.db.spec.ts services/enrollment/src/analytics.db.spec.ts services/notification/src/community.db.spec.ts
       - name: End-to-end flow (educator → QO → learner → certificate)
         run: node scripts/demo-seed.mjs
       # Before the smoke step: that one hammers the login limiter on purpose.

@@ -11,6 +11,7 @@ import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { useT } from '@/lib/i18n';
 
 function NewCourseForm() {
   const router = useRouter();
@@ -18,6 +19,7 @@ function NewCourseForm() {
   const [status, , setError, clear] = useFormStatus();
   const [busy, setBusy] = useState<'draft' | 'generate' | null>(null);
   const [pricing, setPricing] = useState('free');
+  const { t } = useT();
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -33,7 +35,7 @@ function NewCourseForm() {
           title: form.get('title'),
           description: form.get('description'),
           category: form.get('category'),
-          language: 'en',
+          language: form.get('language'),
           pricing_type: pricing,
           ...(pricing !== 'free' ? { price_etb: Number(form.get('price_etb')) } : {}),
         },
@@ -78,6 +80,14 @@ function NewCourseForm() {
                 </select>
               )}
             </Field>
+            <Field label="Language">
+              {(ids) => (
+                <select {...ids} name="language" className="input" defaultValue="en">
+                  <option value="en">{t('lang_en')}</option>
+                  <option value="am">{t('lang_am')}</option>
+                </select>
+              )}
+            </Field>
             <Field label="Pricing">
               {(ids) => (
                 <select {...ids} value={pricing} onChange={(e) => setPricing(e.target.value)} className="input">
@@ -110,7 +120,7 @@ function NewCourseForm() {
 
 export default function NewCoursePage() {
   return (
-    <RequireRole roles={['educator']}>
+    <RequireRole roles={['educator', 'institution_admin']}>
       <NewCourseForm />
     </RequireRole>
   );

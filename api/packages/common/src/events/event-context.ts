@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from 'async_hooks';
+import { currentContext } from '../context';
 
 /** The event a bus handler is running for: what shared helpers (inbox, email, dedupe) key on. */
 export interface EventContext {
@@ -9,9 +9,10 @@ export interface EventContext {
   handler: string;
 }
 
-export const eventContext = new AsyncLocalStorage<EventContext>();
-
-/** The event the current code runs for, or undefined outside a bus handler. */
+/** The event the current code runs for, or undefined outside a bus handler. A view onto the request context. */
 export function currentEvent(): EventContext | undefined {
-  return eventContext.getStore();
+  const context = currentContext();
+  if (!context?.event_id) return undefined;
+  const { event_id, event_type = '', correlation_id = '', handler = '' } = context;
+  return { event_id, event_type, correlation_id, handler };
 }

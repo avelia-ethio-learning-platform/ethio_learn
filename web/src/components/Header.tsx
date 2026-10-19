@@ -77,6 +77,7 @@ export function Header() {
     educator: [{ href: '/teach', label: t('teach') }],
     institution_admin: [
       { href: '/institution', label: t('institution') },
+      { href: '/teach', label: t('teach') },
       { href: '/institution/review', label: t('review_queue') },
     ],
     quality_officer: [{ href: '/qa', label: t('review_queue') }],

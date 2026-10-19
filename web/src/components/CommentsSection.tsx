@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { formatDate } from '@/lib/format';
+import { mergeById } from '@/lib/merge-pages';
 import { useT } from '@/lib/i18n';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
@@ -19,6 +20,20 @@ interface CommentRow {
   body: string;
   deleted: boolean;
   created_at: string;
+}
+
+export interface CommentsPage {
+  items: CommentRow[];
+  has_more: boolean;
+}
+
+/**
+ * The API answers `{ items, has_more }` when asked (`paged=1`) and a bare array
+ * otherwise: an API that predates paging, or a response the service worker
+ * cached, still renders.
+ */
+export function normalizeComments(data: CommentRow[] | CommentsPage): CommentsPage {
+  return Array.isArray(data) ? { items: data, has_more: false } : data;
 }
 
 interface CommentNode extends CommentRow {
@@ -48,24 +63,32 @@ function buildTree(rows: CommentRow[]): CommentNode[] {
 export function CommentsSection({ courseId }: { courseId: string }) {
   const { user, ready } = useAuth();
   const queryClient = useQueryClient();
-  const { data: rows } = useQuery({
+  const { data: latest } = useQuery({
     queryKey: ['comments', courseId],
-    queryFn: () => api<CommentRow[]>(`/courses/${courseId}/comments`, { auth: false }),
+    queryFn: async () => normalizeComments(await api<CommentRow[] | CommentsPage>(`/courses/${courseId}/comments?paged=1`, { auth: false })),
     refetchInterval: 15_000,
   });
+  // Everything shown when "Load earlier" was last used, plus the older page; the
+  // newest page keeps refreshing on its own and its copy of a row wins.
+  const [earlier, setEarlier] = useState<CommentsPage | null>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const rows = useMemo(() => mergeById(earlier?.items ?? [], latest?.items ?? []), [earlier, latest]);
+  const hasEarlier = earlier ? earlier.has_more : !!latest?.has_more;
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, , setError, clearStatus] = useFormStatus();
 
-  const tree = useMemo(() => buildTree(rows ?? []), [rows]);
-  const count = rows?.filter((r) => !r.deleted).length ?? 0;
+  const tree = useMemo(() => buildTree(rows), [rows]);
+  const count = rows.filter((r) => !r.deleted).length;
 
   const post = async (body: string, parentId?: string) => {
     setBusy(true);
     clearStatus();
     try {
-      await api(`/courses/${courseId}/comments`, { method: 'POST', body: { body, ...(parentId ? { parent_id: parentId } : {}) } });
+      const created = await api<CommentRow>(`/courses/${courseId}/comments`, { method: 'POST', body: { body, ...(parentId ? { parent_id: parentId } : {}) } });
       setDraft('');
+      // A reply under an earlier-loaded discussion isn't on the newest page: keep it in view.
+      setEarlier((prev) => (prev ? { ...prev, items: [...prev.items, created] } : prev));
       await queryClient.invalidateQueries({ queryKey: ['comments', courseId] });
       return true;
     } catch (err) {
@@ -76,9 +99,27 @@ export function CommentsSection({ courseId }: { courseId: string }) {
     }
   };
 
+  const loadEarlier = async () => {
+    const oldest = rows.find((r) => !r.parent_id);
+    if (!oldest) return;
+    setLoadingEarlier(true);
+    clearStatus();
+    try {
+      const page = normalizeComments(await api<CommentRow[] | CommentsPage>(`/courses/${courseId}/comments?before=${oldest.id}`, { auth: false }));
+      setEarlier({ items: [...page.items, ...rows], has_more: page.has_more });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoadingEarlier(false);
+    }
+  };
+
   const remove = async (id: string) => {
     try {
       await api(`/comments/${id}`, { method: 'DELETE' });
+      setEarlier((prev) =>
+        prev ? { ...prev, items: prev.items.map((r) => (r.id === id ? { ...r, deleted: true, body: '', author_name: '' } : r)) } : prev,
+      );
       await queryClient.invalidateQueries({ queryKey: ['comments', courseId] });
     } catch (err) {
       setError((err as Error).message);
@@ -87,7 +128,7 @@ export function CommentsSection({ courseId }: { courseId: string }) {
 
   return (
     <div className="card" id="comments">
-      <h2 className="font-semibold">💬 Discussion {count > 0 && <span className="text-sm font-normal text-gray-500">({count})</span>}</h2>
+      <h2 className="font-semibold">💬 Discussion {count > 0 && <span className="text-sm font-normal text-gray-500">({count}{hasEarlier ? '+' : ''})</span>}</h2>
 
       {ready && user ? (
         <div className="mt-3">
@@ -121,6 +162,11 @@ export function CommentsSection({ courseId }: { courseId: string }) {
         {tree.map((node) => (
           <CommentItem key={node.id} node={node} me={user?.id} myRole={user?.role} onReply={post} onDelete={remove} depth={0} />
         ))}
+        {hasEarlier && (
+          <button className="btn-secondary text-sm" disabled={loadingEarlier} onClick={() => void loadEarlier()}>
+            {loadingEarlier ? 'Loading…' : 'Load earlier comments'}
+          </button>
+        )}
       </div>
     </div>
   );

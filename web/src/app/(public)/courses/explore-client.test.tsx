@@ -97,6 +97,17 @@ describe('catalog', () => {
     expect(push).toHaveBeenCalledWith('/courses', { scroll: false });
   });
 
+  it('filters by language through the URL, with a removable chip', () => {
+    view({ language: 'am' });
+    expect(screen.getByRole('button', { name: 'Amharic' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Amharic' }));
+    expect(push).toHaveBeenCalledWith('/courses', { scroll: false });
+    cleanup();
+    view();
+    fireEvent.click(screen.getByRole('button', { name: 'English' }));
+    expect(push).toHaveBeenCalledWith('/courses?language=en', { scroll: false });
+  });
+
   it('the filters start collapsed on mobile and open when a filter is active', () => {
     view();
     const toggle = screen.getByRole('button', { name: 'Filters' });

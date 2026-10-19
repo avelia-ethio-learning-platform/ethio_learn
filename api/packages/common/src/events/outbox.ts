@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { Column, DataSource, Entity, EntityManager, Index, PrimaryColumn } from 'typeorm';
 import { EventType } from '@ethiopialearn/contracts';
 import { envInt } from '../config/env';
+import { currentContext } from '../context';
 import { EventBusService } from './event-bus.service';
 
 /**
@@ -122,7 +123,8 @@ export class OutboxService implements OnApplicationBootstrap, OnApplicationShutd
       inTransactionScope(async () => {
         const queued: Array<{ eventType: EventType; payload: unknown; correlationId: string | null }> = [];
         const emit: Emit = (eventType, payload, opts = {}) => {
-          queued.push({ eventType, payload, correlationId: opts.correlationId ?? null });
+          // The request's id, unless the caller names one (Phase 4's payment.id): always a UUID, as the column is.
+          queued.push({ eventType, payload, correlationId: opts.correlationId ?? currentContext()?.request_id ?? null });
         };
         const value = await fn(manager, emit);
         for (const event of queued) {

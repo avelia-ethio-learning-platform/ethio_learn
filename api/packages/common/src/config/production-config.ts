@@ -65,6 +65,11 @@ export function productionConfigProblems(spec: ProductionConfigSpec, environment
     problems.push('REQUIRE_INTERNAL_TOKEN is turned off (leave it unset or set it to true)');
   }
 
+  // Every query and query error in the logs: for local debugging only.
+  if (value('DB_LOGGING') === 'true' || value('DB_LOGGING') === '1') {
+    problems.push('DB_LOGGING is on (it logs every query; leave it unset in production)');
+  }
+
   for (const name of ['WEB_URL', 'GATEWAY_PUBLIC_URL']) {
     const v = value(name);
     let host: string | undefined;

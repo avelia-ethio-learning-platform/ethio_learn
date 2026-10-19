@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { IsNumber, IsOptional, IsUUID, Max, Min } from 'class-validator';
-import { CurrentUser, InternalGuard, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
+import { CurrentUser, InternalGuard, ProgressPairsQuery, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { AnalyticsQuery } from './analytics-query.dto';
 import { EnrollmentService } from './enrollment.service';
@@ -124,6 +124,12 @@ export class EnrollmentInternalController {
   entitlement(@Query('learner_id') learnerId: string, @Query('course_id') courseId: string) {
     if (!learnerId || !courseId) throw new BadRequestException('learner_id and course_id are required');
     return this.service.entitlement(learnerId, courseId);
+  }
+
+  /** Progress of ≤ 50 `learner:course` pairs in one read (Phase 9e); a pair without an enrollment is absent. */
+  @Get('entitlements/progress')
+  progressMany(@Query() query: ProgressPairsQuery) {
+    return this.service.progressForPairs(query.pairs);
   }
 
   @Get('enrollments/:id')

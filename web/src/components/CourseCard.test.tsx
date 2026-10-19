@@ -35,4 +35,12 @@ describe('CourseCard', () => {
     expect(container.querySelector('img')?.getAttribute('src')).toBe('https://cdn.example.com/a.jpg');
     expect(container.textContent).not.toContain('የድር ልማት');
   });
+
+  it('names the educator when search did, and shows no byline when it could not', () => {
+    render(<CourseCard course={{ ...course, educator_name: 'Abebe Kebede' }} />);
+    expect(screen.getByText('By Abebe Kebede')).toBeTruthy();
+    cleanup();
+    render(<CourseCard course={course} />);
+    expect(screen.queryByText(/^By /)).toBeNull();
+  });
 });

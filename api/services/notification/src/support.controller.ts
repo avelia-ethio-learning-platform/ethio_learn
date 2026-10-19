@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, HttpCode, Inject, Logger, Post }
 import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { env } from '@ethiopialearn/common';
+import { env, redactEmails } from '@ethiopialearn/common';
 import { escapeHtml } from './email-html';
 import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
 import { NotificationLog } from './entities';
@@ -63,7 +63,8 @@ export class SupportController {
       );
       return { received: true };
     } catch (err) {
-      this.logger.error(`support contact email failed: ${(err as Error).message}`);
+      // The provider's reason can quote the visitor's reply-to address.
+      this.logger.error(`support contact email failed: ${redactEmails(String((err as Error)?.message ?? err))}`);
       await this.log.save(
         this.log.create({ user_id: null, event_type: 'SupportRequest', channel: 'email', recipient: to, subject, status: 'failed', provider_message_id: null }),
       );

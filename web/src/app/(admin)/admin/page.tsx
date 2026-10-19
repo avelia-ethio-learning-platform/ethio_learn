@@ -40,6 +40,10 @@ type Tab = (typeof TABS)[number]['id'];
 /** "Educator · c536c035": who a payout or payment goes to, without the raw type or the full id. */
 const payeeName = (type: string, id: string) => `${payeeLabel(type)} · ${id.slice(0, 8)}`;
 
+/** A payout's payee: the person's name with the short id when the API names them (educators), else as payeeName. */
+const payoutPayee = (p: { payee_type: string; payee_id: string; payee_name?: string | null }) =>
+  p.payee_name ? `${p.payee_name} · ${p.payee_id.slice(0, 8)}` : payeeName(p.payee_type, p.payee_id);
+
 function AdminConsole() {
   const search = useSearchParams();
   const router = useRouter();
@@ -286,7 +290,7 @@ function PayoutsTab() {
   };
 
   const release = async (p: any) => {
-    const payee = payeeName(p.payee_type, p.payee_id);
+    const payee = payoutPayee(p);
     const held = p.hold_reason ? ` Held: ${holdReasonLabel(p.hold_reason)}.` : '';
     const answer = await ask({
       title: `Release the payout to ${payee}?`,
@@ -312,7 +316,7 @@ function PayoutsTab() {
       <div className="divide-y text-sm">
         {payouts?.map((p) => (
           <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors duration-fast hover:bg-brand-500/5">
-            <span className="truncate pr-2 text-xs text-gray-500">{payeeName(p.payee_type, p.payee_id)}</span>
+            <span className="truncate pr-2 text-xs text-gray-500">{payoutPayee(p)}</span>
             <span className="font-medium text-foreground">net {formatETB(p.net_amount_etb, locale)}</span>
             <span className="flex items-center gap-2">
               <StatusBadge status={p.status} suffix={p.hold_reason ? holdReasonLabel(p.hold_reason) : undefined} />

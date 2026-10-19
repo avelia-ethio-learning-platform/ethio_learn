@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { Emit, EventBusService, InternalHttpClient, internalPath, OutboxService, runOnce, UserContext } from '@ethiopialearn/common';
+import { Emit, EventBusService, InternalHttpClient, internalPath, OutboxService, runOnce, UserContext, UserSummary, userSummaries } from '@ethiopialearn/common';
 import { aiFallbackNote, AiAssessor, CourseStructureOrigin, createAiAssessor, GeneratedSection, MockAiAssessor } from '@ethiopialearn/ai';
 import {
   CourseAppealSubmittedPayload,
@@ -22,7 +22,7 @@ import {
 } from '@ethiopialearn/contracts';
 import { Course, CoursePending, CourseRevision, Lesson, LessonPending, PendingState, Section, SectionPending } from './entities';
 import { CourseExtrasService } from './course-extras.service';
-import { CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UpdateSectionDto } from './dto';
+import { COURSE_LANGUAGES, CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UpdateSectionDto } from './dto';
 import { VideoKeyService } from './video-key.service';
 import { applyStagedRows, hasStagedRows } from './staging';
 
@@ -339,21 +339,21 @@ export class CourseService implements OnModuleInit {
   }
 
   async create(ctx: UserContext, dto: CreateCourseDto) {
-    // Institutions do not author courses directly — their instructors do.
-    if (ctx.role === Role.INSTITUTION_ADMIN) {
-      throw new ForbiddenException('Institutions do not create courses directly. Invite instructors to create courses.');
-    }
+    // An institution admin's course is owned by the institution (400 without a profile).
+    const { ownerId, ownerType } = await this.resolveOwner(ctx);
     if (dto.pricing_type === PricingType.PAID && !dto.price_etb) {
       throw new BadRequestException('Set a price for a paid course.');
     }
     // Check every lesson video before anything is written, so a bad key cannot
     // leave a half-created course behind.
     if (dto.sections) await this.assertSectionVideoKeys({ created_by: ctx.id, owner_id: ctx.id }, dto.sections);
+    // The instructor membership (null for an admin): it routes reviews to the
+    // institution's queue, so an admin's own courses go to the QO queue.
     const institution = await this.resolveInstitution(ctx.id);
     const course = await this.courses.save(
       this.courses.create({
-        owner_id: ctx.id,
-        owner_type: OwnerType.EDUCATOR,
+        owner_id: ownerId,
+        owner_type: ownerType,
         created_by: ctx.id,
         institution_id: institution?.institution_id ?? null,
         title: dto.title,
@@ -450,6 +450,7 @@ export class CourseService implements OnModuleInit {
       title: dto.title,
       description: dto.description,
       category: dto.category,
+      language: dto.language,
       thumbnail_url: dto.thumbnail_url,
       pricing_type: dto.pricing_type,
       price_etb: dto.price_etb === undefined ? undefined : dto.price_etb != null ? dto.price_etb.toFixed(2) : null,
@@ -827,17 +828,7 @@ export class CourseService implements OnModuleInit {
   /** Attach the authoring instructor's name/email so the institution admin can
    *  see who created each course when approving or sending it back. */
   private async withInstructorNames(items: Course[]) {
-    const ids = [...new Set(items.map((c) => c.created_by))];
-    const authors = new Map<string, { name: string; email: string }>();
-    await Promise.all(
-      ids.map(async (id) => {
-        try {
-          authors.set(id, await this.internal.get<{ name: string; email: string }>(internalPath`/api/v1/internal/users/${id}`));
-        } catch {
-          /* best-effort — fall back to placeholders below */
-        }
-      }),
-    );
+    const authors = (await this.namesOrNull(items.map((c) => c.created_by), 'institution courses', { email: true })) ?? new Map<string, UserSummary>();
     return items.map((c) => ({
       ...this.publicSummary(c),
       status: c.status,
@@ -1105,7 +1096,7 @@ export class CourseService implements OnModuleInit {
     return course;
   }
 
-  async search(params: { q?: string; category?: string; pricing_type?: string; sort?: string; page: number; limit: number }) {
+  async search(params: { q?: string; category?: string; pricing_type?: string; language?: string; sort?: string; page: number; limit: number }) {
     const cacheKey = JSON.stringify(params);
     const cached = this.searchCache.get(cacheKey);
     if (cached) return cached;
@@ -1122,6 +1113,9 @@ export class CourseService implements OnModuleInit {
     }
     if (params.pricing_type && Object.values(PricingType).includes(params.pricing_type as PricingType)) {
       qb.andWhere('c.pricing_type = :pricing', { pricing: params.pricing_type });
+    }
+    if (params.language && COURSE_LANGUAGES.includes(params.language)) {
+      qb.andWhere('c.language = :language', { language: params.language });
     }
 
     // Catalog ordering. Default "top": Bayesian-weighted rating so one lone
@@ -1145,9 +1139,26 @@ export class CourseService implements OnModuleInit {
       .take(take)
       .skip((Math.max(params.page || 1, 1) - 1) * take)
       .getManyAndCount();
-    const result = { total, page: params.page || 1, sort, items: items.map((c) => this.publicSummary(c)) };
-    this.searchCache.set(cacheKey, result);
+    // Display only: without names the page is still served, but not cached, so the next request asks auth again.
+    const names = await this.namesOrNull(items.map((c) => c.created_by), 'course search');
+    const result = {
+      total,
+      page: params.page || 1,
+      sort,
+      items: items.map((c) => ({ ...this.publicSummary(c), ...(names ? { educator_name: names.get(c.created_by)?.name ?? null } : {}) })),
+    };
+    if (names) this.searchCache.set(cacheKey, result);
     return result;
+  }
+
+  /** User names for display, in one batch call; null with one warn when auth can't answer (Phase 9e). */
+  private async namesOrNull(ids: string[], what: string, opts: { email?: boolean } = {}): Promise<Map<string, UserSummary> | null> {
+    try {
+      return await userSummaries(this.internal, ids, opts);
+    } catch (err) {
+      this.logger.warn(`${what}: names unavailable (${(err as Error).message})`);
+      return null;
+    }
   }
 
   /** Drops cached catalog pages (a revision apply changes live titles and prices). */
@@ -1158,7 +1169,7 @@ export class CourseService implements OnModuleInit {
   /**
    * Top educators, ranked by total rating points (the sum of every star their
    * courses ever received) — quality × volume in one number — with enrollments
-   * as the tiebreaker. Names resolved once per educator via the auth service.
+   * as the tiebreaker. Names come from one auth batch call.
    */
   async topEducators(limit = 12) {
     const rows: {
@@ -1184,18 +1195,13 @@ export class CourseService implements OnModuleInit {
       .limit(Math.min(limit, 50))
       .getRawMany();
 
+    const names = await this.namesOrNull(rows.map((r) => r.educator_id), 'top educators');
     const out = [];
     for (const r of rows) {
-      let name = 'Educator';
-      try {
-        name = (await this.internal.get<{ name: string }>(internalPath`/api/v1/internal/users/${r.educator_id}`)).name;
-      } catch {
-        /* keep placeholder */
-      }
       const ratingCount = Number(r.rating_count);
       out.push({
         educator_id: r.educator_id,
-        name,
+        name: names?.get(r.educator_id)?.name ?? 'Educator',
         course_count: Number(r.course_count),
         total_rating_points: Number(r.total_points),
         rating_count: ratingCount,
@@ -1448,6 +1454,22 @@ export class CourseService implements OnModuleInit {
       .select('l.id', 'id')
       .getRawMany<{ id: string }>();
     return rows.map((r) => r.id);
+  }
+
+  /** LIVE lesson ids per course in one query; a course without lessons (or unknown) maps to []. */
+  async lessonIdsForCourses(courseIds: string[]): Promise<Record<string, string[]>> {
+    const out: Record<string, string[]> = Object.fromEntries(courseIds.map((id) => [id, [] as string[]]));
+    const rows = await this.lessons
+      .createQueryBuilder('l')
+      .innerJoin(Section, 's', 's.id = l.section_id')
+      .where('s.course_id IN (:...courseIds)', { courseIds })
+      .andWhere("l.pending_state IS DISTINCT FROM 'added'")
+      .andWhere("s.pending_state IS DISTINCT FROM 'added'")
+      .select('l.id', 'id')
+      .addSelect('s.course_id', 'course_id')
+      .getRawMany<{ id: string; course_id: string }>();
+    for (const r of rows) out[r.course_id]?.push(r.id);
+    return out;
   }
 
   publicSummary(course: Course) {

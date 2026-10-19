@@ -15,7 +15,7 @@ const PAGE_SIZES = [12, 24, 48];
 const SORTS = ['top', 'new', 'popular', 'price_asc', 'price_desc'];
 
 export default async function CoursesPage(props: {
-  searchParams: Promise<{ q?: string; category?: string; pricing_type?: string; page?: string; limit?: string; sort?: string }>;
+  searchParams: Promise<{ q?: string; category?: string; pricing_type?: string; language?: string; page?: string; limit?: string; sort?: string }>;
 }) {
   const searchParams = await props.searchParams;
   // The API accepts pages 1–10000 (a hand-typed larger page would 400); past the end is an empty page either way.
@@ -29,6 +29,7 @@ export default async function CoursesPage(props: {
   if (searchParams.q) params.set('q', searchParams.q);
   if (searchParams.category) params.set('category', searchParams.category);
   if (searchParams.pricing_type) params.set('pricing_type', searchParams.pricing_type);
+  if (searchParams.language) params.set('language', searchParams.language);
   params.set('sort', sort);
   params.set('page', String(page));
   params.set('limit', String(limit));
@@ -43,7 +44,7 @@ export default async function CoursesPage(props: {
       total={data.total}
       page={page}
       limit={limit}
-      filters={{ q: searchParams.q, category: searchParams.category, pricing_type: searchParams.pricing_type, sort }}
+      filters={{ q: searchParams.q, category: searchParams.category, pricing_type: searchParams.pricing_type, language: searchParams.language, sort }}
     />
   );
 }

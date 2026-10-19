@@ -4,7 +4,8 @@ import * as jwt from 'jsonwebtoken';
 import { createHash } from 'crypto';
 import { isIP } from 'net';
 import { env } from '@ethiopialearn/common';
-import { AuthMode, authModeFor, resolveRoute } from './routes';
+import { AuthMode, authModeFor, resolveRoute, upstreamOf } from './routes';
+import { accessNotes } from './request-log';
 import { matchPath } from './request-path';
 import { matchesSecret, validJobsToken } from './secrets';
 
@@ -129,6 +130,7 @@ export function gatewayAuth({ proxy, throttle }: GatewayAuthDeps): RequestHandle
       res.status(404).json({ statusCode: 404, message: 'Not found (out of MVP scope or unknown route)' });
       return;
     }
+    accessNotes(res).upstream = upstreamOf(rule);
 
     // Identity headers are ONLY ever set by the gateway — strip client spoofing.
     const presentedInternal = String(req.headers['x-internal-token'] ?? '');
@@ -173,6 +175,7 @@ export function gatewayAuth({ proxy, throttle }: GatewayAuthDeps): RequestHandle
     // still personalize, e.g. an owner previewing an unpublished course).
     const claims = verifyBearer(req);
     if (claims) {
+      accessNotes(res).user_id = claims.sub;
       req.headers['x-user-id'] = claims.sub;
       req.headers['x-user-role'] = claims.role;
       req.headers['x-user-email'] = encodeURIComponent(claims.email ?? '');

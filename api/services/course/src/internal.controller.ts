@@ -1,12 +1,24 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import { InternalGuard, UuidParam } from '@ethiopialearn/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BATCH_CAPS, idsQuery, InternalGuard, UuidParam } from '@ethiopialearn/common';
 import { CourseService, isLiveRow } from './course.service';
+
+class CourseIdsQuery extends idsQuery(BATCH_CAPS.lessonIds) {}
 
 /** Service-to-service READ endpoints (via gateway + internal token). */
 @Controller('internal')
 @UseGuards(InternalGuard)
 export class CourseInternalController {
   constructor(private readonly service: CourseService) {}
+
+  /**
+   * LIVE lesson ids of many courses in one query (Phase 9e): `{ [course_id]: string[] }`,
+   * every asked course present. Declared above `courses/:id`, which would
+   * otherwise take "lesson-ids" as the id.
+   */
+  @Get('courses/lesson-ids')
+  async lessonIdsMany(@Query() query: CourseIdsQuery) {
+    return this.service.lessonIdsForCourses(query.ids);
+  }
 
   @Get('courses/:id')
   async course(@UuidParam('id') id: string) {

@@ -1,4 +1,4 @@
-import { BrevoApiEmailProvider, emailProviderClass, parseAddress, SmtpEmailProvider, ConsoleEmailProvider, ResendEmailProvider } from './email.provider';
+import { BrevoApiEmailProvider, emailProductionRules, emailProviderClass, parseAddress, SmtpEmailProvider, ConsoleEmailProvider, ResendEmailProvider } from './email.provider';
 import { NotificationController } from './controllers';
 
 const ENV_KEYS = ['BREVO_API_KEY', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_FALLBACK_PORT', 'SMTP_SECURE', 'RESEND_API_KEY', 'EMAIL_FROM'];
@@ -26,6 +26,33 @@ describe('emailProviderClass', () => {
     expect(emailProviderClass()).toBe(SmtpEmailProvider);
     process.env.BREVO_API_KEY = 'xkeysib-1';
     expect(emailProviderClass()).toBe(BrevoApiEmailProvider);
+  });
+});
+
+describe('the console provider in production', () => {
+  it('is refused at boot unless a real provider is set, naming the variables', () => {
+    expect(emailProductionRules({ NODE_ENV: 'production' })).toEqual([
+      'no email provider is configured (set one of BREVO_API_KEY, SMTP_HOST, RESEND_API_KEY)',
+    ]);
+    for (const name of ['BREVO_API_KEY', 'SMTP_HOST', 'RESEND_API_KEY']) {
+      expect(emailProductionRules({ NODE_ENV: 'production', [name]: 'set' })).toEqual([]);
+    }
+  });
+
+  it('refuses to construct in production, and still prints the email (links included) in development', async () => {
+    const nodeEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'production';
+      expect(() => new ConsoleEmailProvider()).toThrow('ConsoleEmailProvider cannot run in production');
+      process.env.NODE_ENV = 'development';
+      const provider = new ConsoleEmailProvider();
+      const log = jest.spyOn((provider as unknown as { logger: { log(m: string): void } }).logger, 'log').mockImplementation(() => undefined);
+      await provider.send({ to: 'abebe@example.com', subject: 'Reset', html: '<a href="http://localhost:3000/reset?token=t1">reset</a> http://localhost:3000/reset?token=t1' });
+      expect(log.mock.calls[0][0]).toContain('To: a***@example.com');
+      expect(log.mock.calls[0][0]).toContain('http://localhost:3000/reset?token=t1');
+    } finally {
+      process.env.NODE_ENV = nodeEnv;
+    }
   });
 });
 
@@ -97,6 +124,15 @@ describe('BrevoApiEmailProvider', () => {
     jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 'unauthorized', message: 'Sender not valid' }), { status: 400 }));
     await expect(new BrevoApiEmailProvider().send(msg)).rejects.toThrow(/Brevo rejected the email \(400 unauthorized\): Sender not valid/);
   });
+
+  it("logs Brevo's failure body without the recipient address it quotes", async () => {
+    process.env.BREVO_API_KEY = 'xkeysib-test';
+    const provider = new BrevoApiEmailProvider();
+    const error = jest.spyOn((provider as unknown as { logger: { error(m: string): void } }).logger, 'error').mockImplementation(() => undefined);
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 'invalid_parameter', message: 'email x@y.et is not valid' }), { status: 400 }));
+    await expect(provider.send(msg)).rejects.toThrow();
+    expect(error).toHaveBeenCalledWith('brevo send failed (400): {"code":"invalid_parameter","message":"email [email] is not valid"}');
+  });
 });
 
 describe('POST /admin/notifications/test-email', () => {
@@ -106,7 +142,7 @@ describe('POST /admin/notifications/test-email', () => {
   it('sends to the calling admin and reports the provider result', async () => {
     const log = logRepo();
     const email = { name: 'smtp', send: jest.fn().mockResolvedValue({ message_id: '<ok>' }) };
-    const ctrl = new NotificationController({} as never, log as never, {} as never, email as never);
+    const ctrl = new NotificationController({} as never, log as never, {} as never, {} as never, email as never);
     await expect(ctrl.testEmail(admin)).resolves.toEqual({ ok: true, provider: 'smtp', to: 'admin@ethiopialearn.et', message_id: '<ok>' });
     expect(log.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'sent', event_type: 'TestEmail' }));
   });
@@ -114,7 +150,7 @@ describe('POST /admin/notifications/test-email', () => {
   it('returns (and logs) the failure reason instead of throwing', async () => {
     const log = logRepo();
     const email = { name: 'smtp', send: jest.fn().mockRejectedValue(new Error('Connection timeout')) };
-    const ctrl = new NotificationController({} as never, log as never, {} as never, email as never);
+    const ctrl = new NotificationController({} as never, log as never, {} as never, {} as never, email as never);
     await expect(ctrl.testEmail(admin)).resolves.toEqual({ ok: false, provider: 'smtp', to: 'admin@ethiopialearn.et', error: 'Connection timeout' });
     expect(log.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', error: 'Connection timeout' }));
   });

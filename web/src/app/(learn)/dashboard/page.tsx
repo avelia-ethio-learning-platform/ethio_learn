@@ -32,14 +32,23 @@ import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { WalletCard } from './wallet-card';
+import { asPage } from '@/lib/merge-pages';
+import { Pager } from '@/components/Pager';
 import { percentLabel, percentScale } from '@/lib/progress';
+
+const PAYMENTS_PAGE = 20;
 
 function LearnerDashboard() {
   const { t, locale } = useT();
   const queryClient = useQueryClient();
   const { data: enrollments, isLoading: enrollLoading } = useQuery({ queryKey: ['enrollments'], queryFn: () => api<any[]>('/enrollments') });
   const { data: certificates } = useQuery({ queryKey: ['certificates'], queryFn: () => api<any[]>('/me/certificates') });
-  const { data: payments } = useQuery({ queryKey: ['payments'], queryFn: () => api<any[]>('/payments/mine') });
+  const [paymentPage, setPaymentPage] = useState(1);
+  const { data: paymentsPage } = useQuery({
+    queryKey: ['payments', paymentPage],
+    queryFn: async () => asPage(await api<any[] | { items: any[]; total: number }>(`/payments/mine?paged=1&page=${paymentPage}&limit=${PAYMENTS_PAGE}`)),
+  });
+  const payments = paymentsPage?.items;
   const { data: refunds } = useQuery({ queryKey: ['refunds'], queryFn: () => api<any[]>('/refunds/mine') });
   const [refundStatus, setRefundOk, setRefundError, clearRefundStatus] = useFormStatus();
   const [refunding, setRefunding] = useState(false);
@@ -211,6 +220,7 @@ function LearnerDashboard() {
                   )}
                 </div>
               ))}
+              <Pager page={paymentPage} pageSize={PAYMENTS_PAGE} total={paymentsPage?.total ?? 0} onPage={setPaymentPage} />
             </div>
           </div>
           <div className="animate-fade-in-up">

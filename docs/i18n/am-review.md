@@ -278,3 +278,10 @@ Strings that existed before Phase 10 (the header, footer, home page and parts of
 |---|---|---|
 | `locale_notice` | This page is in English for now. | ይህ ገጽ ለጊዜው በእንግሊዝኛ ብቻ ነው። |
 | `dismiss` | Dismiss | ዝጋ |
+
+## Course page reviews (Phase 9e)
+
+| Key | English | Amharic draft |
+|---|---|---|
+| `show_more_reviews` | Show more reviews | ተጨማሪ ግምገማዎችን አሳይ |
+| `loading_more` | Loading… | በመጫን ላይ… |

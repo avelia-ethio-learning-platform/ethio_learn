@@ -1,4 +1,4 @@
-import { resolveRoute } from './routes';
+import { resolveRoute, ROUTES, upstreamOf } from './routes';
 
 /** Resolves a path and returns [matched, authMode] for compact assertions. */
 function modeOf(method: string, path: string): string | undefined {
@@ -60,5 +60,13 @@ describe('gateway route table', () => {
   it('keeps DMs JWT-only in both directions', () => {
     expect(modeOf('GET', '/api/v1/messages/threads')).toBe('jwt');
     expect(modeOf('POST', '/api/v1/messages/threads')).toBe('jwt');
+  });
+});
+
+describe('upstreamOf', () => {
+  it('names the service of every route, for the access log', () => {
+    expect(ROUTES.map(upstreamOf)).not.toContain('unknown');
+    expect(upstreamOf(resolveRoute('/api/v1/auth/login')!)).toBe('auth');
+    expect(upstreamOf(resolveRoute('/api/v1/internal/educators/x/trust-tier')!)).toBe('quality');
   });
 });

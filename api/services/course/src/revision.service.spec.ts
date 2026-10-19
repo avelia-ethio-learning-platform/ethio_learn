@@ -404,6 +404,17 @@ describe('RevisionService.submit', () => {
     expect(t.courseService.institutionAdminId).toHaveBeenCalledWith('inst1');
   });
 
+  it("sends a revision of an institution admin's own live course to the QO queue, not the admin's (13a)", async () => {
+    const t = setup();
+    // An admin-authored course: the institution owns it, and institution_id stays null.
+    Object.assign(t.courses.get('c1')!, { owner_id: 'inst1', owner_type: 'institution', created_by: 'inst-admin-1', institution_id: null });
+    t.stageChanges();
+    const res = await t.svc.submit({ id: 'inst-admin-1', role: 'institution_admin', email: 'a@x.et' } as never, 'c1', {});
+    expect(res).toEqual({ revision_id: 'rev1', status: 'submitted' });
+    expect(t.emitted('CourseRevisionSubmitted')).toHaveLength(1);
+    expect(t.published('CourseSubmittedToInstitution')).toHaveLength(0);
+  });
+
   it('creates a revision when the only change is a pending assessment', async () => {
     const t = setup({ pendingAssessments: [{ id: 'a1', type: 'quiz' }] });
     const res = await t.svc.submit(OWNER, 'c1', {});

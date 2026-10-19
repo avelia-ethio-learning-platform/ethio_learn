@@ -9,7 +9,18 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThan, MoreThan, Repository } from 'typeorm';
-import { envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, OutboxService, UserContext } from '@ethiopialearn/common';
+import {
+  courseLessonIds,
+  mapLimited,
+  envInt,
+  EventBusService,
+  InternalHttpClient,
+  internalPath,
+  isUniqueViolation,
+  OutboxService,
+  PeerNotFoundError,
+  UserContext,
+} from '@ethiopialearn/common';
 import {
   CourseCompletedPayload,
   CourseProgressMilestonePayload,
@@ -25,6 +36,7 @@ import {
   SponsorshipGrantedPayload,
 } from '@ethiopialearn/contracts';
 import { CourseCache, Enrollment, LessonProgress, VideoProgress } from './entities';
+import { TtlLru } from './ttl-lru';
 
 interface CourseInfo {
   id: string;
@@ -57,9 +69,21 @@ const MILESTONES = [25, 50, 75] as const;
 /** Enrollments re-checked per query when a revision removes lessons. */
 const RECHECK_BATCH = 200;
 
+/** "My learning" shows a learner's newest enrollments, at most this many (Phase 9e). */
+const LEARNER_LIST_CAP = 200;
+
+/** A cached live lesson (`lesson:<id>`) or a course's live lesson ids (`course:<id>`). */
+type HeartbeatCacheEntry = { kind: 'lesson'; lesson: LiveLesson } | { kind: 'course'; courseId: string; lessonIds: string[] };
+
 @Injectable()
 export class EnrollmentService implements OnModuleInit {
   private readonly logger = new Logger(EnrollmentService.name);
+  /**
+   * Heartbeats repeat every ~10 s, so lesson lookups and a course's lesson ids
+   * are kept for 60 s (Phase 9e). An applied revision clears its course's
+   * entries; the TTL bounds anything missed. A failed lookup is never cached.
+   */
+  private readonly heartbeatCache = new TtlLru<HeartbeatCacheEntry>(60_000, 1000);
 
   constructor(
     @InjectRepository(Enrollment) private readonly enrollments: Repository<Enrollment>,
@@ -107,25 +131,29 @@ export class EnrollmentService implements OnModuleInit {
     return this.saveActivated(enrollment, course.title, ctx.email, course.pricing_type);
   }
 
+  /**
+   * "My learning": the newest 200 enrollments with titles and progress, in one
+   * titles query, one lesson-ids batch call and one grouped count. Progress is
+   * display only: when course can't answer, it is null ("—"), never 0.
+   */
   async listForLearner(ctx: UserContext) {
-    const rows = await this.enrollments.find({ where: { learner_id: ctx.id }, order: { enrolled_at: 'DESC' } });
-    const out = [];
-    for (const enrollment of rows) {
-      const cached = await this.courseCache.findOne({ where: { course_id: enrollment.course_id } });
-      const percent = await this.progressPercent(enrollment);
-      out.push({
-        id: enrollment.id,
-        course_id: enrollment.course_id,
-        course_title: cached?.title ?? null,
-        entitlement_status: enrollment.entitlement_status,
-        enrolled_at: enrollment.enrolled_at,
-        completed_at: enrollment.completed_at,
-        progress_percent: percent,
-        source: enrollment.source,
-        last_activity_at: enrollment.last_activity_at,
-      });
-    }
-    return out;
+    const rows = await this.enrollments.find({ where: { learner_id: ctx.id }, order: { enrolled_at: 'DESC' }, take: LEARNER_LIST_CAP });
+    if (!rows.length) return [];
+    const titles = new Map(
+      (await this.courseCache.find({ where: { course_id: In([...new Set(rows.map((r) => r.course_id))]) } })).map((c) => [c.course_id, c.title]),
+    );
+    const percents = await this.percentsOrNull(rows, 'My learning');
+    return rows.map((enrollment) => ({
+      id: enrollment.id,
+      course_id: enrollment.course_id,
+      course_title: titles.get(enrollment.course_id) ?? null,
+      entitlement_status: enrollment.entitlement_status,
+      enrolled_at: enrollment.enrolled_at,
+      completed_at: enrollment.completed_at,
+      progress_percent: percents?.get(enrollment.id) ?? null,
+      source: enrollment.source,
+      last_activity_at: enrollment.last_activity_at,
+    }));
   }
 
   /** Polled by the frontend after the Chapa redirect (spec §6 step 8). */
@@ -164,11 +192,11 @@ export class EnrollmentService implements OnModuleInit {
       throw new ForbiddenException('No active entitlement for this course');
     }
     if (lesson.has_video) {
-      const row =
-        positionSeconds == null
-          ? await this.videoProgress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } })
-          : await this.applyHeartbeat(enrollment, lesson, lessonId, positionSeconds, 0);
-      const watch = await this.completeIfWatched(ctx, enrollment, lesson, lessonId, row, '/complete');
+      const touched = positionSeconds != null;
+      const row = touched
+        ? await this.applyHeartbeat(enrollment, lesson, lessonId, positionSeconds, 0)
+        : await this.videoProgress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } });
+      const watch = await this.completeIfWatched(ctx, enrollment, lesson, lessonId, row, '/complete', touched);
       if (!watch.completed) {
         throw new ConflictException({
           statusCode: 409,
@@ -177,7 +205,7 @@ export class EnrollmentService implements OnModuleInit {
         });
       }
     } else {
-      await this.recordCompletion(enrollment, lessonId, ctx.email);
+      await this.recordCompletion(enrollment, lessonId, ctx.email, false);
     }
     return this.progressDetail(ctx, enrollment.id);
   }
@@ -196,7 +224,7 @@ export class EnrollmentService implements OnModuleInit {
       throw new ForbiddenException('No active entitlement for this course');
     }
     const row = await this.applyHeartbeat(enrollment, lesson, lessonId, positionSeconds, durationSeconds);
-    const watch = await this.completeIfWatched(ctx, enrollment, lesson, lessonId, row, 'heartbeat');
+    const watch = await this.completeIfWatched(ctx, enrollment, lesson, lessonId, row, 'heartbeat', true);
     return {
       lesson_id: lessonId,
       position_seconds: row.position_seconds,
@@ -206,7 +234,7 @@ export class EnrollmentService implements OnModuleInit {
     };
   }
 
-  /** Stores one player heartbeat (the endpoint's, or /complete's final position). */
+  /** Stores one player heartbeat (the endpoint's, or /complete's final position) and touches the enrollment. */
   private async applyHeartbeat(
     enrollment: Enrollment,
     lesson: LiveLesson,
@@ -256,13 +284,14 @@ export class EnrollmentService implements OnModuleInit {
     lessonId: string,
     row: VideoProgress | null,
     source: 'heartbeat' | '/complete',
+    touched: boolean,
   ): Promise<{ completed: boolean; retryAfterSeconds: number | null }> {
     const required = requiredSeconds(lesson, row);
     const reached = required > 0 && (row?.percent_watched ?? 0) >= 90;
     const elapsed = row?.started_at ? (Date.now() - row.started_at.getTime()) / 1000 : null;
     const timeLeft = elapsed === null ? null : 0.45 * required - elapsed;
     if (reached && timeLeft !== null && timeLeft <= 0) {
-      await this.recordCompletion(enrollment, lessonId, ctx.email);
+      await this.recordCompletion(enrollment, lessonId, ctx.email, touched);
       return { completed: true, retryAfterSeconds: null };
     }
     if (await this.progress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } })) {
@@ -310,6 +339,8 @@ export class EnrollmentService implements OnModuleInit {
    * video field: the lesson is then treated as one without video.
    */
   private async liveLesson(lessonId: string): Promise<LiveLesson> {
+    const hit = this.heartbeatCache.get(`lesson:${lessonId}`);
+    if (hit?.kind === 'lesson') return hit.lesson;
     const lesson = await this.internal.get<{
       course_id: string;
       live?: boolean;
@@ -317,34 +348,55 @@ export class EnrollmentService implements OnModuleInit {
       video_duration_seconds?: number | null;
     }>(internalPath`/api/v1/internal/lessons/${lessonId}`);
     if (lesson.live === false) throw new NotFoundException('Lesson not available yet');
-    return {
+    const live: LiveLesson = {
       course_id: lesson.course_id,
       has_video: lesson.has_video === true,
       video_duration_seconds: lesson.video_duration_seconds ?? null,
     };
+    this.heartbeatCache.set(`lesson:${lessonId}`, { kind: 'lesson', lesson: live });
+    return live;
   }
 
-  private async recordCompletion(enrollment: Enrollment, lessonId: string, learnerEmail: string) {
+  /** A course's live lesson ids, cached with the heartbeat's lessons. Strict: a failure propagates and isn't cached. */
+  private async cachedLessonIds(courseId: string): Promise<string[]> {
+    const hit = this.heartbeatCache.get(`course:${courseId}`);
+    if (hit?.kind === 'course') return hit.lessonIds;
+    const { lesson_ids } = await this.internal.get<{ lesson_ids: string[] }>(internalPath`/api/v1/internal/courses/${courseId}/lesson-ids`);
+    this.heartbeatCache.set(`course:${courseId}`, { kind: 'course', courseId, lessonIds: lesson_ids });
+    return lesson_ids;
+  }
+
+  /**
+   * Records a completed lesson. `touched`: this request already touched the
+   * enrollment (a heartbeat), so it isn't written again. Milestones run only
+   * for a newly completed lesson; completion detection runs on every call
+   * while the course isn't complete, so a check that failed (course asleep as
+   * the last lesson completed) heals on the next beat. Both share one cached
+   * lesson-ids read.
+   */
+  private async recordCompletion(enrollment: Enrollment, lessonId: string, learnerEmail: string, touched: boolean) {
     const existing = await this.progress.findOne({ where: { enrollment_id: enrollment.id, lesson_id: lessonId } });
     if (!existing) {
       await this.progress.save(this.progress.create({ enrollment_id: enrollment.id, lesson_id: lessonId, completed_at: new Date() }));
     }
-    await this.touch(enrollment);
-    await this.announceMilestone(enrollment, learnerEmail);
-    await this.detectCompletion(enrollment, learnerEmail);
+    if (!touched) await this.touch(enrollment);
+    if (enrollment.completed_at) return;
+    const lessonIds = await this.cachedLessonIds(enrollment.course_id);
+    if (!existing) await this.announceMilestone(enrollment, learnerEmail, lessonIds);
+    await this.detectCompletion(enrollment, learnerEmail, lessonIds);
   }
 
-  /** Any learning activity resets the inactivity escalation. */
+  /** Any learning activity resets the inactivity escalation: one UPDATE of those two columns. */
   private async touch(enrollment: Enrollment) {
+    await this.enrollments.update({ id: enrollment.id }, { last_activity_at: () => 'now()', nudge_level: 0 });
     enrollment.last_activity_at = new Date();
-    if (enrollment.nudge_level !== 0) enrollment.nudge_level = 0;
-    await this.enrollments.save(enrollment);
+    enrollment.nudge_level = 0;
   }
 
   /** "You're 50% through" — each of 25/50/75 fires exactly once per enrollment. */
-  private async announceMilestone(enrollment: Enrollment, learnerEmail: string) {
+  private async announceMilestone(enrollment: Enrollment, learnerEmail: string, lessonIds: string[]) {
     if (enrollment.completed_at) return;
-    const percent = await this.progressPercent(enrollment);
+    const percent = await this.progressPercent(enrollment, lessonIds);
     if (percent == null) return; // unknown now; the next lesson completion announces it
     const sent = enrollment.milestones_sent ?? [];
     const due = MILESTONES.filter((m) => percent >= m && !sent.includes(m));
@@ -388,28 +440,27 @@ export class EnrollmentService implements OnModuleInit {
       ],
       take: 500,
     });
+    const titles = candidates.length
+      ? new Map((await this.courseCache.find({ where: { course_id: In([...new Set(candidates.map((e) => e.course_id))]) } })).map((c) => [c.course_id, c.title]))
+      : new Map<string, string>();
+    const percents = await this.percentsOrNull(candidates, 'inactivity nudges');
+    // Progress unknown (course asleep): send nothing and claim nothing, so the
+    // next run nudges with the real percentage instead of "0%" (P1-18).
+    if (!percents) return { sent: 0 };
     let sent = 0;
     for (const e of candidates) {
-      // Before the claim: with the course service unreachable the nudge would say "0% through",
-      // so the run ends here and the next one picks this row up again.
-      const progress = await this.progressPercent(e);
-      if (progress == null) {
-        this.logger.warn(`inactivity run stopped after ${sent} nudge(s): course progress unavailable`);
-        break;
-      }
       const since = e.last_activity_at ?? e.enrolled_at;
       const days = Math.floor((now - since.getTime()) / 86_400_000);
       const channel: 'in_app' | 'email' = e.nudge_level === 0 ? 'in_app' : 'email';
       e.nudge_level = e.nudge_level === 0 ? 1 : 2;
       await this.enrollments.save(e);
-      const cached = await this.courseCache.findOne({ where: { course_id: e.course_id } });
       await this.bus.publish<LearnerInactivePayload>('LearnerInactive', {
         enrollment_id: e.id,
         learner_id: e.learner_id,
         course_id: e.course_id,
-        course_title: cached?.title ?? 'your course',
+        course_title: titles.get(e.course_id) ?? 'your course',
         days_inactive: days,
-        progress_percent: progress,
+        progress_percent: percents.get(e.id) ?? 0,
         channel,
       });
       sent += 1;
@@ -420,100 +471,140 @@ export class EnrollmentService implements OnModuleInit {
 
   // ---- Analytics ---------------------------------------------------------
 
-  /** Per-course learner funnel for educators / institutions / admins. Ownership is checked per course. */
+  /**
+   * Per-course learner funnel for educators / institutions / admins, in SQL
+   * (Phase 9e): ownership from course (in parallel), one lesson-ids batch call,
+   * one grouped funnel query and one grouped months query. Strict: a course
+   * service that can't answer is a 503, never a funnel of zeros. A course
+   * course doesn't know is skipped.
+   */
   async analytics(ctx: UserContext, courseIds: string[]) {
     const ids = [...new Set(courseIds)].slice(0, 25);
     const ownerIds = await this.ownerIdsFor(ctx);
-    const out = [];
-    for (const courseId of ids) {
-      let course: CourseInfo;
+    const found = await mapLimited(ids, async (courseId) => {
       try {
-        course = await this.internal.get<CourseInfo>(internalPath`/api/v1/internal/courses/${courseId}`);
-      } catch {
-        continue;
+        return await this.internal.get<CourseInfo>(internalPath`/api/v1/internal/courses/${courseId}`);
+      } catch (err) {
+        if (err instanceof PeerNotFoundError) return null;
+        throw err;
       }
-      if (ctx.role !== Role.PLATFORM_ADMIN && !ownerIds.includes(course.owner_id)) continue;
-
-      const rows = await this.enrollments.find({ where: { course_id: courseId } });
-      const active = rows.filter((r) => r.entitlement_status === EntitlementStatus.ACTIVE);
-      const completed = active.filter((r) => !!r.completed_at);
-      // null: the course service can't be reached, so the average is unknown (not 0%).
-      let lessonCount: number | null;
-      try {
-        lessonCount = (await this.internal.get<{ lesson_ids: string[] }>(internalPath`/api/v1/internal/courses/${courseId}/lesson-ids`)).lesson_ids.length;
-      } catch {
-        lessonCount = null;
-      }
-      // Lessons completed per enrollment in one grouped query (no N+1).
-      const doneRows = active.length
-        ? await this.progress
-            .createQueryBuilder('p')
-            .select('p.enrollment_id', 'enrollment_id')
-            .addSelect('COUNT(*)', 'done')
-            .where('p.enrollment_id IN (:...ids)', { ids: active.map((r) => r.id) })
-            .groupBy('p.enrollment_id')
-            .getRawMany<{ enrollment_id: string; done: string }>()
-        : [];
-      const doneMap = new Map(doneRows.map((r) => [r.enrollment_id, Number(r.done)]));
-      const avgProgress =
-        lessonCount == null
-          ? null
-          : active.length && lessonCount
-            ? Math.round(active.reduce((s, r) => s + Math.min(100, ((doneMap.get(r.id) ?? 0) / lessonCount) * 100), 0) / active.length)
-            : 0;
-
-      const week = Date.now() - 7 * 86_400_000;
-      const month = Date.now() - 30 * 86_400_000;
-      out.push({
-        course_id: courseId,
+    });
+    const courses = found.filter((c): c is CourseInfo => !!c && (ctx.role === Role.PLATFORM_ADMIN || ownerIds.includes(c.owner_id)));
+    if (!courses.length) return [];
+    const lessonIds = await courseLessonIds(this.internal, courses.map((c) => c.id));
+    const counts = courses.map((c) => lessonIds.get(c.id)?.length ?? 0);
+    const now = Date.now();
+    const funnel: Array<Record<string, string> & { course_id: string }> = await this.enrollments.query(
+      `WITH done AS (
+         SELECT p.enrollment_id, COUNT(*)::int AS n
+         FROM ${this.progress.metadata.tablePath} p
+         JOIN ${this.enrollments.metadata.tablePath} e ON e.id = p.enrollment_id
+         WHERE e.course_id = ANY($1::uuid[])
+         GROUP BY p.enrollment_id
+       ), lc AS (SELECT * FROM unnest($1::uuid[], $2::int[]) AS t(course_id, lessons))
+       SELECT e.course_id,
+         COUNT(*) FILTER (WHERE e.entitlement_status = 'active') AS enrolled,
+         COUNT(*) FILTER (WHERE e.entitlement_status = 'refunded') AS refunded,
+         COUNT(*) FILTER (WHERE e.entitlement_status = 'active' AND e.completed_at IS NOT NULL) AS completed,
+         COUNT(*) FILTER (WHERE e.entitlement_status = 'active' AND e.last_activity_at > $3) AS active_last_7d,
+         COUNT(*) FILTER (WHERE e.entitlement_status = 'active' AND e.last_activity_at > $4) AS active_last_30d,
+         COUNT(*) FILTER (WHERE e.entitlement_status = 'active' AND e.last_activity_at IS NULL AND COALESCE(d.n, 0) = 0) AS never_started,
+         COUNT(*) FILTER (WHERE e.entitlement_status = 'active' AND e.source = 'sponsorship') AS sponsored,
+         COALESCE(SUM(LEAST(COALESCE(d.n, 0), lc.lessons)) FILTER (WHERE e.entitlement_status = 'active'), 0) AS capped_done
+       FROM ${this.enrollments.metadata.tablePath} e
+       JOIN lc ON lc.course_id = e.course_id
+       LEFT JOIN done d ON d.enrollment_id = e.id
+       GROUP BY e.course_id`,
+      [courses.map((c) => c.id), counts, new Date(now - 7 * 86_400_000), new Date(now - 30 * 86_400_000)],
+    );
+    const months = await this.monthCounts(courses.map((c) => c.id));
+    const byCourse = new Map(funnel.map((r) => [r.course_id, r]));
+    return courses.map((course, i) => {
+      const r = byCourse.get(course.id);
+      const n = (key: string) => Number(r?.[key] ?? 0);
+      const active = n('enrolled');
+      const lessons = counts[i];
+      return {
+        course_id: course.id,
         course_title: course.title,
-        enrolled: active.length,
-        refunded: rows.filter((r) => r.entitlement_status === EntitlementStatus.REFUNDED).length,
-        completed: completed.length,
-        completion_rate: active.length ? Math.round((completed.length / active.length) * 100) : 0,
-        avg_progress_percent: avgProgress,
-        active_last_7d: active.filter((r) => r.last_activity_at && r.last_activity_at.getTime() > week).length,
-        active_last_30d: active.filter((r) => r.last_activity_at && r.last_activity_at.getTime() > month).length,
-        never_started: active.filter((r) => !r.last_activity_at && !(doneMap.get(r.id) ?? 0)).length,
-        sponsored: active.filter((r) => r.source === 'sponsorship').length,
-        enrollments_by_month: this.byMonth(active.map((r) => r.enrolled_at)),
-        completions_by_month: this.byMonth(completed.map((r) => r.completed_at!)),
-      });
-    }
-    return out;
+        enrolled: active,
+        refunded: n('refunded'),
+        completed: n('completed'),
+        completion_rate: active ? Math.round((n('completed') / active) * 100) : 0,
+        // The mean of each active learner's min(100, done / lessons): the capped counts summed in SQL.
+        avg_progress_percent: active && lessons ? Math.round((n('capped_done') * 100) / (lessons * active)) : 0,
+        active_last_7d: n('active_last_7d'),
+        active_last_30d: n('active_last_30d'),
+        never_started: n('never_started'),
+        sponsored: n('sponsored'),
+        enrollments_by_month: this.monthSeries(months, `${course.id}:enrolled`),
+        completions_by_month: this.monthSeries(months, `${course.id}:completed`),
+      };
+    });
   }
 
-  /** Platform-wide learner funnel for the admin console. */
+  /** Platform-wide learner funnel for the admin console: two aggregate queries, no rows loaded. */
   async adminAnalytics() {
-    const rows = await this.enrollments.find();
-    const active = rows.filter((r) => r.entitlement_status === EntitlementStatus.ACTIVE);
-    const week = Date.now() - 7 * 86_400_000;
+    const [r]: Array<Record<string, string>> = await this.enrollments.query(
+      `SELECT COUNT(*) AS enrollments_total,
+         COUNT(*) FILTER (WHERE entitlement_status = 'active') AS active,
+         COUNT(*) FILTER (WHERE entitlement_status = 'active' AND completed_at IS NOT NULL) AS completed,
+         COUNT(*) FILTER (WHERE entitlement_status = 'refunded') AS refunded,
+         COUNT(*) FILTER (WHERE entitlement_status = 'active' AND source = 'sponsorship') AS sponsored,
+         COUNT(*) FILTER (WHERE entitlement_status = 'active' AND last_activity_at > $1) AS active_last_7d,
+         COUNT(DISTINCT learner_id) FILTER (WHERE entitlement_status = 'active') AS distinct_learners
+       FROM ${this.enrollments.metadata.tablePath}`,
+      [new Date(Date.now() - 7 * 86_400_000)],
+    );
+    const months = await this.monthCounts(null);
     return {
-      enrollments_total: rows.length,
-      active: active.length,
-      completed: active.filter((r) => !!r.completed_at).length,
-      refunded: rows.filter((r) => r.entitlement_status === EntitlementStatus.REFUNDED).length,
-      sponsored: active.filter((r) => r.source === 'sponsorship').length,
-      active_last_7d: active.filter((r) => r.last_activity_at && r.last_activity_at.getTime() > week).length,
-      distinct_learners: new Set(active.map((r) => r.learner_id)).size,
-      enrollments_by_month: this.byMonth(active.map((r) => r.enrolled_at)),
-      completions_by_month: this.byMonth(active.filter((r) => r.completed_at).map((r) => r.completed_at!)),
+      enrollments_total: Number(r.enrollments_total),
+      active: Number(r.active),
+      completed: Number(r.completed),
+      refunded: Number(r.refunded),
+      sponsored: Number(r.sponsored),
+      active_last_7d: Number(r.active_last_7d),
+      distinct_learners: Number(r.distinct_learners),
+      enrollments_by_month: this.monthSeries(months, 'all:enrolled'),
+      completions_by_month: this.monthSeries(months, 'all:completed'),
     };
   }
 
-  private byMonth(dates: Date[]) {
-    const months: Record<string, number> = {};
+  /** The last 12 UTC months, oldest first, as `YYYY-MM`. */
+  private lastTwelveMonths(): string[] {
     const start = new Date();
-    start.setUTCDate(1);
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - i, 1));
-      months[d.toISOString().slice(0, 7)] = 0;
-    }
-    for (const d of dates) {
-      const key = d.toISOString().slice(0, 7);
-      if (key in months) months[key] += 1;
-    }
-    return Object.entries(months).map(([month, count]) => ({ month, count }));
+    return Array.from({ length: 12 }, (_, i) =>
+      new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 11 + i, 1)).toISOString().slice(0, 7),
+    );
+  }
+
+  /**
+   * Active enrollments and completions per UTC month over the last 12, keyed
+   * `<course_id|all>:<enrolled|completed>:<YYYY-MM>`. `AT TIME ZONE 'UTC'`
+   * keeps the buckets UTC whatever the connection's time zone.
+   */
+  private async monthCounts(courseIds: string[] | null): Promise<Map<string, number>> {
+    const since = new Date(`${this.lastTwelveMonths()[0]}-01T00:00:00Z`);
+    const group = courseIds ? 'course_id::text' : `'all'`;
+    const scope = courseIds ? 'AND course_id = ANY($2::uuid[])' : '';
+    const month = (col: string) => `to_char(date_trunc('month', ${col} AT TIME ZONE 'UTC'), 'YYYY-MM')`;
+    const rows: { key: string; kind: string; month: string; count: string }[] = await this.enrollments.query(
+      `SELECT ${group} AS key, 'enrolled' AS kind, ${month('enrolled_at')} AS month, COUNT(*) AS count
+       FROM ${this.enrollments.metadata.tablePath}
+       WHERE entitlement_status = 'active' AND enrolled_at >= $1 ${scope}
+       GROUP BY 1, 3
+       UNION ALL
+       SELECT ${group}, 'completed', ${month('completed_at')}, COUNT(*)
+       FROM ${this.enrollments.metadata.tablePath}
+       WHERE entitlement_status = 'active' AND completed_at >= $1 ${scope}
+       GROUP BY 1, 3`,
+      courseIds ? [since, courseIds] : [since],
+    );
+    return new Map(rows.map((r) => [`${r.key}:${r.kind}:${r.month}`, Number(r.count)]));
+  }
+
+  private monthSeries(counts: Map<string, number>, prefix: string) {
+    return this.lastTwelveMonths().map((month) => ({ month, count: counts.get(`${prefix}:${month}`) ?? 0 }));
   }
 
   // ---- internal (service-to-service reads) ----
@@ -611,6 +702,8 @@ export class EnrollmentService implements OnModuleInit {
    */
   private async onRevisionApplied(p: CourseRevisionClosedPayload) {
     if (p.outcome !== 'applied') return;
+    // First, so a failing reset or re-check below can't skip it.
+    this.heartbeatCache.deleteWhere((_key, v) => (v.kind === 'course' ? v.courseId : v.lesson.course_id) === p.course_id);
     // CoursePublished only fires on a first publish, so an approved rename
     // reaches My Learning and the progress/inactivity messages only from here.
     // course_title is the post-apply title. A failed write only leaves the old
@@ -676,7 +769,7 @@ export class EnrollmentService implements OnModuleInit {
       .select('p.enrollment_id', 'enrollment_id')
       .addSelect('COUNT(*)', 'done')
       .where('p.enrollment_id IN (:...enrollmentIds)', { enrollmentIds })
-      .andWhere('p.lesson_id IN (:...lessonIds)', { lessonIds })
+      .andWhere('p.lesson_id = ANY(CAST(:lessonIds AS uuid[]))', { lessonIds })
       .groupBy('p.enrollment_id')
       .getRawMany<{ enrollment_id: string; done: string }>();
     return new Map(rows.map((r) => [r.enrollment_id, Number(r.done)]));
@@ -793,15 +886,61 @@ export class EnrollmentService implements OnModuleInit {
   }
 
   /**
+   * Progress of many enrollments: one lesson-ids batch call and one grouped
+   * count. Strict: a failed lesson-ids read propagates.
+   */
+  private async percentsFor(rows: Enrollment[]): Promise<Map<string, number>> {
+    if (!rows.length) return new Map();
+    const lessonIds = await courseLessonIds(this.internal, rows.map((r) => r.course_id));
+    const all = [...new Set([...lessonIds.values()].flat())];
+    // Lesson ids are unique across courses, so counting against all of them counts each enrollment's own live lessons.
+    const done = all.length ? await this.liveLessonsDone(rows.map((r) => r.id), all) : new Map<string, number>();
+    return new Map(
+      rows.map((r) => {
+        const total = lessonIds.get(r.course_id)?.length ?? 0;
+        return [r.id, total ? Math.min(100, Math.round(((done.get(r.id) ?? 0) / total) * 100)) : 0];
+      }),
+    );
+  }
+
+  /** percentsFor for display lists: null, with one warn, when course can't answer. */
+  private async percentsOrNull(rows: Enrollment[], what: string): Promise<Map<string, number> | null> {
+    try {
+      return await this.percentsFor(rows);
+    } catch (err) {
+      this.logger.warn(`${what}: progress unavailable (${(err as Error).message})`);
+      return null;
+    }
+  }
+
+  /** Progress batch for other services (Phase 9e): one row per `learner:course` pair that has an enrollment. */
+  async progressForPairs(pairs: string[]) {
+    const wanted = pairs.map((p) => {
+      const [learner_id, course_id] = p.toLowerCase().split(':');
+      return { learner_id, course_id };
+    });
+    const rows = await this.enrollments.find({ where: wanted });
+    const percents = await this.percentsOrNull(rows, 'progress batch');
+    return rows.map((e) => ({
+      learner_id: e.learner_id,
+      course_id: e.course_id,
+      active: e.entitlement_status === EntitlementStatus.ACTIVE,
+      progress_percent: percents ? (percents.get(e.id) ?? 0) : null,
+      lessons_complete: !!e.completed_at,
+    }));
+  }
+
+  /**
    * Percent of the course's current lessons completed, or null when the course
    * service can't be reached (P1-18): "unknown", never a made-up 0%.
    */
-  private async progressPercent(enrollment: Enrollment): Promise<number | null> {
+  private async progressPercent(enrollment: Enrollment, known?: string[]): Promise<number | null> {
     let lessonIds: string[];
     try {
-      ({ lesson_ids: lessonIds } = await this.internal.get<{ lesson_ids: string[] }>(
-        internalPath`/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`,
-      ));
+      lessonIds =
+        known ??
+        (await this.internal.get<{ lesson_ids: string[] }>(internalPath`/api/v1/internal/courses/${enrollment.course_id}/lesson-ids`))
+          .lesson_ids;
     } catch (err) {
       this.logger.warn(`progress of enrollment ${enrollment.id} unknown: ${(err as Error).message}`);
       return null;
@@ -818,8 +957,9 @@ export class EnrollmentService implements OnModuleInit {
       try {
         const inst = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
         ids.push(inst.id);
-      } catch {
-        /* no institution yet */
+      } catch (err) {
+        // 404: no institution yet. Anything else (auth asleep) fails the read, as the analytics do.
+        if (!(err instanceof PeerNotFoundError)) throw err;
       }
     }
     return ids;

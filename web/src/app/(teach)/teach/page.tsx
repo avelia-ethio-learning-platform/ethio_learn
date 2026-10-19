@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart3, BookOpen, HandCoins, LayoutDashboard, Plus, Ticket, Wallet } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { EmptyRows } from '@/components/EmptyRows';
@@ -14,12 +14,28 @@ import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { categoryLabel, holdReasonLabel, pricingLabel } from '@/lib/labels';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { useAuth } from '@/lib/hooks';
+import { asPage } from '@/lib/merge-pages';
+import { Pager } from '@/components/Pager';
+
+const PAYOUTS_PAGE = 20;
 
 function TeachDashboard() {
   const { locale } = useT();
-  const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
+  const { user } = useAuth();
+  // An institution admin authors courses its institution owns (they go to the QO queue).
+  const isInstitution = user?.role === 'institution_admin';
+  const { data: courses, error: coursesError } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
+  // The API's 400 for an admin whose institution has no profile yet (resolveOwner).
+  const needsInstitution =
+    isInstitution && coursesError instanceof ApiError && coursesError.status === 400 && /institution profile/i.test(coursesError.message);
   const { data: balance } = useQuery({ queryKey: ['balance'], queryFn: () => api<any>('/payouts/balance') });
-  const { data: payouts } = useQuery({ queryKey: ['payouts'], queryFn: () => api<any[]>('/payouts') });
+  const [payoutPage, setPayoutPage] = useState(1);
+  const { data: payoutsPage } = useQuery({
+    queryKey: ['payouts', payoutPage],
+    queryFn: async () => asPage(await api<any[] | { items: any[]; total: number }>(`/payouts?paged=1&page=${payoutPage}&limit=${PAYOUTS_PAGE}`)),
+  });
+  const payouts = payoutsPage?.items;
   const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
 
   const stats = [
@@ -30,7 +46,8 @@ function TeachDashboard() {
       hint: `from ${balance?.payment_count ?? 0} settled payments`,
     },
     { icon: BookOpen, label: 'Courses', value: courses?.length ?? 0, hint: 'drafts + published' },
-    { icon: HandCoins, label: 'Payouts received', value: payouts?.filter((p) => p.status === 'paid').length ?? 0, hint: 'nightly runs' },
+    // The API's count of every paid payout, not just this page's.
+    { icon: HandCoins, label: 'Payouts received', value: balance?.paid_payout_count ?? payouts?.filter((p) => p.status === 'paid').length ?? 0, hint: 'nightly runs' },
   ];
 
   return (
@@ -38,10 +55,10 @@ function TeachDashboard() {
       <PageHeader
         badge={
           <span className="section-badge">
-            <LayoutDashboard className="h-4 w-4 text-brand-500" /> Educator
+            <LayoutDashboard className="h-4 w-4 text-brand-500" /> {isInstitution ? 'Institution' : 'Educator'}
           </span>
         }
-        title="Educator dashboard"
+        title={isInstitution ? 'Institution courses' : 'Educator dashboard'}
         subtitle="Create courses, track earnings and get paid nightly."
         actions={
           <div className="flex w-full flex-wrap gap-2 sm:w-auto">
@@ -60,7 +77,7 @@ function TeachDashboard() {
       <PendingInvitesBanner />
 
       <div className="space-y-10">
-        {profile && !profile.educator_profile && <EducatorSetup />}
+        {user?.role === 'educator' && profile && !profile.educator_profile && <EducatorSetup />}
 
         <section className="grid animate-fade-in-up gap-4 sm:grid-cols-3">
           {stats.map((s) => (
@@ -79,12 +96,24 @@ function TeachDashboard() {
 
         <section className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
           <h2 className="mb-4 text-lg font-bold text-foreground">My courses</h2>
-          {courses === undefined ? (
+          {courses === undefined && !needsInstitution ? (
             <div className="space-y-3">
               <div className="skeleton h-16 w-full" />
               <div className="skeleton h-16 w-full" />
             </div>
-          ) : !courses.length ? (
+          ) : needsInstitution ? (
+            <div className="card fade-in">
+              <EmptyRows
+                icon={BookOpen}
+                label={coursesError?.message ?? 'Set up your institution to create courses.'}
+                action={
+                  <Link href="/institution" className="btn">
+                    Set up your institution
+                  </Link>
+                }
+              />
+            </div>
+          ) : !courses?.length ? (
             <div className="card fade-in">
               <EmptyRows
                 icon={BookOpen}
@@ -140,6 +169,7 @@ function TeachDashboard() {
                 <StatusBadge status={p.status} suffix={p.hold_reason ? holdReasonLabel(p.hold_reason) : undefined} />
               </div>
             ))}
+            <Pager page={payoutPage} pageSize={PAYOUTS_PAGE} total={payoutsPage?.total ?? 0} onPage={setPayoutPage} />
           </div>
         </section>
       </div>
@@ -189,7 +219,7 @@ function EducatorSetup() {
 
 export default function TeachPage() {
   return (
-    <RequireRole roles={['educator']}>
+    <RequireRole roles={['educator', 'institution_admin']}>
       <TeachDashboard />
     </RequireRole>
   );
