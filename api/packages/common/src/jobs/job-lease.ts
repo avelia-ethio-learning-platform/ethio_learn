@@ -79,8 +79,8 @@ export async function startJob(
   );
   if (won.length === 0) return { started: false };
 
-  // Outside the request that started it (9d): the job's lines and events don't carry the scheduler call's ids.
-  const finished = requestContext.exit(async (): Promise<JobResult | null> => {
+  // Its own id, not the scheduler call's (9d): the run's lines, calls and events share the lease holder.
+  const finished = requestContext.run({ request_id: holder }, async (): Promise<JobResult | null> => {
     let result: JobResult | null;
     try {
       result = (await fn()) ?? null;

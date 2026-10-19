@@ -124,11 +124,14 @@ export class JsonLogger implements LoggerService {
       event_id: ctx?.event_id,
       handler: ctx?.handler,
     };
-    for (const [key, value] of Object.entries(fields)) if (!(key in line) || line[key] === undefined) line[key] = value;
+    // An object's own ids (the access line's request_id) win over the context's; the line's own fields don't move.
+    for (const [key, value] of Object.entries(fields)) if (!OWN_FIELDS.has(key) && value !== undefined) line[key] = value;
     if (stack) line.stack = redactEmails(stack);
     this.out(`${safeJson(line)}\n`);
   }
 }
+
+const OWN_FIELDS = new Set(['ts', 'level', 'service', 'context', 'msg']);
 
 /** A string with its addresses replaced; anything else as is. */
 function redactText(value: unknown): unknown {

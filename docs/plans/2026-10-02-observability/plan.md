@@ -245,8 +245,9 @@ No change to `render.yaml` is needed (the defaults follow `NODE_ENV`). The user 
 
 ### 9c landed (main `dabba09`, merged 2026-10-19)
 - Conflicts: `ci.yml` (main's wallet-race and job-lease step, keep `safe-typeorm-logger.db.spec.ts`), `chapa.provider.ts` (main's finite amount check).
-- `startJob` runs the job under `requestContext.exit`, spec added: no request or user id on job lines or events.
+- `startJob` runs the job under its own `request_id` (the lease holder), not the scheduler call's (final review N1).
 - Internal client: the body-read warn logs `redactPath(path)`; only the refused (invalid) path logs its length (deviation 8).
 - Checked, no change: `upstreamOf` knows the `jobs` routes (financial, enrollment; `routes.spec.ts` covers every rule); `DbErrorFilter` and `PeerErrorFilter` catch disjoint types, so their order doesn't matter; 9c's log lines pass the PII guard.
 - Email provider on Render confirmed (`SMTP_HOST` in the shared group): no rollout blocker left.
-- 11b (#53) moves `gateway/src/main.ts` logic: 9d's edits there are one-liners (JsonLogger, `app.use(requestLog())` first, CORS `exposedHeaders`, three `accessNotes` stamps in the proxy and JWT middleware) and move with the code they sit in; `req.ip` in the access line can become `clientIpOf(req)`.
+- 11b (main `3333c2c`) merged: 9d's gateway edits moved into `app.ts` (JsonLogger, `requestLog()` first, CORS `exposedHeaders`, proxy error as `error_code` only, 11b's duplicate `proxy error` log removed) and `auth-middleware.ts` (`upstream`, `user_id`); the access line logs `clientIpOf(req)`.
+- Final review (APPROVED WITH NITS): S1 the token-route guard scans every file with `@Controller(` and takes each route's nearest prefix; N2 an object message's ids win over the context's.

@@ -92,9 +92,11 @@ function piiInLogCalls(file: string, source: string): string[] {
 
 /** Route params named like a credential whose parent segment isn't in TOKEN_PARENTS, so the access log would print them. */
 function unredactedTokenRoutes(file: string, source: string): string[] {
-  const prefix = /@Controller\(\s*'([^']*)'/.exec(source)?.[1] ?? '';
+  // A file can hold several controllers: each route takes the prefix of the nearest @Controller above it.
+  const controllers = [...source.matchAll(/@Controller\(\s*(?:'([^']*)')?/g)].map((m) => ({ at: m.index ?? 0, prefix: m[1] ?? '' }));
   const found: string[] = [];
   for (const match of source.matchAll(/@(Get|Post|Put|Patch|Delete|All)\(\s*'([^']*)'/g)) {
+    const prefix = controllers.filter((c) => c.at < (match.index ?? 0)).pop()?.prefix ?? '';
     const segments = `${prefix}/${match[2]}`.split('/').filter(Boolean);
     segments.forEach((segment, i) => {
       if (!/^:.*(token|secret)/i.test(segment)) return;
@@ -151,14 +153,18 @@ describe('no personal data in log calls', () => {
 
 describe('token routes', () => {
   it('flags a credential param under a parent the access log does not redact', () => {
-    const source = "@Controller('auth')\nclass C {\n  @Get('reset/:token')\n  a() {}\n  @Get('invite/:token')\n  b() {}\n}";
-    expect(unredactedTokenRoutes('fixture.controller.ts', source)).toEqual(["fixture.controller.ts: @Get('reset/:token')"]);
+    const source = [
+      "@Controller('auth')\nclass C {\n  @Get('reset/:token')\n  a() {}\n  @Get('invite/:token')\n  b() {}\n}",
+      "@Controller('pay-requests')\nclass D {\n  @Get(':token')\n  c() {}\n}",
+      "@Controller('internal')\nclass E {\n  @Post(':secret')\n  d() {}\n}",
+    ].join('\n');
+    expect(unredactedTokenRoutes('controllers.ts', source)).toEqual(["controllers.ts: @Get('reset/:token')", "controllers.ts: @Post(':secret')"]);
   });
 
-  it('holds for every controller', () => {
-    const found = scanned()
-      .filter((file) => file.endsWith('.controller.ts'))
-      .flatMap((file) => unredactedTokenRoutes(relative(API_ROOT, file), readFileSync(file, 'utf8')));
+  it('holds for every controller, whatever its file is called', () => {
+    const files = scanned().filter((file) => /@Controller\(/.test(readFileSync(file, 'utf8')));
+    expect(files.filter((file) => !file.endsWith('.controller.ts')).length).toBeGreaterThan(0); // the services' controllers.ts
+    const found = files.flatMap((file) => unredactedTokenRoutes(relative(API_ROOT, file), readFileSync(file, 'utf8')));
     expect(found).toEqual([]);
   });
 });

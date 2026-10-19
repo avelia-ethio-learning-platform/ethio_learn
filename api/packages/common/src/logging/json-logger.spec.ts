@@ -54,6 +54,8 @@ describe('JsonLogger (json)', () => {
     logger.log({ msg: 'GET /api/v1/courses 200', status: 200, ms: 12, level: 'oops', request_id: 'r-9' }, 'Access');
 
     expect(parsed()[0]).toMatchObject({ level: 'log', context: 'Access', msg: 'GET /api/v1/courses 200', status: 200, ms: 12, request_id: 'r-9' });
+    requestContext.run({ request_id: 'r-other' }, () => logger.log({ msg: 'GET / 200', request_id: 'r-9' }, 'Access'));
+    expect(parsed()[1].request_id).toBe('r-9');
   });
 
   it('replaces an address in the message or the stack with [email]', () => {

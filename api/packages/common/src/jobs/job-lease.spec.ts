@@ -45,7 +45,7 @@ describe('startJob', () => {
     expect(state.released[0][2]).toBe(JSON.stringify({ failed: true }));
   });
 
-  it('runs the job outside the request that started it', async () => {
+  it('runs the job under its own request id, not the one that started it', async () => {
     const { dataSource } = stubDataSource();
     let seen: unknown = 'unset';
     const start = await requestContext.run({ request_id: 'r-1', user_id: 'u-1' }, () =>
@@ -54,7 +54,7 @@ describe('startJob', () => {
       }),
     );
     await (start as { finished: Promise<unknown> }).finished;
-    expect(seen).toBeUndefined();
+    expect(seen).toEqual({ request_id: expect.stringMatching(/^[0-9a-f-]{36}$/) });
   });
 
   it('does not start while another run holds the lease', async () => {
