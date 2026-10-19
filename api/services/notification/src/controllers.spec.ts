@@ -1,5 +1,6 @@
-import { ForbiddenException } from '@nestjs/common';
-import { Role } from '@ethiopialearn/contracts';
+import { randomUUID } from 'crypto';
+import { BadRequestException, ForbiddenException, ValidationPipe } from '@nestjs/common';
+import { COURSE_CATEGORIES, Role } from '@ethiopialearn/contracts';
 import { NotificationController } from './controllers';
 import { NotificationPreference } from './entities';
 
@@ -83,5 +84,24 @@ describe('NotificationController preferences', () => {
     await ctrl.unfollow(learner, 'edu-1');
     const view = await ctrl.getPrefs(learner, 'learner-1');
     expect(view.new_course_instructor_ids).toEqual(['edu-2']);
+  });
+});
+
+/** Preference lists are bounded (P2-11), through the pipe the services install at boot. */
+describe('PUT notification-preferences body bounds', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true });
+  const PrefsDto = (Reflect.getMetadata('design:paramtypes', NotificationController.prototype, 'putPrefs') as (new () => object)[])[2];
+  const check = (body: unknown) => pipe.transform(body, { type: 'body', metatype: PrefsDto });
+
+  it('accepts each category once and refuses a longer list', async () => {
+    const all = COURSE_CATEGORIES as string[];
+    await expect(check({ new_course_categories: all })).resolves.toBeDefined();
+    await expect(check({ new_course_categories: [...all, all[0]] })).rejects.toThrow(BadRequestException);
+  });
+
+  it('accepts 500 followed instructors and refuses 501', async () => {
+    const ids = (n: number) => Array.from({ length: n }, () => randomUUID());
+    await expect(check({ new_course_instructor_ids: ids(500) })).resolves.toBeDefined();
+    await expect(check({ new_course_instructor_ids: ids(501) })).rejects.toThrow(BadRequestException);
   });
 });

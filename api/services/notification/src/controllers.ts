@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Post, Put, UseGuards } from '@nestjs/common';
-import { IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
 import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
@@ -8,6 +8,8 @@ import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
 import { InboxNotification, InboxNotificationRead, NotificationLog, NotificationPreference } from './entities';
 
 const CATEGORY_VALUES = COURSE_CATEGORIES as string[];
+/** Instructors one learner can follow for new-course alerts. */
+const FOLLOWS_MAX = 500;
 
 /** De-dupe while preserving order. */
 function uniq(values: string[]): string[] {
@@ -22,11 +24,13 @@ class PreferencesDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(CATEGORY_VALUES.length)
   @IsIn(CATEGORY_VALUES, { each: true })
   new_course_categories?: string[];
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(FOLLOWS_MAX)
   @IsUUID('all', { each: true })
   new_course_instructor_ids?: string[];
 

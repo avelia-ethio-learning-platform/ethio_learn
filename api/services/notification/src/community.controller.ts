@@ -13,7 +13,7 @@ class AddCommentDto {
   parent_id?: string;
 }
 
-/** `paged=1` or `before` opts into `{ items, has_more }`; without either the rows stay a bare array for older clients. */
+/** Always `{ items, has_more }`. `paged=1` is still accepted: clients built for the old bare-array default send it. */
 class CommentsQuery {
   @IsOptional()
   @IsIn(['1'])
@@ -51,9 +51,8 @@ export class CommunityController {
 
   /** [PUBLIC] read the discussion under a course. */
   @Get('courses/:id/comments')
-  async list(@UuidParam('id') courseId: string, @Query() query: CommentsQuery) {
-    const page = await this.service.listComments(courseId, query.before);
-    return query.paged || query.before ? page : page.items;
+  list(@UuidParam('id') courseId: string, @Query() query: CommentsQuery) {
+    return this.service.listComments(courseId, query.before);
   }
 
   @Post('courses/:id/comments')
