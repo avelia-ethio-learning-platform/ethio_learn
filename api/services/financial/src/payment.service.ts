@@ -981,7 +981,7 @@ export class PaymentService {
 
   /** The learner's payments, newest first, one page at a time (still a bare array). */
   async listMine(ctx: UserContext, page = 1, limit = 20) {
-    const rows = await this.payments.find({ where: { learner_id: ctx.id }, order: { created_at: 'DESC' }, take: limit, skip: (page - 1) * limit });
+    const rows = await this.payments.find({ where: { learner_id: ctx.id }, order: { created_at: 'DESC', id: 'DESC' }, take: limit, skip: (page - 1) * limit });
     return rows.map((p) => this.publicView(p));
   }
 

@@ -12,6 +12,7 @@ import { Cron } from '@nestjs/schedule';
 import { In, IsNull, LessThan, MoreThan, Repository } from 'typeorm';
 import {
   courseLessonIds,
+  mapLimited,
   envInt,
   EventBusService,
   InternalHttpClient,
@@ -444,6 +445,9 @@ export class EnrollmentService implements OnModuleInit {
       ? new Map((await this.courseCache.find({ where: { course_id: In([...new Set(candidates.map((e) => e.course_id))]) } })).map((c) => [c.course_id, c.title]))
       : new Map<string, string>();
     const percents = await this.percentsOrNull(candidates, 'inactivity nudges');
+    // Progress unknown (course asleep): send nothing and claim nothing, so the
+    // next run nudges with the real percentage instead of "0%".
+    if (!percents) return;
     let sent = 0;
     for (const e of candidates) {
       const since = e.last_activity_at ?? e.enrolled_at;
@@ -457,7 +461,7 @@ export class EnrollmentService implements OnModuleInit {
         course_id: e.course_id,
         course_title: titles.get(e.course_id) ?? 'your course',
         days_inactive: days,
-        progress_percent: percents?.get(e.id) ?? 0,
+        progress_percent: percents.get(e.id) ?? 0,
         channel,
       });
       sent += 1;
@@ -477,16 +481,14 @@ export class EnrollmentService implements OnModuleInit {
   async analytics(ctx: UserContext, courseIds: string[]) {
     const ids = [...new Set(courseIds)].slice(0, 25);
     const ownerIds = await this.ownerIdsFor(ctx);
-    const found = await Promise.all(
-      ids.map(async (courseId) => {
-        try {
-          return await this.internal.get<CourseInfo>(internalPath`/api/v1/internal/courses/${courseId}`);
-        } catch (err) {
-          if (err instanceof PeerNotFoundError) return null;
-          throw err;
-        }
-      }),
-    );
+    const found = await mapLimited(ids, async (courseId) => {
+      try {
+        return await this.internal.get<CourseInfo>(internalPath`/api/v1/internal/courses/${courseId}`);
+      } catch (err) {
+        if (err instanceof PeerNotFoundError) return null;
+        throw err;
+      }
+    });
     const courses = found.filter((c): c is CourseInfo => !!c && (ctx.role === Role.PLATFORM_ADMIN || ownerIds.includes(c.owner_id)));
     if (!courses.length) return [];
     const lessonIds = await courseLessonIds(this.internal, courses.map((c) => c.id));
@@ -948,8 +950,9 @@ export class EnrollmentService implements OnModuleInit {
       try {
         const inst = await this.internal.get<{ id: string }>(internalPath`/api/v1/internal/institutions/by-owner/${ctx.id}`);
         ids.push(inst.id);
-      } catch {
-        /* no institution yet */
+      } catch (err) {
+        // 404: no institution yet. Anything else (auth asleep) fails the read, as the analytics do.
+        if (!(err instanceof PeerNotFoundError)) throw err;
       }
     }
     return ids;

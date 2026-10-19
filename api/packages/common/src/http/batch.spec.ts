@@ -47,6 +47,29 @@ describe('getMany', () => {
     expect(out.map((p) => p.split('ids=')[1].split(',').length)).toEqual([50, 50, 20]);
   });
 
+  it('runs at most 4 calls at a time (100 chunks of a 5,000-seat order)', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const client = {
+      get: jest.fn(async (path: string) => {
+        peak = Math.max(peak, ++inFlight);
+        await new Promise((r) => setImmediate(r));
+        inFlight -= 1;
+        return path;
+      }),
+    };
+    const items = Array.from({ length: 5000 }, (_, i) => `i${i}`);
+    const out = await getMany<string>(client as never, items, 50, (chunk) => internalPath`/api/v1/internal/x?ids=${chunk}`);
+    expect(client.get).toHaveBeenCalledTimes(100);
+    expect(peak).toBe(4);
+    expect(out[99]).toContain('i4999');
+  });
+
+  it('lowercases ids, so results key by the id the database returns', async () => {
+    const q = await run(UserIdsQuery, { ids: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA' });
+    expect(q.ids).toEqual(['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']);
+  });
+
   it('makes no call for an empty list', async () => {
     const client = { get: jest.fn() };
     expect(await getMany(client as never, [], 100, () => internalPath`/api/v1/internal/x`)).toEqual([]);

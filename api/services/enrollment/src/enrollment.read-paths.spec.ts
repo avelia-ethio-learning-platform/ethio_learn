@@ -53,6 +53,19 @@ function setup(rows: Array<ReturnType<typeof enrollment>>, opts: { lessonIdsFail
   return { service, enrollments, progress, progressQb, courseCache, internal };
 }
 
+describe('EnrollmentService.nudgeInactiveLearners (Phase 9e)', () => {
+  it('course down: no nudge and no claim, so the next run sends the real percentage', async () => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const t = setup([enrollment(1, { last_activity_at: new Date('2026-09-01'), nudge_level: 0 })], { lessonIdsFail: true });
+    const enrollments = t.enrollments as unknown as { save: jest.Mock };
+    enrollments.save = jest.fn();
+    const bus = (t.service as unknown as { bus: { publish: jest.Mock } }).bus;
+    await t.service.nudgeInactiveLearners();
+    expect(enrollments.save).not.toHaveBeenCalled();
+    expect(bus.publish).not.toHaveBeenCalled();
+  });
+});
+
 describe('EnrollmentService.listForLearner (Phase 9e)', () => {
   it('30 enrollments: one titles query, one lesson-ids batch call and one grouped count', async () => {
     const rows = Array.from({ length: 30 }, (_, i) => enrollment(i));

@@ -211,7 +211,7 @@ export class PayoutService implements OnModuleInit {
 
   /** A payee's payouts, newest first, one page at a time (still a bare array). */
   async listForPayee(payeeId: string, page = 1, limit = 20) {
-    return this.payouts.find({ where: { payee_id: payeeId }, order: { created_at: 'DESC' }, take: limit, skip: (page - 1) * limit });
+    return this.payouts.find({ where: { payee_id: payeeId }, order: { created_at: 'DESC', id: 'DESC' }, take: limit, skip: (page - 1) * limit });
   }
 
   /** The admin listing: the newest 200, with payee names. */

@@ -9,11 +9,14 @@ import { InternalHttpClient, InternalPath, internalPath } from './internal-clien
  */
 export const BATCH_CAPS = { users: 100, lessonIds: 100, progressPairs: 50 } as const;
 
-/** Splits `a,b,c` (or a repeated param) into trimmed, non-empty items, so validation sees each one. */
+/**
+ * Splits `a,b,c` (or a repeated param) into trimmed, non-empty items, so validation sees each one.
+ * Lowercased: results are keyed by the id as the database returns it.
+ */
 const commaList = ({ value }: { value: unknown }) =>
   (Array.isArray(value) ? value : [value])
     .flatMap((v) => (typeof v === 'string' ? v.split(',') : [v]))
-    .map((v) => (typeof v === 'string' ? v.trim() : v))
+    .map((v) => (typeof v === 'string' ? v.trim().toLowerCase() : v))
     .filter((v) => v !== '' && v != null);
 
 /** `?ids=<uuid>,<uuid>` with 1..max ids: anything else is a 400. */
@@ -63,7 +66,17 @@ export async function getMany<T>(
   const distinct = [...new Set(items)];
   const chunks: string[][] = [];
   for (let i = 0; i < distinct.length; i += cap) chunks.push(distinct.slice(i, i + cap));
-  return Promise.all(chunks.map((chunk) => client.get<T>(path(chunk))));
+  return mapLimited(chunks, (chunk) => client.get<T>(path(chunk)));
+}
+
+/** Parallel internal calls at a time: peers on the free plan wake slowly, so a fan-out never stampedes them. */
+export const PEER_CONCURRENCY = 4;
+
+/** `Promise.all(items.map(fn))`, run `limit` at a time; results keep the input order. */
+export async function mapLimited<I, O>(items: readonly I[], fn: (item: I) => Promise<O>, limit = PEER_CONCURRENCY): Promise<O[]> {
+  const out: O[] = [];
+  for (let i = 0; i < items.length; i += limit) out.push(...(await Promise.all(items.slice(i, i + limit).map(fn))));
+  return out;
 }
 
 export interface UserSummary {
