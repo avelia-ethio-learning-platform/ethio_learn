@@ -8,12 +8,16 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/courses',
   useRouter: () => ({ push: vi.fn() }),
 }));
+const { auth } = vi.hoisted(() => ({ auth: { signedIn: true } }));
 vi.mock('@/lib/hooks', () => ({
-  useAuth: () => ({ user: { id: 'u1', name: 'Test Learner', email: 'l@example.test', role: 'learner' }, ready: true }),
+  useAuth: () => ({ user: auth.signedIn ? { id: 'u1', name: 'Test Learner', email: 'l@example.test', role: 'learner' } : null, ready: true }),
 }));
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
-  api: vi.fn(async (path: string) => (path.includes('unread-count') ? { count: 0 } : [])),
+  api: vi.fn(async (path: string) => {
+    if (path === '/messages/unread-count') return { unread: 3 };
+    return path.includes('unread-count') ? { count: 0 } : [];
+  }),
 }));
 
 function renderHeader() {
@@ -37,7 +41,25 @@ beforeEach(() => {
     matches: false, media: q, addEventListener() {}, removeEventListener() {},
   })) as unknown as typeof window.matchMedia;
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  auth.signedIn = true;
+});
+
+describe('Header Messages link', () => {
+  it('signed in: links to /messages with the unread count in its label', async () => {
+    renderHeader();
+    const links = await screen.findAllByRole('link', { name: 'Messages, 3 unread' });
+    expect(links.length).toBeGreaterThan(0);
+    expect(links[0].getAttribute('href')).toBe('/messages');
+  });
+
+  it('signed out: no Messages link', () => {
+    auth.signedIn = false;
+    renderHeader();
+    expect(screen.queryAllByRole('link', { name: /^Messages/ })).toHaveLength(0);
+  });
+});
 
 describe('Header overlays', () => {
   it('theme menu: aria-expanded toggles, Escape closes it and returns focus to the trigger', async () => {

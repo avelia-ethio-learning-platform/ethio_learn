@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ClipboardCheck, FileUp, Mic, Play } from 'lucide-react';
+import { CheckCircle2, ArrowRight, ClipboardCheck, FileUp, Mic, Play } from 'lucide-react';
 import { api } from '@/lib/api';
 import { putFile, type UploadState } from '@/lib/upload';
 import { UploadProgress } from '@/components/UploadProgress';
@@ -17,6 +18,8 @@ interface AssessmentSummary {
   is_required: boolean;
   pass_score: number;
   question_count?: number;
+  proctored?: boolean;
+  time_limit_minutes?: number | null;
 }
 
 export function AssessmentsPanel({ courseId }: { courseId: string }) {
@@ -87,11 +90,21 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
             <span className="text-foreground">
               {assessmentTypeLabel(a.type)}{' '}
               {a.is_required && <span className="text-xs font-normal text-gray-500">(required for certificate)</span>}
+              {a.type === 'quiz' && !!(a.proctored || a.time_limit_minutes) && (
+                <span className="ml-2 inline-flex flex-wrap gap-1.5 align-middle">
+                  {a.proctored && <span className="badge-warn">Proctored · camera</span>}
+                  {a.time_limit_minutes ? <span className="badge-info">{a.time_limit_minutes} min limit</span> : null}
+                </span>
+              )}
             </span>
             {passed(a.id) ? (
               <span className="badge-success">
                 <CheckCircle2 className="h-3 w-3" /> Passed
               </span>
+            ) : a.type === 'quiz' ? (
+              <Link href={`/learn/${courseId}/exam/${a.id}`} className="btn-secondary !px-3 !py-1 !text-xs" aria-label={`Open exam: ${assessmentTypeLabel(a.type)}`}>
+                <ArrowRight aria-hidden="true" className="h-3 w-3" /> Open exam
+              </Link>
             ) : (
               <button className="btn-secondary !px-3 !py-1 !text-xs" aria-label={`Start ${assessmentTypeLabel(a.type)}`} onClick={() => start(a)}>
                 <Play className="h-3 w-3" /> Start
@@ -104,46 +117,8 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
         <FormStatus status={status} />
       </div>
 
-      {active?.assessment.type === 'quiz' && <QuizForm attempt={active} onSubmit={finish} />}
       {active?.assessment.type === 'ai_viva' && <VivaForm attempt={active} onSubmit={finish} />}
       {active?.assessment.type === 'project' && <ProjectForm attempt={active} onSubmit={finish} />}
-    </div>
-  );
-}
-
-function QuizForm({ attempt, onSubmit }: { attempt: any; onSubmit: (b: any) => void }) {
-  const [answers, setAnswers] = useState<number[]>(new Array(attempt.questions.length).fill(-1));
-  return (
-    <div className="mt-4 space-y-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-      {attempt.questions.map((q: any, i: number) => (
-        <fieldset key={i}>
-          <legend className="text-sm font-semibold text-foreground">
-            {i + 1}. {q.prompt}
-          </legend>
-          <div className="mt-2 space-y-1.5">
-            {q.options.map((opt: string, j: number) => (
-              <label
-                key={j}
-                className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-sm transition-colors duration-fast ${
-                  answers[i] === j ? 'border-brand-400 bg-brand-500/10 text-foreground' : 'text-gray-600 hover:bg-brand-500/5'
-                }`}
-                style={answers[i] === j ? undefined : { borderColor: 'var(--border)' }}
-              >
-                <input
-                  type="radio"
-                  name={`q${i}`}
-                  checked={answers[i] === j}
-                  onChange={() => setAnswers((prev) => prev.map((v, k) => (k === i ? j : v)))}
-                />
-                {opt}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      ))}
-      <button className="btn" disabled={answers.includes(-1)} onClick={() => onSubmit({ answers })}>
-        Submit quiz
-      </button>
     </div>
   );
 }

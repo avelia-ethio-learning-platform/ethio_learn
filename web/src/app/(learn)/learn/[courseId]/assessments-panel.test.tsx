@@ -15,12 +15,13 @@ vi.mock('@/lib/upload', async (importOriginal) => ({
 
 import { AssessmentsPanel } from './assessments-panel';
 
-const quiz = { id: 'a1', type: 'quiz', is_required: true, pass_score: 70 };
-const attempt = { attempt_id: 't1', questions: [{ prompt: 'Two plus two?', options: ['3', '4'] }] };
+const quiz = { id: 'a1', type: 'quiz', is_required: true, pass_score: 70, proctored: true, time_limit_minutes: 20 };
+const viva = { id: 'v1', type: 'ai_viva', is_required: true, pass_score: 70 };
+const attempt = { attempt_id: 't1', question: 'Explain recursion.' };
 
 function respondWith(result: Record<string, unknown>) {
   apiMock.mockImplementation(async (path: string, opts?: { method?: string }) => {
-    if (path.startsWith('/assessments?')) return [quiz];
+    if (path.startsWith('/assessments?')) return [viva];
     if (path.startsWith('/attempts/mine')) return [];
     if (opts?.method === 'POST') return attempt;
     if (opts?.method === 'PUT') return result;
@@ -28,15 +29,15 @@ function respondWith(result: Record<string, unknown>) {
   });
 }
 
-async function takeQuiz() {
+async function takeViva() {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <AssessmentsPanel courseId="c1" />
     </QueryClientProvider>,
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Start Quiz' }));
-  fireEvent.click(await screen.findByLabelText('4'));
-  fireEvent.click(screen.getByRole('button', { name: 'Submit quiz' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Start/ }));
+  fireEvent.change(await screen.findByLabelText('Your answer'), { target: { value: 'A function that calls itself.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Submit answer' }));
 }
 
 beforeEach(() => {
@@ -48,7 +49,7 @@ afterEach(cleanup);
 describe('AssessmentsPanel results', () => {
   it('a score that did not pass is announced politely in warning colours, not as a success', async () => {
     respondWith({ score: 40, passed: false });
-    await takeQuiz();
+    await takeViva();
     const status = screen.getByRole('status');
     await waitFor(() => expect(status.textContent).toBe('Score: 40 — not passed yet'));
     expect(status.querySelector('.badge-warn')).not.toBeNull();
@@ -58,7 +59,7 @@ describe('AssessmentsPanel results', () => {
 
   it('a pass is a success', async () => {
     respondWith({ score: 90, passed: true });
-    await takeQuiz();
+    await takeViva();
     const status = screen.getByRole('status');
     await waitFor(() => expect(status.textContent).toBe('Score: 90 — PASSED'));
     expect(status.querySelector('.badge-success')).not.toBeNull();
@@ -76,7 +77,7 @@ describe('AssessmentsPanel load failure', () => {
     expect((await screen.findByRole('alert')).textContent).toContain("Couldn't load assessments.");
     respondWith({});
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByRole('button', { name: 'Start Quiz' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Start/ })).toBeTruthy();
   });
 });
 
@@ -174,15 +175,19 @@ describe('AssessmentsPanel project', () => {
     await waitFor(() => expect((screen.getByRole('button', { name: 'Submit project' }) as HTMLButtonElement).disabled).toBe(false));
   });
 
-  it('a quiz Start still posts with no body', async () => {
-    respondWith({});
+  it('a quiz row links to the exam room with its tags and has no Start button or inline form', async () => {
+    // A written-only quiz: the summary carries no questions or options.
+    apiMock.mockImplementation(async (path: string) => (path.startsWith('/assessments?') ? [quiz, viva] : []));
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <AssessmentsPanel courseId="c1" />
       </QueryClientProvider>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Start Quiz' }));
-    await screen.findByLabelText('4');
-    expect(apiMock).toHaveBeenCalledWith('/assessments/a1/attempts', { method: 'POST' });
+    const link = await screen.findByRole('link', { name: 'Open exam: Quiz' });
+    expect(link.getAttribute('href')).toBe('/learn/c1/exam/a1');
+    expect(screen.getByText('Proctored · camera')).toBeTruthy();
+    expect(screen.getByText('20 min limit')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start Quiz' })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Start/ })).toBeTruthy();
   });
 });

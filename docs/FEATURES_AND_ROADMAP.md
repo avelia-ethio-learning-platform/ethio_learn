@@ -230,19 +230,7 @@ These are true at `main` today. Each one is either in a phase below or listed un
 - **Payout transfer is manual.** A payout run marks payouts paid. The money is sent outside the platform until Chapa's split payouts or a bank integration is chosen.
 - **Refund money is returned manually.** An approved refund updates the ledger and access. There's no automatic Chapa refund call.
 - **No video transcoding.** Uploads are served as uploaded, through signed links.
-- **The proctored exam room isn't reachable.**
-  - The page `/learn/[courseId]/exam/[assessmentId]` exists, with face checks, tab-switch guards, a proctor report and a study plan, but nothing links to it.
-  - The inline quiz shows multiple-choice questions only.
-  - Educators can turn proctoring on, and they have no view of exam results.
-- **Course comments aren't shown.** The comment API and component exist, but no page renders them.
-- **Role-wide notifications** (announcements, the QO queue) share one read flag: one person marking one read marks it for the whole role.
-- **Institution admins can't create courses** (`/teach` and `/teach/new` are educator-only). The course tools they can open have no menu links.
-- **Course language is always English.** There's no way to mark a course as Amharic.
-- **API only, no screen yet:**
-  - an admin test email;
-  - force-verifying a user's email;
-  - raising a fraud signal by hand;
-  - the unread message count. There's also no Messages link in the header.
+- **No screen to raise a fraud signal by hand.** The live detectors write signals themselves, and the Users tab suspends and bans.
 - **Amharic covers** the shell, home, catalog filters and parts of sign-in and the dashboard. The rest is English (Phase 10 extends it).
 
 ## UI and color
@@ -303,12 +291,7 @@ In build order. Backend and web run as parallel tracks.
 Not in a phase yet. Each needs a decision or a plan first.
 
 **Product:**
-- Wire the proctored exam room into the learner flow, and give educators an exam-results view.
-- Show course comments on the course or lesson page.
-- Give each person their own read state for role-wide notifications.
-- Let institution admins create courses, and add links to the tools they can already use.
-- Let educators mark a course's language (Amharic or English) and filter the catalog by it.
-- Screens for the API-only admin tools, plus a Messages link and unread count in the header.
+- An admin form for raising a fraud signal by hand.
 
 **Money:** automatic payout transfers (Chapa split payouts or a bank API) and automatic Chapa refunds.
 
