@@ -232,5 +232,5 @@ Line numbers at `2cdccf9`. 6a retypes every internal call site, 6b rewrites the 
   - A7: institution payees get `payee_name: null` (P2 follow-up: an institutions batch endpoint).
   - `getMany` is a helper that takes the client, not a client method (mocks with only `get` keep working).
   - Course cards reuse the existing `course_by` key; new keys are `show_more_reviews` and `loading_more`.
-  - Lint gate: 5 findings above the baseline come from 9c lines (`page-query.spec.ts`, `chapa.provider*.ts`, `db-error.filter.ts`) already fixed on `fix/calls-and-jobs`; they clear when 9c merges.
+- Review round 1 (2026-10-19): B1 nudges stop before any claim when progress is unknown; S1 fan-outs run 4 at a time (`mapLimited`); S2 "Load earlier" freezes shown rows and keeps your replies; S3 `paid_payout_count` plus `paged=1` (`{ items, total }`) on `/payments/mine` and own `/payouts` with the shared Pager; N1–N4 done; B2 merged main (9c) as the review says.
 
