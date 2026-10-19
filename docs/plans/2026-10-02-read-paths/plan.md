@@ -177,21 +177,21 @@ Line numbers at `2cdccf9`. 6a retypes every internal call site, 6b rewrites the 
 
 ## Steps
 - [ ] 1. Branch `perf/read-paths` from `feat/observability`.
-- [ ] 2. Batch endpoints (decision 1) and the client `getMany`. · Specs: validation and caps (101 ids and 51 pairs → 400); missing ids absent; one query each; chunking at the cap (120 pairs → 3 calls).
-- [ ] 3. N+1 sites (decision 2). · Query-count specs with the internal client mocked: `listForLearner` with 30 enrollments makes 1 `lesson-ids` call; `withProgress` with 60 seats makes 2 progress calls; `topEducators` makes 1 users call; and so on. Degrade specs: `topEducators` and `withProgress` with the batch call throwing a 503 return 200 with names absent and `progress: null`.
-- [ ] 4. Names (decision 3): admin payout `payee_name`, search `educator_name`. Web: the admin payouts tab and `CourseCard`. · Spec: search with auth down → 200 with items and no `educator_name`, and the page isn't cached (the next search calls auth again).
-- [ ] 5. Heartbeat (decision 4) on 6b's code. · Specs:
+- [x] 2. Batch endpoints (decision 1) and the client `getMany`. · Specs: validation and caps (101 ids and 51 pairs → 400); missing ids absent; one query each; chunking at the cap (120 pairs → 3 calls).
+- [x] 3. N+1 sites (decision 2). · Query-count specs with the internal client mocked: `listForLearner` with 30 enrollments makes 1 `lesson-ids` call; `withProgress` with 60 seats makes 2 progress calls; `topEducators` makes 1 users call; and so on. Degrade specs: `topEducators` and `withProgress` with the batch call throwing a 503 return 200 with names absent and `progress: null`.
+- [x] 4. Names (decision 3): admin payout `payee_name`, search `educator_name`. Web: the admin payouts tab and `CourseCard`. · Spec: search with auth down → 200 with items and no `educator_name`, and the page isn't cached (the next search calls auth again).
+- [x] 5. Heartbeat (decision 4) on 6b's code. · Specs:
   - a beat on an already-completed lesson in a completed course → no internal call, at most 3 queries, and `nudge_level` reset to 0;
   - the same in a course that isn't complete → no internal call (cached lesson ids), one more count query;
   - self-heal: the `lesson-ids` call fails as the last lesson completes (the beat errors), and the next beat on that lesson completes the course, making one internal call (a failed lookup isn't cached);
   - `CourseRevisionClosed` clears the course's cache entries;
   - a beat that completes a lesson → at most one `lesson-ids` call;
   - 6b's anti-cheat specs stay green.
-- [ ] 6. Bounded lists (decision 5), plus any missing indexes. · Specs per endpoint: limit honoured; cursor returns the previous page; `has_more` is correct at the boundary.
+- [x] 6. Bounded lists (decision 5), plus any missing indexes. · Specs per endpoint: limit honoured; cursor returns the previous page; `has_more` is correct at the boundary.
   - `threadMessages` with 150 messages returns `{ thread, messages, has_more: true }` with the newest 100 in order, and `before` returns the oldest 50. Two messages with the same `created_at` at the page edge both appear exactly once across the two pages.
   - `listComments` with 60 threads returns the newest 50. A reply to a reply in the page is included, and nothing outside the page is. Without `paged`/`before` the same rows come back as a bare array.
-- [ ] 7. Analytics in SQL (decision 6). · Oracle specs: same JSON as the old in-memory computation on fixtures, including months with no data, a row just before a UTC month end with the connection's time zone set to `Africa/Addis_Ababa`, the admin top-8 cut, and a payee with 12 courses getting all 12.
-- [ ] 8. Web (decision 7) and its vitests: Show more reviews; Load earlier comments and messages; `CommentsSection` rendering both a bare array and the paged object; payee names; educator names on cards, and a card without a name.
+- [x] 7. Analytics in SQL (decision 6). · Oracle specs: same JSON as the old in-memory computation on fixtures, including months with no data, a row just before a UTC month end with the connection's time zone set to `Africa/Addis_Ababa`, the admin top-8 cut, and a payee with 12 courses getting all 12.
+- [x] 8. Web (decision 7) and its vitests: Show more reviews; Load earlier comments and messages; `CommentsSection` rendering both a bare array and the paged object; payee names; educator names on cards, and a card without a name.
 - [ ] 9. Load check on the local stack: seed one bulk order with 80 seats (a script in `scripts/`, local only) and time `GET /bulk-purchases/mine` before and after. Expected: from tens of seconds to well under 2 s. Do the same for "My learning" with 30 enrollments. Record the numbers in Progress.
 - [ ] 10. Full gate:
   - `pnpm -C api build && pnpm -C api test && pnpm -C api typecheck && pnpm -C api db:check`;
@@ -222,3 +222,14 @@ Line numbers at `2cdccf9`. 6a retypes every internal call site, 6b rewrites the 
 - **The analytics oracle specs** only prove equality on fixtures. A month boundary in a different time zone is the likely difference, so the SQL truncates `created_at AT TIME ZONE 'UTC'`, matching the in-memory ISO months, and a spec pins it with an Addis session time zone.
 
 ## Progress and deviations (implementer)
+
+## Progress (2026-10-19, branch `fix/read-paths`)
+- Steps 2–8 done; step 9 not run (needs the local stack); step 10: api build/jest/lint and web vitest/tsc/build local, `db:check` and e2e in CI.
+- Deviations (drift.md A1–A8 applied):
+  - Enrollment analytics are strict: course down → 503; a course course no longer knows is skipped. Per-course `courses/:id` reads stay, now parallel.
+  - `courseAttempts` names fall back to "Unknown learner" in both places.
+  - Admin `listAll` payouts keep `take: 200` and add names; the `payee_id` admin listing is paged.
+  - A7: institution payees get `payee_name: null` (P2 follow-up: an institutions batch endpoint).
+  - `getMany` is a helper that takes the client, not a client method (mocks with only `get` keep working).
+  - "Load earlier" / "Show more" reuse the existing `course_by` key on cards; new keys `show_more_reviews`, `loading_more`.
+
