@@ -262,7 +262,7 @@ export class AuthService {
       );
       // No UserRegistered event: that triggers a "verify your email" message,
       // which a Google account (already verified) must never receive.
-      this.logger.log(`google sign-in created new learner ${user.email}`);
+      this.logger.log(`google sign-in created new learner ${user.id}`);
     }
 
     const refreshToken = await this.issueRefreshToken(user.id);

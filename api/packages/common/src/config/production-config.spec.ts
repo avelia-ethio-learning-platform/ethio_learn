@@ -102,6 +102,13 @@ describe('productionConfigProblems', () => {
     ]);
   });
 
+  it.each(['true', '1'])('refuses DB_LOGGING=%s', (value) => {
+    expect(productionConfigProblems(auth, prodEnv({ DB_LOGGING: value }))).toEqual([
+      'DB_LOGGING is on (it logs every query; leave it unset in production)',
+    ]);
+    expect(productionConfigProblems(auth, prodEnv({ DB_LOGGING: 'false' }))).toEqual([]);
+  });
+
   it.each([
     ['WEB_URL', 'http://localhost:3000', 'WEB_URL points at localhost'],
     ['WEB_URL', 'http://127.0.0.1:3000', 'WEB_URL points at localhost'],

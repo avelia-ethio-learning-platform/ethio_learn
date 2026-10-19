@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { MigrationInterface } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 import { envBool, envInt, envOrLocalDefault } from '../config/env';
+import { SafeTypeOrmLogger } from './safe-typeorm-logger';
 
 export type MigrationClass = new () => MigrationInterface;
 
@@ -29,6 +30,11 @@ export function buildTypeOrmOptions(
   // `synchronize` used to be switchable through DB_SYNC (default on), and that
   // switch is how it reached production, where an entity edit can drop a live
   // column. There is no way back: schema changes ship as migrations.
+  // 'schema' is what prints "Migration … has been executed successfully" at
+  // boot; with synchronize off it emits nothing else. DB_LOGGING=true adds every
+  // query and query error, still without parameter values (SafeTypeOrmLogger),
+  // and is refused in production.
+  const logging: PostgresConnectionOptions['logging'] = envBool('DB_LOGGING', false) ? true : ['schema'];
   if (envBool('DB_SYNC', false)) {
     Logger.warn('DB_SYNC is ignored; schema changes go through migrations (README: "Changing the schema")', 'TypeORM');
   }
@@ -48,12 +54,10 @@ export function buildTypeOrmOptions(
     // 'all', any such migration makes the whole run throw.
     migrationsTransactionMode: 'each',
     uuidExtension: 'pgcrypto',
-    // 'schema' is what prints "Migration … has been executed successfully" at
-    // boot; with synchronize off it emits nothing else. Not 'error': the
-    // default logger prints a failing query with its parameter values, which
-    // would put emails and password hashes into the logs. Migration failures
-    // and slow-query warnings print regardless.
-    logging: envBool('DB_LOGGING', false) ? true : ['schema'],
+    logging,
+    // TypeORM's default logger prints parameter values (emails, reset tokens)
+    // with slow and failed queries; this one never does.
+    logger: new SafeTypeOrmLogger(schema, logging),
     // Warn on any query slower than 500ms so bottlenecks surface under load.
     maxQueryExecutionTime: envInt('DB_SLOW_QUERY_MS', 500),
     // Connection pool tuning for 1000+ concurrent users. Each of the ~7 services

@@ -49,17 +49,17 @@ describe('ExamResults', () => {
   });
 
   it('renders rows with flags, and "Learner" when the name is missing', async () => {
-    apiMock.mockResolvedValue({ items: [row(), row({ attempt_id: 'at2', learner_name: null, proctored: false, flagged: false, violation_count: 0, passed: true, score: 90 })] });
+    apiMock.mockResolvedValue({ total: 2, items: [row(), row({ attempt_id: 'at2', learner_name: null, proctored: false, flagged: false, violation_count: 0, passed: true, score: 90 })] });
     mount();
     expect(await screen.findByText('Abebe Bekele')).toBeTruthy();
     expect(screen.getAllByText('Learner')).toHaveLength(2); // the column head and the fallback name
     expect(screen.getByText('Flagged · 2 violations')).toBeTruthy();
-    expect(apiMock).toHaveBeenCalledWith('/courses/c1/attempts');
+    expect(apiMock).toHaveBeenCalledWith('/courses/c1/attempts?page=1&limit=50');
     expect(screen.getAllByRole('button', { name: /^Proctor report/ })).toHaveLength(1);
   });
 
   it('shows the empty state', async () => {
-    apiMock.mockResolvedValue([]);
+    apiMock.mockResolvedValue({ items: [], total: 0 });
     mount();
     expect(await screen.findByText('No submitted attempts yet.')).toBeTruthy();
   });
@@ -68,7 +68,7 @@ describe('ExamResults', () => {
     apiMock.mockImplementation(async (path: string) =>
       path.startsWith('/attempts/')
         ? { termination_reason: null, events: [{ type: 'tab_switch', description: 'Left the exam tab', at: '2026-10-01T10:05:00Z', screenshot_url: 'https://s.test/1.jpg' }] }
-        : [row()],
+        : { items: [row()], total: 1 },
     );
     mount();
     fireEvent.click(await screen.findByRole('button', { name: /^Proctor report/ }));
@@ -78,22 +78,26 @@ describe('ExamResults', () => {
   });
 
   const many = (n: number) => Array.from({ length: n }, (_, i) => row({ attempt_id: `r${i}`, learner_name: `Learner ${i + 1}` }));
+  /** A paged server: 51 rows, 50 to a page. */
+  const server = (total: number) => async (path: string) => {
+    const page = Number(/page=(\d+)/.exec(path)![1]);
+    return { total, items: many(total).slice((page - 1) * 50, page * 50) };
+  };
 
-  it('pages a long list on the client, from one fetch', async () => {
-    apiMock.mockResolvedValue(many(51));
+  it('pages on the server: Next asks for page 2 and the total comes from the answer', async () => {
+    apiMock.mockImplementation(server(51));
     mount();
     expect(await screen.findByText('Showing 1–50 of 51')).toBeTruthy();
-    expect(screen.queryByText('Learner 51')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByText('Learner 51')).toBeTruthy();
     expect(screen.getByText('Showing 51–51 of 51')).toBeTruthy();
+    expect(apiMock).toHaveBeenCalledWith('/courses/c1/attempts?page=2&limit=50');
     fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
     expect(await screen.findByText('Learner 1')).toBeTruthy();
-    expect(apiMock).toHaveBeenCalledTimes(1);
   });
 
   it('exactly one full page has no Next to follow', async () => {
-    apiMock.mockResolvedValue(many(50));
+    apiMock.mockImplementation(server(50));
     mount();
     expect(await screen.findByText('Showing 1–50 of 50')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);

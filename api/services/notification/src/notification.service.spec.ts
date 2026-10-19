@@ -1,5 +1,5 @@
 import { QaDecisionAction, Role } from '@ethiopialearn/contracts';
-import { eventContext, PeerNotFoundError, PeerUnavailableError } from '@ethiopialearn/common';
+import { requestContext, PeerNotFoundError, PeerUnavailableError } from '@ethiopialearn/common';
 import { NotificationService } from './notification.service';
 
 type Handler = (payload: unknown) => unknown;
@@ -49,7 +49,7 @@ function setup(opts: { courseStatus?: string; userEmail?: string; userName?: str
   /** Runs the handler as the bus does: inside the event's context when an event id is given. */
   const emit = async (type: string, payload: unknown, eventId?: string) => {
     const run = () => handlers.get(type)!(payload);
-    await (eventId ? eventContext.run({ event_id: eventId, event_type: type, correlation_id: eventId, handler: `notification:${type}` }, run) : run());
+    await (eventId ? requestContext.run({ event_id: eventId, event_type: type, correlation_id: eventId, handler: `notification:${type}` }, run) : run());
   };
   const emails = () => email.send.mock.calls.map(([m]) => m as { to: string; subject: string; html: string });
   const subscribedTypes = () => [...handlers.keys()];

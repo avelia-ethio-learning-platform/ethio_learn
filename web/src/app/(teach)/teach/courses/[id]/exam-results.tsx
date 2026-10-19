@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ClipboardList } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EmptyRows } from '@/components/EmptyRows';
@@ -36,15 +36,15 @@ export function ExamResults({ courseId }: { courseId: string }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
   const panelId = useId();
-  // One fetch, paged here. The endpoint answers an array today; once the API pages it ({ items, total }),
-  // put `page` in the key and the URL and take `total` from the answer instead of all.length.
+  // The API pages this list: { items, total } for one page of LIMIT rows.
   const { data, isError, refetch } = useQuery({
-    queryKey: ['course-attempts', courseId],
-    queryFn: () => api<AttemptRow[] | { items: AttemptRow[] }>(`/courses/${courseId}/attempts`),
+    queryKey: ['course-attempts', courseId, page],
+    queryFn: () => api<{ items: AttemptRow[]; total: number }>(`/courses/${courseId}/attempts?page=${page}&limit=${LIMIT}`),
     enabled: open,
+    placeholderData: keepPreviousData,
   });
-  const all = Array.isArray(data) ? data : (data?.items ?? []);
-  const rows = all.slice((page - 1) * LIMIT, page * LIMIT);
+  const rows = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   return (
     <div className="card">
@@ -62,7 +62,7 @@ export function ExamResults({ courseId }: { courseId: string }) {
             <PanelError panel="exam results" onRetry={() => refetch()} />
           ) : !data ? (
             <p className="text-sm text-gray-500">Loading…</p>
-          ) : !all.length ? (
+          ) : !total ? (
             <EmptyRows label="No submitted attempts yet." />
           ) : (
             <>
@@ -85,7 +85,7 @@ export function ExamResults({ courseId }: { courseId: string }) {
                   </tbody>
                 </table>
               </div>
-              <Pager page={page} pageSize={LIMIT} total={all.length} onPage={setPage} />
+              <Pager page={page} pageSize={LIMIT} total={total} onPage={setPage} />
             </>
           )}
         </div>

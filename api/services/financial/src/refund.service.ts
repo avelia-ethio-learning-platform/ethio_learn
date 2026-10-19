@@ -197,12 +197,13 @@ export class RefundService {
   }
 
   async listMine(ctx: UserContext) {
-    return this.refunds.find({ where: { learner_id: ctx.id }, order: { created_at: 'DESC' } });
+    return this.refunds.find({ where: { learner_id: ctx.id }, order: { created_at: 'DESC' }, take: 100 });
   }
 
   async listPending(ctx: UserContext) {
     if (ctx.role !== Role.PLATFORM_ADMIN) throw new ForbiddenException();
-    const rows = await this.refunds.find({ where: { status: RefundStatus.PENDING }, order: { created_at: 'ASC' } });
+    // The oldest 100, still a bare array (the admin Refunds tab maps it).
+    const rows = await this.refunds.find({ where: { status: RefundStatus.PENDING }, order: { created_at: 'ASC' }, take: 100 });
     if (!rows.length) return [];
     const payments = await this.payments.find({ where: { id: In(rows.map((r) => r.payment_id)) } });
     const byId = new Map(payments.map((p) => [p.id, p]));

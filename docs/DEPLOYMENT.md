@@ -351,6 +351,41 @@ ORDER BY e.enrolled_at;
    ```
    Then do by hand whatever the skipped event would have caused, since its consumers never see it.
 
+## Logs
+
+In production every service and the gateway write one JSON object per line.
+Locally the output stays readable.
+
+- **Settings:**
+  - `LOG_FORMAT`: `json` or `pretty`. It defaults to `json` when `NODE_ENV=production` and to `pretty` everywhere else.
+  - `LOG_LEVEL`: `error`, `warn`, `log` (the default), `debug` or `verbose`. Each level keeps the ones above it.
+  - Neither needs setting on Render.
+- **A line:**
+  - `ts`, `level`, `service`, `context` (the class that logged it) and `msg`;
+  - `request_id`, plus `user_id`, `event_id` and `handler` when they're known;
+  - `stack` on errors.
+- **The access line:** the gateway writes one per request, with `context` `"Access"`:
+  - the method, the path and the status;
+  - `ms`, `user_id` (only from a verified token), `upstream` (the service) and `ip`;
+  - `error_code` when the proxy couldn't reach the service, for example `ECONNREFUSED` while it wakes;
+  - a `/health` or `/ready` 200 isn't logged, so wake pings stay out.
+- **Following one request:**
+  - every API response carries an `x-request-id` header. The gateway keeps an incoming one only if it's a UUID.
+  - That id goes with the request to every service it calls. It also becomes the `correlation_id` of every event published while handling it, and the consumers log under the same `request_id`.
+  - To follow it, search `"request_id":"<id>"` in each service's Logs in Render. The gateway's access line names the service the request went to.
+- **What's never logged:**
+  - email addresses (masked as `a***@example.com` where one helps; any address left in a message or stack prints as `[email]`);
+  - query strings;
+  - invite and pay-request tokens, which show as `[token]` in paths;
+  - SQL parameter values: the slow-query log (over `DB_SLOW_QUERY_MS`, 500 ms by default) prints SQL and duration only, and `DB_LOGGING` never prints values. An unhandled Postgres error's message can still quote the input.
+  - Production also refuses to boot with:
+    - `DB_LOGGING=true`;
+    - the notification service without a real email provider (`BREVO_API_KEY`, `SMTP_HOST` or `RESEND_API_KEY`). Without one, the console provider would print reset and invite links.
+- **Adding code:**
+  - log ids, not addresses (`maskEmail()` if one is really needed), and `redactPath()` for a path;
+  - `no-pii-in-logs.spec.ts` fails the build on a `logger.*(…)` call with an email-named value outside `maskEmail()`;
+  - it also fails the build on a `:token`/`:secret` route param whose parent segment isn't in `TOKEN_PARENTS`.
+
 ## Images and self-hosting
 
 - **`api/Dockerfile`** builds any one service from the `api/` context with `--build-arg PKG=@ethiopialearn/<name>`, which is what Render does for each service:

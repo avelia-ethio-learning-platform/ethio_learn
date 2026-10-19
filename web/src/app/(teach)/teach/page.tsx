@@ -14,6 +14,10 @@ import { categoryLabel, holdReasonLabel, pricingLabel } from '@/lib/labels';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { useAuth } from '@/lib/hooks';
+import { asPage } from '@/lib/merge-pages';
+import { Pager } from '@/components/Pager';
+
+const PAYOUTS_PAGE = 20;
 
 function TeachDashboard() {
   const { locale } = useT();
@@ -25,7 +29,12 @@ function TeachDashboard() {
   const needsInstitution =
     isInstitution && coursesError instanceof ApiError && coursesError.status === 400 && /institution profile/i.test(coursesError.message);
   const { data: balance } = useQuery({ queryKey: ['balance'], queryFn: () => api<any>('/payouts/balance') });
-  const { data: payouts } = useQuery({ queryKey: ['payouts'], queryFn: () => api<any[]>('/payouts') });
+  const [payoutPage, setPayoutPage] = useState(1);
+  const { data: payoutsPage } = useQuery({
+    queryKey: ['payouts', payoutPage],
+    queryFn: async () => asPage(await api<any[] | { items: any[]; total: number }>(`/payouts?paged=1&page=${payoutPage}&limit=${PAYOUTS_PAGE}`)),
+  });
+  const payouts = payoutsPage?.items;
   const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
 
   const stats = [
@@ -36,7 +45,8 @@ function TeachDashboard() {
       hint: `from ${balance?.payment_count ?? 0} settled payments`,
     },
     { icon: BookOpen, label: 'Courses', value: courses?.length ?? 0, hint: 'drafts + published' },
-    { icon: HandCoins, label: 'Payouts received', value: payouts?.filter((p) => p.status === 'paid').length ?? 0, hint: 'nightly runs' },
+    // The API's count of every paid payout, not just this page's.
+    { icon: HandCoins, label: 'Payouts received', value: balance?.paid_payout_count ?? payouts?.filter((p) => p.status === 'paid').length ?? 0, hint: 'nightly runs' },
   ];
 
   return (
@@ -147,6 +157,7 @@ function TeachDashboard() {
                 <StatusBadge status={p.status} suffix={p.hold_reason ? holdReasonLabel(p.hold_reason) : undefined} />
               </div>
             ))}
+            <Pager page={payoutPage} pageSize={PAYOUTS_PAGE} total={payoutsPage?.total ?? 0} onPage={setPayoutPage} />
           </div>
         </section>
       </div>

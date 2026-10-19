@@ -459,7 +459,8 @@ async function main() {
   await sleep(1_500); // let any duplicate arrive before counting
   const sent = sql(`SELECT event_id FROM notification.notification_log WHERE event_type = 'UserRegistered' AND recipient = '${newEmail}'`);
   check('exactly one verification email logged, for the outbox row', sent.length === 1 && sent[0][0] === outbox.signup?.id, JSON.stringify(sent));
-  const printed = readFileSync(join(ROOT, '.devlogs/notification.log'), 'utf8').split(`To: ${newEmail}\n`).length - 1;
+  // The console provider masks the address (9d), so count the greeting: the name is unique to this run.
+  const printed = readFileSync(join(ROOT, '.devlogs/notification.log'), 'utf8').split(`Hi Drill signup ${RUN},`).length - 1;
   check('the console provider printed it once', printed === 1, `${printed} times`);
 
   // 9a: events flow again — an enrollment in the course published after the outage.

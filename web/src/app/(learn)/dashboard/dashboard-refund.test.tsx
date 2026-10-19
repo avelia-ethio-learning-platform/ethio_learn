@@ -23,7 +23,7 @@ beforeEach(() => {
   apiMock.mockReset();
   refundResult = async () => ({ status: 'pending', rule: '' });
   apiMock.mockImplementation(async (path: string, opts?: { method?: string }) => {
-    if (path === '/payments/mine') return [PAYMENT];
+    if (path.startsWith('/payments/mine')) return { items: [PAYMENT], total: 1 };
     if (path === '/refunds' && opts?.method === 'POST') return refundResult();
     if (path === '/sponsorships/claim') return { claimed: 0 };
     if (path === '/sponsorships/mine') return { sent: [], received: [] };
@@ -77,5 +77,21 @@ describe('Learner dashboard refund', () => {
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Request refund' }));
     const err = await screen.findByText('Refund window closed');
     expect(err.closest('[role="alert"]')).not.toBeNull();
+  });
+});
+
+describe('Learner dashboard payment history', () => {
+  it('pages older payments with the shared pager', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/payments/mine')) return { items: [PAYMENT], total: 25 };
+      if (path === '/sponsorships/claim') return { claimed: 0 };
+      if (path === '/sponsorships/mine') return { sent: [], received: [] };
+      if (path === '/referrals/me') return {};
+      return [];
+    });
+    renderPage();
+    expect(await screen.findByText('Showing 1–20 of 25')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/payments/mine?paged=1&page=2&limit=20'));
   });
 });

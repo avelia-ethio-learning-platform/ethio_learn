@@ -5,7 +5,7 @@ import { BadgeCheck, Clock, Globe, Layers, PlayCircle, Star, UserRound, Wallet }
 import { serverApi, SITE_URL } from '@/lib/server-api';
 import { hasRealThumbnail } from '@/lib/categories';
 import { BUY_BULLET_KEY, buyBullets, hasPlayablePreview, sectionHasPreview, type BuyBullet } from '@/lib/course-page';
-import { CategoryName, LocalDate, PriceLabel } from '@/components/Localized';
+import { CategoryName, PriceLabel } from '@/components/Localized';
 import { CourseCover } from '@/components/CourseCover';
 import { ExpandableSummary } from '@/components/ExpandableSummary';
 import { MobileBuyBar } from '@/components/MobileBuyBar';
@@ -15,6 +15,7 @@ import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { WakingUp } from '@/components/WakingUp';
 import { EnrollPanel } from './enroll-panel';
+import { ReviewsList, type Review } from './reviews-list';
 import { jsonLdScript } from '@/lib/json-ld';
 import { T, type TKey } from '@/lib/i18n';
 
@@ -44,7 +45,9 @@ interface CourseDetail {
 interface Reviews {
   average_rating: number | null;
   review_count: number;
-  reviews: { id: string; rating: number; comment: string | null; created_at: string }[];
+  reviews: Review[];
+  /** Absent from an API that predates review paging. */
+  has_more?: boolean;
 }
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
@@ -219,21 +222,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
               <h2 className="mt-10 text-xl font-bold text-foreground">
                 <T k="learner_reviews" />
               </h2>
-              <div className="mt-4 space-y-3">
-                {reviews.reviews.slice(0, 5).map((r) => (
-                  <div key={r.id} className="card">
-                    <p className="flex items-center gap-0.5">
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <Star key={n} className={`h-4 w-4 ${n <= r.rating ? 'fill-rating text-rating' : 'text-gray-500'}`} />
-                      ))}
-                    </p>
-                    {r.comment && <p className="mt-2 text-sm leading-relaxed text-gray-600">{r.comment}</p>}
-                    <p className="mt-2 text-xs text-gray-500">
-                      <LocalDate iso={r.created_at} />
-                    </p>
-                  </div>
-                ))}
-              </div>
+              <ReviewsList courseId={course.id} initial={reviews.reviews} hasMore={!!reviews.has_more} />
             </>
           )}
 

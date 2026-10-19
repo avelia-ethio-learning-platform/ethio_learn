@@ -29,7 +29,10 @@ function setup(opts: Options = {}) {
     create: jest.fn((r: object) => r),
     find: jest.fn().mockResolvedValue(opts.reviews ?? [{ rating: 5 }]),
     createQueryBuilder: jest.fn(() => {
-      const qb = { select: () => qb, where: () => qb, getRawOne: async () => ({ avg: opts.avgRating ?? null }) };
+      // One builder for both aggregates: the tier's average and the course's review totals (SQL in Phase 9e).
+      const reviews = (opts.reviews ?? [{ rating: 5 }]) as { rating: number }[];
+      const totals = { count: String(reviews.length), points: String(reviews.reduce((sum, r) => sum + r.rating, 0)) };
+      const qb = { select: () => qb, addSelect: () => qb, where: () => qb, getRawOne: async () => ({ avg: opts.avgRating ?? null, ...totals }) };
       return qb;
     }),
   };

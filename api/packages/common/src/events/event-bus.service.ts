@@ -4,7 +4,8 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { randomUUID } from 'crypto';
 import { EventEnvelope, EventType } from '@ethiopialearn/contracts';
 import { envInt, envOrLocalDefault } from '../config/env';
-import { eventContext } from './event-context';
+import { redactEmails } from '../logging/redact';
+import { currentContext, requestContext, requestIdFrom } from '../context';
 
 export const EVENTS_EXCHANGE = 'ethiopialearn.events';
 export const COMMANDS_EXCHANGE = 'ethiopialearn.commands';
@@ -383,7 +384,10 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
     }
   }
 
-  /** `eventId` is set by a sender that re-sends (the outbox, Phase 4's cron), so the consumers' dedupe sees one event. */
+  /**
+   * `eventId` is set by a sender that re-sends (the outbox, Phase 4's cron), so the consumers' dedupe sees one event.
+   * The correlation id defaults to the current request's id, so the event carries it to its consumers.
+   */
   private envelope<P>(eventType: EventType, payload: P, correlationId?: string, eventId?: string): EventEnvelope<P> {
     return {
       event_type: eventType,
@@ -392,7 +396,7 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
         event_id: eventId ?? randomUUID(),
         timestamp: new Date().toISOString(),
         producer_service: this.options.serviceName,
-        correlation_id: correlationId ?? randomUUID(),
+        correlation_id: correlationId ?? currentContext()?.request_id ?? randomUUID(),
       },
     };
   }
@@ -418,35 +422,51 @@ export class EventBusService implements OnApplicationBootstrap, OnApplicationShu
       }
 
       const { event_id, correlation_id } = envelope.metadata;
+      // Everything a handler logs, calls or publishes carries the request that caused the event.
+      const request_id = requestIdFrom(correlation_id);
       for (const handler of this.eventHandlers.get(envelope.event_type) ?? []) {
-        const context = { event_id, event_type: envelope.event_type, correlation_id, handler: handler.name };
-        try {
-          await eventContext.run(context, () => handler.fn(envelope.payload, envelope));
-        } catch (err) {
-          const attempts = failures + 1;
-          if (attempts >= this.maxAttempts) {
-            this.logger.error(
-              `event parked: ${envelope.event_type} (${event_id}) handler ${handler.name} failed ${attempts} times: ${errorText(err)}`,
-              (err as Error)?.stack,
-            );
-            await this.republish(channel, msg, `${this.options.serviceName}.events.parked`, {
-              'x-attempts': attempts,
-              'x-last-error': errorText(err),
-              'x-failed-handler': handler.name,
-            });
-          } else {
-            this.logger.warn(
-              `event handler failed, retrying in ${Math.round(this.retryDelayMs / 1000)}s: ${envelope.event_type} (${event_id}) ` +
-                `handler ${handler.name}, attempt ${attempts} of ${this.maxAttempts}: ${errorText(err)}`,
-            );
-            await this.republish(channel, msg, this.retryQueue(), { 'x-attempts': attempts });
-          }
-          return;
-        }
+        const context = { request_id, event_id, event_type: envelope.event_type, correlation_id, handler: handler.name };
+        const handled = await requestContext.run(context, () => this.runHandler(channel, msg, envelope, handler, failures));
+        if (!handled) return;
       }
       this.ack(channel, msg);
     } catch (err) {
       this.logger.error(`event consumer failed: ${errorText(err)}`);
+    }
+  }
+
+  /** Runs one handler. On a throw, moves the message to the retry or parked queue and returns false. */
+  private async runHandler(
+    channel: amqp.Channel,
+    msg: amqp.ConsumeMessage,
+    envelope: EventEnvelope,
+    handler: NamedHandler,
+    failures: number,
+  ): Promise<boolean> {
+    const { event_id } = envelope.metadata;
+    try {
+      await handler.fn(envelope.payload, envelope);
+      return true;
+    } catch (err) {
+      const attempts = failures + 1;
+      if (attempts >= this.maxAttempts) {
+        this.logger.error(
+          `event parked: ${envelope.event_type} (${event_id}) handler ${handler.name} failed ${attempts} times: ${errorText(err)}`,
+          errorStack(err),
+        );
+        await this.republish(channel, msg, `${this.options.serviceName}.events.parked`, {
+          'x-attempts': attempts,
+          'x-last-error': errorText(err),
+          'x-failed-handler': handler.name,
+        });
+      } else {
+        this.logger.warn(
+          `event handler failed, retrying in ${Math.round(this.retryDelayMs / 1000)}s: ${envelope.event_type} (${event_id}) ` +
+            `handler ${handler.name}, attempt ${attempts} of ${this.maxAttempts}: ${errorText(err)}`,
+        );
+        await this.republish(channel, msg, this.retryQueue(), { 'x-attempts': attempts });
+      }
+      return false;
     }
   }
 
@@ -510,8 +530,15 @@ function backoffMs(attempt: number): number {
   return Math.round(base * (0.8 + Math.random() * 0.4));
 }
 
+/** An error's message for a log line or the `x-last-error` header: a provider's rejection can quote the recipient. */
 function errorText(err: unknown): string {
-  return String((err as Error)?.message ?? err).slice(0, 500);
+  return redactEmails(String((err as Error)?.message ?? err)).slice(0, 500);
+}
+
+/** The stack for a park line: it starts with the error's message, so it gets the same redaction. */
+function errorStack(err: unknown): string | undefined {
+  const stack = (err as Error)?.stack;
+  return typeof stack === 'string' ? redactEmails(stack) : undefined;
 }
 
 function waitForDrain(channel: amqp.Channel, ms: number, label: string): Promise<void> {
