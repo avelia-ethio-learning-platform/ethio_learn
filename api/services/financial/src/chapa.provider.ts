@@ -158,7 +158,8 @@ export class LiveChapaProvider implements ChapaProvider {
       raw === 'success' ? 'success' : /fail|cancel|declin|reject|error/.test(raw) ? 'failed' : 'pending';
     return {
       status,
-      amount: data.amount != null ? Number(data.amount) : null,
+      // A non-numeric amount is "not verified" (null), never NaN, which would slip past the amount check.
+      amount: data.amount != null && Number.isFinite(Number(data.amount)) ? Number(data.amount) : null,
       currency: typeof data.currency === 'string' ? data.currency : null,
     };
   }

@@ -72,6 +72,10 @@ describe('InternalGuard', () => {
     expect(() => guard.canActivate(contextFor({}))).toThrow(UnauthorizedException);
   });
 
+  it('a non-ASCII token of the right character count is a 401, not a crash', () => {
+    expect(() => guard.canActivate(contextFor({ 'x-internal-token': 'secret-internal-tokeé' }))).toThrow(UnauthorizedException);
+  });
+
   it('rejects everything when the expected token is unset (fail closed)', () => {
     delete process.env.INTERNAL_API_TOKEN;
     expect(() => guard.canActivate(contextFor({ 'x-internal-token': '' }))).toThrow(UnauthorizedException);
