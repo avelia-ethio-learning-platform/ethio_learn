@@ -38,12 +38,18 @@ async function expectAtRest(surface: Locator) {
   await expect(surface).toBeVisible();
   // Framer still fades opacity under reduced motion (only transforms are cut); it ends at 1.
   await expect(surface).toHaveCSS('opacity', '1');
-  const moved = await surface.evaluate((root) =>
-    [root, ...Array.from(root.querySelectorAll('*'))]
-      .filter((el) => !['none', 'matrix(1, 0, 0, 1, 0, 0)'].includes(getComputedStyle(el).transform))
-      .map((el) => `${el.tagName}.${el.getAttribute('class') ?? ''}`.slice(0, 80)),
-  );
-  expect(moved, 'transformed elements').toEqual([]);
+  // Polled briefly: framer applies the cut transform on its next frame.
+  await expect
+    .poll(
+      () =>
+        surface.evaluate((root) =>
+          [root, ...Array.from(root.querySelectorAll('*'))]
+            .filter((el) => !['none', 'matrix(1, 0, 0, 1, 0, 0)'].includes(getComputedStyle(el).transform))
+            .map((el) => `${el.tagName}.${(el.getAttribute('class') ?? '').slice(0, 40)} ${getComputedStyle(el).transform}`),
+        ),
+      { message: 'transformed elements', timeout: 500 },
+    )
+    .toEqual([]);
 }
 
 /** The opacity of a CSS enter right after it mounts: no retry, so a fade that runs is caught. */

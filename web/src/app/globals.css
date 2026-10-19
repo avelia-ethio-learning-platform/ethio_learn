@@ -408,6 +408,14 @@
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
   }
 
+  /* Touch layouts: filter, pager and tab pills are 44 px targets. */
+  @media (pointer: coarse) {
+    .pill,
+    .pill-active {
+      min-height: 44px;
+    }
+  }
+
   /* -------- Status badges: the status roles, so both themes come from the tokens -------- */
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
