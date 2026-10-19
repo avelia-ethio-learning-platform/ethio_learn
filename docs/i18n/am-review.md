@@ -7,7 +7,7 @@ in by the app and must stay as they are; the parity test (`web/src/lib/i18n.test
 
 Strings that existed before Phase 10 (the header, footer, home page and parts of the catalog) are not listed.
 
-225 strings.
+227 strings.
 
 ## Shell
 
@@ -271,6 +271,8 @@ Strings that existed before Phase 10 (the header, footer, home page and parts of
 | `notifications` | Notifications | ማሳወቂያዎች |
 | `mark_all_read` | Mark all read | ሁሉንም እንደተነበበ ምልክት አድርግ |
 | `no_notifications` | No notifications yet. | እስካሁን ምንም ማሳወቂያ የለም። |
+| `messages` | Messages | መልዕክቶች |
+| `filter_language` | Language | ቋንቋ |
 
 ## English-only notice (untranslated pages)
 
