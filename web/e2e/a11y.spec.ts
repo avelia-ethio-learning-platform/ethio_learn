@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext, type Page } from './test';
-import { apiGet, authFile, BASE_URL, draftWithLesson, firstCourseId, learnerCertificateUid, seededExamPath, seedPassword, settle } from './support';
+import { apiGet, BASE_URL, draftWithLesson, firstCourseId, learnerCertificateUid, seededExamPath, seedPassword, settle } from './support';
 
 // Decision 12: zero serious or critical axe violations (WCAG 2.0/2.1 A and AA)
 // on the public, learner, account and role pages, in light and dark, at 1440 px.
@@ -170,7 +170,7 @@ for (const theme of THEMES) {
     });
 
     test.describe('admin console', () => {
-      test.use({ storageState: authFile('platform_admin') });
+      test.use({ loggedInAs: 'platform_admin' });
 
       // Split in two: each tab scan waits for its data and the reveals, and six together are close to the 30 s timeout.
       test('analytics, payments, users', async ({ page }) => {
@@ -187,7 +187,7 @@ for (const theme of THEMES) {
     });
 
     test.describe('educator pages', () => {
-      test.use({ storageState: authFile('educator') });
+      test.use({ loggedInAs: 'educator' });
 
       test('teach, new course, analytics, coupons', async ({ page }) => {
         for (const path of ['/teach', '/teach/new', '/teach/analytics', '/teach/coupons']) {
@@ -205,7 +205,7 @@ for (const theme of THEMES) {
     });
 
     test.describe('institution pages', () => {
-      test.use({ storageState: authFile('institution_admin') });
+      test.use({ loggedInAs: 'institution_admin' });
 
       test('institution, review', async ({ page }) => {
         for (const path of ['/institution', '/institution/review']) {
@@ -215,7 +215,7 @@ for (const theme of THEMES) {
     });
 
     test.describe('quality pages', () => {
-      test.use({ storageState: authFile('quality_officer') });
+      test.use({ loggedInAs: 'quality_officer' });
 
       test('qa', async ({ page }) => {
         await scanVisit(page, '/qa', theme);
@@ -223,7 +223,7 @@ for (const theme of THEMES) {
     });
 
     test.describe('preview', () => {
-      test.use({ storageState: authFile('platform_admin') });
+      test.use({ loggedInAs: 'platform_admin' });
 
       test('a seeded course as the admin sees it', async ({ page, request }) => {
         await scanVisit(page, `/preview/${await firstCourseId(request)}`, theme);
@@ -231,7 +231,7 @@ for (const theme of THEMES) {
     });
 
     test.describe('learner pages', () => {
-      test.use({ storageState: authFile('learner') });
+      test.use({ loggedInAs: 'learner' });
 
       test('dashboard, account, change password, notifications', async ({ page }) => {
         for (const path of ['/dashboard', '/account', '/account/password', '/notifications']) {

@@ -3,6 +3,8 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { LazyMotion, MotionConfig } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import { bootAuth } from '@/lib/api';
+import { subscribeAuth, getAuth } from '@/lib/auth-store';
 import { I18nProvider } from '@/lib/i18n';
 import { makeQueryClient } from '@/lib/query-client';
 import { ConfirmProvider } from './confirm/ConfirmProvider';
@@ -16,12 +18,13 @@ function useServiceWorker() {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
     if (process.env.NODE_ENV !== 'production') return;
     navigator.serviceWorker.register('/sw.js').catch(() => undefined);
-    const onAuth = () => {
-      // Logged out → forget cached API responses so the next user on this device sees nothing of ours.
-      if (!localStorage.getItem('el_auth')) navigator.serviceWorker.controller?.postMessage('el-clear-api-cache');
-    };
-    window.addEventListener('el-auth-changed', onAuth);
-    return () => window.removeEventListener('el-auth-changed', onAuth);
+    let signedIn = getAuth() !== null;
+    // Logged out → forget cached API responses so the next user on this device sees nothing of ours.
+    return subscribeAuth(() => {
+      const now = getAuth() !== null;
+      if (signedIn && !now) navigator.serviceWorker.controller?.postMessage('el-clear-api-cache');
+      signedIn = now;
+    });
   }, []);
 }
 
@@ -31,6 +34,8 @@ const loadMotionFeatures = () => import('./motion-features').then((mod) => mod.d
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(makeQueryClient);
   useServiceWorker();
+  // The session hint → one refresh (Phase 11b); an anonymous visitor makes no call.
+  useEffect(() => bootAuth(), []);
   return (
     <QueryClientProvider client={client}>
       <ThemeProvider>

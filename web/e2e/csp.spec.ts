@@ -1,5 +1,5 @@
 import { expect, test } from './test';
-import { apiGet, authFile, COLD_URL, firstCourseId, ownCourseId } from './support';
+import { apiGet, COLD_URL, firstCourseId, ownCourseId } from './support';
 
 // Phase 10: the flows whose sources the Content Security Policy must allow.
 // The fixture in ./test fails each of these on any violation; the assertions
@@ -32,7 +32,7 @@ test('the Google sign-in button renders', async ({ page }) => {
 });
 
 test.describe('as the educator', () => {
-  test.use({ storageState: authFile('educator') });
+  test.use({ loggedInAs: 'educator' });
 
   test('a thumbnail uploads straight to storage and shows', async ({ page, request }) => {
     await page.goto(`/teach/courses/${await ownCourseId(request)}`);
@@ -59,7 +59,7 @@ test.describe('as the educator', () => {
 });
 
 test.describe('as the learner', () => {
-  test.use({ storageState: authFile('learner') });
+  test.use({ loggedInAs: 'learner' });
 
   test('a free preview video loads from storage', async ({ page, request }) => {
     const id = await firstCourseId(request);

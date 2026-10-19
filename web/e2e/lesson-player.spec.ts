@@ -1,8 +1,8 @@
 import { expect, test, type APIRequestContext } from './test';
-import { apiGet, authFile } from './support';
+import { apiGet } from './support';
 
 // Phase 7b: the lesson player on a phone. Reuses the stored learner login.
-test.use({ storageState: authFile('learner'), viewport: { width: 375, height: 800 } });
+test.use({ loggedInAs: 'learner', viewport: { width: 375, height: 800 } });
 
 const START = /^(Start lesson 1|Resume: )/;
 

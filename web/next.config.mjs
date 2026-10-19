@@ -1,8 +1,11 @@
 import { securityHeaders } from './src/lib/csp.mjs';
+import { assertProxySecret } from './src/lib/proxy-secret.mjs';
 import { assertSiteUrl } from './src/lib/site-url.mjs';
 
 // A production build without the real site URL would publish localhost canonicals.
 assertSiteUrl(process.env);
+// Without the proxy secret, every user would share Vercel's rate-limit buckets.
+assertProxySecret(process.env);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

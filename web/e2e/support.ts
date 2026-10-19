@@ -34,7 +34,7 @@ export function seedPassword(): string {
   return line.slice('SEED_PASSWORD='.length).trim().replace(/^(['"])(.*)\1$/, '$2');
 }
 
-/** Logs in through the real form. Each call spends one of the 10 auth-strict calls a minute (see playwright.config.ts). */
+/** Logs in through the real form (one auth-strict call). */
 export async function logIn(page: Page, role: Role) {
   await page.goto('/login');
   await page.locator('input[name="email"]').fill(ROLES[role].email);
@@ -43,14 +43,28 @@ export async function logIn(page: Page, role: Role) {
   await page.waitForURL(`**${ROLES[role].home}`);
 }
 
-/** The access token saved by auth.setup.ts for a role. */
+/**
+ * Signs `page`'s context in as `role` (Phase 11b): a login through the web
+ * origin stores that context's own refresh cookie, and the session hint makes
+ * the next page load refresh. Refresh tokens rotate on every load, so a saved
+ * storageState would work for one context only: each test logs in itself.
+ */
+export async function signIn(page: Page, role: Role) {
+  const res = await page.request.post(`${BASE_URL}/api/v1/auth/login`, { data: { email: ROLES[role].email, password: seedPassword() } });
+  expect(res.ok(), `login as ${role} → ${res.status()}`).toBe(true);
+  const { user } = (await res.json()) as { user: unknown };
+  // A page where the app doesn't run, to write the hint before the first real load.
+  await page.goto(`${BASE_URL}/robots.txt`);
+  await page.evaluate((u) => localStorage.setItem('el_session', JSON.stringify({ user: u })), user);
+}
+
+/** An access token for API-level calls in specs, saved by auth.setup.ts (valid 15 min). */
 export function tokenFor(role: Role): string {
-  const state = JSON.parse(readFileSync(authFile(role), 'utf8')) as {
-    origins: { origin: string; localStorage: { name: string; value: string }[] }[];
-  };
-  const item = state.origins.flatMap((o) => o.localStorage).find((i) => i.name === 'el_auth');
-  if (!item) throw new Error(`No saved login for ${role}; did auth.setup.ts run?`);
-  return (JSON.parse(item.value) as { access_token: string }).access_token;
+  try {
+    return (JSON.parse(readFileSync(authFile(role), 'utf8')) as { access_token: string }).access_token;
+  } catch {
+    throw new Error(`No saved token for ${role}; did auth.setup.ts run?`);
+  }
 }
 
 export async function apiGet<T>(request: APIRequestContext, apiPath: string, role?: Role): Promise<T> {

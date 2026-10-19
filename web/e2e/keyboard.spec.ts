@@ -1,5 +1,4 @@
 import { expect, test } from './test';
-import { authFile } from './support';
 
 // P1-49 / P1-50 / P1-51: the shell works without a mouse.
 
@@ -118,7 +117,7 @@ test.describe('375 px', { tag: '@flow' }, () => {
   });
 
   test.describe('signed in', () => {
-    test.use({ storageState: authFile('learner') });
+    test.use({ loggedInAs: 'learner' });
 
     test('the bell panel stays inside the viewport', async ({ page }) => {
       await page.goto('/');

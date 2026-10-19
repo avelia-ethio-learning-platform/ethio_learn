@@ -24,9 +24,11 @@ describe('rate-limit policy classification', () => {
     expect(classifyRequest('PUT', '/api/v1/profiles/me')).toBe('write');
   });
 
-  it('keeps token refresh out of the strict bucket (fires every 15 min legitimately)', () => {
-    expect(classifyRequest('POST', '/api/v1/auth/refresh')).toBe('auth');
+  it('gives token refresh its own per-token bucket (every page load refreshes)', () => {
+    expect(classifyRequest('POST', '/api/v1/auth/refresh')).toBe('auth-refresh');
+    expect(classifyRequest('POST', '/api/v1/auth/Refresh/')).toBe('auth-refresh');
     expect(classifyRequest('POST', '/api/v1/auth/logout')).toBe('auth');
+    expect(classifyRequest('GET', '/api/v1/auth/invite/abc')).toBe('auth');
   });
 
   it('throttles LLM-backed endpoints hardest', () => {
