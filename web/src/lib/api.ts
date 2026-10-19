@@ -1,41 +1,22 @@
 'use client';
 
+import { clearLocalAuth, getAuth, markAuthReady, setAuth } from './auth-store';
 import { isHibernation } from './hibernation';
 import { wakeServices } from './wake';
 import { trackRequest } from './waking';
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-export interface AuthUser {
-  id: string;
-  name: string;
-  email: string;
-  role: 'learner' | 'educator' | 'institution_admin' | 'quality_officer' | 'platform_admin';
-  must_change_password?: boolean;
-}
+export type { AuthState, AuthUser, Session } from './auth-store';
+export { getAuth, setAuth } from './auth-store';
 
-interface AuthState {
-  access_token: string;
-  user: AuthUser;
-}
-
-const STORAGE_KEY = 'el_auth';
-
-export function getAuth(): AuthState | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as AuthState) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function setAuth(state: AuthState | null) {
-  if (typeof window === 'undefined') return;
-  if (state) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  else localStorage.removeItem(STORAGE_KEY);
-  window.dispatchEvent(new Event('el-auth-changed'));
+/**
+ * The cookie routes go to the web's own origin (route handlers forward them to
+ * the gateway), so the refresh cookie is first-party there. Everything else goes
+ * straight to the gateway with the bearer token and no cookies (Phase 11b).
+ */
+function sameOrigin(path: string): boolean {
+  return path.startsWith('/auth/') || path.split('?')[0] === '/profiles/password';
 }
 
 export class ApiError extends Error {
@@ -71,16 +52,32 @@ let refreshInFlight: Promise<RefreshOutcome> | null = null;
  * session, once for all waiters.
  */
 function refreshOnce(): Promise<RefreshOutcome> {
-  refreshInFlight ??= runRefresh().finally(() => {
+  refreshInFlight ??= lockedRefresh().finally(() => {
     refreshInFlight = null;
   });
   return refreshInFlight;
 }
 
+/**
+ * Tabs share one cookie, so refreshes are serialized across them with a Web
+ * Lock, one attempt per acquisition (a waking retry takes it again). Inside the
+ * lock, a token another tab delivered while this one waited is used as is.
+ * Without Web Locks a race can sign one tab out; a reload fixes it.
+ */
+async function lockedRefresh(): Promise<RefreshOutcome> {
+  const held = getAuth()?.access_token;
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (!locks?.request) return runRefresh();
+  return await locks.request('el-auth-refresh', async (): Promise<RefreshOutcome> => {
+    const current = getAuth()?.access_token;
+    return current && current !== held ? 'ok' : runRefresh();
+  });
+}
+
 async function runRefresh(): Promise<RefreshOutcome> {
   let res: Response;
   try {
-    res = await fetch(`${API_URL}/api/v1/auth/refresh`, { method: 'POST', credentials: 'include' });
+    res = await fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'same-origin' });
   } catch {
     wakeServices();
     return 'waking';
@@ -96,16 +93,64 @@ async function runRefresh(): Promise<RefreshOutcome> {
     return 'ok';
   }
   if (res.status === 401 || res.status === 403) {
-    setAuth(null);
+    clearLocalAuth(); // this tab only: with the lock, it means the session really ended
     return 'rejected';
   }
   const text = await res.text().catch(() => '');
   if (res.status === 429 && !isHibernation(res.status, res.headers, text)) {
     throw new ApiError(429, errorMessage(text, 429)); // the gateway's limiter: keep the session
   }
-  // A hibernation 429, a 5xx: the call never reached auth, so the refresh token is still good.
+  // A hibernation 429, a 5xx, the route handler's 503: the call never reached auth, so the refresh token is still good.
   wakeServices();
   return 'waking';
+}
+
+const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+/** Phase 5's wake backoff (query-client.ts WAKING_RETRY_MS). */
+export const BOOT_RETRY_MS = 10_000;
+
+let booted = false;
+
+/**
+ * Page load (Providers): with the session hint, one refresh through the lock.
+ * Asleep or rate-limited while online, it retries on the wake backoff and the
+ * page stays "not ready" (the waking notice shows after 4 s). Offline, the
+ * user stays signed in on cached pages and the refresh runs on `online`.
+ */
+export function bootAuth(): void {
+  if (booted || typeof window === 'undefined') return;
+  booted = true;
+  if (!getAuth()) return; // no hint: anonymous, no call
+  void bootRefresh();
+}
+
+async function bootRefresh(): Promise<void> {
+  const settle = trackRequest();
+  try {
+    for (;;) {
+      if (isOffline()) return signedInOffline();
+      const outcome = await refreshOnce().catch((): RefreshOutcome => 'waking');
+      if (outcome !== 'waking') return;
+      if (isOffline()) return signedInOffline();
+      await new Promise((resolve) => setTimeout(resolve, BOOT_RETRY_MS));
+      const now = getAuth();
+      if (!now || now.access_token) return; // another tab signed in or out meanwhile
+    }
+  } finally {
+    settle();
+  }
+}
+
+function signedInOffline() {
+  markAuthReady();
+  window.addEventListener('online', () => void refreshSession(), { once: true });
+}
+
+/** Tests: a fresh page load. */
+export function resetBootForTests() {
+  booted = false;
+  refreshInFlight = null;
 }
 
 /**
@@ -139,6 +184,26 @@ function errorMessage(text: string, status: number): string {
   return `Request failed (${status})`;
 }
 
+/**
+ * Signs out: revokes the refresh token (best-effort; offline still signs out
+ * here) and clears every tab. It holds the refresh lock, so a refresh in flight
+ * in another tab finishes first instead of landing afterwards and broadcasting
+ * a session that signs both tabs back in.
+ */
+export async function signOut(): Promise<void> {
+  const run = async () => {
+    try {
+      await api('/auth/logout', { method: 'POST', auth: false });
+    } catch {
+      /* offline or already expired: still clear local state */
+    }
+    setAuth(null);
+  };
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (locks?.request) await locks.request('el-auth-refresh', run);
+  else await run();
+}
+
 export async function api<T = any>(
   path: string,
   /** `slow`: a call that is slow by nature (AI generation, uploads); it never shows the "waking up" notice. */
@@ -154,16 +219,22 @@ export async function api<T = any>(
 
 async function request<T>(path: string, options: { method?: string; body?: unknown; auth?: boolean }): Promise<T> {
   const { method = 'GET', body, auth = true } = options;
+  // Signed in by the hint but no token yet (a reload): wait for the boot refresh. Offline, the
+  // call goes without one and the service worker answers from its cache.
+  if (auth && getAuth() && !getAuth()?.access_token && !isOffline()) {
+    if ((await refreshOnce().catch((): RefreshOutcome => 'waking')) === 'waking') throw new WakingError();
+  }
+  const base = sameOrigin(path) ? '' : API_URL;
   const send = async (): Promise<{ res: Response; token: string | undefined }> => {
     const headers: Record<string, string> = {};
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const token = auth ? getAuth()?.access_token : undefined;
     if (token) headers.Authorization = `Bearer ${token}`;
     try {
-      const res = await fetch(`${API_URL}/api/v1${path}`, {
+      const res = await fetch(`${base}/api/v1${path}`, {
         method,
         headers,
-        credentials: 'include',
+        credentials: base ? 'omit' : 'same-origin',
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
       return { res, token };

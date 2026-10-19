@@ -15,4 +15,12 @@ module.exports = {
   },
   setupFilesAfterEnv: ['<rootDir>/packages/common/jest.setup.ts'],
   clearMocks: true,
+  // `pnpm test:coverage`: per-directory numbers, no threshold (Phase 11b).
+  collectCoverageFrom: [
+    '{gateway,services/*,packages/*}/src/**/*.ts',
+    '!**/*.spec.ts',
+    '!**/migrations/**',
+    '!**/testing/**',
+  ],
+  coverageReporters: ['text', 'text-summary'],
 };

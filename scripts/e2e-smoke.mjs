@@ -59,6 +59,31 @@ async function main() {
   const badLogin = await call('/auth/login', { method: 'POST', body: { email: 'learner@ethiopialearn.et', password: 'wrong' } });
   check('wrong password rejected', badLogin.status === 401 || badLogin.status === 400);
 
+  // ---- refresh rotation and the 30 s grace (Phase 11b) ----
+  // T0 → T1; T0 again inside the grace → the same T1; T1 → T2; T0 once more → 401 (T1 is gone).
+  const refreshWith = async (token) => {
+    const res = await fetch(`${API}/api/v1/auth/refresh`, { method: 'POST', headers: { cookie: `el_refresh=${token}` } });
+    const next = res.headers.getSetCookie().map((c) => /^el_refresh=([^;]*)/.exec(c)?.[1]).find(Boolean);
+    return { status: res.status, next };
+  };
+  const session = await fetch(`${API}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'learner@ethiopialearn.et', password: PASSWORD }),
+  });
+  const t0 = session.headers.getSetCookie().map((c) => /^el_refresh=([^;]*)/.exec(c)?.[1]).find(Boolean);
+  check('login sets the el_refresh cookie', !!t0);
+  if (t0) {
+    const first = await refreshWith(t0);
+    check('refresh rotates the token', first.status === 200 && !!first.next && first.next !== t0, `${first.status}`);
+    const retry = await refreshWith(t0);
+    check('the old token inside the grace → 200 with the same successor', retry.status === 200 && retry.next === first.next, `${retry.status}`);
+    const second = await refreshWith(first.next);
+    check('the successor → 200 and a third token', second.status === 200 && !!second.next && second.next !== first.next, `${second.status}`);
+    const stale = await refreshWith(t0);
+    check('the old token once its successor rotated → 401', stale.status === 401, `${stale.status}`);
+  }
+
   // ---- learner flow: video progress ----
   const login = await call('/auth/login', { method: 'POST', body: { email: 'learner@ethiopialearn.et', password: PASSWORD } });
   check('learner login', login.status === 201 || login.status === 200, JSON.stringify(login.json));
@@ -119,8 +144,10 @@ async function main() {
 
   // ---- rate limiting (opt-in: pollutes the limiter for ~1 min) ----
   if (process.env.E2E_CHECK_RATE_LIMIT === '1') {
+    // The e2e stack raises the limit for per-test Playwright logins (scripts/start-backend.sh, api/.env in CI), so go past it.
     let limited = false;
-    for (let i = 0; i < 15; i += 1) {
+    const attempts = Number(process.env.RATE_LIMIT_AUTH_STRICT_PER_MIN ?? 10) + 5;
+    for (let i = 0; i < attempts; i += 1) {
       const res = await call('/auth/login', { method: 'POST', body: { email: 'nobody@nowhere.et', password: 'x' } });
       if (res.status === 429) {
         limited = true;

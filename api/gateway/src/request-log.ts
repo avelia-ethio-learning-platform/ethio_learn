@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { redactPath, requestContext, requestIdFrom } from '@ethiopialearn/common';
 import { NextFunction, Request, Response } from 'express';
+import { clientIpOf } from './auth-middleware';
 
 /** What the routing middleware and the proxy learn about a request, for its access line. */
 export interface AccessNotes {
@@ -72,7 +73,7 @@ export function requestLog(write: (level: AccessLevel, line: AccessLine) => void
         aborted: aborted || undefined,
         user_id: notes.user_id,
         upstream: notes.upstream,
-        ip: req.ip,
+        ip: clientIpOf(req),
         error_code: notes.error_code,
       });
     };

@@ -27,6 +27,21 @@ export interface BootstrapOptions {
   readyChecks?: (app: INestApplication) => Record<string, () => Promise<unknown>>;
 }
 
+type TokenRequest = { path: string; headers: Record<string, string | string[] | undefined> };
+type TokenResponse = { statusCode: number; setHeader(name: string, value: string): unknown; end(body: string): unknown };
+
+/** Every route but /health and /ready needs the gateway's x-internal-token (timing-safe). */
+export function requireInternalToken(expected: Buffer) {
+  return (req: TokenRequest, res: TokenResponse, next: () => void) => {
+    if (req.path === '/health' || req.path === '/ready') return next();
+    const presented = Buffer.from(String(req.headers['x-internal-token'] ?? ''));
+    if (presented.length === expected.length && timingSafeEqual(presented, expected)) return next();
+    res.statusCode = 401;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ statusCode: 401, message: 'Direct access denied — requests must arrive via the API gateway' }));
+  };
+}
+
 export async function bootstrapService(appModule: unknown, options: BootstrapOptions): Promise<INestApplication> {
   // Before the app module is built, so nothing (migrations included) runs on
   // an unsafe production configuration.
@@ -60,14 +75,7 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
     if (expected.length === 0) {
       throw new Error('REQUIRE_INTERNAL_TOKEN is set but INTERNAL_API_TOKEN is empty — every request would be rejected.');
     }
-    app.use((req: any, res: any, next: () => void) => {
-      if (req.path === '/health' || req.path === '/ready') return next();
-      const presented = Buffer.from(String(req.headers['x-internal-token'] ?? ''));
-      if (presented.length === expected.length && timingSafeEqual(presented, expected)) return next();
-      res.statusCode = 401;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ statusCode: 401, message: 'Direct access denied — requests must arrive via the API gateway' }));
-    });
+    app.use(requireInternalToken(expected));
   }
 
   // Express's default 100kb JSON limit answers ~34k Amharic characters (3 bytes

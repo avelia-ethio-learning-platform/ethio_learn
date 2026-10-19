@@ -10,6 +10,11 @@ import { PasswordResetRequestedPayload, Role, UserRegisteredPayload, UserStatus,
 import { EmailVerification, InstitutionInstructor, PasswordReset, User } from './entities';
 import { ChangePasswordDto, LoginDto, SignupDto } from './dto';
 
+/** A refresh token: unguessable (a UUID plus 32 random hex characters). */
+function newRefreshToken(): string {
+  return randomUUID() + randomBytes(16).toString('hex');
+}
+
 /** Generate a strong one-time password for invited staff / instructors. */
 export function generateTempPassword(): string {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -29,6 +34,8 @@ export function generateTempPassword(): string {
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60; // 15 min (spec §0.3)
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 3600; // 7 days (spec §0.3)
+// A rotated token still yields its successor this long, so a lost refresh response isn't a sign-out (Phase 11b).
+const REFRESH_REUSE_GRACE_SECONDS = 30;
 const VERIFY_TOKEN_TTL_HOURS = 24;
 const RESET_TOKEN_TTL_MINUTES = 30;
 const INVITE_TOKEN_TTL_DAYS = 7; // invited staff / instructors set their own password within a week
@@ -271,18 +278,52 @@ export class AuthService {
     if (!refreshToken) throw new UnauthorizedException('No refresh token');
     const key = `refresh:${refreshToken}`;
     const userId = await this.redis.get(key);
-    if (!userId) throw new UnauthorizedException('Invalid refresh token');
+    if (!userId) return this.refreshWithinGrace(refreshToken);
     const user = await this.users.findOne({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('Invalid refresh token');
     this.assertActive(user); // suspended/banned users are locked out within one token TTL
     // Rotate: single-use refresh tokens (allowlist lives in Redis, spec §1 stack table).
-    await this.redis.del(key);
-    await this.redis.srem(`refresh:user:${userId}`, refreshToken);
-    const next = await this.issueRefreshToken(user.id);
+    // One MULTI drops the old token, issues the next one and leaves a grace
+    // pointer old → next, so a retry whose first response was lost (a reload
+    // mid-refresh, the web proxy's timeout) gets the same successor.
+    const next = newRefreshToken();
+    const setKey = `refresh:user:${userId}`;
+    const results = await this.redis
+      .multi()
+      .del(key)
+      .srem(setKey, refreshToken)
+      .set(`refresh:grace:${refreshToken}`, next, 'EX', REFRESH_REUSE_GRACE_SECONDS)
+      .set(`refresh:${next}`, userId, 'EX', REFRESH_TOKEN_TTL_SECONDS)
+      .sadd(setKey, next)
+      .expire(setKey, REFRESH_TOKEN_TTL_SECONDS)
+      .exec();
+    // ioredis resolves a MULTI with each command's error rather than rejecting.
+    const failed = results?.find(([err]) => err) ?? (results ? undefined : [new Error('MULTI aborted')]);
+    if (failed) throw failed[0];
     return {
       access_token: this.signAccessToken(user),
       expires_in: ACCESS_TOKEN_TTL_SECONDS,
       refresh_token: next,
+      user: this.publicUser(user),
+    };
+  }
+
+  /**
+   * A token rotated in the last 30 s returns the same successor, one hop only:
+   * the successor must still be live (not rotated, logged out or revoked), and
+   * the user checks run as for any refresh. No new session is minted.
+   */
+  private async refreshWithinGrace(oldToken: string) {
+    const successor = await this.redis.get(`refresh:grace:${oldToken}`);
+    const userId = successor ? await this.redis.get(`refresh:${successor}`) : null;
+    if (!successor || !userId) throw new UnauthorizedException('Invalid refresh token');
+    const user = await this.users.findOne({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Invalid refresh token');
+    this.assertActive(user);
+    return {
+      access_token: this.signAccessToken(user),
+      expires_in: ACCESS_TOKEN_TTL_SECONDS,
+      refresh_token: successor,
       user: this.publicUser(user),
     };
   }
@@ -425,11 +466,16 @@ export class AuthService {
    */
   async logout(refreshToken: string | undefined): Promise<void> {
     if (!refreshToken) return;
-    const key = `refresh:${refreshToken}`;
-    const userId = await this.redis.get(key);
-    await this.redis.del(key);
-    // Drop it from the user's live-session set too (used by revokeAllSessions).
-    if (userId) await this.redis.srem(`refresh:user:${userId}`, refreshToken);
+    // A token rotated in the last 30 s (its response was lost): log out its successor, which it still reaches.
+    const successor = await this.redis.get(`refresh:grace:${refreshToken}`);
+    for (const token of successor ? [refreshToken, successor] : [refreshToken]) {
+      const key = `refresh:${token}`;
+      const userId = await this.redis.get(key);
+      await this.redis.del(key);
+      // Drop it from the user's live-session set too (used by revokeAllSessions).
+      if (userId) await this.redis.srem(`refresh:user:${userId}`, token);
+    }
+    if (successor) await this.redis.del(`refresh:grace:${refreshToken}`);
   }
 
   /**
@@ -460,7 +506,7 @@ export class AuthService {
   }
 
   private async issueRefreshToken(userId: string): Promise<string> {
-    const token = randomUUID() + randomBytes(16).toString('hex');
+    const token = newRefreshToken();
     await this.redis.set(`refresh:${token}`, userId, 'EX', REFRESH_TOKEN_TTL_SECONDS);
     // Index the token under the user so all their sessions can be revoked at once.
     await this.redis.sadd(`refresh:user:${userId}`, token);

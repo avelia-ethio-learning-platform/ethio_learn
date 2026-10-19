@@ -9,11 +9,11 @@ const sameSiteFromEnv = () => (process.env.COOKIE_SAMESITE ?? 'lax').toLowerCase
  * Set the refresh cookie. Shared by every endpoint that hands out a session
  * (login, refresh, password change) so the attributes cannot drift.
  *
- * When the web app and the API sit on different registrable domains — the
- * Vercel + Render split, say — the refresh call is cross-site and a Lax
- * cookie is never sent, silently logging everyone out at the 15-minute
- * access-token expiry. Set COOKIE_SAMESITE=none there; browsers only honour
- * SameSite=None over HTTPS, so it forces Secure regardless of NODE_ENV.
+ * The browser reaches /api/v1/auth/* through the web's own route handlers
+ * (Phase 11b), so the cookie binds to the web host and is first-party: Lax
+ * (the default, and COOKIE_SAMESITE=lax on Render) is enough. `none` is only
+ * for a web that calls the API cross-site; it forces Secure, since browsers
+ * honour SameSite=None only over HTTPS.
  */
 export function setRefreshCookie(res: Response, token: string, maxAgeSeconds: number) {
   const sameSite = sameSiteFromEnv();

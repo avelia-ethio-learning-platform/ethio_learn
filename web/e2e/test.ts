@@ -1,4 +1,5 @@
 import { expect, test as base } from '@playwright/test';
+import { signIn, type Role } from './support';
 
 export * from '@playwright/test';
 
@@ -8,7 +9,13 @@ export * from '@playwright/test';
  * fails a test on any violation in its browser context: a source missing from
  * the policy shows up here instead of as a broken page in production.
  */
-export const test = base.extend<{ cspViolations: string[] }>({
+export const test = base.extend<{ cspViolations: string[]; loggedInAs: Role | undefined }>({
+  /** `test.use({ loggedInAs: 'learner' })`: each test's page starts signed in as that role (support.ts signIn). */
+  loggedInAs: [undefined, { option: true }],
+  page: async ({ page, loggedInAs }, use) => {
+    if (loggedInAs) await signIn(page, loggedInAs);
+    await use(page);
+  },
   cspViolations: [
     async ({ context }, use) => {
       const violations: string[] = [];
