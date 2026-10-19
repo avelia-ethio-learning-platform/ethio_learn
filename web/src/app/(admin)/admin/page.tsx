@@ -489,6 +489,28 @@ function UsersTab() {
     }
   };
 
+  // For a learner locked out of verification (the mail never came): marks the address verified without the link.
+  const verifyEmail = async (u: any) => {
+    if (busy) return;
+    const answer = await ask({
+      title: `Verify email for ${u.name}?`,
+      body: `${u.email} is marked verified without the emailed link. Do this only once you trust the address.`,
+      confirmLabel: 'Verify email',
+    });
+    if (!answer) return;
+    clear();
+    setBusy(true);
+    try {
+      await api(`/admin/users/${u.id}/verify-email`, { method: 'POST' });
+      setOk(`${u.name}: email verified.`);
+      refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="card">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -526,6 +548,11 @@ function UsersTab() {
               </span>
               <span className="flex items-center gap-2">
                 <StatusBadge status={u.status} />
+                {!u.email_verified && (
+                  <button type="button" className="text-xs font-medium text-brand-600 hover:underline" aria-disabled={busy} onClick={() => verifyEmail(u)}>
+                    Verify email
+                  </button>
+                )}
                 {!isMe &&
                   (u.status === 'active' ? (
                     <>

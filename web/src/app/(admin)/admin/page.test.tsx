@@ -116,6 +116,31 @@ describe('Admin tabs', () => {
   });
 });
 
+describe('Admin users: verify email', () => {
+  const UNVERIFIED = { ...USER, email_verified: false };
+
+  it('confirms, then posts verify-email and reloads the users', async () => {
+    respond({ '/admin/users?': { total: 1, items: [UNVERIFIED] } });
+    renderAdmin('tab=users');
+    await screen.findByText('unverified');
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }));
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Verify email' }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/users/u1/verify-email', { method: 'POST' }));
+    expect(await screen.findByText('Abebe: email verified.')).toBeTruthy();
+  });
+
+  it('Cancel sends nothing, and verified users have no action', async () => {
+    respond({ '/admin/users?': { total: 2, items: [UNVERIFIED, { ...USER, id: 'u2', name: 'Bekele' }] } });
+    renderAdmin('tab=users');
+    await screen.findByText('unverified');
+    expect(screen.getAllByRole('button', { name: 'Verify email' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }));
+    pressCancel();
+    await settle();
+    expect(apiMock.mock.calls.filter((c) => String(c[0]).includes('verify-email'))).toEqual([]);
+  });
+});
+
 describe('Admin users: suspend and ban', () => {
   it('Cancel on the suspend dialog sends nothing', async () => {
     await openUsersTab();

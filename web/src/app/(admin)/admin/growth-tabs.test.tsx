@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { formatETB } from '@/lib/format';
 
@@ -9,7 +9,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   api: (...args: unknown[]) => apiMock(...args),
 }));
 
-import { AnalyticsTab } from './growth-tabs';
+import { AnalyticsTab, EmailDeliveryCard } from './growth-tabs';
 
 const FIN = {
   total_gross_etb: 1000,
@@ -51,5 +51,31 @@ describe('Admin analytics: Pending rewards tile', () => {
     apiMock.mockImplementation(async (path: string) => (path === '/admin/analytics/financial' ? { ...FIN, wallet: undefined } : ENR));
     renderTab();
     await vi.waitFor(() => expect(tileValue('Pending rewards')).toBe(formatETB(0, 'en')));
+  });
+});
+
+describe('Admin email delivery card', () => {
+  const send = () => {
+    render(<EmailDeliveryCard />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send test email to me' }));
+  };
+
+  it('shows the provider, the address and the message id on success', async () => {
+    apiMock.mockResolvedValue({ ok: true, provider: 'resend', to: 'admin@x.et', message_id: 'm-1' });
+    send();
+    expect(await screen.findByText('Sent to admin@x.et via resend (message m-1).')).toBeTruthy();
+    expect(apiMock).toHaveBeenCalledWith('/admin/notifications/test-email', { method: 'POST' });
+  });
+
+  it('shows the provider error when the send failed', async () => {
+    apiMock.mockResolvedValue({ ok: false, provider: 'resend', to: 'admin@x.et', error: 'domain not verified' });
+    send();
+    expect(await screen.findByText('Not sent to admin@x.et via resend: domain not verified')).toBeTruthy();
+  });
+
+  it('shows a request failure as an error', async () => {
+    apiMock.mockRejectedValue(new Error('Your account has no email address to send the test to.'));
+    send();
+    expect(await screen.findByText('Your account has no email address to send the test to.')).toBeTruthy();
   });
 });
