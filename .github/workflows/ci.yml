@@ -104,6 +104,8 @@ jobs:
       - name: Build and start services
         run: |
           cp api/.env.example api/.env
+          # The e2e limits (start-backend.sh's values), in api/.env so the smoke step reads the same one.
+          printf '%s\n' RATE_LIMIT_AUTH_STRICT_PER_MIN=300 RATE_LIMIT_AUTH_PER_MIN=600 RATE_LIMIT_WRITE_PER_MIN=600 >> api/.env
           pnpm -C api install --frozen-lockfile
           pnpm -C api build
           pnpm -C api seed
@@ -183,16 +185,16 @@ jobs:
         run: pnpm -C web exec playwright install --with-deps chromium
       # Starts `next start` on :3000 and an "API asleep" twin on :3100 itself.
       # Before the smoke step, which exhausts the login limiter on purpose.
-      # The e2e scripts above can leave the login limiter (10/min per IP) full,
-      # and a cached web build reaches here in under a minute, so wait out the window.
+      # api/.env raises the login limits for its per-test logins (Build and start services).
       - name: Browser smoke (Playwright)
         env:
           NEXT_PUBLIC_WAKE_URLS: http://localhost:4101/health
+        run: pnpm -C web exec playwright test
+      # The brute-force check goes past the limit the stack runs with.
+      - name: Smoke assertions (security envelope + refresh rotation + video progress + 429)
         run: |
-          sleep 60
-          pnpm -C web exec playwright test
-      - name: Smoke assertions (security envelope + video progress + 429)
-        run: E2E_CHECK_RATE_LIMIT=1 node scripts/e2e-smoke.mjs
+          RATE_LIMIT_AUTH_STRICT_PER_MIN="$(sed -n 's/^RATE_LIMIT_AUTH_STRICT_PER_MIN=//p' api/.env)" \
+            E2E_CHECK_RATE_LIMIT=1 node scripts/e2e-smoke.mjs
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v7

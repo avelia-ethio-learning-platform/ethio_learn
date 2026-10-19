@@ -8,7 +8,9 @@ import { matchPath } from './request-path';
  * Buckets (per-minute caps, all overridable via env — see main.ts):
  *  - auth-strict      credential endpoints (login/signup/reset…): brute-force target, keyed by IP;
  *                     also resend-verification, which sends email
- *  - auth             the rest of /auth (refresh, …), keyed by IP
+ *  - auth-refresh     POST /auth/refresh, keyed by a hash of the refresh cookie (IP without one):
+ *                     every page load refreshes, and a class behind one NAT address boots at once
+ *  - auth             the rest of /auth (logout, …), keyed by IP
  *  - ai               endpoints that call the LLM — expensive, keyed by user
  *  - community-write  comments + DMs — spam target, keyed by user; also the
  *                     coupon check, so codes can't be enumerated
@@ -23,11 +25,12 @@ import { matchPath } from './request-path';
  * for 2 h, so a 2 GiB video (256 parts of 8 MiB) needs about 3 signing calls.
  * routes.revisions.spec.ts checks this budget against the write cap.
  */
-export type RatePolicy = 'auth-strict' | 'auth' | 'ai' | 'community-write' | 'payment-initiate' | 'write' | 'general';
+export type RatePolicy = 'auth-strict' | 'auth-refresh' | 'auth' | 'ai' | 'community-write' | 'payment-initiate' | 'write' | 'general';
 
 /** Per-minute cap for each bucket; main.ts lets RATE_LIMIT_*_PER_MIN override each one. */
 export const DEFAULT_LIMITS_PER_MIN: Record<RatePolicy, number> = {
   'auth-strict': 10,
+  'auth-refresh': 10,
   auth: 30,
   ai: 5,
   'community-write': 20,
@@ -69,7 +72,8 @@ export function classifyRequest(method: string, rawPath: string): RatePolicy {
   const m = method.toUpperCase();
   const path = matchPath(rawPath);
   if (path.startsWith('/api/v1/auth/')) {
-    return m === 'POST' && AUTH_STRICT.test(path) ? 'auth-strict' : 'auth';
+    if (m === 'POST' && AUTH_STRICT.test(path)) return 'auth-strict';
+    return m === 'POST' && path === '/api/v1/auth/refresh' ? 'auth-refresh' : 'auth';
   }
   // The study-plan READ calls the LLM, so it belongs in the AI bucket even
   // though it is a GET (chat history GETs do NOT call the model — only POSTs do).
