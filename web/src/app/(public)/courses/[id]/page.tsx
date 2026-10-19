@@ -10,6 +10,7 @@ import { CourseCover } from '@/components/CourseCover';
 import { ExpandableSummary } from '@/components/ExpandableSummary';
 import { MobileBuyBar } from '@/components/MobileBuyBar';
 import { CoursePreviewPlayer } from '@/components/CoursePreviewPlayer';
+import { CommentsSection } from '@/components/CommentsSection';
 import { BackButton } from '@/components/BackButton';
 import { PageShell } from '@/components/PageChrome';
 import { WakingUp } from '@/components/WakingUp';
@@ -235,6 +236,10 @@ export default async function CoursePage({ params }: { params: { id: string } })
               </div>
             </>
           )}
+
+          <div className="mt-10">
+            <CommentsSection courseId={course.id} />
+          </div>
         </div>
 
       </div>

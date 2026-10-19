@@ -4,6 +4,7 @@ const serverApi = vi.fn();
 vi.mock('@/lib/server-api', () => ({ serverApi: (...args: unknown[]) => serverApi(...args), SITE_URL: 'http://localhost:3000' }));
 // The page module renders client components we don't need here.
 vi.mock('@/components/CoursePreviewPlayer', () => ({ CoursePreviewPlayer: () => null }));
+vi.mock('@/components/CommentsSection', () => ({ CommentsSection: () => null }));
 vi.mock('./enroll-panel', () => ({ EnrollPanel: () => null }));
 vi.mock('next/navigation', () => ({ notFound: vi.fn() }));
 
