@@ -17,6 +17,9 @@ import {
 } from 'class-validator';
 import { CourseCategory, PricingType } from '@ethiopialearn/contracts';
 
+/** The languages a course can be taught in: English and Amharic. */
+export const COURSE_LANGUAGES = ['en', 'am'];
+
 export class LessonInputDto {
   @IsString()
   @MinLength(2)
@@ -122,8 +125,7 @@ export class CreateCourseDto {
   @IsEnum(CourseCategory)
   category: CourseCategory;
 
-  /** English only for MVP (spec §7.2). */
-  @IsIn(['en'])
+  @IsIn(COURSE_LANGUAGES)
   language: string;
 
   @IsOptional()
@@ -161,6 +163,10 @@ export class UpdateCourseDto {
   @IsOptional()
   @IsEnum(CourseCategory)
   category?: CourseCategory;
+
+  @IsOptional()
+  @IsIn(COURSE_LANGUAGES)
+  language?: string;
 
   @IsOptional()
   @IsString()

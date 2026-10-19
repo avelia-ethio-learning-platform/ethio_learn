@@ -106,7 +106,7 @@ describe('POST /admin/notifications/test-email', () => {
   it('sends to the calling admin and reports the provider result', async () => {
     const log = logRepo();
     const email = { name: 'smtp', send: jest.fn().mockResolvedValue({ message_id: '<ok>' }) };
-    const ctrl = new NotificationController({} as never, log as never, {} as never, email as never);
+    const ctrl = new NotificationController({} as never, log as never, {} as never, {} as never, email as never);
     await expect(ctrl.testEmail(admin)).resolves.toEqual({ ok: true, provider: 'smtp', to: 'admin@ethiopialearn.et', message_id: '<ok>' });
     expect(log.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'sent', event_type: 'TestEmail' }));
   });
@@ -114,7 +114,7 @@ describe('POST /admin/notifications/test-email', () => {
   it('returns (and logs) the failure reason instead of throwing', async () => {
     const log = logRepo();
     const email = { name: 'smtp', send: jest.fn().mockRejectedValue(new Error('Connection timeout')) };
-    const ctrl = new NotificationController({} as never, log as never, {} as never, email as never);
+    const ctrl = new NotificationController({} as never, log as never, {} as never, {} as never, email as never);
     await expect(ctrl.testEmail(admin)).resolves.toEqual({ ok: false, provider: 'smtp', to: 'admin@ethiopialearn.et', error: 'Connection timeout' });
     expect(log.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', error: 'Connection timeout' }));
   });

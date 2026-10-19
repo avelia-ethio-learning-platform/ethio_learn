@@ -168,6 +168,9 @@ function InstitutionCourseRow({
           <Link href={`/preview/${c.id}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
             <Eye className="h-3.5 w-3.5" aria-hidden /> Preview
           </Link>
+          <Link href={`/teach/courses/${c.id}`} className="text-xs font-medium text-brand-600 hover:underline">
+            Manage
+          </Link>
           <button
             className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
             onClick={() => setShowFeedback((s) => !s)}

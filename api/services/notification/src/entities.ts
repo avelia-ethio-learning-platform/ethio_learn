@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn } from 'typeorm';
 // (Index/PrimaryGeneratedColumn used by InboxNotification below)
 
 @Entity({ name: 'notification_log' })
@@ -230,4 +230,25 @@ export class InboxNotification {
   /** The bus event that wrote this row (null for older rows): its dedupe key. */
   @Column({ type: 'uuid', nullable: true })
   source_event_id: string | null;
+}
+
+/**
+ * Who has read a role row (`target_role` set). A role row is shared by everyone
+ * with that role, so its own `read_at` can't say who read it; user rows keep
+ * using `read_at`. Role rows read before this table existed keep their `read_at`.
+ */
+@Entity({ name: 'inbox_notification_reads' })
+export class InboxNotificationRead {
+  @PrimaryColumn('uuid')
+  notification_id: string;
+
+  @PrimaryColumn('uuid')
+  user_id: string;
+
+  @ManyToOne(() => InboxNotification, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'notification_id' })
+  notification: InboxNotification;
+
+  @Column({ type: 'timestamptz', default: () => 'now()' })
+  read_at: Date;
 }

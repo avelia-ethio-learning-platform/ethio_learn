@@ -84,6 +84,7 @@ export const en = {
   clear_filters: 'Clear filters',
   filter_category: 'Category',
   filter_pricing: 'Pricing',
+  filter_language: 'Language',
   per_page: 'Per page',
   prev: 'Previous',
   next: 'Next',

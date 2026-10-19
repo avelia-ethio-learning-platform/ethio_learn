@@ -4,6 +4,7 @@ const FIELD_LABELS: Record<string, string> = {
   title: 'title',
   description: 'description',
   category: 'category',
+  language: 'language',
   thumbnail_url: 'thumbnail',
 };
 

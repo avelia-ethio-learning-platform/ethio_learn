@@ -10,6 +10,7 @@ export interface CoursePending {
   title?: string;
   description?: string;
   category?: CourseCategory;
+  language?: string;
   thumbnail_url?: string | null;
   pricing_type?: PricingType;
   price_etb?: string | null;
