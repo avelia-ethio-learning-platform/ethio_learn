@@ -37,11 +37,12 @@ export class InternalController {
     return users.map((u) => ({ id: u.id, name: u.name, role: u.role, ...(query.fields === 'email' ? { email: u.email } : {}) }));
   }
 
+  /** `status` lets a caller act only on active accounts (a new DM thread, for one). */
   @Get('users/:id')
   async user(@UuidParam('id') id: string) {
     const user = await this.users.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
-    return { id: user.id, name: user.name, email: user.email, role: user.role };
+    return { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status };
   }
 
   /**

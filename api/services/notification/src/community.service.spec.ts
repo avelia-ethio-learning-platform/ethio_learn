@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { CommunityService } from './community.service';
 
 /** Who may post a course comment (13b review S6): comments show on the public course page. */
@@ -47,5 +47,47 @@ describe('CommunityService.addComment posting rights', () => {
 
   it('lets platform staff post anywhere', async () => {
     await expect(setup().svc.addComment(as('adm1', 'platform_admin'), 'c1', 'Moderator note')).resolves.toMatchObject({ author_id: 'adm1' });
+  });
+});
+
+/** Who a DM thread can be opened to (P2-12): any active account, and nothing else says more than that. */
+describe('CommunityService.openThread recipients', () => {
+  const ME = { id: '00000000-0000-4000-8000-00000000000a', role: 'learner' } as never;
+  const PEER = '00000000-0000-4000-8000-00000000000b';
+
+  function setup(peer: Record<string, unknown> | null) {
+    const threads = {
+      findOne: jest.fn(async () => null),
+      create: jest.fn((x) => x),
+      save: jest.fn(async (x) => ({ id: 't1', a_unread: 0, b_unread: 0, ...x })),
+    };
+    const internal = {
+      get: jest.fn(async (path: string) => {
+        if (path.endsWith(PEER)) {
+          if (!peer) throw new Error('404 User not found');
+          return peer;
+        }
+        return { name: 'Me' };
+      }),
+    };
+    const svc = new CommunityService({} as never, threads as never, {} as never, {} as never, internal as never);
+    return { svc, threads };
+  }
+
+  it('opens a thread to an active account', async () => {
+    const t = setup({ name: 'Abebe', role: 'educator', status: 'active' });
+    await expect(t.svc.openThread(ME, PEER)).resolves.toMatchObject({ thread_id: 't1', peer: { id: PEER, name: 'Abebe' } });
+  });
+
+  it.each([
+    ['unknown', null],
+    ['suspended', { name: 'S', role: 'learner', status: 'suspended' }],
+    ['banned', { name: 'B', role: 'learner', status: 'banned' }],
+  ])('answers an %s recipient with the same 404 and creates nothing', async (_label, peer) => {
+    const t = setup(peer);
+    const err = await t.svc.openThread(ME, PEER).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NotFoundException);
+    expect((err as NotFoundException).getResponse()).toEqual(new NotFoundException('Recipient not found').getResponse());
+    expect(t.threads.save).not.toHaveBeenCalled();
   });
 });

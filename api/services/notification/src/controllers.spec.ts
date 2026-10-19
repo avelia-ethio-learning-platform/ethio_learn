@@ -1,5 +1,6 @@
-import { ForbiddenException } from '@nestjs/common';
-import { Role } from '@ethiopialearn/contracts';
+import { randomUUID } from 'crypto';
+import { BadRequestException, ForbiddenException, NotFoundException, ValidationPipe } from '@nestjs/common';
+import { COURSE_CATEGORIES, Role } from '@ethiopialearn/contracts';
 import { NotificationController } from './controllers';
 import { NotificationPreference } from './entities';
 
@@ -19,7 +20,9 @@ function repo(row: Partial<NotificationPreference> | null) {
 
 function controller(prefsRow: Partial<NotificationPreference> | null) {
   const prefs = repo(prefsRow);
-  const ctrl = new NotificationController(prefs as never, {} as never, {} as never, {} as never, {} as never);
+  // Every followed id is a known account here; NotificationController.follow below covers unknown ones.
+  const internal = { get: jest.fn(async () => ({ id: 'x', name: 'Edu', role: 'educator' })) };
+  const ctrl = new NotificationController(prefs as never, {} as never, {} as never, {} as never, {} as never, internal as never);
   return { ctrl, prefs };
 }
 
@@ -83,5 +86,64 @@ describe('NotificationController preferences', () => {
     await ctrl.unfollow(learner, 'edu-1');
     const view = await ctrl.getPrefs(learner, 'learner-1');
     expect(view.new_course_instructor_ids).toEqual(['edu-2']);
+  });
+});
+
+/** Preference lists are bounded (P2-11), through the pipe the services install at boot. */
+describe('PUT notification-preferences body bounds', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true });
+  const PrefsDto = (Reflect.getMetadata('design:paramtypes', NotificationController.prototype, 'putPrefs') as (new () => object)[])[2];
+  const check = (body: unknown) => pipe.transform(body, { type: 'body', metatype: PrefsDto });
+
+  it('accepts each category once and refuses a longer list', async () => {
+    const all = COURSE_CATEGORIES as string[];
+    await expect(check({ new_course_categories: all })).resolves.toBeDefined();
+    await expect(check({ new_course_categories: [...all, all[0]] })).rejects.toThrow(BadRequestException);
+  });
+
+  it('accepts 500 followed instructors and refuses 501', async () => {
+    const ids = (n: number) => Array.from({ length: n }, () => randomUUID());
+    await expect(check({ new_course_instructor_ids: ids(500) })).resolves.toBeDefined();
+    await expect(check({ new_course_instructor_ids: ids(501) })).rejects.toThrow(BadRequestException);
+  });
+});
+
+/** The follow button's path (POST notifications/follow/:id) is bounded too, and follows real accounts only. */
+describe('NotificationController.follow', () => {
+  const ids = (n: number) => Array.from({ length: n }, () => randomUUID());
+  function setup(followed: string[] | null, known = true) {
+    const prefs = repo(followed ? ({ user_id: 'learner-1', new_course_instructor_ids: followed } as Partial<NotificationPreference>) : null);
+    const internal = {
+      get: jest.fn(async () => {
+        if (!known) throw new Error('404 User not found');
+        return { id: 'x', name: 'Edu', role: 'educator' };
+      }),
+    };
+    const ctrl = new NotificationController(prefs as never, {} as never, {} as never, {} as never, {} as never, internal as never);
+    return { ctrl, prefs, internal };
+  }
+
+  it('adds a known instructor', async () => {
+    const { ctrl, prefs } = setup(null);
+    const id = randomUUID();
+    await expect(ctrl.follow(learner, id)).resolves.toEqual({ following: true, instructor_id: id });
+    expect(prefs._get()?.new_course_instructor_ids).toEqual([id]);
+  });
+
+  it(`refuses a new follow once 500 are followed, and changes nothing`, async () => {
+    const full = ids(500);
+    const { ctrl, prefs, internal } = setup(full);
+    await expect(ctrl.follow(learner, randomUUID())).rejects.toThrow(new BadRequestException('You can follow at most 500 instructors'));
+    expect(prefs.save).not.toHaveBeenCalled();
+    expect(internal.get).not.toHaveBeenCalled();
+    // Re-following someone already on the list is still fine.
+    await expect(ctrl.follow(learner, full[0])).resolves.toEqual({ following: true, instructor_id: full[0] });
+    expect(prefs._get()?.new_course_instructor_ids).toHaveLength(500);
+  });
+
+  it('refuses an id that is no account, and stores nothing', async () => {
+    const { ctrl, prefs } = setup([], false);
+    await expect(ctrl.follow(learner, randomUUID())).rejects.toThrow(new NotFoundException('Instructor not found'));
+    expect(prefs.save).not.toHaveBeenCalled();
   });
 });
