@@ -137,4 +137,15 @@ describe('FinancialController own lists (Phase 9e review S3)', () => {
     expect(await controller.payouts(educator, { page: 2, limit: 20, paged: '1' })).toEqual(page);
     expect(await controller.payouts(educator, { page: 2, limit: 20 })).toEqual(page.items);
   });
+
+  it('the admin ?payee_id= listing honours paged=1 too, with payee names', async () => {
+    const withPayeeNames = jest.fn(async (rows: { id: string }[]) => rows.map((r) => ({ ...r, payee_name: 'Edu' })));
+    const listForPayee = jest.fn(async () => page);
+    const admin = { id: 'a1', role: Role.PLATFORM_ADMIN, email: 'a@e.et' } as never;
+    const adminController = new FinancialController({} as never, {} as never, { listForPayee, withPayeeNames, listAll: jest.fn() } as never);
+    const named = [{ id: 'p1', payee_name: 'Edu' }];
+    expect(await adminController.payouts(admin, { page: 3, limit: 10, paged: '1' }, 'payee9')).toEqual({ items: named, total: 41 });
+    expect(await adminController.payouts(admin, { page: 3, limit: 10 }, 'payee9')).toEqual(named);
+    expect(listForPayee).toHaveBeenLastCalledWith('payee9', 3, 10);
+  });
 });

@@ -188,7 +188,10 @@ export class FinancialController {
   @Roles()
   async payouts(@CurrentUser() ctx: UserContext, @Query() paging: PayoutsPage, @Query('payee_id') payeeId?: string) {
     if (ctx.role === Role.PLATFORM_ADMIN) {
-      return payeeId ? this.payoutService.withPayeeNames((await this.payoutService.listForPayee(payeeId, paging.page, paging.limit)).items) : this.payoutService.listAll();
+      if (!payeeId) return this.payoutService.listAll();
+      const page = await this.payoutService.listForPayee(payeeId, paging.page, paging.limit);
+      const items = await this.payoutService.withPayeeNames(page.items);
+      return paging.paged ? { items, total: page.total } : items;
     }
     const own = await this.payoutService.resolvePayeeId(ctx);
     const page = await this.payoutService.listForPayee(own, paging.page, paging.limit);

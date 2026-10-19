@@ -204,7 +204,7 @@ export class PayoutService implements OnModuleInit {
     return { released: true };
   }
 
-  /** A payee's payouts, newest first, one page at a time (still a bare array). */
+  /** A payee's payouts, newest first, one page at a time, as `{ items, total }` (the controller decides whether to send the page or just `items`). */
   async listForPayee(payeeId: string, page = 1, limit = 20) {
     const [items, total] = await this.payouts.findAndCount({
       where: { payee_id: payeeId },
