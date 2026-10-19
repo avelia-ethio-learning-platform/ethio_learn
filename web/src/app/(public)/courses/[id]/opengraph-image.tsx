@@ -21,7 +21,7 @@ interface OgCourse {
 }
 
 // Read from disk relative to the web app's root. `new URL(..., import.meta.url)` does not work
-// here: Next's webpack turns it into an asset URL (/_next/static/media/...), not a file path.
+// here: the bundler turns it into an asset URL (/_next/static/media/...), not a file path.
 // next.config.mjs (outputFileTracingIncludes) ships these files with the route (Docker standalone, Vercel).
 const FONT_DIR = path.join(process.cwd(), 'src', 'assets', 'fonts');
 
@@ -116,8 +116,9 @@ function CourseCard({ course }: { course: OgCourse }) {
 const CACHE_FALLBACK = 'public, max-age=300';
 const CACHE_COURSE = 'public, max-age=86400, stale-while-revalidate=604800';
 
-export default async function CourseOpengraphImage({ params }: { params: { id: string } }) {
-  const result = await serverApi<OgCourse>(`/courses/${params.id}`, 300);
+export default async function CourseOpengraphImage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const result = await serverApi<OgCourse>(`/courses/${id}`, 300);
   if (!result.ok) {
     // Unavailable or not found: the site card, not a failed image request.
     return new ImageResponse(<OgArt />, { ...size, headers: { 'cache-control': CACHE_FALLBACK } });

@@ -13,7 +13,7 @@ const PROOF_DIR = process.env.OG_PROOF_DIR;
 
 async function render(result: unknown, file: string) {
   serverApi.mockResolvedValue(result);
-  const res = await Image({ params: { id: 'c1' } });
+  const res = await Image({ params: Promise.resolve({ id: 'c1' }) });
   const bytes = new Uint8Array(await res.arrayBuffer());
   if (PROOF_DIR) {
     await mkdir(PROOF_DIR, { recursive: true });
