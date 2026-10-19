@@ -183,7 +183,7 @@ export class OutcomesController {
     return this.assessmentService.proctorReport(ctx, id);
   }
 
-  /** Educator exam-results view: every submitted/flagged attempt on the course. */
+  /** Educator exam-results view: the course's submitted/flagged attempts, newest first, as `{ items, total }` pages. */
   @Get('courses/:id/attempts')
   @UseGuards(RolesGuard)
   @Roles(Role.EDUCATOR, Role.INSTITUTION_ADMIN, Role.PLATFORM_ADMIN, Role.QUALITY_OFFICER)

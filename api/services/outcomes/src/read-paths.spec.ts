@@ -14,7 +14,7 @@ function setup(opts: { authDown?: boolean } = {}) {
   const rows = Array.from({ length: 10 }, (_, i) => attempt(i));
   const qb: Record<string, jest.Mock> = {};
   for (const m of ['where', 'andWhere', 'orderBy', 'addOrderBy', 'take', 'skip']) qb[m] = jest.fn(() => qb);
-  qb.getMany = jest.fn(async () => rows);
+  qb.getManyAndCount = jest.fn(async () => [rows, 60]);
   const assessments = { find: jest.fn(async () => [{ id: 'a0', course_id: 'c1', type: 'quiz', config: {} }, { id: 'a1', course_id: 'c1', type: 'project', config: {} }]) };
   const attempts = { createQueryBuilder: jest.fn(() => qb), find: jest.fn(async () => rows) };
   const internal = {
@@ -32,7 +32,8 @@ function setup(opts: { authDown?: boolean } = {}) {
 describe('AssessmentService.courseAttempts (Phase 9e)', () => {
   it('names a page of attempts from one users call, paged newest first', async () => {
     const t = setup();
-    const rows = await t.service.courseAttempts(officer, 'c1', 2, 50);
+    const { items: rows, total } = await t.service.courseAttempts(officer, 'c1', 2, 50);
+    expect(total).toBe(60);
     expect(t.internal.get).toHaveBeenCalledTimes(1);
     expect(rows[0]).toEqual(expect.objectContaining({ learner_name: 'Name l0', learner_email: 'l0@e.et' }));
     expect(t.qb.take).toHaveBeenCalledWith(50);
@@ -41,7 +42,7 @@ describe('AssessmentService.courseAttempts (Phase 9e)', () => {
 
   it('auth down: "Unknown learner", never an error', async () => {
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    const rows = await setup({ authDown: true }).service.courseAttempts(officer, 'c1');
+    const { items: rows } = await setup({ authDown: true }).service.courseAttempts(officer, 'c1');
     expect(rows[0]).toEqual(expect.objectContaining({ learner_name: 'Unknown learner', learner_email: '' }));
   });
 });

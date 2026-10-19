@@ -772,9 +772,9 @@ export class AssessmentService implements OnModuleInit {
     }
 
     const courseAssessments = await this.assessments.find({ where: { course_id: courseId } });
-    if (!courseAssessments.length) return [];
+    if (!courseAssessments.length) return { items: [], total: 0 };
     const byId = new Map(courseAssessments.map((a) => [a.id, a]));
-    const rows = await this.attempts
+    const [rows, total] = await this.attempts
       .createQueryBuilder('a')
       .where('a.assessment_id IN (:...ids)', { ids: courseAssessments.map((a) => a.id) })
       .andWhere('(a.submitted_at IS NOT NULL OR a.flagged = true)')
@@ -782,7 +782,7 @@ export class AssessmentService implements OnModuleInit {
       .addOrderBy('a.id', 'DESC')
       .take(limit)
       .skip((page - 1) * limit)
-      .getMany();
+      .getManyAndCount();
 
     // Learner names from one users batch call for the page (event-carried names aren't stored on attempts).
     // Display only: while auth can't answer, the names read "Unknown learner".
@@ -793,7 +793,7 @@ export class AssessmentService implements OnModuleInit {
       this.logger.warn(`course attempts: learner names unavailable (${(err as Error).message})`);
     }
 
-    return rows.map((r) => {
+    const items = rows.map((r) => {
       const a = byId.get(r.assessment_id);
       return {
         attempt_id: r.id,
@@ -812,6 +812,7 @@ export class AssessmentService implements OnModuleInit {
         submitted_at: r.submitted_at,
       };
     });
+    return { items, total };
   }
 
   /** Educator manually grades a project submission (spec §10.1). */
