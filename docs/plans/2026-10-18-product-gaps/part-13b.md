@@ -45,3 +45,9 @@ Part of [plan.md](plan.md). Branch `feat/product-gaps-b`, web only (plus the doc
 - The exam room is `RequireRole roles={['learner']}` (exam `page.tsx:563`); the panel is on the learner page, so the link is only shown to learners.
 - The Header has a mobile and a desktop bell (:182, :214); the Messages link goes in both, and `a11y.spec.ts` (axe, serious/critical, :79) must stay clean.
 - `learner_email` is in the attempts rows (`assessment.service.ts:804`); the panel does not render it (nothing needs it) and nothing logs it (9d).
+
+## Progress
+- Built in parallel with 13a, 12a/12b and 11b (not after 12b). Merged `feat/product-gaps-a` in.
+- Overlaps: `Header.tsx` (13a Teach link, 11b line 107, 12a/12b motion): only a `MessagesLink` import and two JSX lines. `courses/[id]/page.tsx` (12b): one import and one block after the reviews. `teach/courses/[id]/page.tsx`: one import and one line.
+- Deviation: the attempts endpoint is not paged yet (9e), so `exam-results.tsx` fetches once and pages client-side with `Pager`; switch to server paging when 9e returns `{ items, total }`.
+- Review fixes: console email provider is an error, `dm-unread` key, label-in-name, comments translated (am-review), revision-diff language label dropped.

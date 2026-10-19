@@ -9,6 +9,7 @@ import { api, signOut } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useDismiss } from '@/lib/use-dismiss';
+import { MessagesLink } from './MessagesLink';
 import { NotificationBell } from './NotificationBell';
 import { ThemeToggle } from './ThemeToggle';
 import { LanguageToggle } from './LanguageToggle';
@@ -175,6 +176,7 @@ export function Header() {
           <div className="hidden items-center gap-2 lg:flex">
             <LanguageToggle />
             <ThemeToggle />
+            {ready && user && <MessagesLink />}
             {ready && user && <NotificationBell />}
             {ready && !user && (
               <>
@@ -207,6 +209,12 @@ export function Header() {
 
           {/* Mobile: toggles + burger */}
           <div className="flex items-center gap-2 lg:hidden">
+            {/* Below 360 px the row has no room for a third button: the link moves into the menu. */}
+            {ready && user && (
+              <div className="hidden min-[360px]:block">
+                <MessagesLink />
+              </div>
+            )}
             {ready && user && <NotificationBell />}
             <button
               ref={burgerRef}
@@ -250,6 +258,11 @@ export function Header() {
                       {l.label}
                     </Link>
                   ))}
+                  {ready && user && (
+                    <Link href="/messages" className="block rounded-xl px-3 py-2.5 text-sm font-medium text-gray-600 hover:bg-brand-500/5 hover:text-brand-600 min-[360px]:hidden">
+                      {t('messages')}
+                    </Link>
+                  )}
                   {ready && user && (
                     <Link href="/account" className="block rounded-xl px-3 py-2.5 text-sm font-medium text-gray-600 hover:bg-brand-500/5 hover:text-brand-600">
                       <span className="inline-flex items-center gap-2">

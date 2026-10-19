@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Megaphone, Wallet } from 'lucide-react';
+import { Mail, Megaphone, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Bars } from '@/components/Bars';
 import { EmptyRows } from '@/components/EmptyRows';
@@ -137,38 +137,74 @@ export function BroadcastTab() {
     }
   };
   return (
-    <form onSubmit={send} className="card max-w-2xl space-y-3">
+    <div className="space-y-4">
+      <form onSubmit={send} className="card max-w-2xl space-y-3">
+        <p className="flex items-center gap-2 font-bold text-foreground">
+          <Megaphone aria-hidden="true" className="h-4 w-4 text-brand-500" /> Announce a feature, campaign or maintenance
+        </p>
+        <Field label="Title">
+          {(ids) => <input {...ids} className="input" required maxLength={120} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />}
+        </Field>
+        <Field label="Message">
+          {(ids) => <textarea {...ids} className="input" required rows={3} maxLength={1000} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />}
+        </Field>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Field label="Link (optional)" hint="A page on this site, e.g. /courses">
+            {(ids) => <input {...ids} className="input" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} />}
+          </Field>
+          <Field label="Audience">
+            {(ids) => (
+              <select {...ids} className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+                {AUDIENCES.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+        </div>
+        <button className="btn" disabled={busy}>
+          Send announcement
+        </button>
+        <FormStatus status={status} />
+        <p className="text-xs text-gray-500">Delivered to each user&apos;s notification bell. Email announcements aren&apos;t sent from here.</p>
+      </form>
+      <EmailDeliveryCard />
+    </div>
+  );
+}
+
+/** The one check that email works on a deployment: one test message to the admin, with the provider's answer. */
+export function EmailDeliveryCard() {
+  const [busy, setBusy] = useState(false);
+  const [status, setOk, setError, clear] = useFormStatus();
+  const send = async () => {
+    clear();
+    setBusy(true);
+    try {
+      const r = await api<{ ok: boolean; provider: string; to: string; message_id?: string; error?: string }>('/admin/notifications/test-email', { method: 'POST', slow: true });
+      // With no provider key set the API falls back to a console logger: it answers ok but sends nothing.
+      if (r.ok && r.provider === 'console') setError('No email provider is configured (console only). Nothing was sent.');
+      else if (r.ok) setOk(`Sent to ${r.to} via ${r.provider}${r.message_id ? ` (message ${r.message_id})` : ''}.`);
+      else setError(`Not sent to ${r.to} via ${r.provider}: ${r.error ?? 'unknown error'}`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card max-w-2xl space-y-3">
       <p className="flex items-center gap-2 font-bold text-foreground">
-        <Megaphone aria-hidden="true" className="h-4 w-4 text-brand-500" /> Announce a feature, campaign or maintenance
+        <Mail aria-hidden="true" className="h-4 w-4 text-brand-500" /> Email delivery
       </p>
-      <Field label="Title">
-        {(ids) => <input {...ids} className="input" required maxLength={120} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />}
-      </Field>
-      <Field label="Message">
-        {(ids) => <textarea {...ids} className="input" required rows={3} maxLength={1000} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />}
-      </Field>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Field label="Link (optional)" hint="A page on this site, e.g. /courses">
-          {(ids) => <input {...ids} className="input" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} />}
-        </Field>
-        <Field label="Audience">
-          {(ids) => (
-            <select {...ids} className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              {AUDIENCES.map((a) => (
-                <option key={a.value} value={a.value}>
-                  {a.label}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-      </div>
-      <button className="btn" disabled={busy}>
-        Send announcement
+      <p className="text-sm text-gray-600">Sends one test email to your own address through the configured provider and shows its answer.</p>
+      <button type="button" className="btn-secondary" disabled={busy} onClick={send}>
+        Send test email to me
       </button>
       <FormStatus status={status} />
-      <p className="text-xs text-gray-500">Delivered to each user&apos;s notification bell. Email announcements aren&apos;t sent from here.</p>
-    </form>
+    </div>
   );
 }
 

@@ -17,6 +17,7 @@ import { RoleHomeBackButton } from '@/components/BackButton';
 import { PageShell, StatusBadge } from '@/components/PageChrome';
 import { ChangelogTool, TutorKnowledgeTool } from './course-tools';
 import { CourseDetails, EditedChip } from './course-details';
+import { ExamResults } from './exam-results';
 import { RevisionPanel } from './revision-banner';
 import { SectionsAndLessons } from './sections-editor';
 import { StructureGenerator } from './structure-generator';
@@ -255,6 +256,8 @@ function ManageCourse({ courseId, generate }: { courseId: string; generate: bool
       <LearnerFeedback reviews={reviews} />
 
       <AssessmentManager courseId={courseId} live={live} locked={locked || !canEdit} onSaved={refresh} />
+
+      <ExamResults courseId={courseId} />
 
       <ChangelogTool courseId={courseId} published={course.status === 'published'} />
 
