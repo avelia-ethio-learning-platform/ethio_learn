@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject,
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
-import { CurrentUser, InternalHttpClient, internalPath, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
+import { CurrentUser, InternalHttpClient, internalPath, PeerNotFoundError, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { COURSE_CATEGORIES, Role } from '@ethiopialearn/contracts';
 import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
 import { InboxNotification, InboxNotificationRead, NotificationLog, NotificationPreference } from './entities';
@@ -221,8 +221,10 @@ export class NotificationController {
     if (following.length >= FOLLOWS_MAX) throw new BadRequestException(`You can follow at most ${FOLLOWS_MAX} instructors`);
     try {
       await this.internal.get(internalPath`/api/v1/internal/users/${instructorId}`);
-    } catch {
-      throw new NotFoundException('Instructor not found');
+    } catch (err) {
+      // Only a 404 means no such account; a sleeping auth (503 service_waking) reaches the web, which wakes it.
+      if (err instanceof PeerNotFoundError) throw new NotFoundException('Instructor not found');
+      throw err;
     }
     row.new_course_instructor_ids = [...following, instructorId];
     await this.prefs.save(row);

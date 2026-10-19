@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { BadRequestException, ForbiddenException, NotFoundException, ValidationPipe } from '@nestjs/common';
+import { PeerAsleepError, PeerNotFoundError } from '@ethiopialearn/common';
 import { COURSE_CATEGORIES, Role } from '@ethiopialearn/contracts';
 import { NotificationController } from './controllers';
 import { NotificationPreference } from './entities';
@@ -111,11 +112,11 @@ describe('PUT notification-preferences body bounds', () => {
 /** The follow button's path (POST notifications/follow/:id) is bounded too, and follows real accounts only. */
 describe('NotificationController.follow', () => {
   const ids = (n: number) => Array.from({ length: n }, () => randomUUID());
-  function setup(followed: string[] | null, known = true) {
+  function setup(followed: string[] | null, failure: Error | null = null) {
     const prefs = repo(followed ? ({ user_id: 'learner-1', new_course_instructor_ids: followed } as Partial<NotificationPreference>) : null);
     const internal = {
       get: jest.fn(async () => {
-        if (!known) throw new Error('404 User not found');
+        if (failure) throw failure;
         return { id: 'x', name: 'Edu', role: 'educator' };
       }),
     };
@@ -142,8 +143,17 @@ describe('NotificationController.follow', () => {
   });
 
   it('refuses an id that is no account, and stores nothing', async () => {
-    const { ctrl, prefs } = setup([], false);
+    const { ctrl, prefs } = setup([], new PeerNotFoundError('User not found'));
     await expect(ctrl.follow(learner, randomUUID())).rejects.toThrow(new NotFoundException('Instructor not found'));
+    expect(prefs.save).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a sleeping auth (503 service_waking)', new PeerAsleepError()],
+    ['any other failure', new Error('socket hang up')],
+  ])('lets %s through instead of a 404, and stores nothing', async (_label, failure) => {
+    const { ctrl, prefs } = setup([], failure);
+    await expect(ctrl.follow(learner, randomUUID())).rejects.toBe(failure);
     expect(prefs.save).not.toHaveBeenCalled();
   });
 });

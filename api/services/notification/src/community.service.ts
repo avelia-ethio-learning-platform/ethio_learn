@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
+import { InternalHttpClient, internalPath, PeerNotFoundError, UserContext } from '@ethiopialearn/common';
 import { EntitlementStatus, Role, UserStatus } from '@ethiopialearn/contracts';
 import { CourseComment, DmMessage, DmThread, InboxNotification } from './entities';
 
@@ -209,14 +209,14 @@ export class CommunityService {
    */
   async openThread(ctx: UserContext, recipientId: string) {
     if (recipientId === ctx.id) throw new BadRequestException('You cannot message yourself');
-    let recipient: { name: string; role: string; status?: string } | null = null;
+    let recipient: { name: string; role: string; status: string } | null = null;
     try {
       recipient = await this.internal.get(internalPath`/api/v1/internal/users/${recipientId}`);
-    } catch {
-      /* answered below, the same as an inactive account */
+    } catch (err) {
+      // A 404 is answered below, the same as an inactive account; a sleeping auth (503) reaches the web, which wakes it.
+      if (!(err instanceof PeerNotFoundError)) throw err;
     }
-    // `status` is absent only from an auth service older than this check; it is then allowed as before.
-    if (!recipient || (recipient.status !== undefined && recipient.status !== UserStatus.ACTIVE)) {
+    if (!recipient || recipient.status !== UserStatus.ACTIVE) {
       throw new NotFoundException('Recipient not found');
     }
 
