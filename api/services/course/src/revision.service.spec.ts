@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
 import { Course, CourseChangeLog, CourseKnowledge, CourseRevision, Lesson, Section } from './entities';
 import { APPLY_FAILED_NOTE, HASH_MISMATCH_NOTE, RevisionService } from './revision.service';
@@ -192,10 +192,16 @@ function setup(opts: { institution?: boolean; status?: string; pendingAssessment
     ownedCourse: jest.fn(async (ctx: any, id: string) => {
       const c = await courses.findOne({ where: { id } });
       if (!c) throw new NotFoundException('Course not found');
-      if (c.created_by !== ctx.id && ctx.role !== 'platform_admin') throw new ForbiddenException('Not your course');
+      if (c.created_by !== ctx.id && ctx.role !== 'platform_admin') throw new NotFoundException('Course not found');
       return c;
     }),
-    isStaffFor: jest.fn(async (ctx: any, c: any) => c.created_by === ctx.id || ['quality_officer', 'platform_admin'].includes(ctx.role)),
+    // Mirrors CourseService.isStaffFor: a QO only for courses in the queue, live or flagged.
+    isStaffFor: jest.fn(
+      async (ctx: any, c: any) =>
+        c.created_by === ctx.id ||
+        ctx.role === 'platform_admin' ||
+        (ctx.role === 'quality_officer' && ['submitted', 'under_review', 'published', 'unlisted', 'flagged'].includes(c.status)),
+    ),
     clearSearchCache: jest.fn(),
     ownerContact: jest.fn(async () => ({ email: 'e@x.et', name: 'Edu' })),
     institutionAdminId: jest.fn(async (id: string) => (id === 'inst1' ? 'inst-admin-1' : null)),
@@ -354,7 +360,7 @@ describe('RevisionService.submit', () => {
   it('is owner-only and only for live courses', async () => {
     const t = setup();
     t.stageChanges();
-    await expect(t.svc.submit(OTHER_EDU, 'c1', {})).rejects.toThrow(ForbiddenException);
+    await expect(t.svc.submit(OTHER_EDU, 'c1', {})).rejects.toThrow(NotFoundException);
     t.courses.get('c1')!.status = 'draft';
     await expect(t.svc.submit(OWNER, 'c1', {})).rejects.toThrow(/Only a live course/);
   });
@@ -867,7 +873,7 @@ describe('RevisionService.currentDiff', () => {
     await expect(t.svc.currentDiff(QO, 'c1')).rejects.toThrow(NotFoundException);
     await t.svc.submit(OWNER, 'c1', {});
     await expect(t.svc.currentDiff(QO, 'c1')).resolves.toMatchObject({ revision: { status: 'submitted' } });
-    await expect(t.svc.currentDiff(OTHER_EDU, 'c1')).rejects.toThrow(ForbiddenException);
+    await expect(t.svc.currentDiff(OTHER_EDU, 'c1')).rejects.toThrow(NotFoundException);
   });
 
   it('404s when there is no open revision', async () => {

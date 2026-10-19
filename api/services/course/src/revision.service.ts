@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -120,7 +119,7 @@ export class RevisionService implements OnModuleInit {
   async currentDiff(ctx: UserContext, courseId: string) {
     const course = await this.courseService.courseOrThrow(courseId);
     if (!(await this.courseService.isStaffFor(ctx, course))) {
-      throw new ForbiddenException("Only the course's instructor, its institution admin and reviewers can see its staged changes");
+      throw new NotFoundException('Course not found');
     }
     const revision = await this.openRevision(courseId);
     const isAuthor = course.created_by === ctx.id || course.owner_id === ctx.id;

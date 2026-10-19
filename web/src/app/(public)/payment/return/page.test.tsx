@@ -2,15 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import PaymentReturnPage from './page';
 
-const mocks = vi.hoisted(() => ({ api: vi.fn() }));
+const mocks = vi.hoisted(() => ({ api: vi.fn(), search: 'course_id=c1&tx_ref=tx1' }));
 vi.mock('@/lib/api', () => ({ api: mocks.api }));
-vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('course_id=c1&tx_ref=tx1') }));
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(mocks.search) }));
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   mocks.api.mockReset();
+  mocks.search = 'course_id=c1&tx_ref=tx1';
 });
 
 describe('payment return', () => {
@@ -79,5 +80,17 @@ describe('payment return', () => {
       fireEvent.click(screen.getByRole('button', { name: /check again/i }));
     });
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Still processing');
+  });
+
+  it('without a course or tx_ref says there is nothing to confirm and links to the dashboard, instead of spinning (P2-02)', async () => {
+    mocks.search = '';
+    render(<PaymentReturnPage />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Nothing to confirm');
+    expect(screen.getByRole('link', { name: /go to dashboard/i }).getAttribute('href')).toBe('/dashboard');
+    expect(document.querySelector('.animate-spin')).toBeNull();
+    expect(mocks.api).not.toHaveBeenCalled();
   });
 });

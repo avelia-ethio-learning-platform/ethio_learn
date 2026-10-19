@@ -387,8 +387,9 @@ export class CourseController {
     if (!key) throw new ForbiddenException('Lesson has no video yet');
 
     // Free preview follows the LIVE flag only: a staged free-preview flip must
-    // not open paid content before it is reviewed.
-    let allowed = privileged || section.is_free_preview;
+    // not open paid content before it is reviewed. It only opens a published
+    // course: a draft, flagged or archived course's previews stay closed.
+    let allowed = privileged || (section.is_free_preview && course.status === CourseStatus.PUBLISHED);
 
     if (!allowed) {
       // Server-side entitlement verification with Enrollment & Progress.
@@ -402,13 +403,17 @@ export class CourseController {
         throw new ForbiddenException('Could not verify enrollment. Please try again in a moment.');
       }
     }
-    if (!allowed) throw new ForbiddenException('No active entitlement for this course');
+    if (!allowed) {
+      // A course learners cannot browse (anything but published, unlisted included) does not exist for them.
+      if (course.status !== CourseStatus.PUBLISHED) throw new NotFoundException('Lesson not available');
+      throw new ForbiddenException('No active entitlement for this course');
+    }
 
     // Leak mitigation: at most STREAM_URLS_PER_MIN signed URLs per learner per
     // minute. A real viewer needs one per lesson; a scraper or a shared account
     // being watched from several devices at once trips this fast. Platform
     // staff are exempt: a reviewer scrubs through many lessons in a row.
-    const platformStaff = ctx.role === Role.QUALITY_OFFICER || ctx.role === Role.PLATFORM_ADMIN;
+    const platformStaff = privileged && (ctx.role === Role.QUALITY_OFFICER || ctx.role === Role.PLATFORM_ADMIN);
     if (!platformStaff) {
       const cap = Number(process.env.STREAM_URLS_PER_MIN ?? 8);
       const now = Date.now();
