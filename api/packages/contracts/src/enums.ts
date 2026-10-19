@@ -27,6 +27,19 @@ export enum CourseStatus {
   ARCHIVED = 'archived',
 }
 
+/**
+ * The course statuses a quality officer may read as staff: the QO queue (first review, or a
+ * staged revision of a live course) and courses a QO flagged. Drafts, institution-review and
+ * archived courses stay private to their authors.
+ */
+export const QO_VISIBLE_COURSE_STATUSES: readonly CourseStatus[] = [
+  CourseStatus.SUBMITTED,
+  CourseStatus.UNDER_REVIEW,
+  CourseStatus.PUBLISHED,
+  CourseStatus.UNLISTED,
+  CourseStatus.FLAGGED,
+];
+
 export enum PricingType {
   FREE = 'free',
   FREEMIUM = 'freemium',
