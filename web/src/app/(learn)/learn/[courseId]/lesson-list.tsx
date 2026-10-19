@@ -92,7 +92,7 @@ export function LessonList({
                       <button
                         onClick={() => onPlay(lesson.id)}
                         aria-current={isActive ? 'true' : undefined}
-                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors ${
+                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors duration-fast ${
                           isActive ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600 hover:bg-brand-500/5 hover:text-foreground'
                         }`}
                       >

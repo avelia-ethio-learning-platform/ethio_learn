@@ -216,7 +216,7 @@ export function Header() {
               aria-label={t('menu')}
               aria-expanded={menuOpen}
               aria-controls={menuId}
-              className="glass-secondary flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition duration-fast active:scale-[.98]"
+              className="glass-secondary flex h-11 w-11 items-center justify-center rounded-xl text-brand-600 shadow-glass transition duration-fast active:scale-[.98]"
             >
               {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>

@@ -118,7 +118,7 @@ export function HomeClient({
                     name="q"
                     aria-label={t('search_placeholder')}
                     placeholder={t('search_placeholder')}
-                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/90"
+                    className="min-h-11 w-full bg-transparent text-sm text-white outline-none placeholder:text-white/90"
                   />
                   <button className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-brand-700 transition duration-fast hover:bg-brand-50 active:scale-[.98]">
                     {t('search')}

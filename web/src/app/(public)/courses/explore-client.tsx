@@ -153,7 +153,7 @@ export function ExploreClient({
               onChange={(e) => setSearchText(e.target.value)}
               aria-label={t('search_placeholder')}
               placeholder={t('search_placeholder')}
-              className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-gray-500"
+              className="min-h-11 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-gray-500"
             />
             {searchText && (
               <button

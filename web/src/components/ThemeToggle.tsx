@@ -42,7 +42,7 @@ export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' 
         aria-label={t('theme')}
         aria-expanded={open}
         aria-controls={panelId}
-        className="glass-secondary flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition duration-fast hover:text-brand-700 active:scale-[.98]"
+        className="glass-secondary flex h-11 w-11 items-center justify-center rounded-xl text-brand-600 shadow-glass transition duration-fast lg:h-10 lg:w-10 hover:text-brand-700 active:scale-[.98]"
       >
         <span className="flex items-center justify-center">
           <CurrentIcon className="h-4 w-4" />
