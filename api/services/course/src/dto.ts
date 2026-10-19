@@ -8,6 +8,7 @@ import {
   IsInt,
   IsNumber,
   IsOptional,
+  IsUrl,
   IsString,
   Max,
   MaxLength,
@@ -16,6 +17,15 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { CourseCategory, PricingType } from '@ethiopialearn/contracts';
+
+/**
+ * Media links (thumbnails, profile photos) the browser loads: https only in
+ * production. Local dev keeps http so MinIO's http://localhost:9000 uploads work.
+ */
+const MEDIA_URL: Parameters<typeof IsUrl>[0] =
+  process.env.NODE_ENV === 'production'
+    ? { protocols: ['https'], require_protocol: true }
+    : { protocols: ['http', 'https'], require_protocol: true, require_tld: false };
 
 /** The languages a course can be taught in: English and Amharic. */
 export const COURSE_LANGUAGES = ['en', 'am'];
@@ -129,7 +139,8 @@ export class CreateCourseDto {
   language: string;
 
   @IsOptional()
-  @IsString()
+  @IsUrl(MEDIA_URL)
+  @MaxLength(500)
   thumbnail_url?: string;
 
   @IsEnum(PricingType)
@@ -169,7 +180,8 @@ export class UpdateCourseDto {
   language?: string;
 
   @IsOptional()
-  @IsString()
+  @IsUrl(MEDIA_URL)
+  @MaxLength(500)
   thumbnail_url?: string;
 
   @IsOptional()

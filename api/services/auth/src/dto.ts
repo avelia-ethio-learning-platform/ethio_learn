@@ -1,5 +1,14 @@
-import { IsEmail, IsEnum, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength, registerDecorator, ValidationOptions } from 'class-validator';
+import { IsEmail, IsEnum, IsIn, IsOptional, IsString, IsUrl, IsUUID, MaxLength, MinLength, registerDecorator, ValidationOptions } from 'class-validator';
 import { Role, UserStatus } from '@ethiopialearn/contracts';
+
+/**
+ * Media links (thumbnails, profile photos) the browser loads: https only in
+ * production. Local dev keeps http so MinIO's http://localhost:9000 uploads work.
+ */
+const MEDIA_URL: Parameters<typeof IsUrl>[0] =
+  process.env.NODE_ENV === 'production'
+    ? { protocols: ['https'], require_protocol: true }
+    : { protocols: ['http', 'https'], require_protocol: true, require_tld: false };
 
 /**
  * Strong password: at least 8 characters AND at least 3 of the 4 categories
@@ -99,7 +108,8 @@ export class UpdateProfileDto {
   expertise_area?: string;
 
   @IsOptional()
-  @IsString()
+  @IsUrl(MEDIA_URL)
+  @MaxLength(500)
   photo_url?: string;
 
   @IsOptional()
@@ -118,7 +128,8 @@ export class CreateEducatorProfileDto {
   expertise_area: string;
 
   @IsOptional()
-  @IsString()
+  @IsUrl(MEDIA_URL)
+  @MaxLength(500)
   photo_url?: string;
 
   @IsOptional()
