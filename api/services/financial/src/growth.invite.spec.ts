@@ -1,7 +1,8 @@
 import { HttpStatus } from '@nestjs/common';
+import { PeerAsleepError, PeerNotFoundError } from '@ethiopialearn/common';
 import { Coupon, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
-import { fakeDb } from './testing/fake-db';
+import { fakeDb, fakeOutbox } from './testing/fake-db';
 
 const ACCOUNTS = new Set(['member@x.et']);
 const ME = { id: 'me', role: 'learner', email: 'me@x.et' } as never;
@@ -14,12 +15,13 @@ function setup() {
     get: jest.fn(async (path: string) => {
       const byEmail = /\/internal\/users\/by-email\/(.+)$/.exec(path);
       if (byEmail) {
-        if (!ACCOUNTS.has(decodeURIComponent(byEmail[1]))) throw new Error('404');
+        if (!ACCOUNTS.has(decodeURIComponent(byEmail[1]))) throw new PeerNotFoundError();
         return { id: 'someone', email: decodeURIComponent(byEmail[1]) };
       }
       return { email: 'me@x.et', name: 'Me' };
     }),
   };
+  const tx = fakeOutbox(db.dataSource);
   const svc = new GrowthService(
     db.repo(Coupon) as never,
     db.repo(Wallet) as never,
@@ -29,14 +31,27 @@ function setup() {
     db.dataSource as never,
     bus as never,
     internal as never,
+    tx.outbox as never,
   );
   db.repo(ReferralCode).rows.push({ id: 'code-me', user_id: 'me', code: 'MYCODE22' });
-  const sent = () => bus.publish.mock.calls.filter((c: unknown[]) => c[0] === 'ReferralInviteSent').map((c: any[]) => c[1].to_email);
+  /** Invite emails committed with their rows (the outbox publishes them after commit). */
+  const sent = () => tx.committed.filter(([type]) => type === 'ReferralInviteSent').map(([, p]) => (p as { to_email: string }).to_email);
   const rows = () => db.repo(Referral).rows;
-  return { svc, db, bus, internal, sent, rows };
+  return { svc, db, bus, internal, sent, rows, committed: tx.committed };
 }
 
 describe('GrowthService.invite', () => {
+  it('auth asleep: 503, with no referral row and no event (only a 404 means "no account")', async () => {
+    const t = setup();
+    t.internal.get.mockImplementation(async (path: string) => {
+      if (path.includes('/by-email/')) throw new PeerAsleepError();
+      return { email: 'me@x.et', name: 'Me' };
+    });
+    await expect(t.svc.invite(ME, ['new1@x.et'], '', 'learner')).rejects.toBeInstanceOf(PeerAsleepError);
+    expect(t.rows()).toHaveLength(0);
+    expect(t.committed).toHaveLength(0);
+  });
+
   const OLD_ENV = process.env.REFERRAL_INVITES_PER_DAY;
   afterEach(() => {
     if (OLD_ENV === undefined) delete process.env.REFERRAL_INVITES_PER_DAY;
@@ -56,7 +71,7 @@ describe('GrowthService.invite', () => {
     const t = setup();
     t.rows().push({ id: 'r0', referrer_id: 'me', referred_email: 'before@x.et', status: 'invited', created_at: hoursAgo(48) });
     await expect(t.svc.invite(ME, ['member@x.et', 'before@x.et'], '', 'learner')).resolves.toEqual({ invited: 0 });
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toHaveLength(0);
     expect(t.rows()).toHaveLength(1);
   });
 
@@ -82,7 +97,7 @@ describe('GrowthService.invite', () => {
     expect(err.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
     expect(err.message).toBe("You've reached today's limit for referral invites. Try again tomorrow.");
     expect(t.rows()).toHaveLength(2);
-    expect(t.bus.publish).not.toHaveBeenCalled();
+    expect(t.committed).toHaveLength(0);
     expect(t.internal.get).not.toHaveBeenCalled();
   });
 
@@ -115,5 +130,24 @@ describe('GrowthService.invite', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('user me'));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('/referrals/invite'));
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('secret-address'));
+  });
+});
+
+describe('GrowthService: invite and code races (P2-03)', () => {
+  it('two concurrent invites of one address by one referrer make one row and one email', async () => {
+    const t = setup();
+    const results = await Promise.all([t.svc.invite(ME, ['dup@x.et'], '', 'learner'), t.svc.invite(ME, ['dup@x.et'], '', 'learner')]);
+    expect(results.map((r) => r.invited).sort()).toEqual([0, 1]);
+    expect(t.rows().filter((r) => r.referred_email === 'dup@x.et')).toHaveLength(1);
+    expect(t.sent()).toEqual(['dup@x.et']);
+  });
+
+  it('two concurrent first calls for a referral code agree on one code and never throw', async () => {
+    const t = setup();
+    t.db.repo(ReferralCode).rows.length = 0;
+    const svc = t.svc as unknown as { codeFor(userId: string): Promise<string> };
+    const [a, b] = await Promise.all([svc.codeFor('fresh-user'), svc.codeFor('fresh-user')]);
+    expect(a).toBe(b);
+    expect(t.db.repo(ReferralCode).rows.filter((r) => r.user_id === 'fresh-user')).toHaveLength(1);
   });
 });

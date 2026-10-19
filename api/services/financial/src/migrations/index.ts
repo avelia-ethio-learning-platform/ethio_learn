@@ -8,6 +8,8 @@ import { CapIndexes1790966512489 } from './1790966512489-CapIndexes';
 import { PendingCreditsRefundMark1790966512490 } from './1790966512490-PendingCreditsRefundMark';
 import { PendingCreditIndexes1790966512491 } from './1790966512491-PendingCreditIndexes';
 import { Outbox1791054801417 } from './1791054801417-Outbox';
+import { JobsAndSweep1791100000000 } from './1791100000000-JobsAndSweep';
+import { UniqueSeatsAndInvites1791100000001 } from './1791100000001-UniqueSeatsAndInvites';
 
 // Every migration of the financial schema, oldest first. A new migration only runs
 // once it is listed here.
@@ -21,4 +23,6 @@ export const migrations: MigrationClass[] = [
   PendingCreditsRefundMark1790966512490,
   PendingCreditIndexes1790966512491,
   Outbox1791054801417,
+  JobsAndSweep1791100000000,
+  UniqueSeatsAndInvites1791100000001,
 ];

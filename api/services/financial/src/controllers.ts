@@ -2,11 +2,13 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, RawBodyReques
 import { Request, Response } from 'express';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
-import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
+import { CurrentUser, pageQuery, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role } from '@ethiopialearn/contracts';
 import { PaymentService } from './payment.service';
 import { RefundService } from './refund.service';
 import { PayoutService } from './payout.service';
+
+class AdminPaymentsPage extends pageQuery({ defaultLimit: 20, maxLimit: 100 }) {}
 
 class InitiateDto {
   @IsUUID()
@@ -210,7 +212,7 @@ export class FinancialController {
   @Get('admin/payments')
   @UseGuards(RolesGuard)
   @Roles(Role.PLATFORM_ADMIN)
-  adminPayments(@Query('page') page = '1', @Query('limit') limit = '20') {
-    return this.paymentService.adminList(parseInt(page, 10), parseInt(limit, 10));
+  adminPayments(@Query() paging: AdminPaymentsPage) {
+    return this.paymentService.adminList(paging.page, paging.limit);
   }
 }
