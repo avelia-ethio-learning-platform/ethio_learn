@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { PeerAsleepError } from '@ethiopialearn/common';
 import { OwnerType, Role } from '@ethiopialearn/contracts';
+import { FinancialController } from './controllers';
 import { PaymentService } from './payment.service';
 import { PayoutService } from './payout.service';
 import { SponsorshipService } from './sponsorship.service';
@@ -117,5 +118,23 @@ describe('PayoutService admin listing (Phase 9e)', () => {
   it('auth asleep: payee_name null on every row', async () => {
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     expect((await payoutSetup({ down: true }).service.listAll()).map((r) => r.payee_name)).toEqual([null, null, null]);
+  });
+});
+
+describe('FinancialController own lists (Phase 9e review S3)', () => {
+  const page = { items: [{ id: 'p1' }], total: 41 };
+  const controller = new FinancialController(
+    { listMine: jest.fn(async () => page) } as never,
+    {} as never,
+    { listForPayee: jest.fn(async () => page), resolvePayeeId: jest.fn(async () => 'edu1') } as never,
+  );
+  const educator = { id: 'edu1', role: Role.EDUCATOR, email: 'e@e.et' } as never;
+  const learner = { id: 'u1', role: Role.LEARNER, email: 'u@e.et' } as never;
+
+  it('answers { items, total } with paged=1 and the bare page otherwise', async () => {
+    expect(await controller.myPayments(learner, { page: 1, limit: 20, paged: '1' })).toEqual(page);
+    expect(await controller.myPayments(learner, { page: 1, limit: 20 })).toEqual(page.items);
+    expect(await controller.payouts(educator, { page: 2, limit: 20, paged: '1' })).toEqual(page);
+    expect(await controller.payouts(educator, { page: 2, limit: 20 })).toEqual(page.items);
   });
 });

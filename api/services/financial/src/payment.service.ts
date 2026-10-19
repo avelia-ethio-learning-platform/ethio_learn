@@ -981,8 +981,13 @@ export class PaymentService {
 
   /** The learner's payments, newest first, one page at a time (still a bare array). */
   async listMine(ctx: UserContext, page = 1, limit = 20) {
-    const rows = await this.payments.find({ where: { learner_id: ctx.id }, order: { created_at: 'DESC', id: 'DESC' }, take: limit, skip: (page - 1) * limit });
-    return rows.map((p) => this.publicView(p));
+    const [rows, total] = await this.payments.findAndCount({
+      where: { learner_id: ctx.id },
+      order: { created_at: 'DESC', id: 'DESC' },
+      take: limit,
+      skip: (page - 1) * limit,
+    });
+    return { items: rows.map((p) => this.publicView(p)), total };
   }
 
   /** Admin ledger: every payment enriched with who paid and the full timeline. */

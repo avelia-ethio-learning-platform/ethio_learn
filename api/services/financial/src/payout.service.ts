@@ -211,7 +211,13 @@ export class PayoutService implements OnModuleInit {
 
   /** A payee's payouts, newest first, one page at a time (still a bare array). */
   async listForPayee(payeeId: string, page = 1, limit = 20) {
-    return this.payouts.find({ where: { payee_id: payeeId }, order: { created_at: 'DESC', id: 'DESC' }, take: limit, skip: (page - 1) * limit });
+    const [items, total] = await this.payouts.findAndCount({
+      where: { payee_id: payeeId },
+      order: { created_at: 'DESC', id: 'DESC' },
+      take: limit,
+      skip: (page - 1) * limit,
+    });
+    return { items, total };
   }
 
   /** The admin listing: the newest 200, with payee names. */
@@ -244,12 +250,14 @@ export class PayoutService implements OnModuleInit {
       [payeeId, PaymentStatus.CONFIRMED, PaymentPurpose.WALLET_TOPUP],
     );
     const gross = Number(row.gross);
+    const paidPayouts = await this.payouts.count({ where: { payee_id: payeeId, status: PayoutStatus.PAID } });
     return {
       payee_id: payeeId,
       pending_gross_etb: Number(gross.toFixed(2)),
       pending_net_etb: Number((gross * (1 - PLATFORM_FEE_RATE)).toFixed(2)),
       platform_fee_rate: PLATFORM_FEE_RATE,
       payment_count: Number(row.count),
+      paid_payout_count: paidPayouts,
     };
   }
 
