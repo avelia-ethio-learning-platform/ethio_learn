@@ -1198,6 +1198,20 @@ describe('PaymentService: two wallet purchases of one course charge once (P2-03,
     expect(t.row(result.payment_id)).toMatchObject({ method: PaymentMethod.WALLET, status: PaymentStatus.CONFIRMED });
   });
 
+  it.each([
+    ['1 min old: a settlement in flight → 409', 1, false],
+    ['6 min old: a crashed request, past WALLET_SETTLE_MS → the buy goes through', 6, true],
+  ])("another request's committed pending wallet row, %s", async (_, minutesAgo, goesThrough) => {
+    const t = setup();
+    refs(t);
+    await t.growth.credit('u1', 2000, 'topup', 'pay-0', 'Wallet top-up');
+    t.seed({ id: 'pay-inflight', method: PaymentMethod.WALLET, status: PaymentStatus.PENDING, created_at: new Date(Date.now() - minutesAgo * 60_000) });
+    const buy = t.service.initiate(learner, 'c1', { use_wallet: true });
+    if (goesThrough) await expect(buy).resolves.toMatchObject({ confirmed: true });
+    else await expect(buy).rejects.toThrow('A payment for this course is in progress.');
+    expect(t.walletRows('purchase')).toHaveLength(goesThrough ? 1 : 0);
+  });
+
   it('a failed wallet attempt (balance too low) does not block the next one', async () => {
     const t = setup();
     refs(t);

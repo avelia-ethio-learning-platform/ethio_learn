@@ -21,7 +21,7 @@ async function stub(handler) {
 function run(args, env) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['scripts/run-jobs.mjs', ...args], {
-      env: { PATH: process.env.PATH, WAKE_INTERVAL_MS: '200', WAKE_TIMEOUT_MS: '20000', ...env },
+      env: { PATH: process.env.PATH, WAKE_INTERVAL_MS: '200', WAKE_TIMEOUT_MS: '20000', POLL_INTERVAL_MS: '100', POLL_TIMEOUT_MS: '3000', ...env },
     });
     let out = '';
     child.stdout.on('data', (d) => (out += d));
@@ -33,12 +33,19 @@ function run(args, env) {
 const urlsFor = (port) =>
   ['gateway', 'financial'].map((s) => `http://${s}.localhost:${port}/health`).join(',');
 
-function jobsHandler(started) {
+const T1 = '2026-10-19T02:15:00.000Z';
+const T2 = '2026-10-19T02:15:01.000Z';
+const JOBS = { financial: ['sweep', 'effects', 'nudges', 'payouts'], enrollment: ['inactivity'] };
+/** Every job's status row: finished after it started, with `result(service/job)` as its last result. */
+const statusRows = (service, result = () => ({ n: 1 })) =>
+  JOBS[service].map((name) => ({ name, last_started_at: T1, last_finished_at: T2, last_result: result(`${service}/${name}`), running: false }));
+
+function jobsHandler(started, result) {
   return (req, res) => {
     if (req.url === '/health') return res.writeHead(200).end('ok');
     if (req.headers.authorization !== `Bearer ${TOKEN}`) return res.writeHead(401).end('{}');
     res.writeHead(req.method === 'POST' ? 202 : 200, { 'content-type': 'application/json' });
-    if (req.method === 'GET') return res.end(JSON.stringify([{ name: 'sweep', last_started_at: 'T1', last_finished_at: 'T2', last_result: { n: 1 }, running: false }]));
+    if (req.method === 'GET') return res.end(JSON.stringify(statusRows(req.url.split('/').pop(), result)));
     res.end(JSON.stringify(started(req.url)));
   };
 }
@@ -64,7 +71,7 @@ test('wake retries a 503 health URL, then started and already-running are printe
   assert.ok(health >= 3, 'health retried');
   assert.match(r.out, /financial\/sweep: started/);
   assert.match(r.out, /financial\/effects: already running/);
-  assert.match(r.out, /financial\/sweep: started=T1/);
+  assert.match(r.out, new RegExp(`financial/sweep: started=${T1}`));
   // frequent wakes only the gateway and financial
   assert.deepEqual([...new Set(s.hosts)].sort(), ['financial', 'gateway']);
   assert.ok(!r.out.includes(TOKEN));
@@ -111,4 +118,42 @@ test('an unknown group exits 1 with the usage', async () => {
   const r = await run(['payouts'], { JOBS_TOKEN: TOKEN, RENDER_SERVICE_URLS: 'http://gateway.localhost:1/health' });
   assert.equal(r.code, 1);
   assert.match(r.out, /usage: run-jobs.mjs <frequent\|daily\|financial\/sweep/);
+});
+
+test("a job this run started that failed exits 1, after the others' results are printed", async () => {
+  const s = await stub(jobsHandler(() => ({ started: true }), (job) => (job === 'financial/payouts' ? { failed: true } : { n: 0 })));
+  const r = await run(['financial/payouts'], { JOBS_TOKEN: TOKEN, GATEWAY_URL: `http://127.0.0.1:${s.port}`, WAKE: '0' });
+  s.close();
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /financial\/payouts: FAILED/);
+});
+
+test("waits for this run's result: a job still running is polled until it finishes", async () => {
+  let polls = 0;
+  const s = await stub((req, res, reqs) => {
+    if (req.method === 'GET' && req.url === '/api/v1/jobs/financial' && ++polls < 3) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(statusRows('financial').map((row) => ({ ...row, running: true, last_finished_at: null }))));
+    }
+    jobsHandler(() => ({ started: true }), () => ({ failed: true }))(req, res, reqs);
+  });
+  const r = await run(['financial/sweep'], { JOBS_TOKEN: TOKEN, GATEWAY_URL: `http://127.0.0.1:${s.port}`, WAKE: '0' });
+  s.close();
+  assert.ok(polls >= 3, 'polled until finished');
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /financial\/sweep: FAILED/);
+});
+
+test('one service that never wakes skips only its jobs; the rest run and the run exits 1', async () => {
+  const s = await stub((req, res, reqs) => {
+    if (req.url === '/health' && req.headers.host.startsWith('quality.')) return res.writeHead(503).end();
+    jobsHandler(() => ({ started: true }))(req, res, reqs);
+  });
+  const services = ['gateway', 'financial', 'enrollment', 'auth', 'course', 'quality'];
+  const urls = services.map((x) => `http://${x}.localhost:${s.port}/health`).join(',');
+  const r = await run(['daily'], { JOBS_TOKEN: TOKEN, RENDER_SERVICE_URLS: urls, WAKE_TIMEOUT_MS: '600' });
+  s.close();
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /financial\/payouts: skipped, quality not up/);
+  for (const job of ['financial/sweep', 'financial/effects', 'financial/nudges', 'enrollment/inactivity']) assert.match(r.out, new RegExp(`${job}: started$`, 'm'));
 });
