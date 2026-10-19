@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, Star, TrendingUp, Users } from 'lucide-react';
@@ -151,7 +152,14 @@ function AnalyticsPage() {
               {(noCourses || funnel?.length === 0) && (
                 <tr>
                   <td colSpan={8}>
-                    <EmptyRows label="Publish a course to see analytics" />
+                    <EmptyRows
+                      label="Publish a course to see analytics"
+                      action={
+                        <Link href="/teach" className="btn-secondary">
+                          Go to my courses
+                        </Link>
+                      }
+                    />
                   </td>
                 </tr>
               )}

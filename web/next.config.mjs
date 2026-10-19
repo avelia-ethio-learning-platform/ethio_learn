@@ -19,9 +19,12 @@ const nextConfig = {
 
   // The course share image reads its fonts from disk at request time; file tracing can't see
   // that, so say which files the route needs (Docker standalone, Vercel).
-  experimental: {
-    outputFileTracingIncludes: { '/courses/[id]/opengraph-image': ['./src/assets/fonts/*.ttf'] },
-  },
+  outputFileTracingIncludes: { '/courses/[id]/opengraph-image': ['./src/assets/fonts/*.ttf'] },
+
+  // Next 15.5's build-time lint passes ESLint 8 legacy options to our flat config and
+  // fails with "Invalid Options". Lint is its own required CI check (`eslint .` via
+  // scripts/lint-check.mjs), so the build skips it.
+  eslint: { ignoreDuringBuilds: true },
 
   // CSP and the other security headers on every response, from this build's env
   // (src/lib/csp.mjs). Report-Only on Vercel production until CSP_ENFORCE=true.

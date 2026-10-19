@@ -246,7 +246,7 @@ jobs:
   # ---- audit: known vulnerabilities in production dependencies; never fails ----
   # A finding is a warning and a job summary, not a red check: the check always
   # concludes success, so it can't hold up Render's after-checks deploys.
-  # Fixing them is dependency work (Dependabot PRs, Phase 11c).
+  # Accepted advisories and their reasons: docs/DEPLOYMENT.md "Dependencies".
   audit:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

@@ -68,7 +68,7 @@ export function CourseDetails({ course, live, disabled, onSaved }: { course: Wor
         <h2 className="font-semibold">Course details</h2>
         {!editing && (
           <button
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-brand-600 transition-colors hover:bg-brand-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-brand-600 transition-colors duration-fast hover:bg-brand-500/10 disabled:cursor-not-allowed disabled:opacity-40"
             disabled={disabled}
             onClick={() => {
               setPricing(course.pricing_type);

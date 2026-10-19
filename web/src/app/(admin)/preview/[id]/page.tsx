@@ -154,7 +154,7 @@ function Preview({ courseId }: { courseId: string }) {
                   <li key={l.id}>
                     <button
                       aria-current={playingId === l.id ? 'true' : undefined}
-                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-brand-500/5 hover:text-brand-600 disabled:cursor-not-allowed disabled:text-gray-500 disabled:hover:bg-transparent ${playingId === l.id ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600'}`}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-fast hover:bg-brand-500/5 hover:text-brand-600 disabled:cursor-not-allowed disabled:text-gray-500 disabled:hover:bg-transparent ${playingId === l.id ? 'bg-brand-500/10 font-semibold text-brand-600' : 'text-gray-600'}`}
                       disabled={!l.has_video}
                       onClick={() => play(l.id, l.title)}
                     >
@@ -467,7 +467,7 @@ function ReviewPlayer({
         ) : (
           <div className="flex h-full w-full items-center justify-center">
             <button
-              className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20 disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white transition-colors duration-fast hover:bg-white/20 disabled:opacity-60"
               onClick={load}
               disabled={loading}
               aria-label={`${buttonText} — ${label}`}
@@ -732,7 +732,7 @@ function RevisionPreview({ courseId, revisionId, itemId }: { courseId: string; r
                   aria-valuemax={progress.total}
                   aria-valuenow={progress.opened}
                 >
-                  <div className="progress-fill" style={{ width: `${(progress.opened / progress.total) * 100}%` }} />
+                  <div className="progress-fill" style={{ transform: `scaleX(${progress.opened / progress.total})` }} />
                 </div>
                 <p className="mt-2 text-xs text-gray-500">
                   {progress.complete

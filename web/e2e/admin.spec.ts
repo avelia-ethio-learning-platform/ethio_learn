@@ -41,7 +41,7 @@ async function firstSuspend(page: Page) {
   return suspend;
 }
 
-test('Escape on the suspend dialog sends nothing (P0-10)', async ({ page }) => {
+test('Escape on the suspend dialog sends nothing (P0-10)', { tag: '@flow' }, async ({ page }) => {
   const bodies = await stubStatus(page);
 
   await openUsers(page);
@@ -57,7 +57,7 @@ test('Escape on the suspend dialog sends nothing (P0-10)', async ({ page }) => {
   await expect(suspend).toBeFocused();
 });
 
-test('confirming with a reason sends it, and focus returns to Suspend', async ({ page }) => {
+test('confirming with a reason sends it, and focus returns to Suspend', { tag: '@flow' }, async ({ page }) => {
   const bodies = await stubStatus(page);
 
   await openUsers(page);
@@ -73,7 +73,7 @@ test('confirming with a reason sends it, and focus returns to Suspend', async ({
   await expect(suspend).toBeFocused();
 });
 
-test('Tab never reaches anything behind the dialog', async ({ page }) => {
+test('Tab never reaches anything behind the dialog', { tag: '@flow' }, async ({ page }) => {
   await openUsers(page);
   await (await firstSuspend(page)).click();
   const dialog = page.getByRole('dialog', { name: /^Suspend / });

@@ -4,7 +4,7 @@ import { apiGet } from './support';
 const UUID_LINK = /^\/courses\/[0-9a-f-]{36}$/;
 
 // P2-22: the sort select is kept in the URL and reorders the results.
-test('Newest puts sort=new in the URL and reorders the catalog', async ({ page, request }) => {
+test('Newest puts sort=new in the URL and reorders the catalog', { tag: '@flow' }, async ({ page, request }) => {
   const ids = async (query: string) => (await apiGet<{ items: { id: string }[] }>(request, `/search?${query}`)).items.map((c) => c.id);
   const [top, newest] = [await ids('page=1&limit=12'), await ids('sort=new&page=1&limit=12')];
   expect(newest, 'the seed has an order for "new" that differs from "top"').not.toEqual(top);
@@ -28,7 +28,7 @@ test('Newest puts sort=new in the URL and reorders the catalog', async ({ page, 
 });
 
 // P1-32: a dead end gives a way forward.
-test('an unknown page shows the branded 404 with a course search', async ({ page }) => {
+test('an unknown page shows the branded 404 with a course search', { tag: '@flow' }, async ({ page }) => {
   const res = await page.goto('/does-not-exist');
   expect(res?.status()).toBe(404);
   await expect(page.getByRole('heading', { level: 1, name: "We couldn't find that page" })).toBeVisible();

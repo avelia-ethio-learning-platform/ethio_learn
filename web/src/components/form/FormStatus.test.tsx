@@ -22,6 +22,19 @@ describe('<FormStatus />', () => {
     expect(alert.textContent).toBe('');
   });
 
+  it('fades each new message in while both live regions stay mounted', () => {
+    const { rerender } = render(<FormStatus status={{ tone: 'error', text: 'First' }} />);
+    const status = screen.getByRole('status');
+    const alert = screen.getByRole('alert');
+    const first = alert.firstElementChild!;
+    expect(first.className).toContain('fade-in');
+    rerender(<FormStatus status={{ tone: 'error', text: 'Second' }} />);
+    expect(screen.getByRole('alert')).toBe(alert);
+    expect(screen.getByRole('status')).toBe(status);
+    expect(alert.firstElementChild).not.toBe(first);
+    expect(alert.firstElementChild!.className).toContain('fade-in');
+  });
+
   it('puts an info status in the polite region, styled as a warning, never as success', () => {
     const { rerender } = render(<FormStatus status={null} />);
     const status = screen.getByRole('status');

@@ -222,7 +222,6 @@ export const en = {
   coupon_code: 'Coupon code',
   apply: 'Apply',
   coupon_pay_instead: 'you pay {due} instead of {list}',
-  please_wait: 'Please wait…',
   enroll_free_coupon: 'Enroll free with coupon',
   pay_from_wallet_available: 'Pay {amount} from my wallet ({balance} available)',
   wallet_top_up_hint: 'Wallet balance {balance} — top up from your dashboard to pay with credits.',

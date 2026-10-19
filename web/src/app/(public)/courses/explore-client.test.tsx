@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
-const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+const { push, pending } = vi.hoisted(() => ({ push: vi.fn(), pending: { value: false } }));
+// Lets a test hold the catalog in its "next results loading" state.
+vi.mock('react', async (importOriginal) => {
+  const react = await importOriginal<typeof import('react')>();
+  return { ...react, useTransition: () => [pending.value, (fn: () => void) => fn()] as const };
+});
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 vi.mock('@/components/CourseCard', () => ({ CourseCard: ({ course }: { course: { title: string } }) => <li>{course.title}</li> }));
 
@@ -13,7 +18,10 @@ function view(filters = {}, over: { total?: number; page?: number; limit?: numbe
   render(<ExploreClient courses={courses} total={over.total ?? 15} page={over.page ?? 1} limit={over.limit ?? 12} filters={filters} />);
 }
 
-beforeEach(() => push.mockReset());
+beforeEach(() => {
+  push.mockReset();
+  pending.value = false;
+});
 afterEach(cleanup);
 
 describe('catalog', () => {
@@ -60,6 +68,33 @@ describe('catalog', () => {
     expect(screen.getByRole('button', { name: 'Tech' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('button', { name: 'Business' }).getAttribute('aria-pressed')).toBe('false');
     expect(screen.getAllByRole('button', { name: 'All' })[0].getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('while the next results load, a bar shows and the current results stay readable and clickable', () => {
+    pending.value = true;
+    view();
+    const results = screen.getByTestId('results');
+    expect(screen.getByTestId('results-loading')).toBeTruthy();
+    expect(results.parentElement!.getAttribute('aria-busy')).toBe('true');
+    for (let el: HTMLElement | null = results; el; el = el.parentElement) {
+      expect(el.className).not.toMatch(/pointer-events-none|opacity-50/);
+      expect(el.hasAttribute('inert')).toBe(false);
+    }
+    expect(screen.getByText('Intro to Python')).toBeTruthy();
+  });
+
+  it('the first results paint without an enter; changed results crossfade in', () => {
+    const { rerender } = render(<ExploreClient courses={courses} total={15} page={1} limit={12} filters={{}} />);
+    expect(screen.getByTestId('results').className).not.toContain('fade-in');
+    rerender(<ExploreClient courses={courses} total={15} page={1} limit={12} filters={{ category: 'tech' }} />);
+    expect(screen.getByTestId('results').className).toContain('fade-in');
+  });
+
+  it('with no results and a filter applied, offers Clear filters', () => {
+    render(<ExploreClient courses={[]} total={0} page={1} limit={12} filters={{ category: 'tech' }} />);
+    expect(screen.getByText('No published courses match yet.')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Clear filters' }).at(-1)!);
+    expect(push).toHaveBeenCalledWith('/courses', { scroll: false });
   });
 
   it('filters by language through the URL, with a removable chip', () => {

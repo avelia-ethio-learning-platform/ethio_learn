@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, LoaderCircle, ShoppingCart, UserPlus, Wallet } from 'lucide-react';
+import { Building2, ShoppingCart, UserPlus, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { StatusBadge } from '@/components/PageChrome';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
@@ -12,7 +12,7 @@ import { statusLabel } from '@/lib/labels';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { percentLabel, percentWidth } from '@/lib/progress';
+import { percentLabel, percentScale } from '@/lib/progress';
 
 interface Quote {
   course_title: string;
@@ -122,11 +122,11 @@ export function BulkPurchases({ organizationName }: { organizationName: string }
               {quote.discount_percent > 0 && <span className="text-xs text-gray-500"> (list {formatETB(quote.list_total_etb, locale)})</span>}
             </span>
             <span className="flex flex-wrap gap-2">
-              <button className="btn" disabled={busy} onClick={() => buy(false)}>
-                {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} Pay with Chapa
+              <button className="btn" disabled={busy} aria-busy={busy} onClick={() => buy(false)}>
+                <ShoppingCart className="h-4 w-4" /> Pay with Chapa
               </button>
               {(wallet?.balance_etb ?? 0) >= quote.total_etb && (
-                <button className="btn-secondary" disabled={busy} onClick={() => buy(true)}>
+                <button className="btn-secondary" disabled={busy} aria-busy={busy} onClick={() => buy(true)}>
                   <Wallet className="h-4 w-4" /> Pay from wallet
                 </button>
               )}
@@ -216,7 +216,7 @@ function BulkOrder({ order: o }: { order: any }) {
                 {a.progress ? (
                   <span className="flex items-center gap-2">
                     <span className="progress-track w-24">
-                      <span className="progress-fill block" style={{ width: percentWidth(a.progress.progress_percent) }} />
+                      <span className="progress-fill block" style={{ transform: percentScale(a.progress.progress_percent) }} />
                     </span>
                     {percentLabel(a.progress.progress_percent)}{a.progress.lessons_complete ? ' ✓' : ''}
                   </span>

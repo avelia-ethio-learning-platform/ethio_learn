@@ -14,11 +14,10 @@ export const metadata: Metadata = {
 const PAGE_SIZES = [12, 24, 48];
 const SORTS = ['top', 'new', 'popular', 'price_asc', 'price_desc'];
 
-export default async function CoursesPage({
-  searchParams,
-}: {
-  searchParams: { q?: string; category?: string; pricing_type?: string; language?: string; page?: string; limit?: string; sort?: string };
+export default async function CoursesPage(props: {
+  searchParams: Promise<{ q?: string; category?: string; pricing_type?: string; language?: string; page?: string; limit?: string; sort?: string }>;
 }) {
+  const searchParams = await props.searchParams;
   // The API accepts pages 1–10000 (a hand-typed larger page would 400); past the end is an empty page either way.
   const page = Math.min(Math.max(parseInt(searchParams.page ?? '1', 10) || 1, 1), 10000);
   const limitRaw = parseInt(searchParams.limit ?? '12', 10);

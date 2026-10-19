@@ -2,7 +2,7 @@ import { expect, test } from './test';
 
 // P1-49 / P1-50 / P1-51: the shell works without a mouse.
 
-test('on /login the skip link is the first tab stop and the email field has no duplicate stops', async ({ page }) => {
+test('on /login the skip link is the first tab stop and the email field has no duplicate stops', { tag: '@flow' }, async ({ page }) => {
   await page.goto('/login');
   await expect(page.locator('input[name="email"]')).toBeVisible();
 
@@ -42,7 +42,7 @@ test('on /login the skip link is the first tab stop and the email field has no d
   });
 });
 
-test.describe('375 px', () => {
+test.describe('375 px', { tag: '@flow' }, () => {
   test.use({ viewport: { width: 375, height: 800 } });
 
   test('the mobile menu opens, closes on Escape and gives focus back to the burger', async ({ page }) => {
@@ -66,7 +66,7 @@ test.describe('375 px', () => {
     await page.getByRole('button', { name: 'Menu' }).click();
     const panel = page.getByTestId('mobile-menu-panel');
     await expect(panel).toBeVisible();
-    // Wait for the menu's 250 ms height reveal: until it ends, the wrapper clips the panel itself.
+    // Wait for the menu's fade-in to finish.
     await expect
       .poll(() =>
         panel.evaluate((el) => {
@@ -81,7 +81,7 @@ test.describe('375 px', () => {
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     const menu = page.locator(`[id="${await trigger.getAttribute('aria-controls')}"]`);
     await expect(menu).toBeVisible();
-    // Measure at rest, after the 150 ms scale/fade.
+    // Measure at rest, after the popover's scale and fade.
     await expect
       .poll(() =>
         menu.evaluate((el) => {

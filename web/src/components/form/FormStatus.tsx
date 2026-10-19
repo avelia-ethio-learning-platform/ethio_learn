@@ -28,10 +28,11 @@ export function FormStatus({ status }: { status: FormStatusValue }) {
   const polite = status && status.tone !== 'error' ? status.text : '';
   const politeTone = status?.tone === 'info' ? 'badge-warn' : 'badge-success';
   const error = status?.tone === 'error' ? status.text : '';
+  // Keyed on the text, so each new message fades in; the live regions themselves never remount.
   return (
     <>
-      <div role="status">{polite && <p className={`${politeTone} ${BANNER}`}>{polite}</p>}</div>
-      <div role="alert">{error && <p className={`badge-danger ${BANNER}`}>{error}</p>}</div>
+      <div role="status">{polite && <p key={polite} className={`fade-in ${politeTone} ${BANNER}`}>{polite}</p>}</div>
+      <div role="alert">{error && <p key={error} className={`fade-in badge-danger ${BANNER}`}>{error}</p>}</div>
     </>
   );
 }

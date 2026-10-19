@@ -33,8 +33,8 @@ function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange
         <span className="block text-sm font-medium text-gray-900">{label}</span>
         <span className="block text-xs text-gray-500">{hint}</span>
       </span>
-      <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-brand-600' : 'bg-gray-300'}`}>
-        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`} />
+      <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-fast ${checked ? 'bg-brand-600' : 'bg-gray-300'}`}>
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-fast ${checked ? 'translate-x-5' : 'translate-x-0.5'}`} />
       </span>
     </button>
   );
@@ -118,7 +118,7 @@ function PreferencesForm() {
                 type="button"
                 onClick={() => toggleCat(c.value)}
                 aria-pressed={on}
-                className={`rounded-full border px-3 py-1.5 text-sm transition active:scale-95 ${
+                className={`rounded-full border px-3 py-1.5 text-sm transition duration-fast active:scale-95 ${
                   on ? 'brand-fill border-transparent' : 'border-gray-200 bg-card text-gray-700 hover:border-brand-400'
                 }`}
               >

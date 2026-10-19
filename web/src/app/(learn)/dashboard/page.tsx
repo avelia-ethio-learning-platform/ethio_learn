@@ -34,9 +34,9 @@ import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { WalletCard } from './wallet-card';
 import { asPage } from '@/lib/merge-pages';
 import { Pager } from '@/components/Pager';
+import { percentLabel, percentScale } from '@/lib/progress';
 
 const PAYMENTS_PAGE = 20;
-import { percentLabel, percentWidth } from '@/lib/progress';
 
 function LearnerDashboard() {
   const { t, locale } = useT();
@@ -108,7 +108,7 @@ function LearnerDashboard() {
               </Link>
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="fade-in grid gap-4 sm:grid-cols-2">
               {enrollments.map((e) => (
                 <div key={e.id} className="card card-hover">
                   <div className="flex items-start justify-between gap-3">
@@ -116,7 +116,7 @@ function LearnerDashboard() {
                     <StatusBadge status={e.entitlement_status} />
                   </div>
                   <div className="progress-track mt-4">
-                    <div className="progress-fill" style={{ width: percentWidth(e.progress_percent) }} />
+                    <div className="progress-fill" style={{ transform: percentScale(e.progress_percent) }} />
                   </div>
                   <p className="mt-2 text-xs text-gray-500">
                     {percentLabel(e.progress_percent)} {t('progress')}
@@ -187,7 +187,7 @@ function LearnerDashboard() {
         </section>
 
         <section className="grid gap-6 md:grid-cols-2">
-          <div className="animate-fade-in-up" style={{ animationDelay: '0.18s' }}>
+          <div className="animate-fade-in-up">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
               <ReceiptText className="h-5 w-5 text-brand-500" /> {t('payment_history')}
             </h2>
@@ -223,7 +223,7 @@ function LearnerDashboard() {
               <Pager page={paymentPage} pageSize={PAYMENTS_PAGE} total={paymentsPage?.total ?? 0} onPage={setPaymentPage} />
             </div>
           </div>
-          <div className="animate-fade-in-up" style={{ animationDelay: '0.26s' }}>
+          <div className="animate-fade-in-up">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
               <Undo2 className="h-5 w-5 text-brand-500" /> {t('refund_requests')}
             </h2>
@@ -342,7 +342,7 @@ function SponsorshipsSection() {
                   {s.progress && (
                     <>
                       <div className="progress-track mt-2">
-                        <div className="progress-fill" style={{ width: percentWidth(s.progress.progress_percent) }} />
+                        <div className="progress-fill" style={{ transform: percentScale(s.progress.progress_percent) }} />
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
                         {s.progress.progress_percent == null ? `— ${t('progress')}` : t('n_complete', { n: s.progress.progress_percent })}

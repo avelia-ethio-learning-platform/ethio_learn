@@ -22,7 +22,7 @@ import { LessonList } from './lesson-list';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { attachVideo } from '@/lib/video';
-import { percentLabel, percentWidth } from '@/lib/progress';
+import { percentLabel, percentScale } from '@/lib/progress';
 
 interface Lesson {
   id: string;
@@ -434,7 +434,7 @@ function Player({ courseId }: { courseId: string }) {
                 <span className="font-semibold text-brand-600">{percentLabel(progress.progress_percent)}</span>
               </div>
               <div className="progress-track mt-2">
-                <div className="progress-fill" style={{ width: percentWidth(progress.progress_percent) }} />
+                <div className="progress-fill" style={{ transform: percentScale(progress.progress_percent) }} />
               </div>
             </div>
           )}

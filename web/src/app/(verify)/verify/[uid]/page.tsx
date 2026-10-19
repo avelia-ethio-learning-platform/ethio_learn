@@ -22,7 +22,8 @@ export const metadata: Metadata = {
 };
 
 /** Public, unauthenticated verification page (spec §11.7) — QR codes land here. */
-export default async function VerifyPage({ params }: { params: { uid: string } }) {
+export default async function VerifyPage(props: { params: Promise<{ uid: string }> }) {
+  const params = await props.params;
   const response = await serverApi<Verification>(`/verify/${params.uid}`, 0);
   // An unreachable API must never read as "not a valid certificate".
   if (!response.ok && response.status === 'unavailable') return <WakingUp />;
@@ -30,8 +31,9 @@ export default async function VerifyPage({ params }: { params: { uid: string } }
 
   return (
     <div className="page-shell flex min-h-[70vh] items-center justify-center">
-      <div className="card w-full max-w-lg animate-fade-in-up overflow-hidden !rounded-3xl !p-0 text-center shadow-elevated">
-        <span className={`block h-1.5 w-full ${result.valid ? 'gradient-ethiopia' : 'bg-danger-solid'}`} />
+      {/* The card has no enter animation (it is the LCP element); a valid certificate's flag band wipes in. */}
+      <div className="card w-full max-w-lg overflow-hidden !rounded-3xl !p-0 text-center shadow-elevated">
+        <span className={`block h-1.5 w-full ${result.valid ? 'band-wipe gradient-ethiopia' : 'bg-danger-solid'}`} />
         <div className="p-8 sm:p-10">
           {result.valid ? (
             <>

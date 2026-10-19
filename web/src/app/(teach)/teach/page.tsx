@@ -7,6 +7,7 @@ import { BarChart3, BookOpen, HandCoins, LayoutDashboard, Plus, Ticket, Wallet }
 import { api, ApiError } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
+import { EmptyRows } from '@/components/EmptyRows';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
@@ -95,30 +96,41 @@ function TeachDashboard() {
 
         <section className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
           <h2 className="mb-4 text-lg font-bold text-foreground">My courses</h2>
-          {needsInstitution ? (
-            <div className="card py-10 text-center text-sm text-gray-500">
-              {coursesError?.message}
-              <div className="mt-4">
-                <Link href="/institution" className="btn">
-                  Set up your institution
-                </Link>
-              </div>
+          {courses === undefined && !needsInstitution ? (
+            <div className="space-y-3">
+              <div className="skeleton h-16 w-full" />
+              <div className="skeleton h-16 w-full" />
+            </div>
+          ) : needsInstitution ? (
+            <div className="card fade-in">
+              <EmptyRows
+                icon={BookOpen}
+                label={coursesError?.message ?? 'Set up your institution to create courses.'}
+                action={
+                  <Link href="/institution" className="btn">
+                    Set up your institution
+                  </Link>
+                }
+              />
             </div>
           ) : !courses?.length ? (
-            <div className="card py-10 text-center text-sm text-gray-500">
-              No courses yet — create your first one.
-              <div className="mt-4">
-                <Link href="/teach/new" className="btn">
-                  <Plus className="h-4 w-4" /> Create a course
-                </Link>
-              </div>
+            <div className="card fade-in">
+              <EmptyRows
+                icon={BookOpen}
+                label="No courses yet — create your first one."
+                action={
+                  <Link href="/teach/new" className="btn">
+                    <Plus className="h-4 w-4" /> Create a course
+                  </Link>
+                }
+              />
             </div>
           ) : (
-            <div className="card !p-0 overflow-hidden">
+            <div className="card fade-in !p-0 overflow-hidden">
               {courses.map((c, i) => (
                 <div
                   key={c.id}
-                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-sm transition-colors hover:bg-brand-500/5"
+                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-sm transition-colors duration-fast hover:bg-brand-500/5"
                   style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
                 >
                   <div className="min-w-0">
@@ -140,14 +152,14 @@ function TeachDashboard() {
           )}
         </section>
 
-        <section className="animate-fade-in-up" style={{ animationDelay: '0.18s' }}>
+        <section className="animate-fade-in-up">
           <h2 className="mb-4 text-lg font-bold text-foreground">Payout history</h2>
           <div className="card text-sm">
             {!payouts?.length && <p className="py-2 text-gray-500">No payouts yet. Payouts run nightly on settled payments (7–14 day hold).</p>}
             {payouts?.map((p, i) => (
               <div
                 key={p.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition-colors hover:bg-brand-500/5"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-2.5 transition-colors duration-fast hover:bg-brand-500/5"
                 style={i > 0 ? { borderTop: '1px solid var(--border)' } : undefined}
               >
                 <span className="text-gray-500">{formatDate(p.created_at, locale)}</span>

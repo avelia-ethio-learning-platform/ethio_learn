@@ -6,7 +6,7 @@ export function percentLabel(percent: number | null | undefined): string {
   return percent == null ? '—' : `${percent}%`;
 }
 
-/** Width for a progress bar: an unknown percent draws an empty bar. */
-export function percentWidth(percent: number | null | undefined): string {
-  return `${percent ?? 0}%`;
+/** The `.progress-fill` transform: an unknown percent draws an empty bar. */
+export function percentScale(percent: number | null | undefined): string {
+  return `scaleX(${(percent ?? 0) / 100})`;
 }

@@ -6,6 +6,7 @@ import { Check, Monitor, Moon, Sun } from 'lucide-react';
 import { Theme, useTheme } from './ThemeProvider';
 import { useT } from '@/lib/i18n';
 import { useDismiss } from '@/lib/use-dismiss';
+import { popover } from '@/lib/motion';
 
 /**
  * Light / Dark / System selector, ported from the template's DarkModeToggle.
@@ -41,7 +42,7 @@ export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' 
         aria-label={t('theme')}
         aria-expanded={open}
         aria-controls={panelId}
-        className="glass-secondary flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
+        className="glass-secondary flex h-11 w-11 items-center justify-center rounded-xl text-brand-600 shadow-glass transition duration-fast lg:h-10 lg:w-10 hover:text-brand-700 active:scale-[.98]"
       >
         <span className="flex items-center justify-center">
           <CurrentIcon className="h-4 w-4" />
@@ -52,11 +53,11 @@ export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' 
         {open && (
           <m.div
             id={panelId}
-            initial={{ opacity: 0, scale: 0.92, y: up ? 8 : -8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.92, y: up ? 8 : -8 }}
-            transition={{ duration: 0.15 }}
-            className={`absolute z-50 min-w-[150px] space-y-1 rounded-2xl p-2 shadow-floating ${up ? 'bottom-12 left-0' : 'right-0 top-12'}`}
+            variants={popover}
+            initial="hidden"
+            animate="visible"
+            exit="hidden"
+            className={`absolute z-50 min-w-[150px] space-y-1 rounded-2xl p-2 shadow-floating ${up ? 'bottom-12 left-0 origin-bottom-left' : 'right-0 top-12 origin-top-right'}`}
             style={{ background: 'var(--popover)', border: '1px solid var(--card-border)', backdropFilter: 'blur(16px)' }}
           >
             {themes.map((option) => {
@@ -71,7 +72,7 @@ export function ThemeToggle({ placement = 'down' }: { placement?: 'down' | 'up' 
                     setOpen(false);
                     triggerRef.current?.focus();
                   }}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors duration-fast ${
                     selected ? 'bg-brand-500/10 text-brand-700' : 'text-gray-600 hover:bg-brand-500/5 hover:text-foreground'
                   }`}
                 >

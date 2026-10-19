@@ -50,7 +50,8 @@ interface Reviews {
   has_more?: boolean;
 }
 
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const result = await serverApi<CourseDetail>(`/courses/${params.id}`, 300);
   if (!result.ok) {
     return result.status === 404 ? { title: 'Course not found' } : { title: 'Waking up the server', robots: { index: false } };
@@ -66,7 +67,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   };
 }
 
-export default async function CoursePage({ params }: { params: { id: string } }) {
+export default async function CoursePage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const result = await serverApi<CourseDetail>(`/courses/${params.id}`, 60);
   if (!result.ok) {
     if (result.status === 404) notFound();

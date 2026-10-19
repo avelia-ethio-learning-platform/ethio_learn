@@ -114,6 +114,15 @@ describe('Header overlays', () => {
     await waitFor(() => expect(screen.queryByTestId('mobile-menu-panel')).toBeNull());
   });
 
+  it('mobile menu: opens at its full height and never animates height (no layout work per frame)', () => {
+    renderHeader();
+    const burger = screen.getByRole('button', { name: 'Menu' });
+    fireEvent.click(burger);
+    const menu = document.getElementById(burger.getAttribute('aria-controls')!)!;
+    expect(menu.style.height).toBe('');
+    expect(menu.className).not.toContain('overflow-hidden');
+  });
+
   it('mobile menu: focus moves to the first link, and Tab wraps at both ends', () => {
     renderHeader();
     const burger = screen.getByRole('button', { name: 'Menu' });

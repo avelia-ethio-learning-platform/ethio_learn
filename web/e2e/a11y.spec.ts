@@ -58,7 +58,10 @@ async function revealAll(page: Page) {
 
 async function scan(page: Page, where: string) {
   await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
-  await page.waitForLoadState('networkidle').catch(() => undefined);
+  // Best effort, capped: on Next 15 an ISR response carries `stale-while-revalidate=<n>`, so
+  // Chrome revalidates a cached `/` prefetch in the background, and Playwright never sees that
+  // request finish. A second visit in the same page would otherwise wait out the test timeout.
+  await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => console.warn(`networkidle cap: ${where}`));
   await settle(page);
   await revealAll(page);
   await analyze(new AxeBuilder({ page }), where);

@@ -47,11 +47,11 @@ export function CompletionCard({ courseId }: { courseId: string }) {
   const assessmentsLeft = !!assessments?.some((a) => a.is_required && !attempts?.some((t) => t.assessment_id === a.id && t.passed));
 
   return (
-    <div className="card mt-4 !p-4 text-sm">
+    <div className="card fade-in mt-4 !p-4 text-sm">
       {certificate ? (
         <>
           <p className="flex items-center gap-2 font-semibold text-foreground">
-            <Award className="h-4 w-4 text-brand-600" aria-hidden /> You&apos;ve completed this course
+            <Award className="check-pop h-4 w-4 text-brand-600" aria-hidden /> You&apos;ve completed this course
           </p>
           <div className="mt-3 flex flex-wrap gap-3 text-xs">
             <a className="inline-flex items-center gap-1 font-semibold text-brand-600 hover:underline" href={certificate.verify_url}>

@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/hooks';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { useDismiss } from '@/lib/use-dismiss';
+import { dur, ease, popover } from '@/lib/motion';
 
 interface Notif {
   id: string;
@@ -62,7 +63,7 @@ export function NotificationBell() {
       <button
         ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
-        className="glass-secondary relative flex h-10 w-10 items-center justify-center rounded-xl text-brand-600 shadow-glass transition hover:scale-105 hover:text-brand-700 active:scale-[.98]"
+        className="glass-secondary relative flex h-11 w-11 items-center justify-center rounded-xl text-brand-600 shadow-glass transition duration-fast lg:h-10 lg:w-10 hover:text-brand-700 active:scale-[.98]"
         aria-label={count > 0 ? `${t('notifications')}, ${count} ${t('unread')}` : t('notifications')}
         aria-expanded={open}
         aria-controls={panelId}
@@ -73,6 +74,7 @@ export function NotificationBell() {
           <m.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
+            transition={{ duration: dur.base, ease: ease.expo }}
             className="badge-count absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold shadow"
           >
             {count > 9 ? '9+' : count}
@@ -84,11 +86,11 @@ export function NotificationBell() {
         {open && (
           <m.div
             id={panelId}
-            initial={{ opacity: 0, scale: 0.95, y: -8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -8 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-x-4 top-20 z-50 overflow-hidden sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80 rounded-2xl shadow-floating"
+            variants={popover}
+            initial="hidden"
+            animate="visible"
+            exit="hidden"
+            className="fixed inset-x-4 top-20 z-50 origin-top overflow-hidden sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80 sm:origin-top-right rounded-2xl shadow-floating"
             style={{ background: 'var(--popover)', border: '1px solid var(--card-border)', backdropFilter: 'blur(16px)' }}
           >
             <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
@@ -117,7 +119,7 @@ export function NotificationBell() {
                 <button
                   key={n.id}
                   onClick={() => openNotif(n)}
-                  className={`block w-full px-4 py-3 text-left text-sm transition-colors hover:bg-brand-500/5 focus-visible:outline-offset-[-2px] ${n.read ? '' : 'bg-brand-500/10'}`}
+                  className={`block w-full px-4 py-3 text-left text-sm transition-colors duration-fast hover:bg-brand-500/5 focus-visible:outline-offset-[-2px] ${n.read ? '' : 'bg-brand-500/10'}`}
                   style={{ borderBottom: '1px solid var(--border)' }}
                 >
                   <p className="flex items-start gap-2 font-medium text-foreground">

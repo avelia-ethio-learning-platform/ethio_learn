@@ -56,7 +56,7 @@ describe('findPrimaryAction (bottom bar target)', () => {
   });
 
   it('is hidden when the marked action is disabled (payment in progress)', () => {
-    expect(findPrimaryAction(box('<button data-primary-action="enroll" disabled>Please wait…</button>'))).toBeNull();
+    expect(findPrimaryAction(box('<button data-primary-action="enroll" disabled aria-busy="true">Buy with Chapa</button>'))).toBeNull();
   });
 
   it('is null without a box', () => {

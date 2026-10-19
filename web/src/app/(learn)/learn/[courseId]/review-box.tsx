@@ -37,7 +37,7 @@ export function ReviewBox({ courseId, progressPercent }: { courseId: string; pro
             tabIndex={rating === n || (rating === 0 && n === 1) ? 0 : -1}
             onClick={() => setRating(n)}
             onKeyDown={(e) => onStarKey(e, n)}
-            className="rounded transition-transform hover:scale-110"
+            className="rounded transition-transform duration-fast hover:scale-110"
           >
             <Star aria-hidden className={`h-7 w-7 ${n <= rating ? 'fill-rating text-rating' : 'text-gray-500'}`} />
           </button>

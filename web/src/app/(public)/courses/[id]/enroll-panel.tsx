@@ -3,7 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Gift, HandCoins, LoaderCircle, Lock, ShoppingCart, Sparkles, Ticket, Wallet } from 'lucide-react';
+import { ArrowRight, Gift, HandCoins, Lock, ShoppingCart, Sparkles, Ticket, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
@@ -128,7 +128,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
               ['ask', 'mode_ask'],
             ] as const
           ).map(([m, key]) => (
-            <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className={`flex-1 rounded-lg px-2 py-1.5 transition ${mode === m ? 'bg-card text-brand-700 shadow-sm' : 'text-gray-500 hover:text-foreground'}`}>
+            <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className={`flex-1 rounded-lg px-2 py-1.5 transition duration-fast ${mode === m ? 'bg-card text-brand-700 shadow-sm' : 'text-gray-500 hover:text-foreground'}`}>
               {t(key)}
             </button>
           ))}
@@ -156,12 +156,9 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
               )}
             </div>
           )}
-          <button data-primary-action="enroll" className="btn w-full !py-3" onClick={() => enroll(false)} disabled={busy}>
-            {busy ? (
-              <>
-                <LoaderCircle className="h-4 w-4 animate-spin" /> {t('please_wait')}
-              </>
-            ) : !paid ? (
+          {/* While the request runs the button keeps its label and size; its icon turns into a spinner (aria-busy). */}
+          <button data-primary-action="enroll" className="btn w-full !py-3" onClick={() => enroll(false)} disabled={busy} aria-busy={busy}>
+            {!paid ? (
               <>
                 <Sparkles className="h-4 w-4" /> {t('enroll_free')}
               </>
@@ -177,7 +174,7 @@ export function EnrollPanel({ courseId, pricingType, price }: { courseId: string
             )}
           </button>
           {canUseWallet && (
-            <button className="btn-secondary w-full !py-2.5" onClick={() => enroll(true)} disabled={busy}>
+            <button className="btn-secondary w-full !py-2.5" onClick={() => enroll(true)} disabled={busy} aria-busy={busy}>
               <Wallet className="h-4 w-4" /> {t('pay_from_wallet_available', { amount: formatETB(amountDue, locale), balance: formatETB(wallet?.balance_etb ?? 0, locale) })}
             </button>
           )}
@@ -245,11 +242,11 @@ function GiftForm({ courseId, amountDue, walletBalance, coupon, compact = false 
         {(ids) => <textarea {...ids} className="input" rows={2} placeholder={t('gift_message_placeholder')} value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />}
       </Field>
       <p className="text-xs text-gray-500">{t('gift_invite_info')}</p>
-      <button className="btn w-full" disabled={busy || !email}>
-        {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />} {t('pay_with_chapa_amount', { amount: formatETB(amountDue, locale) })}
+      <button className="btn w-full" disabled={busy || !email} aria-busy={busy}>
+        <ShoppingCart className="h-4 w-4" /> {t('pay_with_chapa_amount', { amount: formatETB(amountDue, locale) })}
       </button>
       {walletBalance >= amountDue && amountDue > 0 && (
-        <button type="button" className="btn-secondary w-full" disabled={busy || !email} onClick={(e) => submit(e, true)}>
+        <button type="button" className="btn-secondary w-full" disabled={busy || !email} aria-busy={busy} onClick={(e) => submit(e, true)}>
           <Wallet className="h-4 w-4" /> {t('pay_from_wallet_balance', { balance: formatETB(walletBalance, locale) })}
         </button>
       )}
@@ -298,8 +295,8 @@ function AskToPayForm({ courseId }: { courseId: string }) {
           <Field label={t('message_optional')}>
             {(ids) => <textarea {...ids} className="input" rows={2} placeholder={t('ask_message_placeholder')} value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} />}
           </Field>
-          <button className="btn w-full" disabled={busy || !email}>
-            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <HandCoins className="h-4 w-4" />} {t('send_payment_request')}
+          <button className="btn w-full" disabled={busy || !email} aria-busy={busy}>
+            <HandCoins className="h-4 w-4" /> {t('send_payment_request')}
           </button>
         </form>
       )}
