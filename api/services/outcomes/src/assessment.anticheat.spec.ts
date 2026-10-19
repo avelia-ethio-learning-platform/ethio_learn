@@ -1,6 +1,6 @@
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException } from '@nestjs/common';
 import { AssessmentType, Role } from '@ethiopialearn/contracts';
-import { AssessmentService } from './assessment.service';
+import { AssessmentService, PROCTOR_EVENTS_MAX } from './assessment.service';
 
 /**
  * Anti-cheat behaviour of quizzes: per-attempt paper (subset + shuffle) that
@@ -18,7 +18,12 @@ function bankOf(n: number) {
   }));
 }
 
-function harness(config: Record<string, unknown>, priorAttempts: Record<string, unknown>[] = [], storage: Record<string, unknown> = {}) {
+function harness(
+  config: Record<string, unknown>,
+  priorAttempts: Record<string, unknown>[] = [],
+  storage: Record<string, unknown> = {},
+  hooks: { beforeAppend?: () => void } = {},
+) {
   const assessment = { id: 'as1', course_id: 'c1', type: AssessmentType.QUIZ, pass_score: 50, config, is_required: true };
   const saved: Record<string, any>[] = [];
   const updates: Record<string, any>[] = [];
@@ -58,6 +63,22 @@ function harness(config: Record<string, unknown>, priorAttempts: Record<string, 
         },
       };
       return qb;
+    }),
+    metadata: { tablePath: 'outcomes.assessment_attempts' },
+    // recordProctorEvent's conditional append, with the semantics of its SQL (the
+    // real statement under concurrency is exercised in proctor-events.db.spec.ts).
+    query: jest.fn(async (sql: string, params: [string, string, string, number, number]) => {
+      if (!sql.includes('WITH appended AS')) throw new Error(`unexpected query: ${sql}`);
+      const [id, eventJson, type, limit, max] = params;
+      hooks.beforeAppend?.();
+      const appended = JSON.parse(eventJson);
+      updates.push({ append: appended });
+      const row = stored().find((r) => r.id === id);
+      if (!row || row.submitted_at || (row.proctor_log ?? []).length >= max) return [];
+      row.proctor_log = [...(row.proctor_log ?? []), ...appended];
+      row.flagged = true;
+      row.terminated = row.terminated || row.proctor_log.filter((e: { type: string }) => e.type === type).length >= limit;
+      return [{ proctor_log: row.proctor_log }];
     }),
     // startAttempt runs in one transaction (the lock is exercised in assessment.start.spec.ts).
     manager: { transaction: jest.fn(async (work: (m: unknown) => unknown) => work({ query: jest.fn(async () => []), getRepository: () => attempts })) },
@@ -259,17 +280,19 @@ describe('proctor events on a finished attempt', () => {
     await expect(svc.recordProctorEvent(learner, 'att-1', { type: 'tab', description: 'x' })).rejects.toThrow(new BadRequestException('Attempt already submitted'));
   });
 
-  it('a submit that lands during the screenshot upload wins: 400, and the result is left as the submit wrote it', async () => {
+  it('a submit that lands before the event is written wins: 400, nothing stored, and the result is left as the submit wrote it', async () => {
     const row: Record<string, any> = {
       id: 'att-1', assessment_id: 'as1', learner_id: 'l1', submitted_at: null, score: null, passed: null, detail: {}, proctor_log: [], flagged: false, terminated: false,
     };
+    const storage = { putObject: jest.fn(async () => undefined) };
     // The submit's claim lands between the proctor event's read and its write.
-    const storage = { putObject: jest.fn(async () => void Object.assign(row, { submitted_at: new Date(), score: 80, passed: true })) };
-    const { svc, attempts, updates } = harness({ questions: bankOf(2) }, [row], storage);
+    const { svc, attempts, updates } = harness({ questions: bankOf(2) }, [row], storage, {
+      beforeAppend: () => void Object.assign(row, { submitted_at: new Date(), score: 80, passed: true }),
+    });
     await expect(
       svc.recordProctorEvent(learner, 'att-1', { type: 'tab_switch', description: 'x', screenshot_base64: 'aGVsbG8=' }),
     ).rejects.toThrow(new BadRequestException('Attempt already submitted'));
-    expect(storage.putObject).toHaveBeenCalledTimes(1);
+    expect(storage.putObject).not.toHaveBeenCalled();
     expect(attempts.save).not.toHaveBeenCalled();
     expect(updates).toHaveLength(1); // the conditional write, which hit nothing
     expect(row.submitted_at).toBeInstanceOf(Date);
@@ -283,24 +306,66 @@ describe('proctor events on an open attempt', () => {
     id: 'att-1', assessment_id: 'as1', learner_id: 'l1', submitted_at: null, score: null, passed: null, detail: {}, proctor_log, flagged: false, terminated: false,
   });
 
-  it('appends to the log and flags the attempt, writing only those columns', async () => {
+  it('appends to the log and flags the attempt, leaving the result alone', async () => {
     const row = openRow();
     const { svc, attempts, updates } = harness({ questions: bankOf(2) }, [row]);
     const res = await svc.recordProctorEvent(learner, 'att-1', { type: 'tab_switch', description: 'left the tab' });
     expect(res).toEqual({ recorded: true, type: 'tab_switch', count: 1, remaining: 2, terminate: false });
     expect(attempts.save).not.toHaveBeenCalled();
-    expect(updates).toEqual([{ proctor_log: [expect.objectContaining({ type: 'tab_switch', description: 'left the tab', screenshot_key: null })], flagged: true }]);
+    expect(updates).toEqual([{ append: [expect.objectContaining({ type: 'tab_switch', description: 'left the tab', screenshot_key: null })] }]);
     expect(row.proctor_log).toHaveLength(1);
-    expect(row).toMatchObject({ flagged: true, terminated: false, submitted_at: null });
+    expect(row).toMatchObject({ flagged: true, terminated: false, submitted_at: null, score: null, passed: null });
   });
 
   it('terminates the attempt at the limit', async () => {
     const row = openRow([event('tab_switch'), event('no_face'), event('tab_switch')]);
-    const { svc, updates } = harness({ questions: bankOf(2) }, [row]);
+    const { svc } = harness({ questions: bankOf(2) }, [row]);
     const res = await svc.recordProctorEvent(learner, 'att-1', { type: 'tab_switch', description: 'left again' });
     expect(res).toEqual({ recorded: true, type: 'tab_switch', count: 3, remaining: 0, terminate: true });
-    expect(Object.keys(updates[0]).sort()).toEqual(['flagged', 'proctor_log', 'terminated']);
     expect(row.proctor_log).toHaveLength(4);
     expect(row).toMatchObject({ flagged: true, terminated: true, submitted_at: null });
+  });
+
+  const shot = { type: 'tab_switch', description: 'x', screenshot_base64: 'aGVsbG8=' };
+
+  it('stores the screenshot under the key the log names, after the event is written', async () => {
+    const row = openRow();
+    const storage = { putObject: jest.fn(async () => expect(row.proctor_log).toHaveLength(1)) };
+    const { svc } = harness({ questions: bankOf(2) }, [row], storage);
+    await svc.recordProctorEvent(learner, 'att-1', shot);
+    expect(storage.putObject).toHaveBeenCalledWith(row.proctor_log[0].screenshot_key, Buffer.from('hello'), 'image/jpeg');
+    expect(row.proctor_log[0].screenshot_key).toMatch(/^proctor\/att-1\/.+\.jpg$/);
+  });
+
+  it(`refuses a 429 once the attempt holds ${PROCTOR_EVENTS_MAX} events, storing nothing`, async () => {
+    const row = openRow(Array.from({ length: PROCTOR_EVENTS_MAX }, () => event('other')));
+    const storage = { putObject: jest.fn(async () => undefined) };
+    const { svc } = harness({ questions: bankOf(2) }, [row], storage);
+    const err = await svc.recordProctorEvent(learner, 'att-1', shot).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HttpException);
+    expect((err as HttpException).getStatus()).toBe(429);
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(row.proctor_log).toHaveLength(PROCTOR_EVENTS_MAX);
+  });
+
+  it("accepts a real exam's worst case: two of each type, then the terminating third", async () => {
+    const row = openRow();
+    const { svc } = harness({ questions: bankOf(2) }, [row], { putObject: jest.fn(async () => undefined) });
+    for (const type of ['no_face', 'multiple_faces', 'tab_switch', 'copy_paste', 'no_face', 'multiple_faces', 'tab_switch', 'copy_paste']) {
+      await expect(svc.recordProctorEvent(learner, 'att-1', { type, description: 'x', screenshot_base64: 'aGVsbG8=' })).resolves.toMatchObject({ terminate: false });
+    }
+    await expect(svc.recordProctorEvent(learner, 'att-1', shot)).resolves.toMatchObject({ terminate: true });
+    expect(row.proctor_log).toHaveLength(9);
+  });
+});
+
+describe('submit: entries beyond the paper', () => {
+  it('refuses more responses or answers than the paper has questions', async () => {
+    const open = () => ({ id: 'att-1', assessment_id: 'as1', learner_id: 'l1', submitted_at: null, created_at: new Date(), detail: { order: [0, 1], option_orders: [null, null] }, proctor_log: [], flagged: false, terminated: false });
+    const tooMany = new BadRequestException('This paper has 2 questions; got 3 entries');
+    const a = harness({ questions: bankOf(2) }, [open()]);
+    await expect(a.svc.submitAttempt(learner, 'att-1', { responses: [0, 1, 2].map((index) => ({ index, selected_index: 0 })) })).rejects.toThrow(tooMany);
+    const b = harness({ questions: bankOf(2) }, [open()]);
+    await expect(b.svc.submitAttempt(learner, 'att-1', { answers: [0, 0, 0], terminated: true })).rejects.toThrow(tooMany);
   });
 });

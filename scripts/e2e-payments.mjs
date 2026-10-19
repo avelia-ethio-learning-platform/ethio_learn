@@ -363,10 +363,19 @@ async function main() {
   check("the refused gift leaves the sponsor's gift count unchanged", giftsAfter === giftsBefore, `${giftsBefore} → ${giftsAfter}`);
 
   // ---- a refund of one of two duplicate purchases keeps access; the second refund revokes (P1-63) ----
-  /** Two Chapa checkouts opened before either completes, then both confirmed: two confirmed payments for one course. */
+  /**
+   * Two Chapa checkouts opened before either completes, then both confirmed: two confirmed payments for one course.
+   * A repeat Buy gets the open checkout back (P2-01), so the second is opened once the first has left the reuse
+   * window (COUPON_HOLD_MINUTES, 60 by default): the learner came back later and paid both pages.
+   */
   const buyTwice = async (who, course) => {
-    const sessions = [];
-    for (let i = 0; i < 2; i++) sessions.push(must(await call('/payments/initiate', { method: 'POST', token: who.token, body: { course_id: course.id } }), `initiate ${i + 1}`));
+    const open = () => call('/payments/initiate', { method: 'POST', token: who.token, body: { course_id: course.id } });
+    const first = must(await open(), 'initiate 1');
+    const repeat = must(await open(), 'repeat initiate');
+    check('a repeat Buy returns the open checkout, with no new payment (P2-01)', repeat.tx_ref === first.tx_ref && repeat.payment_id === first.payment_id, `${first.tx_ref} then ${repeat.tx_ref}`);
+    sql(`UPDATE financial.payments SET created_at = now() - interval '2 hours' WHERE id = ${uuid(first.payment_id)}`);
+    const sessions = [first, must(await open(), 'initiate 2')];
+    check('a Buy after the reuse window opens a new checkout', sessions[1].tx_ref !== first.tx_ref, sessions[1].tx_ref);
     for (const s of sessions) {
       const confirmed = await mockComplete(s.tx_ref);
       if (confirmed.json?.reason !== 'confirmed') throw new Error(`mock confirmation of ${s.tx_ref} failed: ${brief(confirmed)}`);

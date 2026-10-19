@@ -20,7 +20,8 @@ export class FinancialJobs {
     this.runner = new JobRunner(
       dataSource,
       {
-        sweep: { ttlMs: 10 * MIN, run: () => payments.sweepPendingPayments() },
+        // The Chapa safety net, then the expiry of abandoned checkouts (P2-01).
+        sweep: { ttlMs: 10 * MIN, run: async () => ({ ...(await payments.sweepPendingPayments()), ...(await payments.expireAbandonedCheckouts()) }) },
         effects: { ttlMs: 10 * MIN, run: () => payments.completePendingEffects() },
         nudges: { ttlMs: 30 * MIN, run: () => payments.nudgeAbandonedCheckouts() },
         payouts: { ttlMs: 30 * MIN, run: () => payouts.runPayouts() },

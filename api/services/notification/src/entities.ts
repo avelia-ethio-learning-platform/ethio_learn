@@ -89,11 +89,13 @@ export class NotificationPreference {
  * service join on every read).
  */
 @Entity({ name: 'course_comments' })
+// A course page reads its newest discussions (course_id, ORDER BY created_at DESC);
+// the course_id prefix also serves every other per-course lookup.
+@Index('IDX_course_comments_course_id_created_at', ['course_id', 'created_at'])
 export class CourseComment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index()
   @Column('uuid')
   course_id: string;
 

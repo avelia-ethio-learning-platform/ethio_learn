@@ -143,15 +143,33 @@ jobs:
           [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
           docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_inbox_reads'
           TEST_DATABASE_URL="${base%/*}/el_ci_inbox_reads" pnpm -C api exec jest --ci services/notification/src/inbox-reads.db.spec.ts
-      # Two parallel wallet buys of one course charge once (9c B1), and one
-      # job lease admits one run (9c step 5). Each on its own fresh database.
-      - name: Wallet purchase race and job leases (real Postgres)
+      # A course page's newest comments read through the (course_id, created_at)
+      # index, and its migration reverts cleanly. On its own fresh database.
+      - name: Course comments index (real Postgres)
         run: |
           base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
           [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
-          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_wallet_race && createdb -U "$POSTGRES_USER" el_ci_job_lease'
+          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_comments_index'
+          TEST_DATABASE_URL="${base%/*}/el_ci_comments_index" pnpm -C api exec jest --ci services/notification/src/comments-index.db.spec.ts
+      # Parallel proctor events neither lose each other nor pass the per-attempt
+      # cap, and only logged events store a screenshot. On its own fresh database.
+      - name: Proctor events under concurrency (real Postgres)
+        run: |
+          base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
+          [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
+          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_proctor_events'
+          TEST_DATABASE_URL="${base%/*}/el_ci_proctor_events" pnpm -C api exec jest --ci services/outcomes/src/proctor-events.db.spec.ts
+      # Two parallel wallet buys of one course charge once (9c B1), one
+      # job lease admits one run (9c step 5), and a repeat Buy reuses the open
+      # checkout while the sweep expires abandoned ones (P2-01). Each on its own fresh database.
+      - name: Wallet purchase race, job leases and abandoned checkouts (real Postgres)
+        run: |
+          base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
+          [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
+          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_wallet_race && createdb -U "$POSTGRES_USER" el_ci_job_lease && createdb -U "$POSTGRES_USER" el_ci_checkout_expiry'
           TEST_DATABASE_URL="${base%/*}/el_ci_wallet_race" pnpm -C api exec jest --ci services/financial/src/payment.wallet-race.db.spec.ts
           TEST_DATABASE_URL="${base%/*}/el_ci_job_lease" pnpm -C api exec jest --ci packages/common/src/jobs/job-lease.db.spec.ts
+          TEST_DATABASE_URL="${base%/*}/el_ci_checkout_expiry" pnpm -C api exec jest --ci services/financial/src/payment.checkout-expiry.db.spec.ts
       # Phase 9e: the SQL analytics against their in-memory oracle (an Addis-time
       # connection), and the comment and message pages on Postgres.
       - name: Read paths on Postgres (analytics oracles, bounded lists)

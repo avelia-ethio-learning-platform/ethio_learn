@@ -1,13 +1,15 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Post, Put, UseGuards } from '@nestjs/common';
-import { IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Post, Put, UseGuards } from '@nestjs/common';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
-import { CurrentUser, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
+import { CurrentUser, InternalHttpClient, internalPath, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { COURSE_CATEGORIES, Role } from '@ethiopialearn/contracts';
 import { EMAIL_PROVIDER, EmailProvider } from './email.provider';
 import { InboxNotification, InboxNotificationRead, NotificationLog, NotificationPreference } from './entities';
 
 const CATEGORY_VALUES = COURSE_CATEGORIES as string[];
+/** Instructors one learner can follow for new-course alerts. */
+const FOLLOWS_MAX = 500;
 
 /** De-dupe while preserving order. */
 function uniq(values: string[]): string[] {
@@ -22,11 +24,13 @@ class PreferencesDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(CATEGORY_VALUES.length)
   @IsIn(CATEGORY_VALUES, { each: true })
   new_course_categories?: string[];
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(FOLLOWS_MAX)
   @IsUUID('all', { each: true })
   new_course_instructor_ids?: string[];
 
@@ -95,6 +99,7 @@ export class NotificationController {
     @InjectRepository(InboxNotification) private readonly inbox: Repository<InboxNotification>,
     @InjectRepository(InboxNotificationRead) private readonly reads: Repository<InboxNotificationRead>,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
+    private readonly internal: InternalHttpClient,
   ) {}
 
   // ---- In-app inbox (any authenticated user) ----
@@ -203,12 +208,23 @@ export class NotificationController {
 
   // ---- Follow / unfollow an instructor (new-course alerts) ----
 
-  /** Follow: add the instructor to my new-course-alert list. Returns follow state. */
+  /**
+   * Follow: add the instructor to my new-course-alert list. Returns follow state.
+   * Only a real account can be followed, and at most FOLLOWS_MAX of them.
+   */
   @Post('notifications/follow/:instructorId')
   @Roles()
   async follow(@CurrentUser() ctx: UserContext, @UuidParam('instructorId') instructorId: string) {
     const row = (await this.prefs.findOne({ where: { user_id: ctx.id } })) ?? this.prefs.create({ user_id: ctx.id });
-    row.new_course_instructor_ids = uniq([...(row.new_course_instructor_ids ?? []), instructorId]);
+    const following = row.new_course_instructor_ids ?? [];
+    if (following.includes(instructorId)) return { following: true, instructor_id: instructorId };
+    if (following.length >= FOLLOWS_MAX) throw new BadRequestException(`You can follow at most ${FOLLOWS_MAX} instructors`);
+    try {
+      await this.internal.get(internalPath`/api/v1/internal/users/${instructorId}`);
+    } catch {
+      throw new NotFoundException('Instructor not found');
+    }
+    row.new_course_instructor_ids = [...following, instructorId];
     await this.prefs.save(row);
     return { following: true, instructor_id: instructorId };
   }

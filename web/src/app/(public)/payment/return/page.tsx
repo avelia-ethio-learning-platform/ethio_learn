@@ -3,12 +3,13 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowRight, Clock3, LoaderCircle, PartyPopper, RefreshCcw, XCircle } from 'lucide-react';
+import { ArrowRight, Clock3, Info, LoaderCircle, PartyPopper, RefreshCcw, XCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { AuthShell } from '@/components/PageChrome';
 import { useT, type TKey } from '@/lib/i18n';
 
-type State = 'polling' | 'active' | 'failed' | 'timeout';
+/** `none`: the link names no payment (no course_id or tx_ref), so there is nothing to check (P2-02). */
+type State = 'polling' | 'active' | 'failed' | 'timeout' | 'none';
 
 /** Post-Chapa-redirect landing page. The redirect itself proves nothing —
  *  we ask the SERVER to reconcile (it verifies with Chapa's API directly) and
@@ -21,7 +22,7 @@ function PaymentReturn() {
   const purpose = params.get('purpose') ?? 'course';
   const { t } = useT();
   const instant = params.get('instant') === '1'; // wallet / 100% coupon — already confirmed server-side
-  const [state, setState] = useState<State>('polling');
+  const [state, setState] = useState<State>(!courseId && !txRef ? 'none' : 'polling');
   const done = useRef(false);
   const startRef = useRef<HTMLAnchorElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -73,7 +74,7 @@ function PaymentReturn() {
       }
     }, 2500);
     return () => clearInterval(timer);
-  }, [courseId, check]);
+  }, [courseId, txRef, check]);
 
   // Once access is granted, the way forward is where focus goes.
   // Only when nothing else holds it: focus is on the page, or on a control inside the state that was just replaced.
@@ -89,12 +90,14 @@ function PaymentReturn() {
     active: <PartyPopper className="h-6 w-6" />,
     failed: <XCircle className="h-6 w-6" />,
     timeout: <Clock3 className="h-6 w-6" />,
+    none: <Info className="h-6 w-6" />,
   };
   const titles: Record<State, TKey> = {
     polling: 'pay_confirming',
     active: 'pay_youre_in',
     failed: 'pay_not_completed',
     timeout: 'pay_still_processing',
+    none: 'pay_nothing_to_confirm',
   };
 
   return (
@@ -136,6 +139,14 @@ function PaymentReturn() {
                 {t('back_to_course')}
               </Link>
             )}
+          </>
+        )}
+        {state === 'none' && (
+          <>
+            <p className="text-sm leading-relaxed text-gray-500">{t('pay_nothing_info')}</p>
+            <Link href="/dashboard" className="btn mt-5 inline-flex !px-8 !py-3">
+              {t('go_to_dashboard')} <ArrowRight className="h-4 w-4" />
+            </Link>
           </>
         )}
         {state === 'timeout' && (

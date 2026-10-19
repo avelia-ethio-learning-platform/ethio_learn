@@ -301,6 +301,6 @@ export class CourseExtrasService {
         /* fall through */
       }
     }
-    throw new ForbiddenException('Not your course');
+    throw new NotFoundException('Course not found');
   }
 }

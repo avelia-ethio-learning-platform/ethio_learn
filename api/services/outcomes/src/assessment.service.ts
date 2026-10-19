@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -37,6 +38,21 @@ export const PROCTOR_WARNING_LIMIT = 3;
 const PROCTOR_EVENT_TYPES = ['no_face', 'multiple_faces', 'tab_switch', 'copy_paste', 'other'] as const;
 /** ~97KB binary — screenshots are captured client-side as small JPEG thumbnails. */
 const SCREENSHOT_BASE64_MAX = 130_000;
+/**
+ * Proctor events kept per attempt. The web client fires each type at most once
+ * per 6 s and ends the exam at the 3rd of a type, so a real exam logs at most 9;
+ * the cap bounds what one attempt can write to storage and to its jsonb log.
+ * The route's rate is bounded by the gateway's per-user write bucket.
+ */
+export const PROCTOR_EVENTS_MAX = 30;
+/** Questions in a new quiz bank. */
+export const QUIZ_QUESTIONS_MAX = 200;
+/**
+ * Entries a submission's answers/responses can carry at the pipe. Generous on
+ * purpose: banks created before QUIZ_QUESTIONS_MAX may be larger; the service
+ * then refuses more entries than the attempt's own paper has.
+ */
+export const SUBMISSION_ENTRIES_MAX = 1000;
 
 /** Statuses of a course that already passed quality review: new assessments on it wait for the next review. */
 const APPROVED_COURSE_STATUSES: string[] = [CourseStatus.PUBLISHED, CourseStatus.UNLISTED];
@@ -165,6 +181,7 @@ export class AssessmentService implements OnModuleInit {
     if (!Array.isArray(raw) || raw.length === 0) {
       throw new BadRequestException('Quiz requires config.questions[] (kind mcq: prompt/options/correct_index · kind written: prompt, optional guidance)');
     }
+    if (raw.length > QUIZ_QUESTIONS_MAX) throw new BadRequestException(`A quiz can have at most ${QUIZ_QUESTIONS_MAX} questions`);
     return raw.map((q: any, i: number) => {
       const prompt = String(q?.prompt ?? '').trim();
       if (!prompt) throw new BadRequestException(`Question ${i + 1}: prompt is required`);
@@ -585,6 +602,8 @@ export class AssessmentService implements OnModuleInit {
       const oo = optionOrders[pos];
       return oo && Number.isInteger(oo[sel]) ? oo[sel] : sel;
     };
+    const entries = Array.isArray(body.responses) ? body.responses.length : Array.isArray(body.answers) ? body.answers.length : 0;
+    if (entries > questions.length) throw new BadRequestException(`This paper has ${questions.length} questions; got ${entries} entries`);
     if (Array.isArray(body.responses)) {
       for (const r of body.responses) {
         const i = Number(r?.index);
@@ -683,39 +702,51 @@ export class AssessmentService implements OnModuleInit {
 
     const type = (PROCTOR_EVENT_TYPES as readonly string[]).includes(dto.type) ? dto.type : 'other';
 
-    let screenshotKey: string | null = null;
+    let screenshot: { key: string; buf: Buffer } | null = null;
     if (dto.screenshot_base64) {
       const b64 = dto.screenshot_base64.replace(/^data:image\/\w+;base64,/, '');
       if (b64.length <= SCREENSHOT_BASE64_MAX) {
-        try {
-          const buf = Buffer.from(b64, 'base64');
-          screenshotKey = `proctor/${attempt.id}/${Date.now()}.jpg`;
-          await this.storage.putObject(screenshotKey, buf, 'image/jpeg');
-        } catch (err) {
-          this.logger.warn(`proctor screenshot upload failed: ${(err as Error).message}`);
-          screenshotKey = null;
-        }
+        screenshot = { key: `proctor/${attempt.id}/${Date.now()}-${randomUUID()}.jpg`, buf: Buffer.from(b64, 'base64') };
+      }
+    }
+    const event = { type, description: dto.description.slice(0, 300), at: new Date().toISOString(), screenshot_key: screenshot?.key ?? null };
+
+    // One conditional append, so parallel posts can neither lose each other's
+    // events nor pass the cap: Postgres re-checks the WHERE against the row a
+    // concurrent update left. Only while the attempt is open, and only the
+    // columns this event changes, so a submit keeps its result.
+    const table = this.attempts.metadata.tablePath;
+    const rows: { proctor_log: AssessmentAttempt['proctor_log'] }[] = await this.attempts.query(
+      `WITH appended AS (
+         UPDATE ${table} a
+            SET proctor_log = COALESCE(a.proctor_log, '[]'::jsonb) || $2::jsonb,
+                flagged = true,
+                terminated = a.terminated OR (
+                  SELECT count(*) FROM jsonb_array_elements(COALESCE(a.proctor_log, '[]'::jsonb) || $2::jsonb) e WHERE e->>'type' = $3
+                ) >= $4
+          WHERE a.id = $1 AND a.submitted_at IS NULL AND jsonb_array_length(COALESCE(a.proctor_log, '[]'::jsonb)) < $5
+          RETURNING a.proctor_log
+       )
+       SELECT proctor_log FROM appended`,
+      [attempt.id, JSON.stringify([event]), type, PROCTOR_WARNING_LIMIT, PROCTOR_EVENTS_MAX],
+    );
+    if (!rows.length) {
+      const now = await this.attempts.findOne({ where: { id: attempt.id } });
+      if (!now || now.submitted_at) throw new BadRequestException('Attempt already submitted');
+      throw new HttpException('Too many proctoring events for this attempt', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    // Stored only once the event is in the log, so the cap bounds storage too.
+    if (screenshot) {
+      try {
+        await this.storage.putObject(screenshot.key, screenshot.buf, 'image/jpeg');
+      } catch (err) {
+        // The log keeps the key; the report shows that one screenshot as missing.
+        this.logger.warn(`proctor screenshot upload failed: ${(err as Error).message}`);
       }
     }
 
-    attempt.proctor_log = [
-      ...(attempt.proctor_log ?? []),
-      { type, description: dto.description.slice(0, 300), at: new Date().toISOString(), screenshot_key: screenshotKey },
-    ];
-    attempt.flagged = true;
-    const count = attempt.proctor_log.filter((e) => e.type === type).length;
-    if (count >= PROCTOR_WARNING_LIMIT) attempt.terminated = true;
-    // Only the columns this event changes, and only while the attempt is open:
-    // a submit that landed during the upload keeps its result.
-    const { affected } = await this.attempts
-      .createQueryBuilder()
-      .update()
-      .set({ proctor_log: attempt.proctor_log, flagged: true, ...(count >= PROCTOR_WARNING_LIMIT ? { terminated: true } : {}) })
-      .where('id = :id', { id: attempt.id })
-      .andWhere('submitted_at IS NULL')
-      .execute();
-    if (!affected) throw new BadRequestException('Attempt already submitted');
-
+    const count = rows[0].proctor_log.filter((e) => e.type === type).length;
     return {
       recorded: true,
       type,

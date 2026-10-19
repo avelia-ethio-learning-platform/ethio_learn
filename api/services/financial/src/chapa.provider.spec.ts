@@ -148,6 +148,11 @@ describe('LiveChapaProvider.verify', () => {
     await expect(new LiveChapaProvider().verify('TX-1')).resolves.toEqual({ status: 'pending', amount: null, currency: null });
   });
 
+  it('treats a rate limit (429) as unavailable, not as pending', async () => {
+    fetchMock.mockResolvedValueOnce(reply(429, { message: 'Too many requests' }));
+    await expect(new LiveChapaProvider().verify('TX-1')).rejects.toBeInstanceOf(ChapaUnavailableError);
+  });
+
   it('treats a timeout, a network error and a 500 as unavailable', async () => {
     const p = new LiveChapaProvider();
     fetchMock.mockRejectedValueOnce(Object.assign(new Error('timeout'), { name: 'TimeoutError' }));
