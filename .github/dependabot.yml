@@ -1,5 +1,5 @@
 # Weekly version updates (minor and patch), grouped so a week is a handful of PRs.
-# Majors are planned work (P2-45 Nest, and each future Next major), so no npm major is proposed.
+# Majors are planned work (P2-45 stage 2: Nest 12 with Node 24; each future Next major), so no npm major is proposed.
 # Security-update PRs are off: advisories arrive as Dependabot alerts and in CI's
 # `audit` job summary (docs/DEPLOYMENT.md "Dependencies"); re-enable them once
 # the alerts can be fixed by a PR. The docker ecosystem keeps the digest-pinned
@@ -16,7 +16,7 @@ updates:
       testing: { patterns: ['jest', 'ts-jest', '@types/jest'] }
       minor-and-patch: { update-types: [minor, patch] }
     ignore:
-      # Majors are planned work (P2-45 Nest).
+      # Majors are planned work (P2-45 stage 2: Nest 12 with Node 24).
       - dependency-name: '*'
         update-types: [version-update:semver-major]
 
@@ -29,7 +29,7 @@ updates:
       testing: { patterns: ['vitest', '@vitest/*', '@testing-library/*', '@playwright/test', 'happy-dom'] }
       minor-and-patch: { update-types: [minor, patch] }
     ignore:
-      # Majors are planned work, like Next 16 (P2-44).
+      # Majors are planned work (each future Next major).
       - dependency-name: '*'
         update-types: [version-update:semver-major]
 
