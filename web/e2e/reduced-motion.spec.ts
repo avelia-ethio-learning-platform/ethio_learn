@@ -1,4 +1,4 @@
-import { expect, test } from './test';
+import { expect, test, type Locator, type Page } from './test';
 import { authFile } from './support';
 
 // P1-57: with reduced motion on, the hero heading is fully opaque at first
@@ -30,111 +30,168 @@ test('the home hero heading is opaque at first paint', async ({ page }) => {
   await expect(h1).toHaveCSS('opacity', '1');
 });
 
-// Phase 12a: under reduced motion every animated surface is at rest the moment it opens: nothing is
-// transformed, nothing is left faded (toBeVisible ignores opacity), and its first control works at once.
-type Locator = import('@playwright/test').Locator;
+// Phase 12a: under reduced motion nothing animates in. Both probes record at mount, so a skipped
+// reduced-motion rule fails them, and the no-preference controls at the end prove they can fail.
+// - CSS enters (.route-enter, .fade-in, the dialog): the element's own animations when it mounts or opens.
+// - Framer surfaces (menus, the bell panel): the distinct transforms they pass through after mount.
+type Probe = { css: { cls: string; n: number }[]; framer: Record<string, number> };
 
-async function expectAtRest(surface: Locator) {
-  await expect(surface).toBeVisible();
-  // Framer still fades opacity under reduced motion (only transforms are cut); it ends at 1.
-  await expect(surface).toHaveCSS('opacity', '1');
-  // Polled briefly: framer applies the cut transform on its next frame.
-  await expect
-    .poll(
-      () =>
-        surface.evaluate((root) =>
-          [root, ...Array.from(root.querySelectorAll('*'))]
-            .filter((el) => !['none', 'matrix(1, 0, 0, 1, 0, 0)'].includes(getComputedStyle(el).transform))
-            .map((el) => `${el.tagName}.${(el.getAttribute('class') ?? '').slice(0, 40)} ${getComputedStyle(el).transform}`),
-        ),
-      { message: 'transformed elements', timeout: 500 },
-    )
-    .toEqual([]);
+async function installProbe(page: Page) {
+  await page.addInitScript(() => {
+    const probe: Probe = { css: [], framer: {} };
+    (window as unknown as { __probe: Probe }).__probe = probe;
+    const ENTERS = ['route-enter', 'fade-in', 'dialog-enter'];
+    const still = (t: string) => t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)';
+    const cssEnter = (el: Element) => {
+      const cls = ENTERS.find((c) => el.classList.contains(c));
+      if (!cls) return;
+      // getAnimations() resolves style, so a CSS animation exists here unless the rule removed it.
+      const n = el.getAnimations({ subtree: true }).filter((a) => (a.effect as KeyframeEffect | null)?.target === el).length;
+      probe.css.push({ cls, n });
+    };
+    // Every frame for 250 ms after mount, collect the distinct transforms the surface passes through.
+    // Under reduce framer snaps from the start position to rest (one value at most); with motion
+    // allowed every enter here passes through in-between values on its way.
+    const framer = (el: Element) => {
+      const start = performance.now();
+      const seen = new Set<string>();
+      const read = () => {
+        const t = getComputedStyle(el).transform;
+        if (!still(t)) seen.add(t);
+        if (performance.now() - start < 250) return void requestAnimationFrame(read);
+        probe.framer[el.id] = seen.size;
+      };
+      requestAnimationFrame(read);
+    };
+    new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === 'attributes') {
+          if ((r.target as HTMLDialogElement).open) cssEnter(r.target as Element);
+          continue;
+        }
+        for (const node of Array.from(r.addedNodes)) {
+          if (!(node instanceof Element)) continue;
+          for (const el of [node, ...Array.from(node.querySelectorAll('.route-enter, .fade-in, [id]'))]) {
+            if (!(el instanceof HTMLDialogElement)) cssEnter(el);
+            if (el.id && !(el.id in probe.framer)) framer(el);
+          }
+        }
+      }
+    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['open'] });
+  });
 }
 
-/** The opacity of a CSS enter right after it mounts: no retry, so a fade that runs is caught. */
-const opacityNow = (el: Locator) => el.evaluate((node) => getComputedStyle(node).opacity);
+const probeOf = (page: Page) => page.evaluate(() => (window as unknown as { __probe: Probe }).__probe);
 
-test.describe('375 px', () => {
-  test.use({ viewport: { width: 375, height: 800 } });
+/** How many distinct transforms the surface passed through in its first 250 ms (waits for the reading). */
+async function framerMoved(page: Page, surface: Locator) {
+  const id = (await surface.getAttribute('id'))!;
+  await expect.poll(async () => (await probeOf(page)).framer[id], { message: `a reading for #${id}` }).not.toBeUndefined();
+  return (await probeOf(page)).framer[id];
+}
 
-  test('the mobile menu is at rest when it opens, and its first link works at once', async ({ page }) => {
-    await page.goto('/courses');
-    const burger = page.getByRole('button', { name: 'Menu' });
-    await burger.click();
-    const menu = page.locator(`[id="${await burger.getAttribute('aria-controls')}"]`);
-    await expectAtRest(menu);
+/** The most animations any CSS enter of this class had when it mounted (fails if none mounted). */
+async function cssEnterAnimations(page: Page, cls: string) {
+  await expect.poll(async () => (await probeOf(page)).css.filter((e) => e.cls === cls).length, { message: `a .${cls} mounted` }).toBeGreaterThan(0);
+  return Math.max(...(await probeOf(page)).css.filter((e) => e.cls === cls).map((e) => e.n));
+}
+
+async function openMobileMenu(page: Page) {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.goto('/courses');
+  const burger = page.getByRole('button', { name: 'Menu' });
+  await burger.click();
+  return page.locator(`[id="${await burger.getAttribute('aria-controls')}"]`);
+}
+
+test.describe('reduced motion', () => {
+  test.beforeEach(({ page }) => installProbe(page));
+
+  test('the mobile menu opens at rest, and its first link works at once', async ({ page }) => {
+    const menu = await openMobileMenu(page);
+    expect(await framerMoved(page, menu), 'transform steps in the menu').toBeLessThanOrEqual(1);
+    await expect(menu).toHaveCSS('opacity', '1');
     await menu.getByRole('link', { name: 'Home' }).click({ timeout: 1000 });
     await expect(page).toHaveURL(/\/$/);
   });
-});
 
-test('the theme menu is at rest when it opens, and its first option works at once', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
-  const trigger = page.getByRole('button', { name: 'Theme' }).first();
-  await trigger.click();
-  const menu = page.locator(`[id="${await trigger.getAttribute('aria-controls')}"]`);
-  await expectAtRest(menu);
-  await menu.getByRole('button', { name: 'Light' }).click({ timeout: 1000 });
-  await expect(menu).toHaveCount(0);
-});
-
-test('a catalog change shows the new results fully opaque at once', async ({ page }) => {
-  await page.goto('/courses');
-  await expect(page.getByTestId('results')).toBeVisible();
-  await page.getByLabel('Sort by').selectOption({ label: 'Newest' });
-  await expect(page).toHaveURL(/[?&]sort=new(&|$)/);
-  await expect(page.getByTestId('results-loading')).toHaveCount(0);
-  expect(await opacityNow(page.getByTestId('results'))).toBe('1');
-});
-
-test.describe('signed in as a learner', () => {
-  test.use({ storageState: authFile('learner') });
-
-  test('the notification panel is at rest when it opens', async ({ page }) => {
+  test('the theme menu opens at rest, and its first option works at once', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/dashboard');
-    const bell = page.getByRole('button', { name: /^Notifications/ }).first();
-    await bell.click();
-    await expectAtRest(page.locator(`[id="${await bell.getAttribute('aria-controls')}"]`));
+    await page.goto('/');
+    const trigger = page.getByRole('button', { name: 'Theme' }).first();
+    await trigger.click();
+    const menu = page.locator(`[id="${await trigger.getAttribute('aria-controls')}"]`);
+    expect(await framerMoved(page, menu), 'transform steps in the menu').toBeLessThanOrEqual(1);
+    await expect(menu).toHaveCSS('opacity', '1');
+    await menu.getByRole('button', { name: 'Light' }).click({ timeout: 1000 });
+    await expect(menu).toHaveCount(0);
   });
 
-  for (const path of ['/dashboard', '/messages', '/account']) {
-    test(`${path} (under a template.tsx) is fully opaque right after navigation`, async ({ page }) => {
-      await page.goto(path);
-      const page_ = page.locator('main .route-enter').first();
-      await expect(page_).toBeAttached();
-      expect(await opacityNow(page_)).toBe('1');
+  test('a catalog change shows the new results with no enter animation', async ({ page }) => {
+    await page.goto('/courses');
+    await expect(page.getByTestId('results')).toBeVisible();
+    await page.getByLabel('Sort by').selectOption({ label: 'Newest' });
+    await expect(page).toHaveURL(/[?&]sort=new(&|$)/);
+    expect(await cssEnterAnimations(page, 'fade-in')).toBe(0);
+  });
+
+  test.describe('signed in as a learner', () => {
+    test.use({ storageState: authFile('learner') });
+
+    test('the notification panel opens at rest', async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto('/dashboard');
+      const bell = page.getByRole('button', { name: /^Notifications/ }).first();
+      await bell.click();
+      const panel = page.locator(`[id="${await bell.getAttribute('aria-controls')}"]`);
+      expect(await framerMoved(page, panel), 'transform steps in the panel').toBeLessThanOrEqual(1);
+      await expect(panel).toHaveCSS('opacity', '1');
+    });
+
+    for (const path of ['/dashboard', '/messages', '/account']) {
+      test(`${path} (under a template.tsx) has no enter animation`, async ({ page }) => {
+        await page.goto(path);
+        expect(await cssEnterAnimations(page, 'route-enter')).toBe(0);
+      });
+    }
+  });
+
+  for (const [role, path] of [['educator', '/teach'], ['platform_admin', '/admin']] as const) {
+    test.describe(`signed in as ${role}`, () => {
+      test.use({ storageState: authFile(role) });
+
+      test(`${path} (under a template.tsx) has no enter animation`, async ({ page }) => {
+        await page.goto(path);
+        expect(await cssEnterAnimations(page, 'route-enter')).toBe(0);
+      });
     });
   }
-});
 
-for (const [role, path] of [['educator', '/teach'], ['platform_admin', '/admin']] as const) {
-  test.describe(`signed in as ${role}`, () => {
-    test.use({ storageState: authFile(role) });
+  test.describe('signed in as platform_admin', () => {
+    test.use({ storageState: authFile('platform_admin') });
 
-    test(`${path} (under a template.tsx) is fully opaque right after navigation`, async ({ page }) => {
-      await page.goto(path);
-      const page_ = page.locator('main .route-enter').first();
-      await expect(page_).toBeAttached();
-      expect(await opacityNow(page_)).toBe('1');
+    test('the confirm dialog opens with no enter animation, and Cancel works at once', async ({ page }) => {
+      await page.goto('/admin?tab=users');
+      await expect(page.getByRole('tab', { name: 'Users' })).toHaveAttribute('aria-selected', 'true');
+      await page.getByRole('button', { name: 'Suspend', exact: true }).first().click();
+      const dialog = page.getByRole('dialog', { name: /^Suspend / });
+      await expect(dialog).toBeVisible();
+      expect(await cssEnterAnimations(page, 'dialog-enter')).toBe(0);
+      await dialog.getByRole('button', { name: 'Cancel' }).click({ timeout: 1000 });
+      await expect(dialog).toBeHidden();
     });
   });
-}
+});
 
-test.describe('signed in as platform_admin', () => {
-  test.use({ storageState: authFile('platform_admin') });
+// Controls: with motion allowed, the same probes do see the enters, so the checks above can fail.
+test.describe('motion allowed (controls)', () => {
+  test.use({ reducedMotion: 'no-preference', storageState: authFile('learner') });
+  test.beforeEach(({ page }) => installProbe(page));
 
-  test('the confirm dialog is at rest when it opens, and Cancel works at once', async ({ page }) => {
-    await page.goto('/admin?tab=users');
-    await expect(page.getByRole('tab', { name: 'Users' })).toHaveAttribute('aria-selected', 'true');
-    const suspend = page.getByRole('button', { name: 'Suspend', exact: true }).first();
-    await suspend.click();
-    const dialog = page.getByRole('dialog', { name: /^Suspend / });
-    expect(await opacityNow(dialog)).toBe('1');
-    await expectAtRest(dialog);
-    await dialog.getByRole('button', { name: 'Cancel' }).click({ timeout: 1000 });
-    await expect(dialog).toBeHidden();
+  test('the probes see the mobile menu move and a route fade in', async ({ page }) => {
+    const menu = await openMobileMenu(page);
+    expect(await framerMoved(page, menu), 'transform steps in the menu').toBeGreaterThan(1);
+    await page.goto('/dashboard');
+    expect(await cssEnterAnimations(page, 'route-enter')).toBeGreaterThan(0);
   });
 });
