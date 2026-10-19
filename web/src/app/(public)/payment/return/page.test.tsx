@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import PaymentReturnPage from './page';
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
@@ -48,5 +48,36 @@ describe('payment return', () => {
     expect(screen.getByRole('link', { name: /start learning/i })).toBeTruthy();
     expect(document.activeElement).toBe(other);
     other.remove();
+  });
+
+  it.each([
+    ['confirmed', "You're in!"],
+    ['failed', 'Payment not completed'],
+  ])('after the 30 s timeout, "Check again" shows a %s payment', async (later, title) => {
+    let status = 'pending';
+    mocks.api.mockImplementation(async (path: string) => (path === '/payments/reconcile' ? { status } : { entitlement_status: 'none' }));
+    render(<PaymentReturnPage />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12 * 2500);
+    });
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Still processing');
+
+    status = later;
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /check again/i }));
+    });
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(title);
+  });
+
+  it('"Check again" goes back to the timeout state while the payment is still pending', async () => {
+    mocks.api.mockImplementation(async (path: string) => (path === '/payments/reconcile' ? { status: 'pending' } : { entitlement_status: 'none' }));
+    render(<PaymentReturnPage />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12 * 2500);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /check again/i }));
+    });
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Still processing');
   });
 });

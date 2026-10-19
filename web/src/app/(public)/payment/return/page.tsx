@@ -55,6 +55,12 @@ function PaymentReturn() {
     return null;
   }, [courseId, txRef]);
 
+  /** A terminal state from check(): stop polling and show it. */
+  const finish = useCallback((next: State) => {
+    done.current = true;
+    setState(next);
+  }, []);
+
   useEffect(() => {
     // Local dev: Chapa redirects to the 127.0.0.1 form (its validator rejects
     // `localhost`). Bounce to localhost so the logged-in origin's session is
@@ -64,10 +70,6 @@ function PaymentReturn() {
       return;
     }
     if ((!courseId && !txRef) || instantActive) return;
-    const finish = (next: State) => {
-      done.current = true;
-      setState(next);
-    };
     let attempts = 0;
     void check().then((next) => next && finish(next));
     const timer = setInterval(async () => {
@@ -81,7 +83,7 @@ function PaymentReturn() {
       }
     }, 2500);
     return () => clearInterval(timer);
-  }, [courseId, txRef, instantActive, check]);
+  }, [courseId, txRef, instantActive, check, finish]);
 
   // Once access is granted, the way forward is where focus goes.
   // Only when nothing else holds it: focus is on the page, or on a control inside the state that was just replaced.
@@ -157,7 +159,9 @@ function PaymentReturn() {
                 onClick={async () => {
                   setState('polling');
                   done.current = false;
-                  if (!(await check())) setState('timeout');
+                  const next = await check();
+                  if (next) finish(next);
+                  else setState('timeout');
                 }}
               >
                 <RefreshCcw className="h-4 w-4" /> {t('check_again')}

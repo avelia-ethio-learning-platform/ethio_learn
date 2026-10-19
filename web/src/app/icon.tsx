@@ -21,8 +21,10 @@ export function generateImageMetadata() {
   }));
 }
 
-export default function Icon({ id }: { id: string }) {
-  const icon = ICONS.find((i) => i.id === id) ?? ICONS[1];
+// Next 16 passes the id as a Promise.
+export default async function Icon({ id }: { id: Promise<string> }) {
+  const iconId = await id;
+  const icon = ICONS.find((i) => i.id === iconId) ?? ICONS[1];
   return new ImageResponse(<IconArt size={icon.size} artScale={icon.artScale} rounded={icon.rounded} />, {
     width: icon.size,
     height: icon.size,
