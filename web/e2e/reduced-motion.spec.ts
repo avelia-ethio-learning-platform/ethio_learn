@@ -131,9 +131,14 @@ test.describe('reduced motion', () => {
 
   test('a catalog change shows the new results with no enter animation', async ({ page }) => {
     await page.goto('/courses');
-    await expect(page.getByTestId('results')).toBeVisible();
+    // .last(): a keyed grid swap can briefly hold the old and new grids, and a bare locator then fails strict mode.
+    const results = page.getByTestId('results');
+    await expect(results.last()).toBeVisible();
     await page.getByLabel('Sort by').selectOption({ label: 'Newest' });
     await expect(page).toHaveURL(/[?&]sort=new(&|$)/);
+    // The swap is done once only the new grid is left.
+    await expect(results).toHaveCount(1);
+    await expect(results).toBeVisible();
     expect(await cssEnterAnimations(page, 'fade-in')).toBe(0);
   });
 

@@ -18,7 +18,7 @@ An educator-first online learning marketplace for Ethiopia, live at **https://et
 - Completing a course gives a certificate that anyone can verify.
 
 Choices that shape the product:
-- **Free-tier hosting.** The API runs on Render's free tier, where services sleep when idle. The web shows a "waking up" state instead of an error, and scheduled jobs are moving to an external scheduler (Phase 9c).
+- **Free-tier hosting.** The API runs on Render's free tier, where services sleep when idle. The web shows a "waking up" state instead of an error, and scheduled jobs run from an external scheduler (Phase 9c).
 - **English first, Amharic where new learners start.** The shell, the catalog and the sign-in flow are bilingual today. Phase 10 extends Amharic to the whole new-learner path. Course content is in whatever language the educator writes it.
 - **Email and password, no SMS.** Sign-in uses a verification link. Google sign-in is optional.
 
@@ -242,7 +242,7 @@ The visual direction was approved on 2026-10-02:
 - helper text is readable, with visible focus and human status words;
 - money actions ask for confirmation.
 
-**[COLOR_SYSTEM.md](COLOR_SYSTEM.md)** defines every color role in light and dark. Every text pair reaches 4.5:1 and every boundary, focus ring and graphic 3:1, all computed. It also covers status colors, charts, category covers and the flag, with do and don't rules. Phase 7c brings the code fully onto it and adds tests that keep it there.
+**[COLOR_SYSTEM.md](COLOR_SYSTEM.md)** defines every color role in light and dark. Every text pair reaches 4.5:1 and every boundary, focus ring and graphic 3:1, all computed. It also covers status colors, charts, category covers and the flag, with do and don't rules. Phase 7c brought the code onto it and added tests that keep it there.
 
 ## Roadmap
 
@@ -265,26 +265,22 @@ The work runs as numbered phases. Each has a plan, a reviewed plan, an implement
 | 8a, 8b | Role dashboards for admin, educator, institution and QO: tabs, confirmations, charts, human status words. |
 | 11a | CI gates every merge (lint, secret scan, audit), the deployment docs match the real setup, and the repo is tidied. |
 | 11d | This guide, CONTRIBUTING, the color system and the README refresh. |
+| 7c (#51) | The color system in code: status tokens, contrast fixes in both themes, and guard tests. |
+| 9c (#56) | Calls between services and to Chapa fail clearly and retry sensibly. Scheduled jobs run from an external scheduler, so they fire even when free-tier servers sleep. |
+| 9d (#52) | Logs are structured JSON with one request id followed across services, and personal data stays out of logs. |
+| 9e (#59) | List pages cost a fixed number of queries: batched cross-service reads and bounded pages (My learning, bulk seats, analytics, long message threads). |
+| 11b (#53) | Sign-in sessions move to a sturdier transport, and the riskiest paths (login, payments, entitlements, service calls) get dedicated tests. |
+| 11c (#54) | Dependencies are up to date: Next.js 15 and React 19. |
+| 12a (#57) | A motion system: calm, consistent and reduced-motion-safe. It covers the shared components, the shell, Home and the catalog. |
+| 12b (#60) | The same polish for the course page, checkout, the learner path, certificates and dashboards. |
+| 13a (#55) | Product gaps: per-user read state for role notifications, institution admins on the teach pages, and a course language. |
+| 13b (#58) | Product gaps: quizzes open in the exam room with results for educators, course comments, admin tools and a Messages link. |
 
 ### In progress
 | Phase | What it delivers |
 |---|---|
 | 9a + 9b | Events are delivered reliably: consumers are safe to run twice, and the outbox makes "save, then announce" atomic. They ship together. |
-| 9c | Calls between services and to Chapa fail clearly and retry sensibly. Scheduled jobs run from an external scheduler, so they fire even when free-tier servers sleep. |
-| 9d | Logs are structured JSON with one request id followed across services, and personal data stays out of logs. |
 | 10 | Security headers, faster pages (self-hosted fonts, sized images, lazy-loaded video), SEO, and Amharic for the new-learner path. |
-
-### Planned
-In build order. Backend and web run as parallel tracks.
-
-| Phase | What it delivers |
-|---|---|
-| 9e | List pages cost a fixed number of queries: batched cross-service reads and bounded pages (My learning, bulk seats, analytics, long message threads). |
-| 7c | The color system in code: status tokens, contrast fixes in both themes, and guard tests. |
-| 11b | Sign-in sessions move to a sturdier transport, and the riskiest paths (login, payments, entitlements, service calls) get dedicated tests. |
-| 11c | Dependencies are up to date: Next.js 15 and React 19. |
-| 12a | A motion system: calm, consistent and reduced-motion-safe. It covers the shared components, the shell, Home and the catalog. |
-| 12b | The same polish for the course page, checkout, the learner path, certificates and dashboards. |
 
 ## After launch
 
