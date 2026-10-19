@@ -360,6 +360,7 @@ export const en = {
   pagination: 'Pagination',
   menu: 'Menu',
   notifications: 'Notifications',
+  messages: 'Messages',
   mark_all_read: 'Mark all read',
   no_notifications: 'No notifications yet.',
   locale_notice: 'This page is in English for now.',

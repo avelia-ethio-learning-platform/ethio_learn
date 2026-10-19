@@ -361,6 +361,7 @@ export const am: Dictionary = {
   pagination: 'ገጾች',
   menu: 'ምናሌ',
   notifications: 'ማሳወቂያዎች',
+  messages: 'መልዕክቶች',
   mark_all_read: 'ሁሉንም እንደተነበበ ምልክት አድርግ',
   no_notifications: 'እስካሁን ምንም ማሳወቂያ የለም።',
   locale_notice: 'ይህ ገጽ ለጊዜው በእንግሊዝኛ ብቻ ነው።',

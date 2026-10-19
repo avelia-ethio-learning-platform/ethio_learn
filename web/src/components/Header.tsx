@@ -9,6 +9,7 @@ import { api, setAuth } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
 import { useDismiss } from '@/lib/use-dismiss';
+import { MessagesLink } from './MessagesLink';
 import { NotificationBell } from './NotificationBell';
 import { ThemeToggle } from './ThemeToggle';
 import { LanguageToggle } from './LanguageToggle';
@@ -179,6 +180,7 @@ export function Header() {
           <div className="hidden items-center gap-2 lg:flex">
             <LanguageToggle />
             <ThemeToggle />
+            {ready && user && <MessagesLink />}
             {ready && user && <NotificationBell />}
             {ready && !user && (
               <>
@@ -211,6 +213,7 @@ export function Header() {
 
           {/* Mobile: toggles + burger */}
           <div className="flex items-center gap-2 lg:hidden">
+            {ready && user && <MessagesLink />}
             {ready && user && <NotificationBell />}
             <button
               ref={burgerRef}
