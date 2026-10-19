@@ -91,6 +91,46 @@ describe('proxyToGateway', () => {
     expect(await res.json()).toEqual({ ok: true });
   });
 
+  it("copies only the client's headers: not the gateway's CSP, CORS or Render's own", async () => {
+    const upstream = new Headers({
+      'content-type': 'application/json',
+      'retry-after': '30',
+      'ratelimit-remaining': '0',
+      'x-request-id': 'req-9',
+      'content-security-policy': "default-src 'none'",
+      'cross-origin-resource-policy': 'same-site',
+      'access-control-allow-credentials': 'true',
+      server: 'cloudflare',
+      'rndr-id': 'abc',
+    });
+    fetchMock.mockResolvedValue(ok({ headers: upstream }));
+    const res = await proxyToGateway(new Request('http://web.test/api/v1/auth/login', { method: 'POST' }));
+    expect(Array.from(res.headers.keys()).sort()).toEqual(['content-type', 'ratelimit-remaining', 'retry-after', 'x-request-id']);
+  });
+
+  it.each(['cross-site', 'same-site', 'none'])('refuses a write with Sec-Fetch-Site: %s (403, no gateway call)', async (site) => {
+    const res = await proxyToGateway(new Request('http://web.test/api/v1/auth/login', { method: 'POST', headers: { 'sec-fetch-site': site } }));
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('passes a same-origin write, a cross-site GET, and a write from a browser without Sec-Fetch-Site', async () => {
+    fetchMock.mockResolvedValue(ok());
+    const call = (method: string, site?: string) =>
+      proxyToGateway(new Request('http://web.test/api/v1/auth/invite/abc', { method, headers: site ? { 'sec-fetch-site': site } : {} }));
+    expect((await call('POST', 'same-origin')).status).toBe(200);
+    expect((await call('GET', 'cross-site')).status).toBe(200);
+    expect((await call('POST')).status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('trims a pasted newline off WEB_PROXY_SECRET', async () => {
+    vi.stubEnv('WEB_PROXY_SECRET', 'proxy-secret-not-real\n');
+    fetchMock.mockResolvedValue(ok());
+    await proxyToGateway(new Request('http://web.test/api/v1/auth/refresh', { method: 'POST' }));
+    expect(sent().headers.get('x-web-proxy-secret')).toBe('proxy-secret-not-real');
+  });
+
   it('keeps the status, body and x-render-routing of a hibernation 429', async () => {
     fetchMock.mockResolvedValue(new Response('asleep', { status: 429, headers: { 'x-render-routing': 'hibernate-wake-error' } }));
     const res = await proxyToGateway(new Request('http://web.test/api/v1/auth/refresh', { method: 'POST' }));

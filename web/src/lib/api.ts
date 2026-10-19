@@ -184,6 +184,26 @@ function errorMessage(text: string, status: number): string {
   return `Request failed (${status})`;
 }
 
+/**
+ * Signs out: revokes the refresh token (best-effort; offline still signs out
+ * here) and clears every tab. It holds the refresh lock, so a refresh in flight
+ * in another tab finishes first instead of landing afterwards and broadcasting
+ * a session that signs both tabs back in.
+ */
+export async function signOut(): Promise<void> {
+  const run = async () => {
+    try {
+      await api('/auth/logout', { method: 'POST', auth: false });
+    } catch {
+      /* offline or already expired: still clear local state */
+    }
+    setAuth(null);
+  };
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (locks?.request) await locks.request('el-auth-refresh', run);
+  else await run();
+}
+
 export async function api<T = any>(
   path: string,
   /** `slow`: a call that is slow by nature (AI generation, uploads); it never shows the "waking up" notice. */

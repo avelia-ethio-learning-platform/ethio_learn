@@ -10,20 +10,10 @@ const TIMEOUT_MS = 20_000; // under the route's maxDuration (30 s)
 
 const FORWARDED_REQUEST_HEADERS = ['content-type', 'authorization', 'accept-language', 'user-agent', 'x-request-id'];
 
-// fetch already decoded the body, so its encoding and length no longer apply.
-const DROPPED_RESPONSE_HEADERS = new Set([
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'te',
-  'trailer',
-  'transfer-encoding',
-  'upgrade',
-  'content-encoding',
-  'content-length',
-  'set-cookie', // copied one by one below
-]);
+// Only what the client needs crosses onto the web origin: not the gateway's
+// CSP/CORP/CORS headers or Render's own. fetch already decoded the body, so its
+// encoding and length don't apply; each Set-Cookie is copied on its own below.
+const FORWARDED_RESPONSE_HEADERS = ['content-type', 'cache-control', 'retry-after', 'x-render-routing', 'x-request-id'];
 
 /** Only these paths may be forwarded with the proxy secret. */
 function allowed(path: string): boolean {
@@ -61,6 +51,13 @@ export async function proxyToGateway(req: Request): Promise<Response> {
   // The path from the URL itself (as req.nextUrl), never the route's params.
   const url = new URL(req.url);
   if (!allowed(url.pathname)) return Response.json({ statusCode: 404, message: 'Not found' }, { status: 404 });
+  // A cross-site form POST could still set or clear the cookie (login and
+  // logout CSRF): writes must come from the web's own pages. Browsers too old
+  // to send Sec-Fetch-Site pass, as before.
+  const site = req.headers.get('sec-fetch-site');
+  if (req.method !== 'GET' && req.method !== 'HEAD' && site && site !== 'same-origin') {
+    return Response.json({ statusCode: 403, message: 'Cross-site request refused' }, { status: 403 });
+  }
 
   const headers = new Headers();
   for (const name of FORWARDED_REQUEST_HEADERS) {
@@ -69,7 +66,7 @@ export async function proxyToGateway(req: Request): Promise<Response> {
   }
   const cookie = refreshCookie(req.headers.get('cookie'));
   if (cookie) headers.set('cookie', cookie);
-  const secret = process.env.WEB_PROXY_SECRET;
+  const secret = process.env.WEB_PROXY_SECRET?.trim();
   if (secret) {
     headers.set('x-web-proxy-secret', secret);
     const ip = clientIp(req);
@@ -94,7 +91,7 @@ export async function proxyToGateway(req: Request): Promise<Response> {
 
   const out = new Headers();
   upstream.headers.forEach((value, name) => {
-    if (!DROPPED_RESPONSE_HEADERS.has(name)) out.set(name, value);
+    if (FORWARDED_RESPONSE_HEADERS.includes(name) || name.startsWith('ratelimit')) out.set(name, value);
   });
   for (const setCookie of upstream.headers.getSetCookie()) out.append('set-cookie', setCookie);
   return new Response(upstream.body, { status: upstream.status, headers: out });

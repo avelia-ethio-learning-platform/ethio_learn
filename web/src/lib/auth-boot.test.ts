@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { wakeServices } = vi.hoisted(() => ({ wakeServices: vi.fn() }));
 vi.mock('./wake', () => ({ wakeServices }));
 
-import { BOOT_RETRY_MS, bootAuth, getAuth, resetBootForTests, setAuth } from './api';
+import { BOOT_RETRY_MS, bootAuth, getAuth, resetBootForTests, setAuth, signOut } from './api';
 import { authSnapshot, resetAuthForTests } from './auth-store';
 import { SLOW_NOTICE_MS, slowRequestCount } from './waking';
 
@@ -236,5 +236,24 @@ describe('the cross-tab lock', () => {
     await vi.advanceTimersByTimeAsync(BOOT_RETRY_MS);
     expect(locks.log).toEqual(['acquire', 'release', 'acquire', 'release']);
     expect(getAuth()?.access_token).toBe('fresh');
+  });
+
+  it('sign-out waits for a refresh in flight in another tab, then signs every tab out', async () => {
+    const locks = fakeLocks();
+    vi.stubGlobal('navigator', { ...navigator, onLine: true, locks });
+    setAuth({ access_token: 'a', user: learner });
+    let releaseOther!: () => void;
+    // Tab B holds the lock while its refresh is in flight; it lands with a new session.
+    void locks.request('el-auth-refresh', () => new Promise<void>((r) => (releaseOther = r)));
+    fetchMock.mockResolvedValue(json(200, { message: 'ok' }));
+    const done = signOut();
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled(); // waiting for tab B
+    FakeChannel.last!.deliver({ type: 'session', access_token: 'from-tab-b', user: learner });
+    releaseOther();
+    await done;
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(['/api/v1/auth/logout']);
+    expect(getAuth()).toBeNull();
+    expect(FakeChannel.last!.posted.at(-1)).toEqual({ type: 'logout' });
   });
 });
