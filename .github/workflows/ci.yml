@@ -151,6 +151,14 @@ jobs:
           [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
           docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_comments_index'
           TEST_DATABASE_URL="${base%/*}/el_ci_comments_index" pnpm -C api exec jest --ci services/notification/src/comments-index.db.spec.ts
+      # Parallel proctor events neither lose each other nor pass the per-attempt
+      # cap, and only logged events store a screenshot. On its own fresh database.
+      - name: Proctor events under concurrency (real Postgres)
+        run: |
+          base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
+          [ -n "$base" ] || { echo "DATABASE_URL is missing from api/.env"; exit 1; }
+          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_proctor_events'
+          TEST_DATABASE_URL="${base%/*}/el_ci_proctor_events" pnpm -C api exec jest --ci services/outcomes/src/proctor-events.db.spec.ts
       # Two parallel wallet buys of one course charge once (9c B1), and one
       # job lease admits one run (9c step 5). Each on its own fresh database.
       - name: Wallet purchase race and job leases (real Postgres)

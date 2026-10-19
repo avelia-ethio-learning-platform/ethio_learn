@@ -3,7 +3,7 @@ import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { CertificateUidPipe, CurrentUser, pageQuery, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { AssessmentType, Role } from '@ethiopialearn/contracts';
-import { AssessmentService, QUIZ_QUESTIONS_MAX } from './assessment.service';
+import { AssessmentService, SUBMISSION_ENTRIES_MAX } from './assessment.service';
 import { CertificateService } from './certificate.service';
 
 class CourseAttemptsPage extends pageQuery({ defaultLimit: 50, maxLimit: 200 }) {}
@@ -40,14 +40,14 @@ class StartAttemptDto {
 class SubmitAttemptDto {
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(QUIZ_QUESTIONS_MAX)
+  @ArrayMaxSize(SUBMISSION_ENTRIES_MAX)
   @Type(() => Number)
   answers?: number[];
 
   /** Mixed-quiz shape: [{index, selected_index}] for MCQ, [{index, text}] for written. */
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(QUIZ_QUESTIONS_MAX)
+  @ArrayMaxSize(SUBMISSION_ENTRIES_MAX)
   responses?: { index?: number; selected_index?: number | null; text?: string | null }[];
 
   @IsOptional()
