@@ -47,6 +47,10 @@ describe('revision message helpers', () => {
     ]);
   });
 
+  it('labels a language change (13a gap 5)', () => {
+    expect(revisionChips(summary({ fields_changed: ['language'] }))).toEqual(['language edited']);
+  });
+
   it('shows a pricing-type switch and a price that was cleared', () => {
     const s = summary({ fields_changed: ['pricing_type', 'price_etb'], pricing_type_from: 'paid', pricing_type_to: 'free', price_from: 300, price_to: null });
     expect(revisionChips(s)).toEqual(['pricing paid→free', 'price 300→—']);

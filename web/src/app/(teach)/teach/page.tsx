@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart3, BookOpen, HandCoins, LayoutDashboard, Plus, Ticket, Wallet } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
@@ -13,10 +13,17 @@ import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { categoryLabel, holdReasonLabel, pricingLabel } from '@/lib/labels';
 import { formatDate, formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { useAuth } from '@/lib/hooks';
 
 function TeachDashboard() {
   const { locale } = useT();
-  const { data: courses } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
+  const { user } = useAuth();
+  // An institution admin authors courses its institution owns (they go to the QO queue).
+  const isInstitution = user?.role === 'institution_admin';
+  const { data: courses, error: coursesError } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
+  // The API's 400 for an admin whose institution has no profile yet (resolveOwner).
+  const needsInstitution =
+    isInstitution && coursesError instanceof ApiError && coursesError.status === 400 && /institution profile/i.test(coursesError.message);
   const { data: balance } = useQuery({ queryKey: ['balance'], queryFn: () => api<any>('/payouts/balance') });
   const { data: payouts } = useQuery({ queryKey: ['payouts'], queryFn: () => api<any[]>('/payouts') });
   const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
@@ -37,10 +44,10 @@ function TeachDashboard() {
       <PageHeader
         badge={
           <span className="section-badge">
-            <LayoutDashboard className="h-4 w-4 text-brand-500" /> Educator
+            <LayoutDashboard className="h-4 w-4 text-brand-500" /> {isInstitution ? 'Institution' : 'Educator'}
           </span>
         }
-        title="Educator dashboard"
+        title={isInstitution ? 'Institution courses' : 'Educator dashboard'}
         subtitle="Create courses, track earnings and get paid nightly."
         actions={
           <div className="flex w-full flex-wrap gap-2 sm:w-auto">
@@ -59,7 +66,7 @@ function TeachDashboard() {
       <PendingInvitesBanner />
 
       <div className="space-y-10">
-        {profile && !profile.educator_profile && <EducatorSetup />}
+        {user?.role === 'educator' && profile && !profile.educator_profile && <EducatorSetup />}
 
         <section className="grid animate-fade-in-up gap-4 sm:grid-cols-3">
           {stats.map((s) => (
@@ -78,7 +85,16 @@ function TeachDashboard() {
 
         <section className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
           <h2 className="mb-4 text-lg font-bold text-foreground">My courses</h2>
-          {!courses?.length ? (
+          {needsInstitution ? (
+            <div className="card py-10 text-center text-sm text-gray-500">
+              {coursesError?.message}
+              <div className="mt-4">
+                <Link href="/institution" className="btn">
+                  Set up your institution
+                </Link>
+              </div>
+            </div>
+          ) : !courses?.length ? (
             <div className="card py-10 text-center text-sm text-gray-500">
               No courses yet — create your first one.
               <div className="mt-4">
@@ -180,7 +196,7 @@ function EducatorSetup() {
 
 export default function TeachPage() {
   return (
-    <RequireRole roles={['educator']}>
+    <RequireRole roles={['educator', 'institution_admin']}>
       <TeachDashboard />
     </RequireRole>
   );

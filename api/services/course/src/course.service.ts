@@ -22,7 +22,7 @@ import {
 } from '@ethiopialearn/contracts';
 import { Course, CoursePending, CourseRevision, Lesson, LessonPending, PendingState, Section, SectionPending } from './entities';
 import { CourseExtrasService } from './course-extras.service';
-import { CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UpdateSectionDto } from './dto';
+import { COURSE_LANGUAGES, CreateCourseDto, LessonInputDto, SectionInputDto, UpdateCourseDto, UpdateLessonDto, UpdateSectionDto } from './dto';
 import { VideoKeyService } from './video-key.service';
 import { applyStagedRows, hasStagedRows } from './staging';
 
@@ -339,21 +339,21 @@ export class CourseService implements OnModuleInit {
   }
 
   async create(ctx: UserContext, dto: CreateCourseDto) {
-    // Institutions do not author courses directly — their instructors do.
-    if (ctx.role === Role.INSTITUTION_ADMIN) {
-      throw new ForbiddenException('Institutions do not create courses directly. Invite instructors to create courses.');
-    }
+    // An institution admin's course is owned by the institution (400 without a profile).
+    const { ownerId, ownerType } = await this.resolveOwner(ctx);
     if (dto.pricing_type === PricingType.PAID && !dto.price_etb) {
       throw new BadRequestException('Set a price for a paid course.');
     }
     // Check every lesson video before anything is written, so a bad key cannot
     // leave a half-created course behind.
     if (dto.sections) await this.assertSectionVideoKeys({ created_by: ctx.id, owner_id: ctx.id }, dto.sections);
+    // The instructor membership (null for an admin): it routes reviews to the
+    // institution's queue, so an admin's own courses go to the QO queue.
     const institution = await this.resolveInstitution(ctx.id);
     const course = await this.courses.save(
       this.courses.create({
-        owner_id: ctx.id,
-        owner_type: OwnerType.EDUCATOR,
+        owner_id: ownerId,
+        owner_type: ownerType,
         created_by: ctx.id,
         institution_id: institution?.institution_id ?? null,
         title: dto.title,
@@ -450,6 +450,7 @@ export class CourseService implements OnModuleInit {
       title: dto.title,
       description: dto.description,
       category: dto.category,
+      language: dto.language,
       thumbnail_url: dto.thumbnail_url,
       pricing_type: dto.pricing_type,
       price_etb: dto.price_etb === undefined ? undefined : dto.price_etb != null ? dto.price_etb.toFixed(2) : null,
@@ -1105,7 +1106,7 @@ export class CourseService implements OnModuleInit {
     return course;
   }
 
-  async search(params: { q?: string; category?: string; pricing_type?: string; sort?: string; page: number; limit: number }) {
+  async search(params: { q?: string; category?: string; pricing_type?: string; language?: string; sort?: string; page: number; limit: number }) {
     const cacheKey = JSON.stringify(params);
     const cached = this.searchCache.get(cacheKey);
     if (cached) return cached;
@@ -1122,6 +1123,9 @@ export class CourseService implements OnModuleInit {
     }
     if (params.pricing_type && Object.values(PricingType).includes(params.pricing_type as PricingType)) {
       qb.andWhere('c.pricing_type = :pricing', { pricing: params.pricing_type });
+    }
+    if (params.language && COURSE_LANGUAGES.includes(params.language)) {
+      qb.andWhere('c.language = :language', { language: params.language });
     }
 
     // Catalog ordering. Default "top": Bayesian-weighted rating so one lone

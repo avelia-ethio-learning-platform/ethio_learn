@@ -3,13 +3,14 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { m } from 'framer-motion';
-import { ChevronDown, ChevronLeft, ChevronRight, Compass, RotateCcw, Search, SearchX, SlidersHorizontal, Tag, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Compass, Languages, RotateCcw, Search, SearchX, SlidersHorizontal, Tag, X } from 'lucide-react';
 import { CourseCard, CourseSummary } from '@/components/CourseCard';
 import { useT } from '@/lib/i18n';
 import { Field } from '@/components/form/Field';
 
 const CATEGORIES = ['tech', 'business', 'freelancing', 'healthcare', 'other'] as const;
 const PRICING = ['free', 'freemium', 'paid'] as const;
+const LANGUAGES = ['en', 'am'] as const;
 const PAGE_SIZES = [12, 24, 48] as const;
 const DEFAULT_LIMIT = 12;
 const SORTS = ['top', 'new', 'popular', 'price_asc', 'price_desc'] as const;
@@ -19,6 +20,7 @@ export interface ExploreFilters {
   q?: string;
   category?: string;
   pricing_type?: string;
+  language?: string;
   sort?: string;
 }
 
@@ -26,6 +28,7 @@ type NavPatch = Partial<{
   q: string | undefined;
   category: string | undefined;
   pricing_type: string | undefined;
+  language: string | undefined;
   sort: string;
   page: number;
   limit: number;
@@ -88,9 +91,10 @@ export function ExploreClient({
 
   const activeCategory = CATEGORIES.find((c) => c === filters.category);
   const activePricing = PRICING.find((p) => p === filters.pricing_type);
+  const activeLanguage = LANGUAGES.find((l) => l === filters.language);
   const activeSort = SORTS.find((s) => s === filters.sort) ?? DEFAULT_SORT;
-  const hasFilters = Boolean(filters.q || activeCategory || activePricing);
-  const activeCount = [filters.q, activeCategory, activePricing].filter(Boolean).length;
+  const hasFilters = Boolean(filters.q || activeCategory || activePricing || activeLanguage);
+  const activeCount = [filters.q, activeCategory, activePricing, activeLanguage].filter(Boolean).length;
   // Below md the filters sit behind a button; they start open when a filter is already applied.
   const [filtersOpen, setFiltersOpen] = useState(hasFilters);
 
@@ -104,6 +108,7 @@ export function ExploreClient({
     if (merged.q) params.set('q', merged.q);
     if (merged.category) params.set('category', merged.category);
     if (merged.pricing_type) params.set('pricing_type', merged.pricing_type);
+    if (merged.language) params.set('language', merged.language);
     if (merged.sort !== DEFAULT_SORT) params.set('sort', merged.sort);
     if (merged.page > 1) params.set('page', String(merged.page));
     if (merged.limit !== DEFAULT_LIMIT) params.set('limit', String(merged.limit));
@@ -113,7 +118,7 @@ export function ExploreClient({
 
   const clearAll = () => {
     setSearchText('');
-    navigate({ q: undefined, category: undefined, pricing_type: undefined, page: 1 });
+    navigate({ q: undefined, category: undefined, pricing_type: undefined, language: undefined, page: 1 });
   };
 
   return (
@@ -221,6 +226,21 @@ export function ExploreClient({
               ))}
             </div>
 
+            {/* Language */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-1 inline-flex w-24 shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                <Languages className="h-3.5 w-3.5" /> {t('filter_language')}
+              </span>
+              <button onClick={() => navigate({ language: undefined, page: 1 })} aria-pressed={!activeLanguage} className={!activeLanguage ? 'pill-active' : 'pill'}>
+                {t('all')}
+              </button>
+              {LANGUAGES.map((l) => (
+                <button key={l} onClick={() => navigate({ language: l, page: 1 })} aria-pressed={activeLanguage === l} className={activeLanguage === l ? 'pill-active' : 'pill'}>
+                  {t(`lang_${l}`)}
+                </button>
+              ))}
+            </div>
+
             {/* Page size + clear */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center gap-2">
@@ -272,6 +292,7 @@ export function ExploreClient({
               {filters.q && <Chip label={`“${filters.q}”`} onRemove={() => navigate({ q: undefined, page: 1 })} />}
               {activeCategory && <Chip label={t(`cat_${activeCategory}`)} onRemove={() => navigate({ category: undefined, page: 1 })} />}
               {activePricing && <Chip label={t(activePricing)} onRemove={() => navigate({ pricing_type: undefined, page: 1 })} />}
+              {activeLanguage && <Chip label={t(`lang_${activeLanguage}`)} onRemove={() => navigate({ language: undefined, page: 1 })} />}
             </div>
           )}
         </div>
@@ -290,7 +311,7 @@ export function ExploreClient({
           </div>
         ) : (
           <m.div
-            key={`${filters.q ?? ''}|${activeCategory ?? ''}|${activePricing ?? ''}|${activeSort}|${page}|${limit}`}
+            key={`${filters.q ?? ''}|${activeCategory ?? ''}|${activePricing ?? ''}|${activeLanguage ?? ''}|${activeSort}|${page}|${limit}`}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}

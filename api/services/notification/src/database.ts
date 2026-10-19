@@ -1,4 +1,4 @@
-import { CourseComment, DmMessage, DmThread, InboxNotification, NotificationLog, NotificationPreference } from './entities';
+import { CourseComment, DmMessage, DmThread, InboxNotification, InboxNotificationRead, NotificationLog, NotificationPreference } from './entities';
 import { migrations } from './migrations';
 
 /**
@@ -6,5 +6,5 @@ import { migrations } from './migrations';
  * TypeORM CLI data source (src/data-source.ts) and `pnpm -C api db:check`.
  */
 export const SCHEMA = 'notification';
-export const entities = [NotificationLog, NotificationPreference, InboxNotification, CourseComment, DmThread, DmMessage];
+export const entities = [NotificationLog, NotificationPreference, InboxNotification, InboxNotificationRead, CourseComment, DmThread, DmMessage];
 export { migrations };

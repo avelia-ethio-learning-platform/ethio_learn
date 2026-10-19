@@ -59,10 +59,11 @@ export async function applyStagedState(m: EntityManager, state: StagedState): Pr
   const ids = closeLessonIds(computeDiff(state));
   const { course } = state;
   const p = course.pending ?? {};
-  const live: Partial<Pick<Course, 'title' | 'description' | 'category' | 'thumbnail_url' | 'pricing_type' | 'price_etb'>> = {};
+  const live: Partial<Pick<Course, 'title' | 'description' | 'category' | 'language' | 'thumbnail_url' | 'pricing_type' | 'price_etb'>> = {};
   if (p.title !== undefined) live.title = p.title;
   if (p.description !== undefined) live.description = p.description;
   if (p.category !== undefined) live.category = p.category as Course['category'];
+  if (p.language !== undefined) live.language = p.language;
   if (p.thumbnail_url !== undefined) live.thumbnail_url = p.thumbnail_url;
   if (p.pricing_type !== undefined) live.pricing_type = p.pricing_type as Course['pricing_type'];
   if (p.price_etb !== undefined) live.price_etb = p.price_etb;

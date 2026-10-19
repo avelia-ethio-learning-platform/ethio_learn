@@ -68,6 +68,7 @@ function setup() {
     title: 'Live title',
     description: 'Live description',
     category: 'programming',
+    language: 'en',
     thumbnail_url: 'http://x/t.png',
     pricing_type: 'paid',
     price_etb: '500.00',
@@ -129,6 +130,15 @@ describe('applyStagedRows', () => {
     expect(ids.addedLessonIds).toEqual(['l3']);
     expect(ids.removedLessonIds.sort()).toEqual(['l2', 'l5']);
     expect(ids.replacedVideoLessonIds).toEqual(['l1']);
+  });
+
+  it('makes a staged course language live (13a gap 5)', async () => {
+    const t = setup();
+    t.courses.get('c1')!.pending = { language: 'am' };
+
+    await applyStagedRows(t.manager, 'c1');
+
+    expect(t.courses.get('c1')).toMatchObject({ language: 'am', title: 'Live title', pending: null });
   });
 
   it('deletes lessons before their sections (lessons reference them)', async () => {

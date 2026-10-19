@@ -85,6 +85,7 @@ export const am: Dictionary = {
   clear_filters: 'ማጣሪያዎችን አጽዳ',
   filter_category: 'ምድብ',
   filter_pricing: 'የዋጋ አይነት',
+  filter_language: 'ቋንቋ',
   per_page: 'በአንድ ገጽ',
   prev: 'ቀዳሚ',
   next: 'ቀጣይ',
