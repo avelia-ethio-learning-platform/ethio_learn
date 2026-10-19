@@ -149,6 +149,17 @@ describe('AuthService.refresh: rotation and the 30 s grace (Phase 11b, decision 
     expect(await redis.get(`refresh:${res.refresh_token}`)).toBe('user-1');
   });
 
+  it('a MULTI that resolves with a command error fails the refresh instead of handing out an unsaved token', async () => {
+    const { svc, redis } = makeService([learner()]);
+    const t0 = await issue(svc, 'user-1');
+    const failing: Record<string, unknown> = new Proxy(
+      {},
+      { get: (_t, name: string) => (name === 'exec' ? async () => [[null, 1], [new Error('OOM command not allowed'), null]] : () => failing) },
+    );
+    jest.spyOn(redis, 'multi').mockReturnValue(failing as never);
+    await expect(svc.refresh(t0)).rejects.toThrow('OOM');
+  });
+
   it('inside 30 s, the old token returns the same successor and mints no new session', async () => {
     const { svc, redis } = makeService([learner()]);
     const t0 = await issue(svc, 'user-1');

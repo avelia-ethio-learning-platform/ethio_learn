@@ -288,7 +288,7 @@ export class AuthService {
     // mid-refresh, the web proxy's timeout) gets the same successor.
     const next = newRefreshToken();
     const setKey = `refresh:user:${userId}`;
-    await this.redis
+    const results = await this.redis
       .multi()
       .del(key)
       .srem(setKey, refreshToken)
@@ -297,6 +297,9 @@ export class AuthService {
       .sadd(setKey, next)
       .expire(setKey, REFRESH_TOKEN_TTL_SECONDS)
       .exec();
+    // ioredis resolves a MULTI with each command's error rather than rejecting.
+    const failed = results?.find(([err]) => err) ?? (results ? undefined : [new Error('MULTI aborted')]);
+    if (failed) throw failed[0];
     return {
       access_token: this.signAccessToken(user),
       expires_in: ACCESS_TOKEN_TTL_SECONDS,
