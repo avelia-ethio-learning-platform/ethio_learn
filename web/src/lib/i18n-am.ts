@@ -103,6 +103,8 @@ export const am: Dictionary = {
   login_to_enroll: 'ለመመዝገብ ይግቡ',
   course_content: 'የኮርስ ይዘት',
   learner_reviews: 'የተማሪ ግምገማዎች',
+  show_more_reviews: 'ተጨማሪ ግምገማዎችን አሳይ',
+  loading_more: 'በመጫን ላይ…',
   free_preview: 'ነፃ ቅድመ-እይታ',
   email: 'ኢሜይል',
   password: 'የይለፍ ቃል',

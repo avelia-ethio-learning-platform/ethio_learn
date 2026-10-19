@@ -106,10 +106,11 @@ function LearnerDashboard() {
                     <StatusBadge status={e.entitlement_status} />
                   </div>
                   <div className="progress-track mt-4">
-                    <div className="progress-fill" style={{ width: `${e.progress_percent}%` }} />
+                    <div className="progress-fill" style={{ width: `${e.progress_percent ?? 0}%` }} />
                   </div>
                   <p className="mt-2 text-xs text-gray-500">
-                    {e.progress_percent}% {t('progress')}
+                    {/* null: progress couldn't be read just now (a service waking), never "0%". */}
+                    {e.progress_percent == null ? '—' : `${e.progress_percent}%`} {t('progress')}
                     {e.completed_at && (
                       <>
                         {' · '}
@@ -331,10 +332,10 @@ function SponsorshipsSection() {
                   {s.progress && (
                     <>
                       <div className="progress-track mt-2">
-                        <div className="progress-fill" style={{ width: `${s.progress.progress_percent}%` }} />
+                        <div className="progress-fill" style={{ width: `${s.progress.progress_percent ?? 0}%` }} />
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
-                        {t('n_complete', { n: s.progress.progress_percent })}
+                        {s.progress.progress_percent == null ? '—' : t('n_complete', { n: s.progress.progress_percent })}
                         {s.progress.lessons_complete && (
                           <>
                             {' · '}
