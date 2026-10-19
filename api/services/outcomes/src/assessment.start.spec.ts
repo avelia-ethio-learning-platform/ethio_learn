@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
 import { AssessmentType, Role } from '@ethiopialearn/contracts';
-import { AssessmentService } from './assessment.service';
+import { AssessmentService, QUIZ_QUESTIONS_MAX } from './assessment.service';
 
 /**
  * Starting an attempt: one transaction per start under an advisory lock per
@@ -554,6 +554,15 @@ describe('create(): attempt limits for every type', () => {
     expect(await make({ max_attempts: 99, cooldown_minutes: 99_999 })).toEqual({ max_attempts: 20, cooldown_minutes: 10_080 });
     expect(await make({ max_attempts: 0, cooldown_minutes: -5 })).toEqual({ max_attempts: 3, cooldown_minutes: 0 });
     expect(await make({ max_attempts: 5.4, cooldown_minutes: 30 })).toEqual({ max_attempts: 5, cooldown_minutes: 30 });
+  });
+});
+
+describe('create(): quiz bank size', () => {
+  it(`accepts ${QUIZ_QUESTIONS_MAX} questions and refuses one more`, async () => {
+    const { svc } = harness(AssessmentType.QUIZ);
+    const make = (n: number) => svc.create(educator, { course_id: 'c1', type: AssessmentType.QUIZ, config: { questions: bankOf(n) } });
+    await expect(make(QUIZ_QUESTIONS_MAX)).resolves.toBeDefined();
+    await expect(make(QUIZ_QUESTIONS_MAX + 1)).rejects.toThrow(new BadRequestException(`A quiz can have at most ${QUIZ_QUESTIONS_MAX} questions`));
   });
 });
 

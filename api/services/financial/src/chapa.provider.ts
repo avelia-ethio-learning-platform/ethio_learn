@@ -138,7 +138,8 @@ export class LiveChapaProvider implements ChapaProvider {
       this.logger.error('chapa verify rejected the API key (401/403): check CHAPA_SECRET_KEY');
       throw new ChapaUnavailableError();
     }
-    if (http >= 500) {
+    // Rate-limited (429) is an outage too, never an answer: "pending" would let the expiry fail an unchecked row.
+    if (http >= 500 || http === 429) {
       this.logger.warn(`chapa verify answered ${http} for ${txRef}`);
       throw new ChapaUnavailableError();
     }

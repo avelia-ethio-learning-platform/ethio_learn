@@ -8,7 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
-import { EntitlementStatus, Role } from '@ethiopialearn/contracts';
+import { EntitlementStatus, Role, UserStatus } from '@ethiopialearn/contracts';
 import { CourseComment, DmMessage, DmThread, InboxNotification } from './entities';
 
 const COMMENT_MAX = 4000;
@@ -201,13 +201,22 @@ export class CommunityService {
     return rows.map((t) => this.threadView(t, ctx.id));
   }
 
-  /** Find-or-create the 1:1 thread with a recipient. */
+  /**
+   * Find-or-create the 1:1 thread with a recipient. Anyone can message any
+   * active account (the people directory lists exactly those); an unknown,
+   * suspended or banned recipient gets the same 404, so the answer says no
+   * more than the directory already does.
+   */
   async openThread(ctx: UserContext, recipientId: string) {
     if (recipientId === ctx.id) throw new BadRequestException('You cannot message yourself');
-    let recipient: { name: string; role: string };
+    let recipient: { name: string; role: string; status?: string } | null = null;
     try {
       recipient = await this.internal.get(internalPath`/api/v1/internal/users/${recipientId}`);
     } catch {
+      /* answered below, the same as an inactive account */
+    }
+    // `status` is absent only from an auth service older than this check; it is then allowed as before.
+    if (!recipient || (recipient.status !== undefined && recipient.status !== UserStatus.ACTIVE)) {
       throw new NotFoundException('Recipient not found');
     }
 

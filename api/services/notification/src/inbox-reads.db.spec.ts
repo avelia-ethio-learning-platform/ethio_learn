@@ -38,7 +38,7 @@ describeWithDb('Inbox reads on Postgres (TEST_DATABASE_URL)', () => {
     await dataSource.query(`CREATE SCHEMA IF NOT EXISTS "${SCHEMA}"`);
     await dataSource.runMigrations({ transaction: 'each' });
     const inbox = dataSource.getRepository(InboxNotification);
-    ctrl = new NotificationController({} as never, {} as never, inbox, dataSource.getRepository(InboxNotificationRead), {} as never);
+    ctrl = new NotificationController({} as never, {} as never, inbox, dataSource.getRepository(InboxNotificationRead), {} as never, {} as never);
   });
 
   afterAll(async () => {
