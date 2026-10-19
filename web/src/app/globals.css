@@ -176,7 +176,7 @@
     overflow-x: clip;
     /* The course page's mobile buy bar sets --buy-bar-h while it is showing, so it never covers the footer. */
     padding-bottom: var(--buy-bar-h, 0px);
-    transition: background-color var(--dur-base) ease, color var(--dur-base) ease;
+    transition: background-color var(--dur-base) var(--ease-out-quart), color var(--dur-base) var(--ease-out-quart);
   }
 
   /* Keyboard focus ring for everything; .input keeps its own ring (below). */
@@ -369,7 +369,8 @@
     @apply block w-full rounded-xl px-3.5 py-2.5 text-sm text-foreground placeholder:text-gray-500;
     background: var(--input-background);
     border: 1px solid var(--input-border);
-    transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, background var(--dur-fast) ease;
+    transition: border-color var(--dur-fast) var(--ease-out-quart), box-shadow var(--dur-fast) var(--ease-out-quart),
+      background var(--dur-fast) var(--ease-out-quart);
   }
   .input:focus,
   .input:focus-visible {
@@ -408,10 +409,11 @@
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
   }
 
-  /* Touch layouts: filter, pager and tab pills are 44 px targets. */
+  /* Touch layouts: buttons and filter, pager and tab pills are 44 px targets (.btn-sm stays a dense 32 px row action). */
   @media (pointer: coarse) {
     .pill,
-    .pill-active {
+    .pill-active,
+    :is(.btn, .btn-secondary, .btn-ghost, .btn-danger):not(.btn-sm) {
       min-height: 44px;
     }
   }
@@ -533,7 +535,7 @@
 /* Every enter keyframe has only a `from`: the element's resting style is its end state, so when an
    animation doesn't run (reduced motion) nothing is left faded or offset. */
 @keyframes el-fade-in-up {
-  from { opacity: 0; transform: translateY(var(--rise)); }
+  from { opacity: 0.01; transform: translateY(var(--rise)); }
 }
 
 /* 0.01, not 0, keeps the element an LCP candidate in Chromium. */

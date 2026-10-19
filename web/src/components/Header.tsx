@@ -131,7 +131,7 @@ export function Header() {
       <nav aria-label="Main" className="fixed left-1/2 top-0 z-50 w-full max-w-6xl -translate-x-1/2 px-3 pt-4 sm:px-6">
         <div
           className={`flex w-full items-center justify-between transition-[background-color,border-color,box-shadow,border-radius] duration-slow ease-out-quart ${
-            isScrolled ? 'glass rounded-2xl px-4 py-2.5 shadow-floating sm:px-6' : 'glass-secondary rounded-full px-5 py-3 shadow-glass sm:px-8'
+            isScrolled ? 'glass rounded-2xl px-4 py-2.5 shadow-floating sm:px-6' : 'glass-secondary rounded-full px-4 py-3 shadow-glass sm:px-8'
           }`}
         >
           {/* Logo */}
@@ -260,7 +260,7 @@ export function Header() {
                     </Link>
                   )}
                 </div>
-                <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
                   <div className="flex items-center gap-2">
                     <LanguageToggle />
                     <ThemeToggle placement="up" />
