@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
-import { Emit, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, OutboxService, UserContext } from '@ethiopialearn/common';
+import { Emit, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, OutboxService, PeerUnavailableError, UserContext } from '@ethiopialearn/common';
 import { EntitlementStatus, PaymentStatus, RefundDecisionPayload, RefundRequestedPayload, RefundStatus, Role } from '@ethiopialearn/contracts';
 import { PaymentMethod, PaymentPurpose } from '@ethiopialearn/contracts';
 import { Payment, RefundRequest, Sponsorship } from './entities';
@@ -60,7 +60,7 @@ export class RefundService {
     const entitlement = await this.internal.get<{
       entitlement_status: EntitlementStatus;
       enrollment_id: string | null;
-      progress_percent: number;
+      progress_percent: number | null;
     }>(internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${payment.course_id}`);
 
     let rule = '';
@@ -75,6 +75,11 @@ export class RefundService {
     // payment.
     const granted = entitlement.entitlement_status === EntitlementStatus.ACTIVE;
     const daysSincePurchase = granted ? (Date.now() - purchasedAt(payment).getTime()) / DAY_MS : Infinity;
+    // Unknown progress (enrollment couldn't reach the course service) would be read as 0% and
+    // auto-approve: refuse to decide instead (P1-18). Without access, progress plays no part.
+    if (granted && entitlement.progress_percent == null) {
+      throw new PeerUnavailableError();
+    }
     const progress = entitlement.progress_percent ?? 0;
 
     if (entitlement.enrollment_id) {

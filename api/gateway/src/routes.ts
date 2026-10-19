@@ -1,7 +1,8 @@
 import { env } from '@ethiopialearn/common';
 import { matchPath } from './request-path';
 
-export type AuthMode = 'public' | 'jwt' | 'internal';
+/** `jobs`: the scheduler's `Authorization: Bearer <JOBS_TOKEN>` (Phase 9c), checked before any JWT parsing. */
+export type AuthMode = 'public' | 'jwt' | 'internal' | 'jobs';
 
 export interface RouteRule {
   /** Regex tested against the normalised request path (see matchPath): lower case, no trailing slash. */
@@ -39,6 +40,10 @@ export const ROUTES: RouteRule[] = [
   { pattern: /^\/api\/v1\/internal\/(courses|lessons|owners)\b/, target: COURSE, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/enrollments\/[^/]+\/outcomes-status$/, target: OUTCOMES, auth: 'internal' },
   { pattern: /^\/api\/v1\/internal\/(entitlements|enrollments)\b/, target: ENROLLMENT, auth: 'internal' },
+
+  // ---- scheduled jobs: POST /jobs/<service>/<job> starts one, GET /jobs/<service> lists them (JOBS_TOKEN) ----
+  { pattern: /^\/api\/v1\/jobs\/financial(\/[a-z]+)?$/, target: FINANCIAL, auth: 'jobs' },
+  { pattern: /^\/api\/v1\/jobs\/enrollment(\/[a-z]+)?$/, target: ENROLLMENT, auth: 'jobs' },
 
   // ---- auth & identity ----
   { pattern: /^\/api\/v1\/auth\b/, target: AUTH, auth: 'public' },

@@ -22,9 +22,11 @@ function setup() {
     createSession: jest.fn(async () => ({ confirmed: false, payment_id: 'pay-1', checkout_url: 'https://pay.example/x' })),
     onPurposeConfirmed: jest.fn(),
   };
-  const svc = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, payments as never, bus as never, internal as never, fakeOutbox(db.dataSource).outbox as never);
+  const tx = fakeOutbox(db.dataSource);
+  const svc = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, payments as never, bus as never, internal as never, tx.outbox as never);
   const rows = () => db.repo(Sponsorship).rows;
-  const published = () => bus.publish.mock.calls.filter((c: unknown[]) => c[0] === 'PayRequestCreated');
+  /** PayRequestCreated committed with its row (the outbox publishes it after commit). */
+  const published = () => tx.committed.filter(([type]) => type === 'PayRequestCreated');
   const payRequest = (over: Record<string, unknown> = {}) => ({
     id: `pr-${rows().length + 1}`,
     source: 'pay_request',
@@ -48,7 +50,7 @@ function setup() {
     created_at: hoursAgo(1),
     ...over,
   });
-  return { svc, db, bus, payments, rows, published, payRequest, gift };
+  return { svc, db, bus, payments, rows, published, payRequest, gift, onEmit: tx.onEmit };
 }
 
 const ENV_KEYS = ['PAY_REQUESTS_PER_DAY', 'GIFTS_PER_DAY'];
@@ -69,6 +71,17 @@ describe('SponsorshipService.createPayRequest caps', () => {
     expect(res).toMatchObject({ status: 'requested', pay_url: expect.stringContaining('/pay/') });
     expect(t.rows()).toHaveLength(1);
     expect(t.published()).toHaveLength(1);
+  });
+
+  it('the row and its email commit together: a failed outbox insert leaves neither (9c review S2)', async () => {
+    const t = setup();
+    t.onEmit.mockImplementationOnce(() => {
+      throw new Error('outbox insert failed');
+    });
+    await expect(t.svc.createPayRequest(ME, dto)).rejects.toThrow('outbox insert failed');
+    expect(t.rows()).toHaveLength(0);
+    expect(t.published()).toHaveLength(0);
+    expect(t.bus.publish).not.toHaveBeenCalled();
   });
 
   it.each(['requested', 'pending_payment'])('returns the existing %s request for the same course and payer: no row, no email', async (status) => {

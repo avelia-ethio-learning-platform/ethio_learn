@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { PaymentMethod, PaymentPurpose, PaymentStatus } from '@ethiopialearn/contracts';
 import { Coupon, Payment, Referral, ReferralCode, Wallet, WalletTransaction } from './entities';
 import { GrowthService } from './growth.service';
-import { fakeDb, Row } from './testing/fake-db';
+import { fakeDb, fakeOutbox, Row } from './testing/fake-db';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Purchase credits are held for the 7-day refund window plus an hour. */
@@ -22,6 +22,7 @@ function ledger() {
     db.dataSource as never,
     bus as never,
     internal as never,
+    fakeOutbox(db.dataSource).outbox as never,
   );
   const balance = (userId: string) => Number(db.repo(Wallet).rows.find((w) => w.user_id === userId)?.balance_etb ?? 0);
   const movements = (userId: string) => db.repo(WalletTransaction).rows.filter((t) => t.user_id === userId);
@@ -371,7 +372,7 @@ describe('GrowthService.adminWalletStats', () => {
         .mockReturnValueOnce(qb([{ kind: 'topup', sum: '100.00', count: '2' }]))
         .mockReturnValueOnce(qb({ sum: '30.5' })),
     };
-    const svc = new GrowthService(null as never, wallets as never, walletTx as never, null as never, null as never, null as never, null as never, null as never);
+    const svc = new GrowthService(null as never, wallets as never, walletTx as never, null as never, null as never, null as never, null as never, null as never, null as never);
 
     await expect(svc.adminWalletStats()).resolves.toEqual({
       outstanding_balance_etb: 120,

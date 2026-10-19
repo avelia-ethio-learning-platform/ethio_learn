@@ -191,6 +191,11 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
       wakeServices();
       throw new WakingError();
     }
+    // A peer service the gateway reached is asleep: same recovery as a hibernating gateway.
+    if (res.status === 503 && (parseJson(text) as { code?: unknown } | undefined)?.code === 'service_waking') {
+      wakeServices();
+      throw new WakingError();
+    }
     throw new ApiError(res.status, errorMessage(text, res.status), parseJson(text));
   }
   if (res.status === 204) return undefined as T;

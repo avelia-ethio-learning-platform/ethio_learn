@@ -169,6 +169,16 @@ describe('waking up (A1)', () => {
     expect(wakeServices).toHaveBeenCalledTimes(1);
   });
 
+  it("a 503 with code 'service_waking' wakes the services; 'service_unavailable' stays an ApiError", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(503, { statusCode: 503, code: 'service_waking', message: 'A service is waking up.' }));
+    await expect(api('/courses/c1')).rejects.toBeInstanceOf(WakingError);
+    expect(wakeServices).toHaveBeenCalled();
+    wakeServices.mockReset();
+    fetchMock.mockResolvedValueOnce(jsonResponse(503, { statusCode: 503, code: 'service_unavailable', message: 'A service is not responding.' }));
+    await expect(api('/courses/c1')).rejects.toBeInstanceOf(ApiError);
+    expect(wakeServices).not.toHaveBeenCalled();
+  });
+
   it('a network error does the same', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     await expect(api('/courses/c1')).rejects.toBeInstanceOf(WakingError);

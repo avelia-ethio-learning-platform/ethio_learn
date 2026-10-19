@@ -51,6 +51,7 @@ function setup() {
     db.dataSource as never,
     bus as never,
     internal as never,
+    fakeOutbox(db.dataSource).outbox as never,
   );
   const service = new PaymentService(db.repo(Payment) as never, chapa as never, bus as never, internal as never, growth, db.dataSource as never);
   const sponsorships = new SponsorshipService(db.repo(Sponsorship) as never, db.repo(BulkPurchase) as never, service, bus as never, internal as never, fakeOutbox(db.dataSource).outbox as never);
@@ -280,6 +281,18 @@ describe('coupon checkout: the per-user limit', () => {
     expect(body.message).toMatch(HELD_BY_YOU);
     expect(body.message).toContain(`try again after ${holdEnds(gift.created_at)}.`);
     expect(body.checkout_url).toBe('https://checkout.example/gift');
+  });
+});
+
+describe('coupon checkout: the fallback email', () => {
+  it('retries once with CHAPA_FALLBACK_EMAIL when Chapa rejects the customer email', async () => {
+    process.env.CHAPA_FALLBACK_EMAIL = 'fallback@example.com';
+    const t = setup();
+    t.coupon();
+    t.chapa.initialize.mockRejectedValueOnce(new BadRequestException('Payment gateway rejected the request: {"email":["validation.email"]}'));
+    await expect(t.buy()).resolves.toMatchObject({ checkout_url: expect.any(String) });
+    expect(t.chapa.initialize).toHaveBeenCalledTimes(2);
+    expect(t.chapa.initialize.mock.calls[1][0]).toMatchObject({ email: 'fallback@example.com' });
   });
 });
 

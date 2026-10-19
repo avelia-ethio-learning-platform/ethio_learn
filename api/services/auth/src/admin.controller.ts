@@ -3,12 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { CurrentUser, env, EventBusService, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
+import { CurrentUser, env, pageQuery, OutboxService, Roles, RolesGuard, UserContext, UuidParam } from '@ethiopialearn/common';
 import { Role, StaffInvitedPayload, UserStatus } from '@ethiopialearn/contracts';
 import { AuditLog, appendAudit } from './audit';
 import { AuthService, generateTempPassword } from './auth.service';
 import { User } from './entities';
 import { CreateStaffDto, UserStatusActionDto } from './dto';
+
+class AdminUsersPage extends pageQuery({ defaultLimit: 20, maxLimit: 100 }) {}
 
 /** Escapes LIKE wildcards so a search term matches literally. */
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, '\\$&');
@@ -21,14 +23,14 @@ export class AdminUsersController {
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(AuditLog) private readonly audit: Repository<AuditLog>,
-    private readonly bus: EventBusService,
     private readonly auth: AuthService,
+    private readonly outbox: OutboxService,
   ) {}
 
   @Get()
-  async list(@Query('q') q?: string, @Query('role') role?: Role, @Query('page') page = '1', @Query('limit') limit = '20') {
-    const take = Math.min(parseInt(limit, 10) || 20, 100);
-    const skip = (Math.max(parseInt(page, 10) || 1, 1) - 1) * take;
+  async list(@Query('q') q: string | undefined, @Query('role') role: Role | undefined, @Query() paging: AdminUsersPage) {
+    const take = paging.limit;
+    const skip = (paging.page - 1) * take;
     // A repeated ?q= arrives as an array: treat anything but a string as no term.
     const raw = typeof q === 'string' ? q : undefined;
     if (raw && raw.length > 100) throw new BadRequestException('Search is limited to 100 characters.');
@@ -75,33 +77,39 @@ export class AdminUsersController {
    * Provision quality_officer / platform_admin accounts (no self-signup for
    * staff roles). The admin never sets a password — the account is created with
    * an unusable random hash and the invitee receives a one-time link where they
-   * choose their own password (spec §0.3 invite flow).
+   * choose their own password (spec §0.3 invite flow). The account, its link,
+   * the audit row and StaffInvited commit together (the outbox, review S2): the
+   * link is only ever sent here, so it must not be lost to a broker outage.
    */
   @Post('staff')
   async createStaff(@CurrentUser() ctx: UserContext, @Body() dto: CreateStaffDto) {
     const email = dto.email.toLowerCase().trim();
     if (await this.users.findOne({ where: { email } })) throw new ConflictException('Email already in use');
-    const user = await this.users.save(
-      this.users.create({
-        email,
-        name: dto.name,
-        role: dto.role,
-        password_hash: await bcrypt.hash(generateTempPassword(), 10), // placeholder, replaced when they accept the invite
-        email_verified_at: new Date(),
-        must_change_password: true,
-        phone: null,
-      }),
-    );
-    const token = await this.auth.createInvite(user.id);
-    await appendAudit(this.audit, ctx.id, 'user.staff_created', user.id, { role: dto.role });
-    await this.bus.publish<StaffInvitedPayload>('StaffInvited', {
-      user_id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      invite_url: `${env('WEB_URL', 'http://localhost:3000')}/accept-invite?token=${token}`,
+    const placeholder = await bcrypt.hash(generateTempPassword(), 10); // replaced when they accept the invite
+    return this.outbox.transaction(async (m, emit) => {
+      const users = m.getRepository(User);
+      const user = await users.save(
+        users.create({
+          email,
+          name: dto.name,
+          role: dto.role,
+          password_hash: placeholder,
+          email_verified_at: new Date(),
+          must_change_password: true,
+          phone: null,
+        }),
+      );
+      const token = await this.auth.createInvite(user.id, m);
+      await appendAudit(m.getRepository(AuditLog), ctx.id, 'user.staff_created', user.id, { role: dto.role });
+      emit<StaffInvitedPayload>('StaffInvited', {
+        user_id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        invite_url: `${env('WEB_URL', 'http://localhost:3000')}/accept-invite?token=${token}`,
+      });
+      return { user_id: user.id, invited: true };
     });
-    return { user_id: user.id, invited: true };
   }
 
   @Post(':id/verify-email')

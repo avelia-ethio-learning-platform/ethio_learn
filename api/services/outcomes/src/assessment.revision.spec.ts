@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
 import { AssessmentType, CourseRevisionClosedPayload, EventEnvelope, Role } from '@ethiopialearn/contracts';
+import { PeerNotFoundError } from '@ethiopialearn/common';
 import { AssessmentService } from './assessment.service';
 import { CertificateService } from './certificate.service';
 
@@ -91,7 +92,7 @@ function internalFor(course: Row, institutions: Record<string, string> = {}) {
       const byOwner = path.match(/\/internal\/institutions\/by-owner\/(.+)$/);
       if (byOwner) {
         const id = institutions[byOwner[1]];
-        if (!id) throw new Error(`Internal request failed: GET ${path} -> 404`);
+        if (!id) throw new PeerNotFoundError('Not found');
         return { id, name: 'Institution' };
       }
       if (path.startsWith('/api/v1/internal/entitlements')) return { entitlement_status: 'active', enrollment_id: 'en1' };

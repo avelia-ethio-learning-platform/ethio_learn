@@ -32,6 +32,7 @@ import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 import { useConfirm } from '@/components/confirm/ConfirmProvider';
 import { WalletCard } from './wallet-card';
+import { percentLabel, percentScale } from '@/lib/progress';
 
 function LearnerDashboard() {
   const { t, locale } = useT();
@@ -106,10 +107,10 @@ function LearnerDashboard() {
                     <StatusBadge status={e.entitlement_status} />
                   </div>
                   <div className="progress-track mt-4">
-                    <div className="progress-fill" style={{ transform: `scaleX(${e.progress_percent / 100})` }} />
+                    <div className="progress-fill" style={{ transform: percentScale(e.progress_percent) }} />
                   </div>
                   <p className="mt-2 text-xs text-gray-500">
-                    {e.progress_percent}% {t('progress')}
+                    {percentLabel(e.progress_percent)} {t('progress')}
                     {e.completed_at && (
                       <>
                         {' · '}
@@ -331,10 +332,10 @@ function SponsorshipsSection() {
                   {s.progress && (
                     <>
                       <div className="progress-track mt-2">
-                        <div className="progress-fill" style={{ transform: `scaleX(${s.progress.progress_percent / 100})` }} />
+                        <div className="progress-fill" style={{ transform: percentScale(s.progress.progress_percent) }} />
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
-                        {t('n_complete', { n: s.progress.progress_percent })}
+                        {s.progress.progress_percent == null ? `— ${t('progress')}` : t('n_complete', { n: s.progress.progress_percent })}
                         {s.progress.lessons_complete && (
                           <>
                             {' · '}
