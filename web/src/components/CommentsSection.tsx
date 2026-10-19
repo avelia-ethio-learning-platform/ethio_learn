@@ -68,7 +68,8 @@ export function CommentsSection({ courseId }: { courseId: string }) {
     queryFn: async () => normalizeComments(await api<CommentRow[] | CommentsPage>(`/courses/${courseId}/comments?paged=1`, { auth: false })),
     refetchInterval: 15_000,
   });
-  // Earlier discussions, loaded on request; the newest page keeps refreshing on its own.
+  // Everything shown when "Load earlier" was last used, plus the older page; the
+  // newest page keeps refreshing on its own and its copy of a row wins.
   const [earlier, setEarlier] = useState<CommentsPage | null>(null);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const rows = useMemo(() => mergeById(earlier?.items ?? [], latest?.items ?? []), [earlier, latest]);
@@ -84,8 +85,10 @@ export function CommentsSection({ courseId }: { courseId: string }) {
     setBusy(true);
     clearStatus();
     try {
-      await api(`/courses/${courseId}/comments`, { method: 'POST', body: { body, ...(parentId ? { parent_id: parentId } : {}) } });
+      const created = await api<CommentRow>(`/courses/${courseId}/comments`, { method: 'POST', body: { body, ...(parentId ? { parent_id: parentId } : {}) } });
       setDraft('');
+      // A reply under an earlier-loaded discussion isn't on the newest page: keep it in view.
+      setEarlier((prev) => (prev ? { ...prev, items: [...prev.items, created] } : prev));
       await queryClient.invalidateQueries({ queryKey: ['comments', courseId] });
       return true;
     } catch (err) {
@@ -103,7 +106,7 @@ export function CommentsSection({ courseId }: { courseId: string }) {
     clearStatus();
     try {
       const page = normalizeComments(await api<CommentRow[] | CommentsPage>(`/courses/${courseId}/comments?before=${oldest.id}`, { auth: false }));
-      setEarlier((prev) => ({ items: [...page.items, ...(prev?.items ?? [])], has_more: page.has_more }));
+      setEarlier({ items: [...page.items, ...rows], has_more: page.has_more });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -114,6 +117,9 @@ export function CommentsSection({ courseId }: { courseId: string }) {
   const remove = async (id: string) => {
     try {
       await api(`/comments/${id}`, { method: 'DELETE' });
+      setEarlier((prev) =>
+        prev ? { ...prev, items: prev.items.map((r) => (r.id === id ? { ...r, deleted: true, body: '', author_name: '' } : r)) } : prev,
+      );
       await queryClient.invalidateQueries({ queryKey: ['comments', courseId] });
     } catch (err) {
       setError((err as Error).message);
@@ -122,7 +128,7 @@ export function CommentsSection({ courseId }: { courseId: string }) {
 
   return (
     <div className="card" id="comments">
-      <h2 className="font-semibold">💬 Discussion {count > 0 && <span className="text-sm font-normal text-gray-500">({count})</span>}</h2>
+      <h2 className="font-semibold">💬 Discussion {count > 0 && <span className="text-sm font-normal text-gray-500">({count}{hasEarlier ? '+' : ''})</span>}</h2>
 
       {ready && user ? (
         <div className="mt-3">

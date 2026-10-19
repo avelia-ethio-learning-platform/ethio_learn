@@ -7,7 +7,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   api: (...args: unknown[]) => apiMock(...args),
 }));
-vi.mock('@/lib/hooks', () => ({ useAuth: () => ({ user: null, ready: true }) }));
+const auth = vi.hoisted(() => ({ user: null as { id: string; role: string } | null }));
+vi.mock('@/lib/hooks', () => ({ useAuth: () => ({ user: auth.user, ready: true }) }));
 
 import { CommentsSection, normalizeComments } from './CommentsSection';
 
@@ -28,6 +29,7 @@ const OLD = row('c1', 'Older question', '2026-10-01T10:00:00Z');
 let firstPage: unknown;
 
 beforeEach(() => {
+  auth.user = null;
   apiMock.mockReset();
   apiMock.mockImplementation(async (path: string) => {
     if (path === '/courses/k1/comments?paged=1') return firstPage;
@@ -38,11 +40,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 function renderComments() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <CommentsSection courseId="k1" />
     </QueryClientProvider>,
   );
+  return client;
 }
 
 describe('CommentsSection', () => {
@@ -67,5 +71,28 @@ describe('CommentsSection', () => {
     expect(apiMock).toHaveBeenCalledWith('/courses/k1/comments?before=c2', { auth: false });
     expect(screen.getByText('Newest question')).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Load earlier comments' })).toBeNull());
+  });
+
+  it('keeps a discussion that drops off the live page and shows a reply posted under an earlier one', async () => {
+    auth.user = { id: 'u1', role: 'learner' };
+    firstPage = { items: [NEW, REPLY], has_more: true };
+    const client = renderComments();
+    fireEvent.click(await screen.findByRole('button', { name: 'Load earlier comments' }));
+    expect(await screen.findByText('Older question')).toBeTruthy();
+
+    // A new discussion arrives: the live page no longer holds NEW.
+    const NEWER = row('c9', 'Brand new', '2026-10-03T10:00:00Z');
+    firstPage = { items: [NEWER], has_more: true };
+    await client.invalidateQueries({ queryKey: ['comments', 'k1'] });
+    expect(await screen.findByText('Brand new')).toBeTruthy();
+    expect(screen.getByText('Newest question')).toBeTruthy();
+
+    // Reply under the earlier-loaded discussion: it shows without the newest page holding it.
+    const MINE = row('c10', 'My reply', '2026-10-03T11:00:00Z', 'c1');
+    apiMock.mockImplementationOnce(async () => MINE);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reply' })[2]);
+    fireEvent.change(screen.getByLabelText('Reply to Abebe'), { target: { value: 'My reply' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Post reply' }));
+    expect(await screen.findByText('My reply')).toBeTruthy();
   });
 });

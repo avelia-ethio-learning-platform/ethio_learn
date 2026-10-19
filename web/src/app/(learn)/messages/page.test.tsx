@@ -48,6 +48,19 @@ describe('Messages: load earlier', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Load earlier messages' })).toBeNull());
   });
 
+  it('keeps a message that drops off the live page after loading earlier ones', async () => {
+    latest = { thread: THREAD, messages: [msg('m2', 'Middle', '2026-10-01T10:00:00Z'), msg('m3', 'Newest', '2026-10-01T11:00:00Z')], has_more: true };
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Selam/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load earlier messages' }));
+    expect(await screen.findByText('Oldest')).toBeTruthy();
+    // A new message arrives; the live page (4 s refetch) no longer holds m2.
+    latest = { thread: THREAD, messages: [msg('m3', 'Newest', '2026-10-01T11:00:00Z'), msg('m4', 'Brand new', '2026-10-01T12:00:00Z')], has_more: true };
+    expect(await screen.findByText('Brand new', {}, { timeout: 6000 })).toBeTruthy();
+    const bodies = Array.from(document.querySelectorAll('p.whitespace-pre-wrap')).map((p) => p.textContent);
+    expect(bodies).toEqual(['Oldest', 'Middle', 'Newest', 'Brand new']);
+  }, 10_000);
+
   it('offers nothing earlier when the API sends no has_more', async () => {
     latest = { thread: THREAD, messages: [msg('m3', 'Newest', '2026-10-01T11:00:00Z')] };
     renderPage();

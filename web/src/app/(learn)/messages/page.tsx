@@ -130,7 +130,8 @@ function Messenger() {
     clearStatus();
     try {
       const page = await api<Conversation>(`/messages/threads/${activeId}?before=${shown[0].id}`);
-      setEarlier({ threadId: activeId, messages: [...page.messages, ...(olderMessages?.messages ?? [])], has_more: !!page.has_more });
+      // Freeze what is shown: the live newest page drops its oldest rows as new messages arrive.
+      setEarlier({ threadId: activeId, messages: [...page.messages, ...shown], has_more: !!page.has_more });
     } catch (err) {
       setError((err as Error).message);
     } finally {
