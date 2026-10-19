@@ -41,6 +41,7 @@ import {
   type QaQueueItem,
   type VideosReviewedRecord,
 } from '@/lib/qa';
+import { usePollInterval } from '@/lib/use-poll-interval';
 
 const QUEUE_KEY = ['qa-queue'];
 
@@ -99,10 +100,12 @@ function useVideoRecords(items: QaQueueItem[] | undefined): Record<string, Video
 function QaQueue() {
   const { user } = useAuth();
   const now = useNow(30_000);
+  const pollMs = usePollInterval(30_000);
   const { data: queue, isLoading, isError, refetch } = useQuery({
     queryKey: QUEUE_KEY,
     queryFn: () => api<QaQueueItem[]>('/qa/queue'),
-    refetchInterval: 30_000,
+    refetchInterval: pollMs,
+    refetchOnWindowFocus: 'always',
   });
   const records = useVideoRecords(queue);
   const [status, setOk] = useFormStatus();
