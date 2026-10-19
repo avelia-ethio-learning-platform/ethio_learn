@@ -10,7 +10,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 const auth = vi.hoisted(() => ({ user: null as { id: string; role: string } | null }));
 vi.mock('@/lib/hooks', () => ({ useAuth: () => ({ user: auth.user, ready: true }) }));
 
-import { CommentsSection, normalizeComments } from './CommentsSection';
+import { CommentsSection } from './CommentsSection';
 
 const row = (id: string, body: string, created_at: string, parent_id: string | null = null) => ({
   id,
@@ -50,13 +50,8 @@ function renderComments() {
 }
 
 describe('CommentsSection', () => {
-  it('normalizes a bare array (an older API or a cached response) and the paged object', () => {
-    expect(normalizeComments([NEW])).toEqual({ items: [NEW], has_more: false });
-    expect(normalizeComments({ items: [NEW], has_more: true })).toEqual({ items: [NEW], has_more: true });
-  });
-
-  it('renders a bare array with no "Load earlier"', async () => {
-    firstPage = [NEW, REPLY];
+  it('renders the last page with no "Load earlier"', async () => {
+    firstPage = { items: [NEW, REPLY], has_more: false };
     renderComments();
     expect(await screen.findByText('Newest question')).toBeTruthy();
     expect(screen.getByText('A reply')).toBeTruthy();
