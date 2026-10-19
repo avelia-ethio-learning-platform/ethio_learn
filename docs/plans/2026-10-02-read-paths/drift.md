@@ -1,0 +1,37 @@
+# Drift check 2026-10-18: Phase 9e vs `origin/main` (40c40f2)
+
+**Verdict: READY WITH AMENDMENTS.** Every N+1 site, unbounded read and web consumer is still as the plan describes (lines moved). Three things changed: 9c did not deliver `progressPercent → null`, the base/worktree instructions are obsolete, and 7c/9c touch the same files.
+
+## Amendments (fold in before starting)
+- **A1. Base and branch.** Plan "Base and start" and handoff "Branch" say `../ethi0-9e` from `feat/observability`. Worktrees are forbidden; 9d isn't on main and 9e has no code dependency on it (only the ops "watch the access log" note). Branch `perf/read-paths` from `origin/main` after 9c and 7c merge, in the one checkout.
+- **A2. `progressPercent` is still `0` on failure.** 9c's step 3 isn't done: `fix/calls-and-jobs:api/services/enrollment/src/enrollment.service.ts` `progressPercent` still has `catch { return 0 }`, and `web/src/app/(learn)/dashboard/page.tsx:109,112` renders `{e.progress_percent}%`. 9e rewrites `listForLearner` and `withProgress` anyway, so 9e returns `progress_percent: null` there and renders "—" on the dashboard (one web edit + vitest). If 9c's step 3 lands first, drop the duplicate.
+- **A3. `PageQuery` is a factory.** 9c ships `pageQuery({ defaultLimit, maxLimit })` and `limitQuery(...)` (`fix/calls-and-jobs:api/packages/common/src/http/page-query.ts:24-32`), used as `class SearchPage extends pageQuery({...}) {}` (`course.controller.ts:130-131`, `financial/controllers.ts:11`). Decision 5's paged endpoints use the same factory.
+- **A4. Route order in the course internal controller.** `@Get('courses/:id')` is declared at `api/services/course/src/internal.controller.ts:11`, above `courses/:id/lesson-ids` (:29). The new `GET courses/lesson-ids?ids=` must be declared above `courses/:id`, or Express binds `id = 'lesson-ids'`. Gateway routing already covers all three batch paths (`api/gateway/src/routes.ts:35,39,41`).
+- **A5. Milestones share the cached ids.** `announceMilestone` (`enrollment.service.ts:346-348`) calls `progressPercent`, which makes its own `lesson-ids` call. Give `progressPercent` a `lessonIds?` parameter like `detectCompletion` (:728) so a completing beat makes one call, as decision 4 says.
+- **A6. Lint gate.** Add `pnpm -C api build && node scripts/lint-check.mjs` to step 10 (`.github/workflows/ci.yml:197-216`; baseline `.github/lint-baseline.json`). `pnpm -C api lint` fails on a clean main.
+- **A7. Institution payees exist** (`payout.service.ts:268` picks `institutions` by `payee_type`; `admin/page.tsx:289`). Don't add a fourth batch endpoint: `users?ids=` names educator payees; institution rows keep today's label. Log it as a P2 follow-up.
+
+## Confirmed on origin/main (re-find by code; lines at 40c40f2)
+- Internal endpoints unchanged; no batch endpoint exists (`course/src/internal.controller.ts:11-56`, `auth/src/internal.controller.ts:23-76`, `enrollment.controller.ts:123`).
+- N+1: `listForLearner` :111-131 (unpaged, `findOne` + `progressPercent` per row); sponsorship `listBulk` :308, `mine` :391, `withProgress` :565-583; `topEducators` `course.service.ts:1163-1206` (per-row :1191), authors loop :835; `adminList` `payment.service.ts:959-990` (`Promise.all` of one call per learner :971-975); `courseAttempts` `assessment.service.ts:769-800` (sequential :786-792); `myAttempts` :857-870 (`findOne` per attempt, filter in code).
+- Heartbeat: `applyHeartbeat` :211-245 (`touch` at :241), `recordCompletion` :328-336 (`touch` again :333), `touch` :339-343 (full-row `save`), `detectCompletion(…, lessonIds?)` :728-735, `onRevisionApplied` :601 (its own strict `lesson-ids` call :627). D1's wording holds.
+- Unbounded: `listMine` :953, `payeeAnalytics` :991, `adminAnalytics` :1000, `summarize` :1025-1053 (UTC ISO months); payouts `listForPayee` :200, `listAll` :204 (`take: 200`), `balance` :209, `runPayouts` :88 already pages payees (`PAYEE_PAGE` :24); refunds `listMine` :194, `listPending` :198 (bare array; D3 holds, `admin/page.tsx:337`); `listReviews` `quality.service.ts:690`, `addReview` :658 (inside `outbox.transaction`, reloads all rows :673 — the SQL aggregate goes inside that transaction on `m`); `listComments` `community.service.ts:38`, `myThreads` :137, `threadMessages` :175 (`take: 500` ASC, returns `{ thread, messages }`).
+- Web: `CommentsSection.tsx:53` bare array, `:54` 15 s refetch, `buildTree` :35; `messages/page.tsx:61`; `sw.js:38-41` caches `/api/v1/courses/…` GETs; `/payouts` as arrays (`admin/page.tsx:263`, `teach/page.tsx:21`), `/payments/mine` (`dashboard/page.tsx:41`); course page `courses/[id]/page.tsx:73,222` (`slice(0, 5)`, server component, sync `params` :49,:65); `teach/analytics/page.tsx:134`; `growth-tabs.tsx:89`; `CourseCard.tsx` shows no educator; i18n parity `i18n.test.ts:9` (D2 holds).
+- Indexes: `course_comments (course_id)` and `(parent_id)` exist (`notification/src/migrations/1790955687490-Baseline.ts:62,65`); `dm_messages (thread_id, created_at)` exists (`1790956081272-IndexTuning.ts:20`); `course_reviews (course_id)` exists (`quality/src/migrations/1790955690968-Baseline.ts:74`). Only the `(course_id, created_at)` composites are missing.
+
+## Overlaps with other phases
+- **7c (web; its rebuild is in the shared working tree, `git status` 2026-10-18):** modifies every web file 9e's step 8 touches: `CommentsSection.tsx`, `CourseCard.tsx`, `CoursePreviewPlayer.tsx`, `messages/page.tsx`, `admin/page.tsx`, `dashboard/page.tsx`, `teach/page.tsx`, `courses/[id]/page.tsx`, plus `e2e/a11y.spec.ts` and `e2e/support.ts`. Do step 8 after 7c merges. 7c's `web/src/lib/no-raw-colors.test.ts` guard means 9e's new UI uses the tokens (`text-muted-foreground`, `.badge-*`), never palette classes.
+- **9c:** touches `course.controller.ts`, `financial/controllers.ts`, `payment.service.ts` (28 lines), `internal-client.ts` (retry + timeout, `INTERNAL_HTTP_TIMEOUT_MS`), and brings the typed errors (`internal-errors.ts`: `PeerNotFoundError`, `PeerAsleepError`, `PeerUnavailableError`). `getMany` builds on `InternalHttpClient.get` (:56).
+- **9d (`feat/observability`):** small edits in `payment.service.ts`, `sponsorship.service.ts` (2 lines), `notification.service.ts`; `enrollment.service.ts` untouched. If 9d lands later it rebases.
+- **11c:** the codemod rewrites `courses/[id]/page.tsx`'s `params`; 9e's "Show more reviews" island there is additive. Whichever lands second merges main.
+- **11b:** none (different auth files: 9e adds a route to `auth/src/internal.controller.ts`, 11b edits `auth.controller.ts`/`auth.service.ts`).
+
+## Env vars / ops
+- No new env vars. No migration once A8 below is taken. The PR keeps the deploy-order note (404 window; display lists degrade).
+
+## Over-engineering vs audit P1-22 / P2-04 (recommendations)
+- **A8. Skip the two `(course_id, created_at)` indexes and their migrations.** Per-course comment and review counts are small; the existing `(course_id)` index plus a sort is fine. Add only if `EXPLAIN` shows a seq scan.
+- **`getMany` "at most 4 chunks in parallel":** pages are ≤ 200 items, so ≤ 4 chunks anyway. Plain `Promise.all`, no limiter.
+- **Step 9's seed script in `scripts/`:** a one-off; keep it in the scratchpad and record the numbers in Progress. Don't commit it.
+- **Oracle specs:** one fixture-equality spec per analytics method with the old computation inlined in the spec is enough; the Addis time-zone case is the only extra worth keeping.
+- The comments dual shape (`paged=1`) and the `WITH RECURSIVE` + 1,000 cap are justified by review S1/S2; keep.

@@ -214,6 +214,14 @@ describe('Admin payouts', () => {
     expect(await screen.findByText('Payout to Educator · c536c035 released.')).toBeTruthy();
   });
 
+  it('names an educator payee with the short id as secondary text', async () => {
+    respond({ '/payouts': [{ ...HELD, payee_name: 'Abebe Kebede' }] });
+    renderAdmin('tab=payouts');
+    expect(await screen.findByText('Abebe Kebede · c536c035')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Release' }));
+    expect(within(dialog()).getByText('Release the payout to Abebe Kebede · c536c035?')).toBeTruthy();
+  });
+
   it('asks before a payout run; Escape sends nothing', async () => {
     respond({ '/payouts': [] });
     renderAdmin('tab=payouts');

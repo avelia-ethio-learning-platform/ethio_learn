@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
+import { SafeTypeOrmLogger } from './safe-typeorm-logger';
 import { buildTypeOrmOptions, MigrationClass } from './typeorm';
 
 /**
@@ -21,6 +22,7 @@ export function buildSchemaCheckOptions(
     synchronize: false,
     installExtensions: false,
     logging: false,
+    logger: new SafeTypeOrmLogger(schema, false),
     extra: { ...base.extra, max: 1, min: 0, application_name: `el-${schema}-db-check` },
   };
 }

@@ -203,7 +203,7 @@ describe('create()/generateQuiz(): who may manage a course’s assessments', () 
   it('refuses another institution’s admin on the exam-results view; quality officers keep access', async () => {
     const { svc } = harness();
     await expect(svc.courseAttempts(otherInstitutionAdmin, 'c1')).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(svc.courseAttempts(qualityOfficer, 'c1')).resolves.toEqual([]);
+    await expect(svc.courseAttempts(qualityOfficer, 'c1')).resolves.toEqual({ items: [], total: 0 });
   });
 });
 

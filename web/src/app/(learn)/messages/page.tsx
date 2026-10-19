@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/hooks';
 import { formatDate } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { roleLabel } from '@/lib/labels';
+import { mergeById } from '@/lib/merge-pages';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
 interface ThreadView {
@@ -36,6 +37,12 @@ const ROLE_LABEL: Record<string, string> = {
 
 const peerRole = (role: string) => ROLE_LABEL[role] ?? roleLabel(role);
 
+interface Conversation {
+  thread: ThreadView;
+  messages: Message[];
+  has_more?: boolean;
+}
+
 function Messenger() {
   const { locale } = useT();
   const { user, ready } = useAuth();
@@ -58,10 +65,17 @@ function Messenger() {
 
   const { data: conversation } = useQuery({
     queryKey: ['dm-thread', activeId],
-    queryFn: () => api<{ thread: ThreadView; messages: Message[] }>(`/messages/threads/${activeId}`),
+    queryFn: () => api<Conversation>(`/messages/threads/${activeId}`),
     enabled: !!activeId,
     refetchInterval: 4_000,
   });
+  // Earlier messages of the open conversation, loaded on request ("Load earlier").
+  const [earlier, setEarlier] = useState<{ threadId: string; messages: Message[]; has_more: boolean } | null>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const olderMessages = earlier?.threadId === activeId ? earlier : null;
+  const shown = conversation ? mergeById(olderMessages?.messages ?? [], conversation.messages) : [];
+  // An API that predates paging sends no has_more: nothing earlier to offer.
+  const hasEarlier = olderMessages ? olderMessages.has_more : !!conversation?.has_more;
 
   const { data: found } = useQuery({
     queryKey: ['directory', search],
@@ -107,6 +121,21 @@ function Messenger() {
       await queryClient.invalidateQueries({ queryKey: ['dm-threads'] });
     } catch (err) {
       setError((err as Error).message);
+    }
+  };
+
+  const loadEarlier = async () => {
+    if (!activeId || !shown.length) return;
+    setLoadingEarlier(true);
+    clearStatus();
+    try {
+      const page = await api<Conversation>(`/messages/threads/${activeId}?before=${shown[0].id}`);
+      // Freeze what is shown: the live newest page drops its oldest rows as new messages arrive.
+      setEarlier({ threadId: activeId, messages: [...page.messages, ...shown], has_more: !!page.has_more });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoadingEarlier(false);
     }
   };
 
@@ -188,7 +217,14 @@ function Messenger() {
                 <p className="text-xs text-gray-500">{conversation ? peerRole(conversation.thread.peer.role) : ''}</p>
               </div>
               <div className="flex-1 space-y-2 overflow-y-auto p-4">
-                {conversation?.messages.map((m) => (
+                {hasEarlier && (
+                  <div className="text-center">
+                    <button className="btn-secondary text-xs" disabled={loadingEarlier} onClick={() => void loadEarlier()}>
+                      {loadingEarlier ? 'Loading…' : 'Load earlier messages'}
+                    </button>
+                  </div>
+                )}
+                {shown.map((m) => (
                   <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${m.mine ? 'brand-fill' : 'bg-gray-100 text-gray-900'}`}>
                       <p className="whitespace-pre-wrap">{m.body}</p>

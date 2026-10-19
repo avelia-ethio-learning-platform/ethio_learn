@@ -2,6 +2,8 @@ import * as amqp from 'amqplib';
 import { AsyncLocalStorage } from 'async_hooks';
 import { EventEmitter } from 'events';
 import { BrokerPublishError, EVENTS_EXCHANGE, EventBusService } from './event-bus.service';
+import { currentContext, RequestContext, requestContext } from '../context';
+import { InternalHttpClient, internalPath } from '../http/internal-client';
 import { currentEvent, EventContext } from './event-context';
 import { inTransactionScope, OutboxService } from './outbox';
 
@@ -492,5 +494,105 @@ describe('EventBusService consumers (P1-16)', () => {
     broker.deliver('financial.commands', { command: 'run_payouts' });
     await until(() => broker.channel.ack.mock.calls.length === 1, 'the ack');
     expect(broker.sentTo('financial.commands.parked')[0].headers).toEqual({ 'x-last-error': 'payout run failed' });
+  });
+});
+
+describe('EventBusService request context (Phase 9d)', () => {
+  const requestId = '0b6f3c1e-5d2a-4f8e-9c71-2a4d6e8f0b13';
+  beforeEach(() => {
+    bus = new EventBusService({ serviceName: 'quality', url: 'amqp://fake' });
+  });
+
+  it("makes a request's id the correlation id of what it publishes; an explicit one still wins", async () => {
+    const broker = new FakeBroker();
+    await requestContext.run({ request_id: requestId }, async () => {
+      await bus.publish('CourseCompleted', {});
+      await bus.publishConfirmed('CourseCompleted', {});
+      await bus.publishConfirmed('PaymentConfirmed', {}, { correlationId: 'pay-1' });
+    });
+    await bus.publish('CourseCompleted', {});
+
+    const correlations = broker.published.map((p) => JSON.parse(p.body).metadata.correlation_id);
+    expect(correlations.slice(0, 3)).toEqual([requestId, requestId, 'pay-1']);
+    expect(correlations[3]).not.toBe(requestId);
+  });
+
+  it("runs a handler under the event's correlation id as its request id, or a fresh one when that isn't a UUID", async () => {
+    const broker = new FakeBroker();
+    const seen: (RequestContext | undefined)[] = [];
+    bus.subscribe('CourseCompleted', () => void seen.push(currentContext()), { name: 'quality:tier' });
+    await started();
+    const withUuid = envelope();
+    withUuid.metadata.correlation_id = requestId.toUpperCase();
+    broker.deliver('quality.events', withUuid);
+    broker.deliver('quality.events', envelope()); // correlation_id 'corr-1'
+    await until(() => broker.channel.ack.mock.calls.length === 2, 'both acks');
+
+    expect(seen[0]).toEqual({
+      request_id: requestId,
+      event_id: 'evt-1',
+      event_type: 'CourseCompleted',
+      correlation_id: requestId.toUpperCase(),
+      handler: 'quality:tier',
+    });
+    expect(seen[1]?.correlation_id).toBe('corr-1');
+    expect(seen[1]?.request_id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("carries the event's request id on a consumer's internal calls and events", async () => {
+    const broker = new FakeBroker();
+    const realFetch = global.fetch;
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      const client = new InternalHttpClient();
+      bus.subscribe('CourseCompleted', async () => {
+        await client.get(internalPath`/api/v1/internal/courses/${'c1'}`);
+        await bus.publish('CertificateIssued', {});
+      });
+      await started();
+      const event = envelope();
+      event.metadata.correlation_id = requestId;
+      broker.deliver('quality.events', event);
+      await until(() => broker.channel.ack.mock.calls.length === 1, 'the ack');
+    } finally {
+      global.fetch = realFetch;
+    }
+
+    expect(fetchMock.mock.calls[0][1].headers['x-request-id']).toBe(requestId);
+    expect(JSON.parse(broker.published[0].body).metadata.correlation_id).toBe(requestId);
+  });
+
+  it("keeps a recipient address in a handler's error out of the retry and park logs and the x-last-error header", async () => {
+    const broker = new FakeBroker();
+    const logged: string[] = [];
+    const logger = (bus as unknown as { logger: Record<'warn' | 'error', (msg: string) => void> }).logger;
+    jest.spyOn(logger, 'warn').mockImplementation((msg: string) => void logged.push(msg));
+    jest.spyOn(logger, 'error').mockImplementation((msg: string, stack?: string) => void logged.push(msg, stack ?? ''));
+    bus.subscribe('CourseCompleted', () => {
+      throw new Error('550 5.1.1 <abebe@example.com>: Recipient address rejected');
+    });
+    await started();
+    broker.deliver('quality.events', envelope());
+    broker.deliver('quality.events', envelope(), { 'x-attempts': 4 });
+    await until(() => broker.channel.ack.mock.calls.length === 2, 'both acks');
+
+    // The retry line, the park line and the park line's stack (which starts with the message).
+    expect(logged.filter((m) => m.includes('Recipient address rejected'))).toHaveLength(3);
+    expect(logged.join('\n')).not.toContain('abebe');
+    expect(logged.join('\n')).toContain('<[email]>');
+    expect(broker.sentTo('quality.events.parked')[0].headers['x-last-error']).toBe('550 5.1.1 <[email]>: Recipient address rejected');
+  });
+
+  it('connects outside the request whose publish started the connection', async () => {
+    const broker = new FakeBroker();
+    const contexts: (RequestContext | undefined)[] = [];
+    jest.spyOn((bus as unknown as { logger: { log(msg: string): void } }).logger, 'log').mockImplementation((msg: string) => {
+      if (msg.startsWith('connected to RabbitMQ')) contexts.push(currentContext());
+    });
+    await requestContext.run({ request_id: requestId }, () => bus.publish('CourseCompleted', {}));
+
+    expect(broker.connectCalls).toBe(1);
+    expect(contexts).toEqual([undefined]);
   });
 });

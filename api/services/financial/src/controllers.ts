@@ -9,6 +9,17 @@ import { RefundService } from './refund.service';
 import { PayoutService } from './payout.service';
 
 class AdminPaymentsPage extends pageQuery({ defaultLimit: 20, maxLimit: 100 }) {}
+/** `paged=1` answers `{ items, total }`; without it the page is a bare array, as before (older web clients). */
+class MyPaymentsPage extends pageQuery({ defaultLimit: 20, maxLimit: 100 }) {
+  @IsOptional()
+  @IsIn(['1'])
+  paged?: '1';
+}
+class PayoutsPage extends pageQuery({ defaultLimit: 20, maxLimit: 100 }) {
+  @IsOptional()
+  @IsIn(['1'])
+  paged?: '1';
+}
 
 class InitiateDto {
   @IsUUID()
@@ -121,8 +132,9 @@ export class FinancialController {
   @Get('payments/mine')
   @UseGuards(RolesGuard)
   @Roles(Role.LEARNER)
-  myPayments(@CurrentUser() ctx: UserContext) {
-    return this.paymentService.listMine(ctx);
+  async myPayments(@CurrentUser() ctx: UserContext, @Query() paging: MyPaymentsPage) {
+    const page = await this.paymentService.listMine(ctx, paging.page, paging.limit);
+    return paging.paged ? page : page.items;
   }
 
   @Get('payments/:id')
@@ -174,12 +186,13 @@ export class FinancialController {
   @Get('payouts')
   @UseGuards(RolesGuard)
   @Roles()
-  async payouts(@CurrentUser() ctx: UserContext, @Query('payee_id') payeeId?: string) {
+  async payouts(@CurrentUser() ctx: UserContext, @Query() paging: PayoutsPage, @Query('payee_id') payeeId?: string) {
     if (ctx.role === Role.PLATFORM_ADMIN) {
-      return payeeId ? this.payoutService.listForPayee(payeeId) : this.payoutService.listAll();
+      return payeeId ? this.payoutService.withPayeeNames((await this.payoutService.listForPayee(payeeId, paging.page, paging.limit)).items) : this.payoutService.listAll();
     }
     const own = await this.payoutService.resolvePayeeId(ctx);
-    return this.payoutService.listForPayee(own);
+    const page = await this.payoutService.listForPayee(own, paging.page, paging.limit);
+    return paging.paged ? page : page.items;
   }
 
   @Post('payouts/run')

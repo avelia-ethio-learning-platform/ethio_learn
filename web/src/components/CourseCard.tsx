@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { hasRealThumbnail } from '@/lib/categories';
 import { CourseCover } from './CourseCover';
+import { T } from '@/lib/i18n';
 import { CategoryName, PriceLabel } from './Localized';
 
 export interface CourseSummary {
@@ -13,6 +14,8 @@ export interface CourseSummary {
   price_etb: number | null;
   language?: string | null;
   published_at?: string | null;
+  /** From search; absent when auth couldn't name the educator just then. */
+  educator_name?: string | null;
 }
 
 const LANG_LABEL: Record<string, string> = { en: 'EN', am: 'አማ' };
@@ -59,6 +62,11 @@ export function CourseCard({ course }: { course: CourseSummary }) {
         <h3 className="mt-1.5 line-clamp-2 font-semibold leading-snug text-foreground transition-colors group-hover:text-brand-600">
           {course.title}
         </h3>
+        {course.educator_name && (
+          <p className="mt-1 truncate text-xs text-gray-500">
+            <T k="course_by" /> {course.educator_name}
+          </p>
+        )}
         <p className="mt-1.5 line-clamp-2 text-sm text-gray-500">{course.description}</p>
         <p className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600">
           <span className="transition-transform duration-300 group-hover:translate-x-1">→</span>

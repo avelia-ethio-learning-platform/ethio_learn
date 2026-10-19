@@ -1,7 +1,7 @@
-import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { InternalGuard, UuidParam } from '@ethiopialearn/common';
+import { In, Repository } from 'typeorm';
+import { InternalGuard, UserIdsQuery, UuidParam } from '@ethiopialearn/common';
 import { EducatorProfile, Institution, InstitutionInstructor, User } from './entities';
 
 /**
@@ -25,6 +25,16 @@ export class InternalController {
     const user = await this.users.findOne({ where: { email: decodeURIComponent(email).toLowerCase().trim() } });
     if (!user) throw new NotFoundException('User not found');
     return { id: user.id, name: user.name, email: user.email, role: user.role };
+  }
+
+  /**
+   * Many users in one query (Phase 9e): ≤ 100 ids, 400 otherwise. Names and
+   * roles only, unless `fields=email`. An unknown id is simply absent.
+   */
+  @Get('users')
+  async usersByIds(@Query() query: UserIdsQuery) {
+    const users = await this.users.find({ where: { id: In(query.ids) }, select: { id: true, name: true, role: true, email: true } });
+    return users.map((u) => ({ id: u.id, name: u.name, role: u.role, ...(query.fields === 'email' ? { email: u.email } : {}) }));
   }
 
   @Get('users/:id')

@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Controller, Get, Logger, Module } from '@nestjs/common';
+import { Controller, Get, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { NextFunction, Request, Response } from 'express';
@@ -8,9 +8,10 @@ import rateLimit from 'express-rate-limit';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { Agent, Server } from 'http';
 import { Agent as HttpsAgent } from 'https';
-import { env, envInt } from '@ethiopialearn/common';
+import { env, envInt, JsonLogger } from '@ethiopialearn/common';
 import { resolveRoute } from './routes';
 import { clientIp, clientIpOf, gatewayAuth, ipBucket, refreshTokenKey } from './auth-middleware';
+import { accessNotes, requestLog } from './request-log';
 import { classifyRequest, DEFAULT_LIMITS_PER_MIN as DEFAULTS, RatePolicy } from './rate-policy';
 
 @Controller('health')
@@ -47,9 +48,15 @@ export async function createGatewayApp(options: { logger?: false } = {}): Promis
   // bodyParser disabled: requests stream straight through the proxy, which
   // both preserves the raw webhook body for HMAC verification (spec §6) and
   // avoids re-serialization overhead.
-  const app = await NestFactory.create<NestExpressApplication>(GatewayModule, { bodyParser: false, ...options });
+  const app = await NestFactory.create<NestExpressApplication>(GatewayModule, {
+    bodyParser: false,
+    logger: new JsonLogger({ service: 'gateway' }),
+    ...options,
+  });
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
+  // First: the request id and the access line cover every request, rejected ones included.
+  app.use(requestLog());
   app.use(helmet());
   // Allow the configured web origin(s); in dev also reflect any localhost /
   // 127.0.0.1 port so the exact dev-server port never breaks the browser call.
@@ -68,6 +75,8 @@ export async function createGatewayApp(options: { logger?: false } = {}): Promis
       return cb(new Error(`Origin ${origin} not allowed by CORS`), false);
     },
     credentials: true,
+    // So the web can show it as a support reference.
+    exposedHeaders: ['x-request-id'],
   });
 
   // ---- rate limiting -------------------------------------------------------
@@ -124,8 +133,9 @@ export async function createGatewayApp(options: { logger?: false } = {}): Promis
     router: (req) => targetFor(req),
     on: {
       error: (err, _req, res) => {
-        Logger.error(`proxy error: ${err.message}`, 'Gateway');
         const httpRes = res as Response;
+        // The access line reports it: the code only, since the message names the upstream host.
+        if (httpRes?.locals) accessNotes(httpRes).error_code = (err as NodeJS.ErrnoException).code ?? err.name;
         if (httpRes && typeof httpRes.writeHead === 'function' && !httpRes.headersSent) {
           httpRes.writeHead(502, { 'Content-Type': 'application/json' });
           httpRes.end(JSON.stringify({ statusCode: 502, message: 'Upstream service unavailable' }));

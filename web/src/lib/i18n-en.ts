@@ -103,6 +103,8 @@ export const en = {
   login_to_enroll: 'Log in to enroll',
   course_content: 'Course content',
   learner_reviews: 'Learner reviews',
+  show_more_reviews: 'Show more reviews',
+  loading_more: 'Loading…',
   free_preview: 'Free preview',
   email: 'Email',
   password: 'Password',
