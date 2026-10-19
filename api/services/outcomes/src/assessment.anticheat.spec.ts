@@ -85,7 +85,7 @@ function harness(
   };
   const assessments = { findOne: jest.fn(async () => assessment), find: jest.fn(async () => [assessment]), save: jest.fn(), create: jest.fn() };
   const bus = { publish: jest.fn() };
-  const internal = { get: jest.fn(async () => ({ entitlement_status: 'active', enrollment_id: 'en1', title: 'Course' })) };
+  const internal = { get: jest.fn(async () => ({ entitlement_status: 'active', enrollment_id: 'en1', title: 'Course', status: 'published' })) };
   // outbox.transaction (9b): emitted events "commit" only when the transaction body resolves.
   const committed: Array<{ type: string; payload: unknown }> = [];
   const outbox = {

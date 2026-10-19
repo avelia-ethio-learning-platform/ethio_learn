@@ -763,10 +763,12 @@ export class AssessmentService implements OnModuleInit {
     const assessment = await this.assessmentOrThrow(attempt.assessment_id);
 
     if (attempt.learner_id !== ctx.id) {
-      // Not the learner — must be course staff (owner/creator) or platform staff.
-      if (![Role.PLATFORM_ADMIN, Role.QUALITY_OFFICER].includes(ctx.role as Role)) {
+      // Not the learner: a platform admin, course staff, or a quality officer while the course is in their remit (as courseAttempts).
+      if (ctx.role !== Role.PLATFORM_ADMIN) {
         const course = await this.courseRef(assessment.course_id);
-        if (!(await this.canManageCourse(ctx, course))) throw new ForbiddenException('Not your attempt or course');
+        const allowed =
+          ctx.role === Role.QUALITY_OFFICER ? QO_VISIBLE_COURSE_STATUSES.includes(course.status as CourseStatus) : await this.canManageCourse(ctx, course);
+        if (!allowed) throw new ForbiddenException('Not your attempt or course');
       }
     }
 
