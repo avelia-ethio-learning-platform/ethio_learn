@@ -283,10 +283,11 @@ async function extractPdf(data: Uint8Array, opts: ExtractOptions): Promise<Extra
   if (typeof window !== 'undefined') pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
   throwIfAborted(opts.signal);
 
-  // isEvalSupported:false: pdf.js must never compile font code from the file
-  // (defence in depth against CVE-2024-4367-style font exploits).
+  // No isEvalSupported:false any more: pdf.js 5.7 removed `eval` entirely, and
+  // the option with it (mozilla/pdf.js#21005), so code from the file is never
+  // compiled as JS (the CVE-2024-4367 class of font exploits).
   // verbosity ERRORS: font-substitution warnings are noise in an upload form.
-  const task = pdfjs.getDocument({ data, isEvalSupported: false, verbosity: pdfjs.VerbosityLevel.ERRORS });
+  const task = pdfjs.getDocument({ data, verbosity: pdfjs.VerbosityLevel.ERRORS });
   const onAbort = () => void task.destroy();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
   try {
