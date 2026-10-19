@@ -29,15 +29,6 @@ export interface CommentsPage {
   has_more: boolean;
 }
 
-/**
- * The API answers `{ items, has_more }` when asked (`paged=1`) and a bare array
- * otherwise: an API that predates paging, or a response the service worker
- * cached, still renders.
- */
-export function normalizeComments(data: CommentRow[] | CommentsPage): CommentsPage {
-  return Array.isArray(data) ? { items: data, has_more: false } : data;
-}
-
 interface CommentNode extends CommentRow {
   children: CommentNode[];
 }
@@ -69,7 +60,7 @@ export function CommentsSection({ courseId }: { courseId: string }) {
   const pollMs = usePollInterval(15_000);
   const { data: latest } = useQuery({
     queryKey: ['comments', courseId],
-    queryFn: async () => normalizeComments(await api<CommentRow[] | CommentsPage>(`/courses/${courseId}/comments?paged=1`, { auth: false })),
+    queryFn: () => api<CommentsPage>(`/courses/${courseId}/comments?paged=1`, { auth: false }),
     refetchInterval: pollMs,
     refetchOnWindowFocus: 'always',
   });
@@ -110,7 +101,7 @@ export function CommentsSection({ courseId }: { courseId: string }) {
     setLoadingEarlier(true);
     clearStatus();
     try {
-      const page = normalizeComments(await api<CommentRow[] | CommentsPage>(`/courses/${courseId}/comments?before=${oldest.id}`, { auth: false }));
+      const page = await api<CommentsPage>(`/courses/${courseId}/comments?before=${oldest.id}`, { auth: false });
       setEarlier({ items: [...page.items, ...rows], has_more: page.has_more });
     } catch (err) {
       setError((err as Error).message);

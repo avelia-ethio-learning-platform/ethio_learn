@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, RawBodyRequest, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, ParseUUIDPipe, Post, Query, RawBodyRequest, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
@@ -186,7 +186,7 @@ export class FinancialController {
   @Get('payouts')
   @UseGuards(RolesGuard)
   @Roles()
-  async payouts(@CurrentUser() ctx: UserContext, @Query() paging: PayoutsPage, @Query('payee_id') payeeId?: string) {
+  async payouts(@CurrentUser() ctx: UserContext, @Query() paging: PayoutsPage, @Query('payee_id', new ParseUUIDPipe({ optional: true })) payeeId?: string) {
     if (ctx.role === Role.PLATFORM_ADMIN) {
       if (!payeeId) return this.payoutService.listAll();
       const page = await this.payoutService.listForPayee(payeeId, paging.page, paging.limit);

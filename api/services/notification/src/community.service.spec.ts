@@ -1,4 +1,5 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { PeerAsleepError, PeerNotFoundError } from '@ethiopialearn/common';
 import { CommunityService } from './community.service';
 
 /** Who may post a course comment (13b review S6): comments show on the public course page. */
@@ -55,7 +56,7 @@ describe('CommunityService.openThread recipients', () => {
   const ME = { id: '00000000-0000-4000-8000-00000000000a', role: 'learner' } as never;
   const PEER = '00000000-0000-4000-8000-00000000000b';
 
-  function setup(peer: Record<string, unknown> | null) {
+  function setup(peer: Record<string, unknown> | null, failure: Error = new PeerNotFoundError('User not found')) {
     const threads = {
       findOne: jest.fn(async () => null),
       create: jest.fn((x) => x),
@@ -64,7 +65,7 @@ describe('CommunityService.openThread recipients', () => {
     const internal = {
       get: jest.fn(async (path: string) => {
         if (path.endsWith(PEER)) {
-          if (!peer) throw new Error('404 User not found');
+          if (!peer) throw failure;
           return peer;
         }
         return { name: 'Me' };
@@ -83,11 +84,21 @@ describe('CommunityService.openThread recipients', () => {
     ['unknown', null],
     ['suspended', { name: 'S', role: 'learner', status: 'suspended' }],
     ['banned', { name: 'B', role: 'learner', status: 'banned' }],
+    ['status-less', { name: 'N', role: 'learner' }],
   ])('answers an %s recipient with the same 404 and creates nothing', async (_label, peer) => {
     const t = setup(peer);
     const err = await t.svc.openThread(ME, PEER).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(NotFoundException);
     expect((err as NotFoundException).getResponse()).toEqual(new NotFoundException('Recipient not found').getResponse());
+    expect(t.threads.save).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a sleeping auth (503 service_waking)', new PeerAsleepError()],
+    ['any other failure', new Error('socket hang up')],
+  ])('lets %s through instead of a 404, and creates nothing', async (_label, failure) => {
+    const t = setup(null, failure);
+    await expect(t.svc.openThread(ME, PEER)).rejects.toBe(failure);
     expect(t.threads.save).not.toHaveBeenCalled();
   });
 });

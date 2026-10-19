@@ -148,9 +148,9 @@ export class OutboxService implements OnApplicationBootstrap, BeforeApplicationS
   }
 
   /**
-   * Before every onApplicationShutdown hook, so the relay has stopped when the bus
-   * closes its channels. Both live in EventBusModule, where Nest (10 and 11) shuts
-   * the bus down first.
+   * Before every onApplicationShutdown hook, so no new relay starts once the bus
+   * begins closing its channels. A relay already in flight is not stopped; its
+   * failed sends stay unpublished and are retried on the next boot.
    */
   beforeApplicationShutdown(): void {
     clearInterval(this.timer);

@@ -215,6 +215,21 @@ describe('create()/generateQuiz(): who may manage a course’s assessments', () 
     await expect(svc.courseAttempts(qualityOfficer, 'c1')).rejects.toBeInstanceOf(ForbiddenException);
     expect(assessments.find).not.toHaveBeenCalled();
   });
+
+  const reportFixture = () => ({
+    rows: [{ id: 'as1', course_id: 'c1', type: AssessmentType.QUIZ, pass_score: 50, config: {}, state: 'live' }],
+    attempts: [{ id: 'att1', assessment_id: 'as1', learner_id: 'l1', submitted_at: new Date(), proctor_log: [], detail: {} }],
+  });
+
+  it.each(['submitted', 'under_review', 'published', 'unlisted', 'flagged'])('quality officers see the proctor report on a %s course', async (status) => {
+    const { svc } = harness({ ...reportFixture(), course: { ...INSTITUTION_COURSE, status } });
+    await expect(svc.proctorReport(qualityOfficer, 'att1')).resolves.toMatchObject({ attempt_id: 'att1' });
+  });
+
+  it.each(['draft', 'institution_review', 'archived'])('quality officers are refused the proctor report on a %s course', async (status) => {
+    const { svc } = harness({ ...reportFixture(), course: { ...INSTITUTION_COURSE, status } });
+    await expect(svc.proctorReport(qualityOfficer, 'att1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });
 
 describe('listForCourse(): pending assessments stay out of learner views', () => {
