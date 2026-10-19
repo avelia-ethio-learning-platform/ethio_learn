@@ -1,5 +1,5 @@
 import { QaDecisionAction, Role } from '@ethiopialearn/contracts';
-import { eventContext } from '@ethiopialearn/common';
+import { eventContext, PeerNotFoundError, PeerUnavailableError } from '@ethiopialearn/common';
 import { NotificationService } from './notification.service';
 
 type Handler = (payload: unknown) => unknown;
@@ -686,25 +686,25 @@ describe('NotificationService: a fan-out with one failing recipient (9a review B
   });
 
   it.each(cases)('%s: a failed user lookup for recipient 2 still notifies recipient 3, then throws so the bus retries', async (type, _inboxType, payload) => {
-    const t = fanOut({ u2: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u2'); } });
+    const t = fanOut({ u2: () => { throw new PeerUnavailableError(); } });
 
-    await expect(t.emit(type, payload, 'evt-1')).rejects.toThrow('Internal request failed');
+    await expect(t.emit(type, payload, 'evt-1')).rejects.toBeInstanceOf(PeerUnavailableError);
     expect(t.emails().map((m) => m.to)).toEqual(['u1@e.et', 'u3@e.et']);
   });
 
   it('a deleted user (404) is skipped quietly: no email, no retry', async () => {
-    const t = fanOut({ u2: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u2 -> 404'); } });
+    const t = fanOut({ u2: () => { throw new PeerNotFoundError('Not found'); } });
 
     await t.emit('CourseUpdated', updated, 'evt-1');
     expect(t.emails().map((m) => m.to)).toEqual(['u1@e.et', 'u3@e.et']);
   });
 
   it('a lookup that fails for a single-recipient email throws instead of skipping the email', async () => {
-    const t = fanOut({ u1: () => { throw new Error('Internal request failed: GET /api/v1/internal/users/u1 -> 503'); } });
+    const t = fanOut({ u1: () => { throw new PeerUnavailableError(); } });
 
     await expect(
       t.emit('LearnerInactive', { learner_id: 'u1', course_id: 'c1', course_title: 'Soil Science', days_inactive: 7, progress_percent: 40, channel: 'email' }, 'evt-1'),
-    ).rejects.toThrow('-> 503');
+    ).rejects.toBeInstanceOf(PeerUnavailableError);
   });
 });
 
@@ -735,5 +735,40 @@ describe('NotificationService: CourseCompleted with blank names (9b)', () => {
     await t.emit('CourseCompleted', completion(), 'evt-1');
     expect(t.internal.get).not.toHaveBeenCalled();
     expect(t.emails()).toEqual([expect.objectContaining({ to: 'l@e.et', subject: 'You finished Soil Science!' })]);
+  });
+});
+
+describe('NotificationService: the receipt when PaymentConfirmed carries a blank email (9c, P1-18)', () => {
+  const confirmed = (extra: Record<string, unknown> = {}) => ({
+    payment_id: 'p1', tx_ref: 'TX-1', learner_id: 'u1', learner_email: '', learner_name: '', course_id: 'c1', course_title: 'Soil Science',
+    amount_etb: 500, payee_id: 'edu-1', payee_type: 'educator', ...extra,
+  });
+
+  it('looks the learner up and sends the receipt', async () => {
+    const t = setup({ userEmail: 'fetched@e.et' });
+    await t.emit('PaymentConfirmed', confirmed(), 'evt-1');
+    expect(t.internal.get).toHaveBeenCalledWith('/api/v1/internal/users/u1');
+    expect(t.emails()).toEqual([expect.objectContaining({ to: 'fetched@e.et', subject: 'Enrollment confirmed — receipt' })]);
+  });
+
+  it('auth down: throws, so the bus retries, and sends nothing', async () => {
+    const t = setup();
+    t.internal.get.mockRejectedValueOnce(new PeerUnavailableError());
+    await expect(t.emit('PaymentConfirmed', confirmed(), 'evt-1')).rejects.toBeInstanceOf(PeerUnavailableError);
+    expect(t.emails()).toHaveLength(0);
+  });
+
+  it('a deleted learner (404): skipped with no email and no throw', async () => {
+    const t = setup();
+    t.internal.get.mockRejectedValueOnce(new PeerNotFoundError('Not found'));
+    await t.emit('PaymentConfirmed', confirmed(), 'evt-1');
+    expect(t.emails()).toHaveLength(0);
+  });
+
+  it('with the email in the payload, nothing is fetched', async () => {
+    const t = setup();
+    await t.emit('PaymentConfirmed', confirmed({ learner_email: 'l@e.et' }), 'evt-1');
+    expect(t.internal.get).not.toHaveBeenCalled();
+    expect(t.emails()).toEqual([expect.objectContaining({ to: 'l@e.et' })]);
   });
 });

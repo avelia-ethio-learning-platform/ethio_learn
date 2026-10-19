@@ -1,4 +1,5 @@
 import { InternalHttpClient, internalPath } from './internal-client';
+import { PeerAsleepError, PeerNotFoundError, PeerUnavailableError } from './internal-errors';
 
 describe('internalPath', () => {
   it('encodes a traversal-looking value into one segment', () => {
@@ -71,5 +72,82 @@ describe('InternalHttpClient.get', () => {
   it('refuses a ".." value in the middle of the path', async () => {
     await expect(client.get(internalPath`/api/v1/internal/${'..'}/users/x`)).rejects.toThrow();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe('failures', () => {
+    const reply = (status: number, body = '', headers: Record<string, string> = {}) => ({
+      ok: false,
+      status,
+      headers: new Headers(headers),
+      text: async () => body,
+    });
+    const refused = () => new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
+    const path = internalPath`/api/v1/internal/users/${'jane.doe@example.com'}`;
+
+    it('404 is PeerNotFoundError', async () => {
+      fetchMock.mockResolvedValue(reply(404));
+      await expect(client.get(path)).rejects.toBeInstanceOf(PeerNotFoundError);
+    });
+
+    it('429 with the hibernate routing header is PeerAsleepError', async () => {
+      fetchMock.mockResolvedValue(reply(429, 'Too Many Requests', { 'x-render-routing': 'hibernate-rate-limited' }));
+      await expect(client.get(path)).rejects.toBeInstanceOf(PeerAsleepError);
+    });
+
+    it('a plain-text 429 without the header is PeerAsleepError', async () => {
+      fetchMock.mockResolvedValue(reply(429, 'rate limited'));
+      await expect(client.get(path)).rejects.toBeInstanceOf(PeerAsleepError);
+    });
+
+    it('a JSON 429 is a limiter: PeerUnavailableError', async () => {
+      fetchMock.mockResolvedValue(reply(429, JSON.stringify({ statusCode: 429 })));
+      await expect(client.get(path)).rejects.toBeInstanceOf(PeerUnavailableError);
+    });
+
+    it.each([500, 502])('%i is PeerUnavailableError and is not retried', async (status) => {
+      fetchMock.mockResolvedValue(reply(status));
+      await expect(client.get(path)).rejects.toBeInstanceOf(PeerUnavailableError);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('a timeout is PeerUnavailableError and is not retried', async () => {
+      fetchMock.mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+      await expect(client.get(path)).rejects.toBeInstanceOf(PeerUnavailableError);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries once after ECONNREFUSED and returns the second answer', async () => {
+      fetchMock.mockRejectedValueOnce(refused()).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: 2 }) });
+      await expect(client.get(path)).resolves.toEqual({ ok: 2 });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('ECONNREFUSED twice is PeerUnavailableError after exactly two attempts', async () => {
+      fetchMock.mockRejectedValue(refused());
+      await expect(client.get(path)).rejects.toBeInstanceOf(PeerUnavailableError);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries once after a dropped keep-alive socket (UND_ERR_SOCKET)', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new TypeError('fetch failed', { cause: { code: 'UND_ERR_SOCKET' } }))
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: 3 }) });
+      await expect(client.get(path)).resolves.toEqual({ ok: 3 });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('a timeout while reading the body is PeerUnavailableError, not retried', async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: () => Promise.reject(new DOMException('timed out', 'TimeoutError')) });
+      await expect(client.get(path)).rejects.toBeInstanceOf(PeerUnavailableError);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('neither the error message nor its body carries any part of the path', async () => {
+      for (const status of [404, 500, 429]) {
+        fetchMock.mockResolvedValue(reply(status));
+        const err = (await client.get(path).catch((e) => e)) as PeerUnavailableError;
+        expect(JSON.stringify([err.message, err.getResponse()])).not.toMatch(/jane|example|users/);
+      }
+    });
   });
 });

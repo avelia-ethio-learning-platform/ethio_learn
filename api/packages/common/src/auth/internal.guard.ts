@@ -10,12 +10,13 @@ import { timingSafeEqual } from 'crypto';
 export class InternalGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest();
-    const presented = String(req.headers['x-internal-token'] ?? '');
-    const expected = process.env.INTERNAL_API_TOKEN ?? '';
-    if (!expected || presented.length !== expected.length) {
+    // Byte lengths: a non-ASCII token of the right character count must be a 401, not a timingSafeEqual throw.
+    const presented = Buffer.from(String(req.headers['x-internal-token'] ?? ''));
+    const expected = Buffer.from(process.env.INTERNAL_API_TOKEN ?? '');
+    if (expected.length === 0 || presented.length !== expected.length) {
       throw new UnauthorizedException('Internal endpoint');
     }
-    if (!timingSafeEqual(Buffer.from(presented), Buffer.from(expected))) {
+    if (!timingSafeEqual(presented, expected)) {
       throw new UnauthorizedException('Internal endpoint');
     }
     return true;

@@ -45,6 +45,13 @@ export class CertificateUidPipe extends RegexParamPipe {
   }
 }
 
+/** Scheduled job name (`POST /api/v1/jobs/<service>/<job>`): lower-case letters. */
+export class JobNamePipe extends RegexParamPipe {
+  constructor() {
+    super(/^[a-z]{1,32}$/, 'job name');
+  }
+}
+
 /**
  * Regression guard for route params: lists every `@Param` on the given controllers
  * that has neither a ParseUUIDPipe nor one of the token/uid pipes above, as
@@ -52,7 +59,7 @@ export class CertificateUidPipe extends RegexParamPipe {
  * unvalidated and skipped. A service spec asserts the result is empty.
  */
 export function unpipedRouteParams(controllers: Function[], freeText: string[] = []): string[] {
-  const accepted = [ParseUUIDPipe, InviteTokenPipe, PayRequestTokenPipe, CertificateUidPipe];
+  const accepted = [ParseUUIDPipe, InviteTokenPipe, PayRequestTokenPipe, CertificateUidPipe, JobNamePipe];
   const offenders: string[] = [];
   for (const controller of controllers) {
     const proto = controller.prototype;

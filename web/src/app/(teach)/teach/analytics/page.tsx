@@ -12,6 +12,7 @@ import { EmptyRows } from '@/components/EmptyRows';
 import { PanelError } from '@/components/PanelError';
 import { formatETB } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { percentLabel } from '@/lib/progress';
 
 // Matches the API's cap on `course_ids` for the enrollment funnel.
 const MAX_ANALYTICS_COURSES = 25;
@@ -139,7 +140,7 @@ function AnalyticsPage() {
                     <td className="px-3 py-3 text-right">
                       {c.completed} <span className="text-xs text-gray-500">({c.completion_rate}%)</span>
                     </td>
-                    <td className="px-3 py-3 text-right">{c.avg_progress_percent}%</td>
+                    <td className="px-3 py-3 text-right">{percentLabel(c.avg_progress_percent)}</td>
                     <td className="px-3 py-3 text-right">{c.active_last_30d}</td>
                     <td className="px-3 py-3 text-right">{c.never_started}</td>
                     <td className="px-3 py-3 text-right">{course?.rating_avg ? `★ ${Number(course.rating_avg).toFixed(1)} (${course.rating_count})` : '—'}</td>

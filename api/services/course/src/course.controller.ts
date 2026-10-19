@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CurrentUser, InternalHttpClient, internalPath, Roles, RolesGuard, UserContext, userFromRequest, UuidParam } from '@ethiopialearn/common';
+import { CurrentUser, InternalHttpClient, internalPath, limitQuery, pageQuery, Roles, RolesGuard, UserContext, userFromRequest, UuidParam } from '@ethiopialearn/common';
 import { CourseStatus, EntitlementStatus, Role } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
 import { CourseService, mergedLesson } from './course.service';
@@ -127,6 +127,9 @@ function decodeTitle(title: string): string {
   }
 }
 
+class SearchPage extends pageQuery({ defaultLimit: 12, maxLimit: 50 }) {}
+class TopEducatorsPage extends limitQuery({ defaultLimit: 12, maxLimit: 50 }) {}
+
 @Controller()
 export class CourseController {
   /** Per-learner stream-URL issuance window: deters account sharing / bulk scraping of signed URLs. */
@@ -144,20 +147,19 @@ export class CourseController {
 
   @Get('search')
   search(
-    @Query('q') q?: string,
-    @Query('category') category?: string,
-    @Query('pricing_type') pricingType?: string,
-    @Query('sort') sort?: string,
-    @Query('page') page = '1',
-    @Query('limit') limit = '12',
+    @Query('q') q: string | undefined,
+    @Query('category') category: string | undefined,
+    @Query('pricing_type') pricingType: string | undefined,
+    @Query('sort') sort: string | undefined,
+    @Query() paging: SearchPage,
   ) {
-    return this.service.search({ q, category, pricing_type: pricingType, sort, page: parseInt(page, 10), limit: parseInt(limit, 10) });
+    return this.service.search({ q, category, pricing_type: pricingType, sort, page: paging.page, limit: paging.limit });
   }
 
   /** [PUBLIC] Top educators leaderboard (ranked by total rating points). */
   @Get('educators/top')
-  topEducators(@Query('limit') limit = '12') {
-    return this.service.topEducators(parseInt(limit, 10) || 12);
+  topEducators(@Query() paging: TopEducatorsPage) {
+    return this.service.topEducators(paging.limit);
   }
 
   /** [PUBLIC] Educator profile: bio + published courses + rating aggregates. */

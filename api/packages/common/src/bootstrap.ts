@@ -7,6 +7,7 @@ import { assertProductionConfig } from './config/production-config';
 import { EventBusService } from './events/event-bus.service';
 import { setServiceName } from './health.controller';
 import { DbErrorFilter } from './http/db-error.filter';
+import { PeerErrorFilter } from './http/internal-errors';
 import { Readiness } from './ready';
 
 export interface BootstrapOptions {
@@ -87,7 +88,7 @@ export async function bootstrapService(appModule: unknown, options: BootstrapOpt
   // `health` is excluded so container/liveness probes can hit bare /health.
   app.setGlobalPrefix('api/v1', { exclude: ['health'] });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.useGlobalFilters(new DbErrorFilter(app.getHttpAdapter()));
+  app.useGlobalFilters(new DbErrorFilter(app.getHttpAdapter()), new PeerErrorFilter(app.getHttpAdapter()));
   app.enableShutdownHooks();
   await app.listen(options.port);
   Logger.log(`${options.serviceName} listening on :${options.port}`, 'Bootstrap');
