@@ -64,7 +64,14 @@ describe('Admin email delivery card', () => {
     apiMock.mockResolvedValue({ ok: true, provider: 'resend', to: 'admin@x.et', message_id: 'm-1' });
     send();
     expect(await screen.findByText('Sent to admin@x.et via resend (message m-1).')).toBeTruthy();
-    expect(apiMock).toHaveBeenCalledWith('/admin/notifications/test-email', { method: 'POST' });
+    expect(apiMock).toHaveBeenCalledWith('/admin/notifications/test-email', { method: 'POST', slow: true });
+  });
+
+  it('does not report a send when the provider is the console logger', async () => {
+    apiMock.mockResolvedValue({ ok: true, provider: 'console', to: 'admin@x.et', message_id: 'console-1' });
+    send();
+    expect(await screen.findByText('No email provider is configured (console only). Nothing was sent.')).toBeTruthy();
+    expect(screen.queryByText(/^Sent to/)).toBeNull();
   });
 
   it('shows the provider error when the send failed', async () => {

@@ -54,8 +54,8 @@ describe('ExamResults', () => {
     expect(await screen.findByText('Abebe Bekele')).toBeTruthy();
     expect(screen.getAllByText('Learner')).toHaveLength(2); // the column head and the fallback name
     expect(screen.getByText('Flagged · 2 violations')).toBeTruthy();
-    expect(apiMock).toHaveBeenCalledWith('/courses/c1/attempts?page=1&limit=50');
-    expect(screen.getAllByRole('button', { name: 'Proctor report' })).toHaveLength(1);
+    expect(apiMock).toHaveBeenCalledWith('/courses/c1/attempts');
+    expect(screen.getAllByRole('button', { name: /^Proctor report/ })).toHaveLength(1);
   });
 
   it('shows the empty state', async () => {
@@ -71,19 +71,31 @@ describe('ExamResults', () => {
         : [row()],
     );
     mount();
-    fireEvent.click(await screen.findByRole('button', { name: 'Proctor report' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Proctor report/ }));
     expect(await screen.findByText('Left the exam tab')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Snapshot' }).getAttribute('href')).toBe('https://s.test/1.jpg');
     expect(apiMock).toHaveBeenCalledWith('/attempts/at1/proctor-report');
   });
 
-  it('pages: a full page offers Next, which asks for page 2', async () => {
-    apiMock.mockImplementation(async (path: string) =>
-      path.includes('page=2') ? [row({ attempt_id: 'z', learner_name: 'Second Page' })] : Array.from({ length: 50 }, (_, i) => row({ attempt_id: `r${i}` })),
-    );
+  const many = (n: number) => Array.from({ length: n }, (_, i) => row({ attempt_id: `r${i}`, learner_name: `Learner ${i + 1}` }));
+
+  it('pages a long list on the client, from one fetch', async () => {
+    apiMock.mockResolvedValue(many(51));
     mount();
-    fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
-    expect(await screen.findByText('Second Page')).toBeTruthy();
-    expect(apiMock).toHaveBeenCalledWith('/courses/c1/attempts?page=2&limit=50');
+    expect(await screen.findByText('Showing 1–50 of 51')).toBeTruthy();
+    expect(screen.queryByText('Learner 51')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Learner 51')).toBeTruthy();
+    expect(screen.getByText('Showing 51–51 of 51')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    expect(await screen.findByText('Learner 1')).toBeTruthy();
+    expect(apiMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('exactly one full page has no Next to follow', async () => {
+    apiMock.mockResolvedValue(many(50));
+    mount();
+    expect(await screen.findByText('Showing 1–50 of 50')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

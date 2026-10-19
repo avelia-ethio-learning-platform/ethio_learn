@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ClipboardCheck, ExternalLink, FileUp, Mic, Play } from 'lucide-react';
+import { CheckCircle2, ArrowRight, ClipboardCheck, FileUp, Mic, Play } from 'lucide-react';
 import { api } from '@/lib/api';
 import { putFile, type UploadState } from '@/lib/upload';
 import { UploadProgress } from '@/components/UploadProgress';
@@ -102,8 +102,8 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
                 <CheckCircle2 className="h-3 w-3" /> Passed
               </span>
             ) : a.type === 'quiz' ? (
-              <Link href={`/learn/${courseId}/exam/${a.id}`} className="btn-secondary !px-3 !py-1 !text-xs" aria-label={`Open ${assessmentTypeLabel(a.type)}`}>
-                <ExternalLink className="h-3 w-3" /> Open exam
+              <Link href={`/learn/${courseId}/exam/${a.id}`} className="btn-secondary !px-3 !py-1 !text-xs" aria-label={`Open exam: ${assessmentTypeLabel(a.type)}`}>
+                <ArrowRight aria-hidden="true" className="h-3 w-3" /> Open exam
               </Link>
             ) : (
               <button className="btn-secondary !px-3 !py-1 !text-xs" aria-label={`Start ${assessmentTypeLabel(a.type)}`} onClick={() => start(a)}>

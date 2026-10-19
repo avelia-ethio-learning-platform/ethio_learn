@@ -123,7 +123,7 @@ describe('Admin users: verify email', () => {
     respond({ '/admin/users?': { total: 1, items: [UNVERIFIED] } });
     renderAdmin('tab=users');
     await screen.findByText('unverified');
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email for Abebe' }));
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Verify email' }));
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/users/u1/verify-email', { method: 'POST' }));
     expect(await screen.findByText('Abebe: email verified.')).toBeTruthy();
@@ -133,8 +133,8 @@ describe('Admin users: verify email', () => {
     respond({ '/admin/users?': { total: 2, items: [UNVERIFIED, { ...USER, id: 'u2', name: 'Bekele' }] } });
     renderAdmin('tab=users');
     await screen.findByText('unverified');
-    expect(screen.getAllByRole('button', { name: 'Verify email' })).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }));
+    expect(screen.getAllByRole('button', { name: /^Verify email/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email for Abebe' }));
     pressCancel();
     await settle();
     expect(apiMock.mock.calls.filter((c) => String(c[0]).includes('verify-email'))).toEqual([]);

@@ -42,7 +42,7 @@ One plan, one branch and one PR per phase. Each phase runs through the team work
 | 11c | Dependencies and Next 15 | P1-08 | M | impl / plan-review | planned |
 | 12a | Motion system, shared primitives, shell, Home and Explore | user request (2026-10-03): calmer, consistent motion and UI polish | M (web only) | impl / plan-review | planned |
 | 12b | Motion and polish: course page, checkout, learner path, certificates, dashboards | same request | M (web only) | impl / plan-review | planned |
-| 13 | Product gaps: exam room link, course comments, per-user read flags for role notifications, institution admins on `/teach`, course language, admin UI for API-only tools and a Messages link | user request (2026-10-18), from the known gaps in `docs/FEATURES_AND_ROADMAP.md` | M | impl / review | done (13a, 13b PRs) |
+| 13 | Product gaps: exam room link, course comments, per-user read flags for role notifications, institution admins on `/teach`, course language, admin UI for API-only tools and a Messages link | user request (2026-10-18), from the known gaps in `docs/FEATURES_AND_ROADMAP.md` | M | impl / review | in review (#55, #58) |
 
 The rows are in build order: 6c goes before 6b. When a phase merges, its row's status becomes `done (#PR)` and its `plan.md` status becomes `done`.
 

@@ -12,7 +12,8 @@ export function MessagesLink() {
   const { t } = useT();
   const { user, ready } = useAuth();
   const { data } = useQuery({
-    queryKey: ['messages-unread'],
+    // The key messages/page.tsx invalidates when a thread is opened; per user, so a new login never shows the last one's count.
+    queryKey: ['dm-unread', user?.id],
     queryFn: () => api<{ unread: number }>('/messages/unread-count'),
     enabled: ready && !!user,
     refetchInterval: 20_000,

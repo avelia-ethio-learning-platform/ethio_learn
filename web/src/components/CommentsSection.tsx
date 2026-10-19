@@ -6,7 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { formatDate } from '@/lib/format';
-import { useT } from '@/lib/i18n';
+import { useT, type TKey } from '@/lib/i18n';
+import { MessageSquare } from 'lucide-react';
 import { Field } from '@/components/form/Field';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
 
@@ -25,11 +26,11 @@ interface CommentNode extends CommentRow {
   children: CommentNode[];
 }
 
-const ROLE_BADGES: Record<string, string> = {
-  educator: 'Instructor',
-  institution_admin: 'Institution',
-  quality_officer: 'Quality',
-  platform_admin: 'Admin',
+const ROLE_BADGES: Record<string, TKey> = {
+  educator: 'role_instructor',
+  institution_admin: 'institution',
+  quality_officer: 'role_quality',
+  platform_admin: 'admin',
 };
 
 function buildTree(rows: CommentRow[]): CommentNode[] {
@@ -47,6 +48,7 @@ function buildTree(rows: CommentRow[]): CommentNode[] {
 
 export function CommentsSection({ courseId }: { courseId: string }) {
   const { user, ready } = useAuth();
+  const { t } = useT();
   const queryClient = useQueryClient();
   const { data: rows } = useQuery({
     queryKey: ['comments', courseId],
@@ -87,17 +89,18 @@ export function CommentsSection({ courseId }: { courseId: string }) {
 
   return (
     <div className="card" id="comments">
-      <h2 className="font-semibold">💬 Discussion {count > 0 && <span className="text-sm font-normal text-gray-500">({count})</span>}</h2>
+      <h2 className="flex items-center gap-2 font-semibold">
+        <MessageSquare aria-hidden="true" className="h-4 w-4 text-brand-500" /> {t('discussion')} {count > 0 && <span className="text-sm font-normal text-gray-500">({count})</span>}</h2>
 
       {ready && user ? (
         <div className="mt-3">
-          <Field label="Add a comment">
+          <Field label={t('add_comment')}>
             {(ids) => (
               <textarea
                 {...ids}
                 className="input"
                 rows={2}
-                placeholder="Ask a question or share something with the class…"
+                placeholder={t('comment_placeholder')}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
               />
@@ -106,18 +109,18 @@ export function CommentsSection({ courseId }: { courseId: string }) {
           <div className="mt-1 flex items-center justify-between">
             <FormStatus status={status} />
             <button className="btn text-sm" disabled={busy || draft.trim().length === 0} onClick={() => void post(draft)}>
-              Post comment
+              {t('post_comment')}
             </button>
           </div>
         </div>
       ) : (
         <p className="mt-3 text-sm text-gray-500">
-          <Link className="text-brand-700 underline" href="/login">Sign in</Link> to join the discussion.
+          <Link className="text-brand-700 underline" href="/login">{t('signin_to_discuss')}</Link>
         </p>
       )}
 
       <div className="mt-4 space-y-4">
-        {tree.length === 0 && <p className="text-sm text-gray-500">No comments yet — start the conversation.</p>}
+        {tree.length === 0 && <p className="text-sm text-gray-500">{t('no_comments')}</p>}
         {tree.map((node) => (
           <CommentItem key={node.id} node={node} me={user?.id} myRole={user?.role} onReply={post} onDelete={remove} depth={0} />
         ))}
@@ -141,7 +144,7 @@ function CommentItem({
   onDelete: (id: string) => void;
   depth: number;
 }) {
-  const { locale } = useT();
+  const { locale, t } = useT();
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
@@ -152,12 +155,12 @@ function CommentItem({
     <div className={depth > 0 ? 'ml-4 border-l-2 border-gray-100 pl-3 sm:ml-6 sm:pl-4' : ''}>
       <div className="text-sm">
         {node.deleted ? (
-          <p className="italic text-gray-500">[comment removed]</p>
+          <p className="italic text-gray-500">{t('comment_removed')}</p>
         ) : (
           <>
             <p>
               <span className="font-medium">{node.author_name}</span>
-              {badge && <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-700">{badge}</span>}
+              {badge && <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-700">{t(badge)}</span>}
               <span className="ml-2 text-xs text-gray-500">{formatDate(node.created_at, locale, 'datetime')}</span>
             </p>
             <p className="mt-0.5 whitespace-pre-wrap text-gray-800">{node.body}</p>
@@ -166,23 +169,23 @@ function CommentItem({
         <div className="mt-1 flex gap-3 text-xs">
           {me && !node.deleted && (
             <button className="text-brand-700 hover:underline" onClick={() => setReplying((r) => !r)}>
-              {replying ? 'Cancel' : 'Reply'}
+              {replying ? t('cancel') : t('reply')}
             </button>
           )}
           {me && !node.deleted && node.author_id !== me && (
             <Link className="text-gray-500 hover:text-brand-700 hover:underline" href={`/messages?to=${node.author_id}`}>
-              Message
+              {t('message_user')}
             </Link>
           )}
           {canDelete && (
             <button className="text-danger hover:underline" onClick={() => onDelete(node.id)}>
-              Delete
+              {t('delete')}
             </button>
           )}
         </div>
         {replying && (
           <div className="mt-2">
-            <textarea className="input" rows={2} autoFocus aria-label={`Reply to ${node.author_name}`} placeholder={`Reply to ${node.author_name}…`} value={reply} onChange={(e) => setReply(e.target.value)} />
+            <textarea className="input" rows={2} autoFocus aria-label={t('reply_to', { name: node.author_name })} placeholder={`${t('reply_to', { name: node.author_name })}…`} value={reply} onChange={(e) => setReply(e.target.value)} />
             <button
               className="btn-secondary mt-1 text-xs"
               disabled={busy || reply.trim().length === 0}
@@ -195,7 +198,7 @@ function CommentItem({
                 setBusy(false);
               }}
             >
-              Post reply
+              {t('post_reply')}
             </button>
           </div>
         )}

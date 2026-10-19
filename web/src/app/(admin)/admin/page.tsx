@@ -549,7 +549,7 @@ function UsersTab() {
               <span className="flex items-center gap-2">
                 <StatusBadge status={u.status} />
                 {!u.email_verified && (
-                  <button type="button" className="text-xs font-medium text-brand-600 hover:underline" aria-disabled={busy} onClick={() => verifyEmail(u)}>
+                  <button type="button" className="text-xs font-medium text-brand-600 hover:underline" aria-disabled={busy} aria-label={`Verify email for ${u.name}`} onClick={() => verifyEmail(u)}>
                     Verify email
                   </button>
                 )}

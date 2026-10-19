@@ -183,8 +183,10 @@ export function EmailDeliveryCard() {
     clear();
     setBusy(true);
     try {
-      const r = await api<{ ok: boolean; provider: string; to: string; message_id?: string; error?: string }>('/admin/notifications/test-email', { method: 'POST' });
-      if (r.ok) setOk(`Sent to ${r.to} via ${r.provider}${r.message_id ? ` (message ${r.message_id})` : ''}.`);
+      const r = await api<{ ok: boolean; provider: string; to: string; message_id?: string; error?: string }>('/admin/notifications/test-email', { method: 'POST', slow: true });
+      // With no provider key set the API falls back to a console logger: it answers ok but sends nothing.
+      if (r.ok && r.provider === 'console') setError('No email provider is configured (console only). Nothing was sent.');
+      else if (r.ok) setOk(`Sent to ${r.to} via ${r.provider}${r.message_id ? ` (message ${r.message_id})` : ''}.`);
       else setError(`Not sent to ${r.to} via ${r.provider}: ${r.error ?? 'unknown error'}`);
     } catch (err) {
       setError((err as Error).message);

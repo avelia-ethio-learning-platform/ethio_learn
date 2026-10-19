@@ -49,5 +49,5 @@ Part of [plan.md](plan.md). Branch `feat/product-gaps-b`, web only (plus the doc
 ## Progress
 - Built in parallel with 13a, 12a/12b and 11b (not after 12b). Merged `feat/product-gaps-a` in.
 - Overlaps: `Header.tsx` (13a Teach link, 11b line 107, 12a/12b motion): only a `MessagesLink` import and two JSX lines. `courses/[id]/page.tsx` (12b): one import and one block after the reviews. `teach/courses/[id]/page.tsx`: one import and one line.
-- Deviation: `courses/:id/attempts` is not yet paged and 9e returns a bare array without a total, so `exam-results.tsx` has its own Previous/Next (no `Pager`) and slices a whole list client-side.
-- Extra: admin revision diff shows a language change as "English"/"Amharic" (`preview/[id]/page.tsx`).
+- Deviation: the attempts endpoint is not paged yet (9e), so `exam-results.tsx` fetches once and pages client-side with `Pager`; switch to server paging when 9e returns `{ items, total }`.
+- Review fixes: console email provider is an error, `dm-unread` key, label-in-name, comments translated (am-review), revision-diff language label dropped.

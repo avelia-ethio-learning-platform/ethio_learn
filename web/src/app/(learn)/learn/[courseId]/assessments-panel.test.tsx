@@ -183,7 +183,7 @@ describe('AssessmentsPanel project', () => {
         <AssessmentsPanel courseId="c1" />
       </QueryClientProvider>,
     );
-    const link = await screen.findByRole('link', { name: 'Open Quiz' });
+    const link = await screen.findByRole('link', { name: 'Open exam: Quiz' });
     expect(link.getAttribute('href')).toBe('/learn/c1/exam/a1');
     expect(screen.getByText('Proctored · camera')).toBeTruthy();
     expect(screen.getByText('20 min limit')).toBeTruthy();

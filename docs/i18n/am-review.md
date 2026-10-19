@@ -7,7 +7,7 @@ in by the app and must stay as they are; the parity test (`web/src/lib/i18n.test
 
 Strings that existed before Phase 10 (the header, footer, home page and parts of the catalog) are not listed.
 
-227 strings.
+241 strings.
 
 ## Shell
 
@@ -273,6 +273,20 @@ Strings that existed before Phase 10 (the header, footer, home page and parts of
 | `no_notifications` | No notifications yet. | እስካሁን ምንም ማሳወቂያ የለም። |
 | `messages` | Messages | መልዕክቶች |
 | `filter_language` | Language | ቋንቋ |
+| `discussion` | Discussion | ውይይት |
+| `add_comment` | Add a comment | አስተያየት ጨምር |
+| `comment_placeholder` | Ask a question or share something with the class… | ጥያቄ ይጠይቁ ወይም ከክፍሉ ጋር የሆነ ነገር ያጋሩ… |
+| `post_comment` | Post comment | አስተያየት ላክ |
+| `signin_to_discuss` | Sign in to join the discussion. | ወደ ውይይቱ ለመግባት ይግቡ። |
+| `no_comments` | No comments yet — start the conversation. | እስካሁን ምንም አስተያየት የለም። ውይይቱን ይጀምሩ። |
+| `comment_removed` | [comment removed] | [አስተያየቱ ተወግዷል] |
+| `reply` | Reply | መልስ |
+| `post_reply` | Post reply | መልስ ላክ |
+| `reply_to` | Reply to {name} | ለ{name} መልስ |
+| `message_user` | Message | መልዕክት |
+| `delete` | Delete | ሰርዝ |
+| `role_instructor` | Instructor | አስተማሪ |
+| `role_quality` | Quality | ጥራት |
 
 ## English-only notice (untranslated pages)
 
