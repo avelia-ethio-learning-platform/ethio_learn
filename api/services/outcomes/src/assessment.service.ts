@@ -20,6 +20,7 @@ import {
   CourseStatus,
   EntitlementStatus,
   EventEnvelope,
+  QO_VISIBLE_COURSE_STATUSES,
   Role,
 } from '@ethiopialearn/contracts';
 import { S3StorageProvider } from '@ethiopialearn/storage';
@@ -1044,11 +1045,13 @@ export class AssessmentService implements OnModuleInit {
     }
   }
 
-  /** Pending assessments are visible to quality officers (they review them) and to course staff. */
+  /** Pending assessments are visible to course staff, and to quality officers while the course is in their remit. */
   private async canSeePending(ctx: UserContext, courseId: string): Promise<boolean> {
-    if (ctx.role === Role.QUALITY_OFFICER || ctx.role === Role.PLATFORM_ADMIN) return true;
+    if (ctx.role === Role.PLATFORM_ADMIN) return true;
     try {
-      return await this.canManageCourse(ctx, await this.courseRef(courseId));
+      const course = await this.courseRef(courseId);
+      if (ctx.role === Role.QUALITY_OFFICER) return QO_VISIBLE_COURSE_STATUSES.includes(course.status as CourseStatus);
+      return await this.canManageCourse(ctx, course);
     } catch (err) {
       // The course service may be waking up; serve the learner view rather than fail the whole list.
       this.logger.warn(`include_pending check for course ${courseId} failed: ${(err as Error).message}`);

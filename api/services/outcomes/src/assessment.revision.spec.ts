@@ -230,11 +230,17 @@ describe('listForCourse(): pending assessments stay out of learner views', () =>
     ]);
   });
 
-  it('quality officers see pending ones without a course lookup; other institutions’ admins do not', async () => {
-    const qo = harness({ rows: rows() });
+  it.each(['submitted', 'under_review', 'published', 'unlisted', 'flagged'])('quality officers see pending ones on a %s course', async (status) => {
+    const qo = harness({ rows: rows(), course: { ...INSTITUTION_COURSE, status } });
     expect(ids(await qo.svc.listForCourse(qualityOfficer, 'c1', true))).toEqual(['live1', 'pend1']);
-    expect(qo.internal.get).not.toHaveBeenCalled();
+  });
 
+  it.each(['draft', 'institution_review', 'archived'])('quality officers get the learner view on a %s course', async (status) => {
+    const qo = harness({ rows: rows(), course: { ...INSTITUTION_COURSE, status } });
+    expect(ids(await qo.svc.listForCourse(qualityOfficer, 'c1', true))).toEqual(['live1']);
+  });
+
+  it('other institutions’ admins do not see pending ones', async () => {
     const other = harness({ rows: rows() });
     expect(ids(await other.svc.listForCourse(otherInstitutionAdmin, 'c1', true))).toEqual(['live1']);
   });

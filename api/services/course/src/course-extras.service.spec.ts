@@ -1,3 +1,5 @@
+import { ForbiddenException } from '@nestjs/common';
+import { MockAiAssessor } from '@ethiopialearn/ai';
 import { chunkText, CourseExtrasService } from './course-extras.service';
 
 describe('chunkText (tutor knowledge base)', () => {
@@ -155,5 +157,39 @@ describe('CourseExtrasService.deleteKnowledge', () => {
     const h = setup([note('Syllabus', 'live'), note('Other', 'live')]);
     await expect(h.service.deleteKnowledge('c1', 'Syllabus', false)).resolves.toEqual({ deleted: 1, state: 'live' });
     expect(h.rows.map((r) => r.title)).toEqual(['Other']);
+  });
+});
+
+describe('CourseExtrasService.ask: who may use the tutor', () => {
+  const QO = { id: 'qo1', role: 'quality_officer', email: 'q@x.et' } as never;
+  function setup(status: string) {
+    const repo = () => ({
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue({ id: 'c1', created_by: 'edu1', owner_id: 'edu1', status, title: 'Go' }),
+      save: jest.fn(async (x: unknown) => x),
+      create: jest.fn((x: object) => x),
+    });
+    const qb: Record<string, jest.Mock> = {};
+    for (const m of ['where', 'andWhere', 'orderBy', 'limit']) qb[m] = jest.fn(() => qb);
+    qb.getMany = jest.fn().mockResolvedValue([]);
+    const knowledge = { ...repo(), createQueryBuilder: jest.fn(() => qb) };
+    const chat = repo();
+    // The QO is not enrolled anywhere: only the staff rule can let them in.
+    const internal = { get: jest.fn().mockResolvedValue({ entitlement_status: 'none' }) };
+    const service = new CourseExtrasService(repo() as never, repo() as never, repo() as never, repo() as never, knowledge as never, chat as never, internal as never);
+    (service as unknown as { ai: MockAiAssessor }).ai = new MockAiAssessor();
+    return { service, chat };
+  }
+
+  it.each(['submitted', 'under_review', 'published', 'unlisted', 'flagged'])('a quality officer may ask about a %s course', async (status) => {
+    const { service, chat } = setup(status);
+    await expect(service.ask(QO, 'c1', 'What is a goroutine?')).resolves.toEqual(expect.objectContaining({ answer: expect.any(String) }));
+    expect(chat.save).toHaveBeenCalled();
+  });
+
+  it.each(['draft', 'institution_review', 'archived'])('a quality officer may not ask about a %s course', async (status) => {
+    const { service, chat } = setup(status);
+    await expect(service.ask(QO, 'c1', 'What is a goroutine?')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(chat.save).not.toHaveBeenCalled();
   });
 });

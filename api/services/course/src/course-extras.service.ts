@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { InternalHttpClient, internalPath, UserContext } from '@ethiopialearn/common';
 import { AiAssessor, createAiAssessor, MockAiAssessor, TutorChunk } from '@ethiopialearn/ai';
-import { CourseStatus, EntitlementStatus, Role } from '@ethiopialearn/contracts';
+import { CourseStatus, EntitlementStatus, QO_VISIBLE_COURSE_STATUSES, Role } from '@ethiopialearn/contracts';
 import { Course, CourseChangeLog, CourseChatMessage, CourseKnowledge, Lesson, Section } from './entities';
 
 const CHUNK_CHARS = 800;
@@ -282,7 +282,8 @@ export class CourseExtrasService {
   }
 
   private async assertCanChat(ctx: UserContext, course: Course) {
-    if (ctx.id === course.created_by || ctx.role === Role.PLATFORM_ADMIN || ctx.role === Role.QUALITY_OFFICER) return;
+    if (ctx.id === course.created_by || ctx.role === Role.PLATFORM_ADMIN) return;
+    if (ctx.role === Role.QUALITY_OFFICER && QO_VISIBLE_COURSE_STATUSES.includes(course.status)) return;
     const e = await this.internal.get<{ entitlement_status: string }>(internalPath`/api/v1/internal/entitlements?learner_id=${ctx.id}&course_id=${course.id}`);
     if (e.entitlement_status !== EntitlementStatus.ACTIVE) throw new ForbiddenException('Enroll in the course to use the tutor');
   }
