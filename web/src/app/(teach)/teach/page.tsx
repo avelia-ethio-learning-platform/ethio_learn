@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart3, BookOpen, HandCoins, LayoutDashboard, Plus, Ticket, Wallet } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { RequireRole } from '@/components/RequireRole';
 import { PageHeader, PageShell, StatusBadge } from '@/components/PageChrome';
 import { PendingInvitesBanner } from '@/components/PendingInvitesBanner';
@@ -21,6 +21,9 @@ function TeachDashboard() {
   // An institution admin authors courses its institution owns (they go to the QO queue).
   const isInstitution = user?.role === 'institution_admin';
   const { data: courses, error: coursesError } = useQuery({ queryKey: ['own-courses'], queryFn: () => api<any[]>('/courses') });
+  // The API's 400 for an admin whose institution has no profile yet (resolveOwner).
+  const needsInstitution =
+    isInstitution && coursesError instanceof ApiError && coursesError.status === 400 && /institution profile/i.test(coursesError.message);
   const { data: balance } = useQuery({ queryKey: ['balance'], queryFn: () => api<any>('/payouts/balance') });
   const { data: payouts } = useQuery({ queryKey: ['payouts'], queryFn: () => api<any[]>('/payouts') });
   const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api<any>('/profiles/me') });
@@ -82,9 +85,9 @@ function TeachDashboard() {
 
         <section className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
           <h2 className="mb-4 text-lg font-bold text-foreground">My courses</h2>
-          {coursesError && isInstitution ? (
+          {needsInstitution ? (
             <div className="card py-10 text-center text-sm text-gray-500">
-              {(coursesError as Error).message}
+              {coursesError?.message}
               <div className="mt-4">
                 <Link href="/institution" className="btn">
                   Set up your institution

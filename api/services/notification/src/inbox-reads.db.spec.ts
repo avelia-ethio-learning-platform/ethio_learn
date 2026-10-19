@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto';
 import { DataSource, In } from 'typeorm';
 import { buildTypeOrmOptions } from '@ethiopialearn/common';
-import { Role } from '@ethiopialearn/contracts';
 import { NotificationController } from './controllers';
 import { entities, migrations, SCHEMA } from './database';
 import { InboxNotification, InboxNotificationRead } from './entities';
@@ -21,11 +20,17 @@ describeWithDb('Inbox reads on Postgres (TEST_DATABASE_URL)', () => {
   let dataSource: DataSource;
   let ctrl: NotificationController;
   const created: string[] = [];
-  // A role no seeded row targets, so other rows in the database can't change the counts.
-  const role = `qo-test-${randomUUID()}`;
-  const officerA = { id: randomUUID(), role } as never;
-  const officerB = { id: randomUUID(), role } as never;
-  const learner = { id: randomUUID(), role: Role.LEARNER } as never;
+  // Fresh roles per test, which no other row targets, so each test runs alone.
+  type Who = { id: string; role: string };
+  const people = () => {
+    const role = `qo-test-${randomUUID()}`;
+    return {
+      role,
+      officerA: { id: randomUUID(), role } as Who,
+      officerB: { id: randomUUID(), role } as Who,
+      learner: { id: randomUUID(), role: `learner-test-${randomUUID()}` } as Who,
+    };
+  };
 
   beforeAll(async () => {
     dataSource = new DataSource({ ...buildTypeOrmOptions(SCHEMA, entities, migrations), url, migrationsRun: false, logging: false });
@@ -50,48 +55,72 @@ describeWithDb('Inbox reads on Postgres (TEST_DATABASE_URL)', () => {
     return row;
   }
 
-  const count = async (who: never) => (await ctrl.unreadCount(who)).count;
-  const readFlag = async (who: never, id: string) => (await ctrl.list(who)).find((n) => n.id === id)?.read;
+  const count = async (who: Who) => (await ctrl.unreadCount(who as never)).count;
+  const readFlag = async (who: Who, id: string) => (await ctrl.list(who as never)).find((n) => n.id === id)?.read;
+  const readsOf = (id: string) => dataSource.getRepository(InboxNotificationRead).count({ where: { notification_id: id } });
+  const readAtOf = async (id: string) => (await dataSource.getRepository(InboxNotification).findOneByOrFail({ id })).read_at;
 
   it('a role row read by one officer stays unread for the other, and repeating the read is a no-op', async () => {
+    const { role, officerA, officerB } = people();
     const row = await addRow({ target_role: role });
     expect(await count(officerA)).toBe(1);
     expect(await count(officerB)).toBe(1);
 
-    await ctrl.markRead(officerA, row.id);
-    await ctrl.markRead(officerA, row.id); // ON CONFLICT DO NOTHING
+    await ctrl.markRead(officerA as never, row.id);
+    await ctrl.markRead(officerA as never, row.id); // ON CONFLICT DO NOTHING
 
     expect(await count(officerA)).toBe(0);
     expect(await count(officerB)).toBe(1);
     expect(await readFlag(officerA, row.id)).toBe(true);
     expect(await readFlag(officerB, row.id)).toBe(false);
-    expect(await dataSource.getRepository(InboxNotificationRead).count({ where: { notification_id: row.id } })).toBe(1);
+    expect(await readsOf(row.id)).toBe(1);
     // The shared row itself is untouched.
-    expect((await dataSource.getRepository(InboxNotification).findOneByOrFail({ id: row.id })).read_at).toBeNull();
+    expect(await readAtOf(row.id)).toBeNull();
   });
 
   it('read-all by one officer leaves the other officer’s count', async () => {
+    const { role, officerA, officerB } = people();
     await addRow({ target_role: role });
     await addRow({ target_role: role });
-    // Officer A read the first test's row; B has read none.
     expect(await count(officerA)).toBe(2);
-    expect(await count(officerB)).toBe(3);
+    expect(await count(officerB)).toBe(2);
 
-    await ctrl.markAllRead(officerA);
+    await ctrl.markAllRead(officerA as never);
 
     expect(await count(officerA)).toBe(0);
-    expect(await count(officerB)).toBe(3);
+    expect(await count(officerB)).toBe(2);
+  });
+
+  it("someone outside the role can't mark its row read, by id or by read-all", async () => {
+    const { role, officerA, learner } = people();
+    const row = await addRow({ target_role: role });
+
+    await ctrl.markRead(learner as never, row.id);
+    await ctrl.markAllRead(learner as never);
+
+    expect(await readsOf(row.id)).toBe(0);
+    expect(await readAtOf(row.id)).toBeNull();
+    expect(await count(officerA)).toBe(1);
+  });
+
+  it('a role row marked read before the migration (read_at set) stays read for everyone', async () => {
+    const { role, officerB } = people();
+    const row = await addRow({ target_role: role, read_at: new Date() });
+    expect(await readFlag(officerB, row.id)).toBe(true);
+    expect(await count(officerB)).toBe(0);
   });
 
   it('a user row still sets read_at, and only for its own user', async () => {
-    const mine = await addRow({ user_id: (learner as { id: string }).id });
-    await ctrl.markRead(officerA, mine.id); // someone else's row: no effect
-    expect((await dataSource.getRepository(InboxNotification).findOneByOrFail({ id: mine.id })).read_at).toBeNull();
+    const { officerA, learner } = people();
+    const mine = await addRow({ user_id: learner.id });
+    await ctrl.markRead(officerA as never, mine.id); // someone else's row: no effect
+    expect(await readAtOf(mine.id)).toBeNull();
 
-    expect(await count(learner)).toBeGreaterThanOrEqual(1);
-    await ctrl.markRead(learner, mine.id);
-    expect((await dataSource.getRepository(InboxNotification).findOneByOrFail({ id: mine.id })).read_at).not.toBeNull();
+    expect(await count(learner)).toBe(1);
+    await ctrl.markRead(learner as never, mine.id);
+    expect(await readAtOf(mine.id)).not.toBeNull();
     expect(await readFlag(learner, mine.id)).toBe(true);
-    expect(await dataSource.getRepository(InboxNotificationRead).count({ where: { notification_id: mine.id } })).toBe(0);
+    expect(await count(learner)).toBe(0);
+    expect(await readsOf(mine.id)).toBe(0);
   });
 });
