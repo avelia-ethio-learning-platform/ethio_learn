@@ -6,17 +6,20 @@ import { MessageSquare } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/hooks';
 import { useT } from '@/lib/i18n';
+import { usePollInterval } from '@/lib/use-poll-interval';
 
 /** Header link to /messages with the unread count, polled like the notification bell. */
 export function MessagesLink() {
   const { t } = useT();
   const { user, ready } = useAuth();
+  const pollMs = usePollInterval(20_000);
   const { data } = useQuery({
     // The key messages/page.tsx invalidates when a thread is opened; per user, so a new login never shows the last one's count.
     queryKey: ['dm-unread', user?.id],
     queryFn: () => api<{ unread: number }>('/messages/unread-count'),
     enabled: ready && !!user,
-    refetchInterval: 20_000,
+    refetchInterval: pollMs,
+    refetchOnWindowFocus: 'always',
   });
 
   if (!ready || !user) return null;
