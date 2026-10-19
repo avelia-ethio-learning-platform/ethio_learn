@@ -11,7 +11,20 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { BrokerPublishError, env, envInt, EventBusService, InternalHttpClient, internalPath, isUniqueViolation, PeerNotFoundError, stableEventId, UserContext } from '@ethiopialearn/common';
+import {
+  BrokerPublishError,
+  env,
+  envInt,
+  EventBusService,
+  InternalHttpClient,
+  internalPath,
+  isUniqueViolation,
+  PeerNotFoundError,
+  stableEventId,
+  UserContext,
+  UserSummary,
+  userSummaries,
+} from '@ethiopialearn/common';
 import {
   OwnerType,
   PaymentAbandonedPayload,
@@ -1018,9 +1031,15 @@ export class PaymentService {
     return this.publicView(payment);
   }
 
-  async listMine(ctx: UserContext) {
-    const rows = await this.payments.find({ where: { learner_id: ctx.id }, order: { created_at: 'DESC' } });
-    return rows.map((p) => this.publicView(p));
+  /** The learner's payments, newest first, one page at a time (still a bare array). */
+  async listMine(ctx: UserContext, page = 1, limit = 20) {
+    const [rows, total] = await this.payments.findAndCount({
+      where: { learner_id: ctx.id },
+      order: { created_at: 'DESC', id: 'DESC' },
+      take: limit,
+      skip: (page - 1) * limit,
+    });
+    return { items: rows.map((p) => this.publicView(p)), total };
   }
 
   /** Admin ledger: every payment enriched with who paid and the full timeline. */
@@ -1031,13 +1050,13 @@ export class PaymentService {
       take,
       skip: (Math.max(page || 1, 1) - 1) * take,
     });
-    const learnerIds = [...new Set(items.map((p) => p.learner_id))];
-    const learners = new Map<string, { email: string; name: string }>();
-    await Promise.all(
-      learnerIds.map(async (id) => {
-        learners.set(id, await this.learnerInfo(id));
-      }),
-    );
+    // One users batch call for the page; display only, so a sleeping auth leaves the placeholders.
+    let learners = new Map<string, UserSummary>();
+    try {
+      learners = await userSummaries(this.internal, items.map((p) => p.learner_id), { email: true });
+    } catch (err) {
+      this.logger.warn(`admin payments: learner names unavailable (${(err as Error).message})`);
+    }
     return {
       total,
       items: items.map((p) => ({
@@ -1055,68 +1074,85 @@ export class PaymentService {
 
   // ---- Analytics ---------------------------------------------------------
 
-  /** Educator / institution revenue: totals, by month (12), by course. */
+  /** Educator / institution revenue: totals, by month (12), by course (all of them: the educator's table looks each course up). */
   async payeeAnalytics(payeeIds: string[]) {
-    const rows = await this.payments.find({
-      where: { payee_id: In(payeeIds), status: PaymentStatus.CONFIRMED, purpose: Not(PaymentPurpose.WALLET_TOPUP) },
-      order: { created_at: 'ASC' },
-    });
-    return this.summarize(rows);
+    return this.revenueSummary(payeeIds, null);
   }
 
-  /** Platform-wide money view for the admin console. */
+  /** Platform-wide money view for the admin console; `by_course` is the top 8 its chart shows. */
   async adminAnalytics() {
-    const rows = await this.payments.find({ where: { status: PaymentStatus.CONFIRMED }, order: { created_at: 'ASC' } });
-    const revenue = rows.filter((r) => r.purpose !== PaymentPurpose.WALLET_TOPUP);
-    const summary = this.summarize(revenue);
-    const pending = await this.payments.count({ where: { status: PaymentStatus.PENDING } });
-    const failed = await this.payments.count({ where: { status: PaymentStatus.FAILED } });
-    const byPurpose: Record<string, { count: number; gross_etb: number }> = {};
-    for (const r of rows) {
-      const b = (byPurpose[r.purpose] ??= { count: 0, gross_etb: 0 });
-      b.count += 1;
-      b.gross_etb = Number((b.gross_etb + Number(r.amount_etb)).toFixed(2));
-    }
-    const byMethod: Record<string, number> = {};
-    for (const r of revenue) byMethod[r.method] = (byMethod[r.method] ?? 0) + 1;
+    const summary = await this.revenueSummary(null, 8);
+    const table = this.payments.metadata.tablePath;
+    const [purposes, methods, [counts]] = await Promise.all([
+      this.payments.query(
+        `SELECT purpose, COUNT(*) AS count, SUM(amount_etb) AS gross FROM ${table} WHERE status = $1 GROUP BY purpose`,
+        [PaymentStatus.CONFIRMED],
+      ) as Promise<{ purpose: string; count: string; gross: string }[]>,
+      this.payments.query(
+        `SELECT method, COUNT(*) AS count FROM ${table} WHERE status = $1 AND purpose <> $2 GROUP BY method`,
+        [PaymentStatus.CONFIRMED, PaymentPurpose.WALLET_TOPUP],
+      ) as Promise<{ method: string; count: string }[]>,
+      this.payments.query(
+        `SELECT COUNT(*) FILTER (WHERE status = $1) AS pending,
+           COUNT(*) FILTER (WHERE status = $2) AS failed,
+           COALESCE(SUM(discount_etb) FILTER (WHERE status = $3 AND purpose <> $4), 0) AS discount
+         FROM ${table}`,
+        [PaymentStatus.PENDING, PaymentStatus.FAILED, PaymentStatus.CONFIRMED, PaymentPurpose.WALLET_TOPUP],
+      ) as Promise<{ pending: string; failed: string; discount: string }[]>,
+    ]);
     return {
       ...summary,
-      pending_count: pending,
-      failed_count: failed,
-      by_purpose: byPurpose,
-      by_method: byMethod,
-      coupon_discount_total_etb: Number(revenue.reduce((s, r) => s + Number(r.discount_etb), 0).toFixed(2)),
+      pending_count: Number(counts.pending),
+      failed_count: Number(counts.failed),
+      by_purpose: Object.fromEntries(purposes.map((r) => [r.purpose, { count: Number(r.count), gross_etb: money(r.gross) }])),
+      by_method: Object.fromEntries(methods.map((r) => [r.method, Number(r.count)])),
+      coupon_discount_total_etb: money(counts.discount),
       wallet: await this.growth.adminWalletStats(),
     };
   }
 
-  private summarize(rows: Payment[]) {
-    const gross = rows.reduce((s, r) => s + Number(r.amount_etb), 0);
-    const months: Record<string, { gross_etb: number; count: number }> = {};
-    const start = new Date();
-    start.setUTCDate(1);
-    start.setUTCMonth(start.getUTCMonth() - 11);
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
-      months[d.toISOString().slice(0, 7)] = { gross_etb: 0, count: 0 };
+  /**
+   * Confirmed course revenue (wallet top-ups excluded) aggregated in SQL
+   * (Phase 9e): totals, 12 UTC months and per course, highest first. `payeeIds`
+   * null means every payee; `courseLimit` null means every course. Months are
+   * truncated `AT TIME ZONE 'UTC'`, so buckets don't move with the
+   * connection's time zone.
+   */
+  private async revenueSummary(payeeIds: string[] | null, courseLimit: number | null) {
+    const table = this.payments.metadata.tablePath;
+    const months = lastTwelveMonths();
+    const params: unknown[] = [PaymentStatus.CONFIRMED, PaymentPurpose.WALLET_TOPUP];
+    let scope = '';
+    if (payeeIds) {
+      params.push(payeeIds);
+      scope = `AND payee_id = ANY($${params.length}::uuid[])`;
     }
-    const byCourse: Record<string, { course_id: string; course_title: string; count: number; gross_etb: number }> = {};
-    for (const r of rows) {
-      const key = r.created_at.toISOString().slice(0, 7);
-      if (months[key]) {
-        months[key].gross_etb = Number((months[key].gross_etb + Number(r.amount_etb)).toFixed(2));
-        months[key].count += 1;
-      }
-      const c = (byCourse[r.course_id] ??= { course_id: r.course_id, course_title: r.course_title, count: 0, gross_etb: 0 });
-      c.count += 1;
-      c.gross_etb = Number((c.gross_etb + Number(r.amount_etb)).toFixed(2));
-    }
+    const where = `status = $1 AND purpose <> $2 ${scope}`;
+    const since = new Date(`${months[0]}-01T00:00:00Z`);
+    const [[totals], monthRows, courseRows] = await Promise.all([
+      this.payments.query(`SELECT COALESCE(SUM(amount_etb), 0) AS gross, COUNT(*) AS count FROM ${table} WHERE ${where}`, params) as Promise<
+        { gross: string; count: string }[]
+      >,
+      this.payments.query(
+        `SELECT to_char(date_trunc('month', created_at AT TIME ZONE 'UTC'), 'YYYY-MM') AS month, SUM(amount_etb) AS gross, COUNT(*) AS count
+         FROM ${table} WHERE ${where} AND created_at >= $${params.length + 1} GROUP BY 1`,
+        [...params, since],
+      ) as Promise<{ month: string; gross: string; count: string }[]>,
+      this.payments.query(
+        // The title of the course's oldest payment, as the old in-memory summary kept it; ties keep that order too.
+        `SELECT course_id, (array_agg(course_title ORDER BY created_at, id))[1] AS course_title, COUNT(*) AS count, SUM(amount_etb) AS gross
+         FROM ${table} WHERE ${where} GROUP BY course_id ORDER BY SUM(amount_etb) DESC, MIN(created_at)${courseLimit ? ` LIMIT ${Number(courseLimit)}` : ''}`,
+        params,
+      ) as Promise<{ course_id: string; course_title: string; count: string; gross: string }[]>,
+    ]);
+    const byMonth = new Map(monthRows.map((r) => [r.month, r]));
+    const gross = Number(totals.gross);
     return {
-      total_gross_etb: Number(gross.toFixed(2)),
-      total_net_etb: Number((gross * 0.8).toFixed(2)),
-      payment_count: rows.length,
-      by_month: Object.entries(months).map(([month, v]) => ({ month, ...v })),
-      by_course: Object.values(byCourse).sort((a, b) => b.gross_etb - a.gross_etb),
+      total_gross_etb: money(gross),
+      total_net_etb: money(gross * 0.8),
+      payment_count: Number(totals.count),
+      by_month: months.map((month) => ({ month, gross_etb: money(byMonth.get(month)?.gross ?? 0), count: Number(byMonth.get(month)?.count ?? 0) })),
+      by_course: courseRows.map((r) => ({ course_id: r.course_id, course_title: r.course_title, count: Number(r.count), gross_etb: money(r.gross) })),
     };
   }
 
@@ -1219,4 +1255,15 @@ export class PaymentService {
       return { email: '', name: '' };
     }
   }
+}
+
+/** A birr amount from SQL (exact numeric) or JS, rounded to cents. */
+function money(value: string | number): number {
+  return Number(Number(value).toFixed(2));
+}
+
+/** The last 12 UTC months, oldest first, as `YYYY-MM`. */
+function lastTwelveMonths(): string[] {
+  const now = new Date();
+  return Array.from({ length: 12 }, (_, i) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11 + i, 1)).toISOString().slice(0, 7));
 }

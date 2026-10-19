@@ -25,5 +25,6 @@ export * from './http/db-error.filter';
 export * from './http/params';
 export * from './http/daily-cap';
 export * from './http/page-query';
+export * from './http/batch';
 export * from './jobs/job-lease';
 export * from './jobs/jobs.controller';

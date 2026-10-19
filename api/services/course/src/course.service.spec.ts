@@ -164,6 +164,9 @@ function setup(fx: Fixture = {}) {
       if (path.includes('/institutions/by-owner/')) return { id: 'inst1' };
       if (path.endsWith('/internal/institutions/inst1')) return { id: 'inst1', name: 'Inst', email: 'i@x.et', owner_user_id: 'ia1' };
       if (path.endsWith('/pending-assessments')) return fx.pendingAssessments ?? [];
+      if (path.startsWith('/api/v1/internal/users?ids=')) {
+        return decodeURIComponent(path.split('ids=')[1].split('&')[0]).split(',').map((id) => ({ id, name: 'Edu', role: 'educator', email: 'e@x.et' }));
+      }
       return { name: 'Edu', email: 'e@x.et' };
     }),
   };

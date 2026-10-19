@@ -152,6 +152,14 @@ jobs:
           docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_wallet_race && createdb -U "$POSTGRES_USER" el_ci_job_lease'
           TEST_DATABASE_URL="${base%/*}/el_ci_wallet_race" pnpm -C api exec jest --ci services/financial/src/payment.wallet-race.db.spec.ts
           TEST_DATABASE_URL="${base%/*}/el_ci_job_lease" pnpm -C api exec jest --ci packages/common/src/jobs/job-lease.db.spec.ts
+      # Phase 9e: the SQL analytics against their in-memory oracle (an Addis-time
+      # connection), and the comment and message pages on Postgres.
+      - name: Read paths on Postgres (analytics oracles, bounded lists)
+        run: |
+          base="$(sed -n 's/^DATABASE_URL=//p' api/.env)"
+          docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" el_ci_read_paths'
+          TEST_DATABASE_URL="${base%/*}/el_ci_read_paths" pnpm -C api exec jest --ci \
+            services/financial/src/analytics.db.spec.ts services/enrollment/src/analytics.db.spec.ts services/notification/src/community.db.spec.ts
       - name: End-to-end flow (educator → QO → learner → certificate)
         run: node scripts/demo-seed.mjs
       # Before the smoke step: that one hammers the login limiter on purpose.
