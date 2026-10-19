@@ -23,8 +23,8 @@ Plan: [plan.md](plan.md). Rebuild 2026-10-18/19 (the 2026-10-07 worktree was los
 7. Not done: the dev-only transitive refresh (outside `--prod`).
 8. Production React is Next's vendored `19.2.0-canary-0bdb9206`; 19.3.1 serves vitest and types only.
 
-## After 9c merges
-- [ ] merge `origin/main`, `pnpm -C api install` (pnpm 9.4.0), `pnpm -C api why axios` empty
-- [ ] api audit at high clean; lint-check
-- [ ] SMTP drill: sign-up email arrives in mailpit (nodemailer 10.1.x)
+## After 9c merges (2026-10-19, merge 53e9e92)
+- [x] merged `origin/main` (dabba09); `courses/page.tsx` keeps the awaited `searchParams` plus 9c's page clamp; `api/pnpm-lock.yaml` regenerated with pnpm 9.4.0 from main's lock; `pnpm -C api why axios` empty
+- [x] api audit at high: exit 0 (1 high = braces, ignored); build, typecheck, jest 1516 pass; lint-check green after `--update` (no-floating-promises 10 → 11: 9c's jobs-route `proxy(req, res, next)`, same call as the 2 beside it; no-explicit-any 131 → 130)
+- [x] SMTP drill (nodemailer 10.1.7, own mailpit on 11025): the built `SmtpEmailProvider` delivered directly, and via the fallback port after ECONNREFUSED on the primary (Render's blocked-port path). The full sign-up flow wasn't run: another agent's backend held ports 4000-4107.
 - [ ] CI green on #54
