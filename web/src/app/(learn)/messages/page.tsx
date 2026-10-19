@@ -10,6 +10,8 @@ import { useT } from '@/lib/i18n';
 import { roleLabel } from '@/lib/labels';
 import { mergeById } from '@/lib/merge-pages';
 import { FormStatus, useFormStatus } from '@/components/form/FormStatus';
+import { usePollInterval } from '@/lib/use-poll-interval';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 
 interface ThreadView {
   thread_id: string;
@@ -56,18 +58,23 @@ function Messenger() {
   const openedTo = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const threadsPollMs = usePollInterval(8_000);
+  const conversationPollMs = usePollInterval(4_000);
+  const debouncedSearch = useDebouncedValue(search.trim());
   const { data: threads } = useQuery({
     queryKey: ['dm-threads'],
     queryFn: () => api<ThreadView[]>('/messages/threads'),
     enabled: ready && !!user,
-    refetchInterval: 8_000,
+    refetchInterval: threadsPollMs,
+    refetchOnWindowFocus: 'always',
   });
 
   const { data: conversation } = useQuery({
     queryKey: ['dm-thread', activeId],
     queryFn: () => api<Conversation>(`/messages/threads/${activeId}`),
     enabled: !!activeId,
-    refetchInterval: 4_000,
+    refetchInterval: conversationPollMs,
+    refetchOnWindowFocus: 'always',
   });
   // Earlier messages of the open conversation, loaded on request ("Load earlier").
   const [earlier, setEarlier] = useState<{ threadId: string; messages: Message[]; has_more: boolean } | null>(null);
@@ -78,9 +85,9 @@ function Messenger() {
   const hasEarlier = olderMessages ? olderMessages.has_more : !!conversation?.has_more;
 
   const { data: found } = useQuery({
-    queryKey: ['directory', search],
-    queryFn: () => api<{ id: string; name: string; role: string }[]>(`/profiles/directory?q=${encodeURIComponent(search)}`),
-    enabled: ready && !!user && search.trim().length >= 2,
+    queryKey: ['directory', debouncedSearch],
+    queryFn: () => api<{ id: string; name: string; role: string }[]>(`/profiles/directory?q=${encodeURIComponent(debouncedSearch)}`),
+    enabled: ready && !!user && debouncedSearch.length >= 2,
   });
 
   // ?to=<userId> — open (or create) that conversation once on arrival.
@@ -180,7 +187,7 @@ function Messenger() {
                 ))}
               </div>
             )}
-            {search.trim().length >= 2 && found && found.length === 0 && (
+            {debouncedSearch.length >= 2 && found && found.length === 0 && (
               <div className="absolute z-10 mt-1 w-full rounded-lg border bg-card px-3 py-2 text-sm text-gray-500 shadow-lg">No one found</div>
             )}
           </div>
