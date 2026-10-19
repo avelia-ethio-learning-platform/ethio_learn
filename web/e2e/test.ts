@@ -12,9 +12,9 @@ export * from '@playwright/test';
 export const test = base.extend<{ cspViolations: string[]; loggedInAs: Role | undefined }>({
   /** `test.use({ loggedInAs: 'learner' })`: each test's page starts signed in as that role (support.ts signIn). */
   loggedInAs: [undefined, { option: true }],
-  page: async ({ page, loggedInAs }, use) => {
+  page: async ({ page, loggedInAs }, provide) => {
     if (loggedInAs) await signIn(page, loggedInAs);
-    await use(page);
+    await provide(page);
   },
   cspViolations: [
     async ({ context }, use) => {

@@ -1,5 +1,4 @@
 import { expect, test, type Locator, type Page } from './test';
-import { authFile } from './support';
 
 // P1-57: with reduced motion on, the hero heading is fully opaque at first
 // paint, not faded in after hydration.
@@ -99,6 +98,8 @@ async function cssEnterAnimations(page: Page, cls: string) {
 async function openMobileMenu(page: Page) {
   await page.setViewportSize({ width: 375, height: 800 });
   await page.goto('/courses');
+  // Hydrated and idle, so a busy main thread can't skip the frames the probe samples.
+  await page.waitForLoadState('networkidle');
   const burger = page.getByRole('button', { name: 'Menu' });
   await burger.click();
   return page.locator(`[id="${await burger.getAttribute('aria-controls')}"]`);
@@ -136,7 +137,7 @@ test.describe('reduced motion', () => {
   });
 
   test.describe('signed in as a learner', () => {
-    test.use({ storageState: authFile('learner') });
+    test.use({ loggedInAs: 'learner' });
 
     test('the notification panel opens at rest', async ({ page }) => {
       await page.setViewportSize({ width: 1440, height: 900 });
@@ -158,7 +159,7 @@ test.describe('reduced motion', () => {
 
   for (const [role, path] of [['educator', '/teach'], ['platform_admin', '/admin']] as const) {
     test.describe(`signed in as ${role}`, () => {
-      test.use({ storageState: authFile(role) });
+      test.use({ loggedInAs: role });
 
       test(`${path} (under a template.tsx) has no enter animation`, async ({ page }) => {
         await page.goto(path);
@@ -168,7 +169,7 @@ test.describe('reduced motion', () => {
   }
 
   test.describe('signed in as platform_admin', () => {
-    test.use({ storageState: authFile('platform_admin') });
+    test.use({ loggedInAs: 'platform_admin' });
 
     test('the confirm dialog opens with no enter animation, and Cancel works at once', async ({ page }) => {
       await page.goto('/admin?tab=users');
@@ -185,7 +186,7 @@ test.describe('reduced motion', () => {
 
 // Controls: with motion allowed, the same probes do see the enters, so the checks above can fail.
 test.describe('motion allowed (controls)', () => {
-  test.use({ reducedMotion: 'no-preference', storageState: authFile('learner') });
+  test.use({ reducedMotion: 'no-preference', loggedInAs: 'learner' });
   test.beforeEach(({ page }) => installProbe(page));
 
   test('the probes see the mobile menu move and a route fade in', async ({ page }) => {
