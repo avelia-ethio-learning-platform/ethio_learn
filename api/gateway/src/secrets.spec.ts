@@ -31,6 +31,13 @@ describe('gateway jobs auth (JOBS_TOKEN)', () => {
     expect(validJobsToken('Bearer short')).toBe(false);
   });
 
+  it('a non-ASCII token of the right character count is refused, not thrown (byte lengths)', () => {
+    process.env.JOBS_TOKEN = 'jobs-secret-0123456789';
+    expect(() => validJobsToken('Bearer jobs-secret-012345678é')).not.toThrow();
+    expect(validJobsToken('Bearer jobs-secret-012345678é')).toBe(false);
+    expect(matchesSecret('ééé', 'abc')).toBe(false);
+  });
+
   it('refuses everything when JOBS_TOKEN is unset', () => {
     delete process.env.JOBS_TOKEN;
     expect(validJobsToken('Bearer ')).toBe(false);

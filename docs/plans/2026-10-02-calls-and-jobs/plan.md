@@ -376,7 +376,7 @@ Commits 7b173cc, 56ecda6, 5be54ce, be61ed5, a1b181a, f825f31, 04c9af3, d094ff4; 
 
   | Run | Jobs | Wakes | Est. instance-hours/month |
   |---|---|---|---|
-  | `daily` 02:15 UTC | all five | gateway, financial, enrollment, auth, course, quality | ~45 |
+  | `daily` 06:15 UTC (09:15 Addis, as the old inactivity cron) | all five | gateway, financial, enrollment, auth, course, quality | ~45 |
   | `frequent` 14:15 UTC | sweep, effects | gateway, financial | ~15 |
 
   ~60 h/month (was ~136), at ~15 min per woken service; less when traffic keeps them awake. Nudges moved to `daily` because they need enrollment.
@@ -390,3 +390,4 @@ Commits 7b173cc, 56ecda6, 5be54ce, be61ed5, a1b181a, f825f31, 04c9af3, d094ff4; 
   - Jobs dry run (local gateway, throwaway token, nothing called on Render): `frequent` and `daily` start every job; GET lists counts; no token or a wrong token → 401; three parallel POSTs → one `started:false, reason: running`.
   - `node --test scripts/run-jobs.test.mjs`: 7/7.
 
+- **Final review fixes** (`9c-code-review-final`): `run-jobs.mjs` waits for this run's results and exits 1 on a failed job; one service that never wakes skips only its jobs (wake timeout 180 s); the in-flight guard branch has its own unit cases (1 min → 409, 6 min → goes through); a non-numeric Chapa amount is `null` (not verified); token checks compare byte lengths; `daily` moved to 06:15 UTC; DEPLOYMENT.md notes `migration:revert -t none`. Skipped: sweep check spacing (N3).
