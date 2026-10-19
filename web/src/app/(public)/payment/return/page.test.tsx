@@ -33,4 +33,20 @@ describe('payment return', () => {
     expect(document.activeElement).toBe(start);
     expect(start.parentElement!.className).toContain('fade-in');
   });
+
+  it('does not take focus from a control the learner is using elsewhere', async () => {
+    let status = 'pending';
+    mocks.api.mockImplementation(async (path: string) => (path === '/payments/reconcile' ? { status } : { entitlement_status: 'none' }));
+    const other = document.body.appendChild(document.createElement('button'));
+    render(<PaymentReturnPage />);
+    await act(async () => {});
+    other.focus();
+    status = 'confirmed';
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(screen.getByRole('link', { name: /start learning/i })).toBeTruthy();
+    expect(document.activeElement).toBe(other);
+    other.remove();
+  });
 });

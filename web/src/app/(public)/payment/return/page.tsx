@@ -24,6 +24,7 @@ function PaymentReturn() {
   const [state, setState] = useState<State>('polling');
   const done = useRef(false);
   const startRef = useRef<HTMLAnchorElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   /** One reconcile + entitlement check. Returns true once a terminal state is reached. */
   const check = useCallback(async (): Promise<boolean> => {
@@ -75,8 +76,11 @@ function PaymentReturn() {
   }, [courseId, check]);
 
   // Once access is granted, the way forward is where focus goes.
+  // Only when nothing else holds it: focus is on the page, or on a control inside the state that was just replaced.
   useEffect(() => {
-    if (state === 'active') startRef.current?.focus();
+    if (state !== 'active') return;
+    const focused = document.activeElement;
+    if (!focused || focused === document.body || bodyRef.current?.contains(focused)) startRef.current?.focus();
   }, [state]);
 
   // Each state's icon, title and body are keyed on the state, so a change crossfades (.fade-in).
@@ -106,7 +110,7 @@ function PaymentReturn() {
         </span>
       }
     >
-      <div key={state} className="fade-in text-center">
+      <div key={state} ref={bodyRef} className="fade-in text-center">
         {state === 'polling' && (
           <p className="text-sm leading-relaxed text-gray-500">
             {t('pay_checking_chapa')}
@@ -114,10 +118,10 @@ function PaymentReturn() {
         )}
         {state === 'active' && (
           <>
-            <p className="text-sm leading-relaxed text-gray-500">
+            <p id="pay-done-text" className="text-sm leading-relaxed text-gray-500">
               {t(purpose === 'wallet_topup' ? 'pay_done_wallet' : purpose === 'gift' || purpose === 'pay_request' ? 'pay_done_gift' : purpose === 'bulk' ? 'pay_done_bulk' : 'pay_done_course')}
             </p>
-            <Link ref={startRef} href={purpose === 'course' && courseId ? `/learn/${courseId}` : purpose === 'bulk' ? '/institution' : '/dashboard'} className="btn mt-5 inline-flex !px-8 !py-3">
+            <Link ref={startRef} aria-describedby="pay-done-text" href={purpose === 'course' && courseId ? `/learn/${courseId}` : purpose === 'bulk' ? '/institution' : '/dashboard'} className="btn mt-5 inline-flex !px-8 !py-3">
               {t(purpose === 'course' ? 'start_learning' : 'continue')} <ArrowRight className="h-4 w-4" />
             </Link>
           </>

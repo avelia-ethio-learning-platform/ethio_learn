@@ -79,8 +79,13 @@ function TeachDashboard() {
 
         <section className="animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
           <h2 className="mb-4 text-lg font-bold text-foreground">My courses</h2>
-          {!courses?.length ? (
-            <div className="card">
+          {courses === undefined ? (
+            <div className="space-y-3">
+              <div className="skeleton h-16 w-full" />
+              <div className="skeleton h-16 w-full" />
+            </div>
+          ) : !courses.length ? (
+            <div className="card fade-in">
               <EmptyRows
                 icon={BookOpen}
                 label="No courses yet — create your first one."
@@ -92,7 +97,7 @@ function TeachDashboard() {
               />
             </div>
           ) : (
-            <div className="card !p-0 overflow-hidden">
+            <div className="card fade-in !p-0 overflow-hidden">
               {courses.map((c, i) => (
                 <div
                   key={c.id}

@@ -72,11 +72,11 @@ export function LessonList({
             // Below lg a section that is not the current one folds away (grid rows 0fr to 1fr); from lg every section shows.
             <div
               key={section.id}
-              className={`grid transition-[grid-template-rows] duration-base ease-out-quart motion-reduce:transition-none lg:grid-rows-[1fr] ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}
+              className={`grid transition-[grid-template-rows] duration-base ease-out-quart lg:grid-rows-[1fr] ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}
             >
               {/* invisible while folded, so a folded section's lessons are not tab stops; the visibility transition keeps it shown until the fold ends. */}
               <div
-                className={`-mx-2 min-h-0 overflow-hidden px-2 transition-[visibility] duration-base motion-reduce:transition-none lg:visible ${collapsed ? 'invisible' : 'visible'}`}
+                className={`-mx-2 min-h-0 overflow-hidden px-2 transition-[visibility] duration-base lg:visible ${collapsed ? 'invisible' : 'visible'}`}
               >
                 <div className="card mb-3 !p-4">
                   <h3 className="flex items-center justify-between gap-2 text-sm font-bold text-foreground">
@@ -108,9 +108,9 @@ export function LessonList({
                             <span className="flex min-w-0 flex-1 items-center gap-2">
                               {/* Completing a lesson swaps Play for a check that fades and scales in (.check-pop). */}
                               {done ? (
-                                <CheckCircle2 key="done" className="check-pop h-4 w-4 shrink-0 text-success" aria-hidden />
+                                <CheckCircle2 className="check-pop h-4 w-4 shrink-0 text-success" aria-hidden />
                               ) : (
-                                <Play key="todo" className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-500'}`} aria-hidden />
+                                <Play className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-500' : 'text-gray-500'}`} aria-hidden />
                               )}
                               <span className="min-w-0">
                                 <span className="block truncate">{lesson.title}</span>

@@ -103,14 +103,14 @@ function FaqItem({ item }: { item: Faq }) {
         className="flex w-full items-center justify-between gap-4 py-4 text-left"
       >
         <span className="font-medium text-gray-900">{item.q}</span>
-        <span className={`shrink-0 text-brand-600 transition-transform duration-200 ${open ? 'rotate-45' : ''}`} aria-hidden>
+        <span className={`shrink-0 text-brand-600 transition-transform duration-base ${open ? 'rotate-45' : ''}`} aria-hidden>
           ＋
         </span>
       </button>
-      <div id={answerId} className={`grid transition-all duration-200 ${open ? 'grid-rows-[1fr] pb-4' : 'grid-rows-[0fr]'}`}>
+      <div id={answerId} className={`grid transition-all duration-base ${open ? 'grid-rows-[1fr] pb-4' : 'grid-rows-[0fr]'}`}>
         {/* invisible while closed, so links in a collapsed answer are not tab stops; the
             visibility transition keeps the text shown until the collapse finishes. */}
-        <div className={`overflow-hidden text-sm leading-relaxed text-gray-600 transition-[visibility] duration-200 ${open ? 'visible' : 'invisible'}`}>
+        <div className={`overflow-hidden text-sm leading-relaxed text-gray-600 transition-[visibility] duration-base ${open ? 'visible' : 'invisible'}`}>
           {item.a}
         </div>
       </div>

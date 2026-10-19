@@ -31,6 +31,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Enroll panel', () => {
+  it('while the request runs the buy button is disabled and aria-busy, and keeps its label and icon', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/enrollments/status')) return { entitlement_status: 'none' };
+      if (path === '/wallet') return { balance_etb: 0 };
+      return new Promise(() => undefined); // /payments/initiate never answers
+    });
+    setup();
+    const buy = (await screen.findByRole('button', { name: /chapa/i })) as HTMLButtonElement;
+    expect(buy.getAttribute('aria-busy')).toBe('false');
+    const label = buy.textContent;
+    fireEvent.click(buy);
+    await waitFor(() => expect(buy.disabled).toBe(true));
+    expect(buy.getAttribute('aria-busy')).toBe('true');
+    expect(buy.textContent).toBe(label);
+    expect(buy.firstElementChild?.tagName.toLowerCase()).toBe('svg');
+  });
+
   it('labels the coupon field and announces a rejected coupon on it', async () => {
     setup();
     const coupon = await screen.findByLabelText('Coupon code');
