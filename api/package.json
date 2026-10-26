@@ -19,7 +19,7 @@
     "eslint": "^9",
     "jest": "^30.5.2",
     "ts-jest": "^29.4.14",
-    "turbo": "^2.11.7",
+    "turbo": "^2.11.10",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8"
   },
