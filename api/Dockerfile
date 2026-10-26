@@ -3,7 +3,7 @@
 # The runtime stage carries only one service's compiled dist and its
 # production dependencies: no source, no dev deps, no toolchain.
 # The base is pinned by digest; Dependabot (docker ecosystem) bumps it.
-FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS base
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS base
 RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
 WORKDIR /repo
 
@@ -18,7 +18,7 @@ RUN pnpm exec turbo run build --filter=${PKG}
 # Isolated production bundle (workspace deps included with their dist/)
 RUN pnpm --filter=${PKG} deploy --prod /out
 
-FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runtime
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runtime
 ENV NODE_ENV=production
 # tini as PID 1 forwards SIGTERM to node and reaps zombies, so the graceful
 # shutdown (gateway/src/main.ts) actually runs on a deploy.
