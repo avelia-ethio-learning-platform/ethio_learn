@@ -2,7 +2,7 @@
 # output (no node_modules toolchain, no source), on node:22-alpine pinned by
 # digest (Dependabot's docker ecosystem bumps it).
 # Build context is this web/ directory: docker build -t ethiopialearn-web web/
-FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS base
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS base
 RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
 WORKDIR /app
 
@@ -35,7 +35,7 @@ ENV BUILD_STANDALONE=1 \
 COPY . .
 RUN pnpm build
 
-FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runtime
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runtime
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1
 RUN addgroup -S app && adduser -S app -G app
 WORKDIR /app
